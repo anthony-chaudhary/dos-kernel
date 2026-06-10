@@ -234,7 +234,20 @@ _DOC_BANNER_FILES = (
     "docs/QUICKSTART.md",
     "docs/HACKING.md",
     "examples/playbooks/01_onboard-a-repo.md",
+    # The action README's pre-commit `rev: vX.Y.Z` pin — in the drift guard's
+    # roster since the public-repo flip, so it must be on the bumper's leash too
+    # (the 2026-06-10 go/version audit found it stranded by a simulated bump).
+    "verify-action/README.md",
 )
+# README.md is GENERATED from the section parts under docs/readme/ (one file per
+# section, concatenated verbatim by scripts/build_readme.py). Sweeping only the
+# rendered README desyncs it from its parts — the assembly gate
+# (tests/test_readme_assembly.py) reds, and the next rebuild would resurrect the
+# stale literal. Because assembly is pure concatenation, sweeping the parts with
+# the SAME regex/old→new keeps rendered-and-parts byte-consistent with no
+# rebuild step. (Found by the same 2026-06-10 audit, the day README went
+# generated.)
+_README_PARTS_DIR = "docs/readme"
 # `v0.18.0` / `kernel v0.18.0` — the same `v`-anchored literal the drift test's
 # `_VERSION_LITERAL` matches (group 1 is the dotted triple).
 _DOC_BANNER_RE = re.compile(r"v(\d+\.\d+\.\d+)")
@@ -304,6 +317,14 @@ def bump_docs(root: Path, old: str, new: str, *, dry_run: bool) -> dict:
         _txt, n = _sweep_version_literals(p, _DOC_BANNER_RE, old, new, dry_run=dry_run)
         if n:
             swept[rel] = n
+    # The README section parts — swept with the same grammar as the rendered
+    # README.md above so the two stay byte-consistent (see _README_PARTS_DIR).
+    parts_root = root / _README_PARTS_DIR
+    if parts_root.is_dir():
+        for p in sorted(parts_root.glob("*.md")):
+            _txt, n = _sweep_version_literals(p, _DOC_BANNER_RE, old, new, dry_run=dry_run)
+            if n:
+                swept[str(p.relative_to(root)).replace("\\", "/")] = n
     skills_root = root / "src" / "dos" / "skills"
     if skills_root.exists():
         for p in sorted(skills_root.rglob("*.md")):

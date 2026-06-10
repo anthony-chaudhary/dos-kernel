@@ -115,6 +115,40 @@ def test_bump_docs_sweeps_the_ftue_literals_keyed_on_old_to_new():
     assert docs.get("old") == report["old_version"], docs
 
 
+def test_bump_sweep_covers_the_drift_guards_whole_roster():
+    """Every doc the version-drift guard checks is on the bumper's sweep leash.
+
+    `LIVE_ONBOARDING_DOCS` (the guard, tests/test_docs_version_drift.py) and
+    `_DOC_BANNER_FILES` (the sweep) are two hand-kept lists — and they diverged
+    exactly once: verify-action/README.md entered the guard's roster without
+    entering the sweep's, so a bump stranded its `rev: vX.Y.Z` pin and the guard
+    reddened one release later (caught by the 2026-06-10 go/version audit's bump
+    simulation). Pin the RELATIONSHIP, not today's contents: guard ⊆ sweep, so
+    the next roster addition reds here immediately, while it's being made.
+
+    And because README.md is generated from docs/readme/ parts, the bumper must
+    also sweep the parts dir — otherwise a bump desyncs the rendered README from
+    its source and `test_readme_assembly` reds (same audit, same simulation).
+    """
+    bump = _load_bump()
+    drift_spec = importlib.util.spec_from_file_location(
+        "_drift_guard", Path(__file__).parent / "test_docs_version_drift.py")
+    assert drift_spec and drift_spec.loader
+    drift = importlib.util.module_from_spec(drift_spec)
+    drift_spec.loader.exec_module(drift)
+
+    guard = set(drift.LIVE_ONBOARDING_DOCS)
+    sweep = set(bump._DOC_BANNER_FILES)
+    assert guard <= sweep, (
+        "the version-drift guard checks docs the bumper never sweeps — every "
+        f"release strands them: {sorted(guard - sweep)}. Add them to "
+        "_DOC_BANNER_FILES in scripts/release_bump.py."
+    )
+    parts_dir = _REPO_ROOT / bump._README_PARTS_DIR
+    assert parts_dir.is_dir(), (
+        f"the bumper's README-parts sweep points at a missing dir: {parts_dir}")
+
+
 def test_bump_marketplace_targets_the_nested_plugin_version_not_the_catalog():
     """The marketplace has TWO version keys; the bumper must move only the plugin one.
 

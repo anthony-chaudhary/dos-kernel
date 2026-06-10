@@ -176,7 +176,14 @@ def test_features_bind_to_their_phases():
                     violations.append(f"{rel}: {m.group(0)!r}")
         # (b) line-level cross-binding: the OTHER phase token next to a feature
         # is only legal when the feature's own token is also present (as in the
-        # claim line, which names both).
+        # claim line, which names both). Skipped for .jsonl evidence captures —
+        # there a physical line is a whole document (e.g. the Go parity corpus
+        # packs an entire git-log window into one case line), so "same line"
+        # carries no sentence-level meaning and a corpus REGENERATION could red
+        # this gate off unrelated commit subjects. Invariants (a) and the
+        # subject pin still apply to those files in full.
+        if p.suffix.lower() == ".jsonl":
+            continue
         for i, line in enumerate(text.splitlines(), start=1):
             for (feature, phase), (_, other) in (pairs, pairs[::-1]):
                 if feature in line and other in line and phase not in line:
