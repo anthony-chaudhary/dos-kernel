@@ -74,7 +74,7 @@ def run(cmd: list[str]) -> tuple[int, str]:
     try:
         out = subprocess.run(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, encoding="utf-8",
+            text=True, encoding="utf-8", errors="replace",
         )
         return out.returncode, out.stdout or ""
     except FileNotFoundError as exc:
