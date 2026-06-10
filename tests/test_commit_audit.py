@@ -73,6 +73,25 @@ def test_powershell_and_batch_scripts_are_source():
         assert v.source_files == (path,), path
 
 
+def test_bare_dotfile_config_is_source():
+    """The 04c740c over-fire: a `fix(ci): pin the corpora LF` claim whose diff
+    touches only .gitattributes read as subject-only — the bare dotfile's whole
+    name parses as a suffix, so it missed the extensionless-config branch that
+    already admits Makefile/Dockerfile. Repo-plumbing dotfiles are behavior-
+    bearing, not docs; they can witness the fix they carry."""
+    for path in (".gitattributes", ".gitignore", ".flake8", "go/.gitattributes"):
+        v = classify(_claim("fix(ci): pin the Go parity corpora LF"),
+                     DiffFacts(files=(path,), is_empty=False))
+        assert v.verdict is Verdict.OK, path
+        assert v.witness is Witness.DIFF_WITNESSED, path
+        assert v.source_files == (path,), path
+    # A dotted dotfile (.eslintrc.json) keeps its real suffix's classification —
+    # the branch admits only the bare, suffixless form.
+    v = classify(_claim("fix: resolve the auth race condition"),
+                 DiffFacts(files=(".eslintrc.json",), is_empty=False))
+    assert v.verdict is Verdict.CLAIM_UNWITNESSED
+
+
 def test_test_claim_net_deleting_assertions_is_unwitnessed():
     v = classify(_claim("tests pass now, all green"),
                  DiffFacts(files=("tests/test_x.py",), is_empty=False,

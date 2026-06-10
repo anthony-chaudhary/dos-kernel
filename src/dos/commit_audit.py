@@ -249,6 +249,14 @@ def _is_source(path: str) -> bool:
     base = p.rsplit("/", 1)[-1]
     if base in ("makefile", "dockerfile", "rakefile", "gemfile", "procfile"):
         return True
+    if base.startswith(".") and "." not in base[1:]:
+        # A bare dotfile (.gitattributes, .gitignore, .flake8) is an
+        # extensionless config file whose whole NAME looks like a suffix, so
+        # the extensionless branch below misses it. It is behavior-bearing
+        # repo plumbing, not a doc — same erring-toward-source rule (the
+        # 04c740c over-fire: `fix(ci): pin the corpora LF` touching only
+        # .gitattributes IS the fix it claims).
+        return True
     if "." not in base:
         return True
     return False
