@@ -1,5 +1,8 @@
 name: Publish to PyPI
 
+# (This file shipped in the repo's initial commit, which GitHub's workflow
+# indexer can miss — this comment exists from the touch-commit that registered it.)
+#
 # Publishes `dos-kernel` to PyPI via **Trusted Publishing (OIDC)** — no stored
 # API token. GitHub mints a short-lived OIDC token, PyPI exchanges it for an
 # upload token that expires in ~15 minutes, and `pypa/gh-action-pypi-publish`
