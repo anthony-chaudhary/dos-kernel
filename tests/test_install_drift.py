@@ -84,7 +84,8 @@ _HYPHEN_SCRIPT = re.compile(r"\bdos-([a-z]+)\b")
 # `dos-*` tokens that appear in the docs and are NOT console scripts, so the
 # script check must not treat them as a promised command:
 #   * `dos-kernel`              — the distribution/marketplace name
-#   * `dos-strategy`            — the sibling strategy repo
+#   * `dos-strategy`/`dos-private` — the private sibling repo (renamed 2026-06-10;
+#                                 the old name survives in dated docs)
 #   * `dos-hook`                — the bundled Go hook binary (not a [project.scripts] entry)
 #   * skill-namespace prefixes  — `/dos-kernel:dos-next-up`, `dos-dispatch`, `dos-setup`,
 #                                 `dos-promote`, … are SKILL names (the SKP), never console
@@ -96,10 +97,11 @@ _HYPHEN_SCRIPT = re.compile(r"\bdos-([a-z]+)\b")
 # The console scripts are exactly `[project.scripts]` (`dos`, `dos-mcp`); anything
 # else hyphenated is one of the above, so we allowlist by suffix.
 _NOT_A_SCRIPT = {
-    "kernel", "strategy", "hook",                       # names, not commands
+    "kernel", "strategy", "private", "hook",            # names, not commands
     "next", "dispatch", "setup", "promote", "replan",   # skill stems
     "supervise", "unstick", "witness", "goal", "self",  # skill stems
     "class", "is", "with",                               # skill stem / prose fragments
+    "gate",                                              # dos-gate.yml — a workflow slug (the README badge), not a command
 }
 
 # The teaching sentence — "the dist name is `dos-kernel`, not `dos`; a bare
