@@ -12,10 +12,10 @@ name = "dos-kernel"
 version = "0.22.0"
 description = "Dispatch Operating System — the domain-free trust substrate for fleets of autonomous agents (verdict spine, ship oracle, structured refusal, lane arbiter, correlation spine)."
 # The PyPI project page renders this. Point it at the README so the page isn't
-# blank below the metadata (twine warns when it's missing). README.md embeds a
-# couple of relative image paths (docs/assets/*.svg) that don't resolve on PyPI,
-# but the prose + code blocks — what an installer reads to decide whether to
-# adopt — render fine as GitHub-Flavored Markdown.
+# blank below the metadata (twine warns when it's missing). PyPI resolves
+# relative link/image targets against pypi.org (404), so every target in
+# README.md is an absolute GitHub URL — raw.githubusercontent.com for images —
+# pinned by tests/test_readme_assembly.py::test_readme_targets_are_absolute.
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }

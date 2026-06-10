@@ -16,7 +16,7 @@ memory still true?), and `dos_doctor` (the workspace report) — so any
 MCP-speaking host — Claude Desktop, Cursor, Cline, an Agent-SDK app — can call
 the referee over JSON-on-stdio with zero Python coupling. Each verdict comes
 back with a one-line interpretation of what it means for the agent's next move.
-(See **[the MCP server surface](docs/80_mcp-server-surface.md)**.)
+(See **[the MCP server surface](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/80_mcp-server-surface.md)**.)
 
 ```jsonc
 // claude_desktop_config.json — paste, restart, then say:
@@ -26,7 +26,7 @@ back with a one-line interpretation of what it means for the agent's next move.
 
 The MCP server is **advisory**: the agent *calls* the referee when it (or you)
 thinks to. The per-host wiring for Cursor / Codex / Gemini is in
-**[the MCP README](src/dos_mcp/README.md)** — all four are MCP clients, so this
+**[the MCP README](https://github.com/anthony-chaudhary/dos-kernel/blob/master/src/dos_mcp/README.md)** — all four are MCP clients, so this
 works on every one of them with zero code.
 
 ### …then make the verdict *act* (hooks)
@@ -49,13 +49,13 @@ re-surfaces a stalled stream. This is the **enforcement** path (the *host*
 denies on a DOS verdict) — the complement to MCP's advisory path. Until
 recently this spoke only Claude Code; it now installs across five hosts —
 Claude Code, Cursor, Codex, Gemini, and Antigravity
-([docs/221](docs/221_the-cross-vendor-hook-installer.md),
-[docs/269](docs/269_antigravity-the-fifth-host.md)).
+([docs/221](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/221_the-cross-vendor-hook-installer.md),
+[docs/269](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/269_antigravity-the-fifth-host.md)).
 `--with-hooks` is the back-compat alias for `--hooks claude-code`.
 
 Under the installer sits a pluggable dialect seam: the verdict is decided
 once, then rendered into whatever JSON shape the host parses
-([docs/217](docs/217_the-cross-vendor-hook-dialect-seam.md)) — so a runtime the
+([docs/217](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/217_the-cross-vendor-hook-dialect-seam.md)) — so a runtime the
 installer doesn't cover yet can still consume the same hooks. A sixth shipped
 dialect speaks **Hermes**: `dos hook pretool --dialect hermes` emits the
 `{"decision": "block", "reason": …}` object Hermes' `pre_tool_call` shell hook
@@ -73,9 +73,9 @@ and is byte-identical to the Python kernel on the gated decision (the docs/124
 parity contract, pinned by Go parity tests). It owns the common fast path and
 falls back to the always-available Python verb for anything it doesn't yet
 serve, so a machine without the binary degrades cleanly with no wiring change
-([docs/125](docs/125_go-hook-fastpath-build-plan.md),
-[docs/270](docs/270_go-hook-fastpath-benchmarks.md)). You don't build it
+([docs/125](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/125_go-hook-fastpath-build-plan.md),
+[docs/270](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/270_go-hook-fastpath-benchmarks.md)). You don't build it
 yourself: the per-platform wheels bundle the binary, so a wheel install gets
 the native fast path with no Go toolchain — and any platform without a bundled
 binary (including a plain source install) just runs the pure-Python path
-([docs/286](docs/286_shipping-the-go-binary-through-pypi-per-platform-wheels.md)).
+([docs/286](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/286_shipping-the-go-binary-through-pypi-per-platform-wheels.md)).

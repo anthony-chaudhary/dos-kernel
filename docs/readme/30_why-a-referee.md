@@ -25,13 +25,13 @@ You see that signal through three read-only screens — `dos top` (what's
 running), `dos decisions` (what's waiting on you), `dos plan` (claim vs. ground
 truth) — covered in [Three live projections](#three-live-projections-read-only-tuis)
 below and walked end-to-end in
-**[Debug a stuck fleet](examples/playbooks/06_debug-a-stuck-fleet.md)**.
+**[Debug a stuck fleet](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/06_debug-a-stuck-fleet.md)**.
 
 The referee grows along two axes: deterministic *verdicts* that read artifacts
 (`verify`, `liveness`, `scope`), and provider-backed *judges* — a model, a
 debate — that rule on what no deterministic check can, kept outside the kernel
 under a discipline that stops a wrong judge from clearing a falsehood. See
-**[the adjudicator-population note](docs/88_the-adjudicator-population.md)** for
+**[the adjudicator-population note](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/88_the-adjudicator-population.md)** for
 that scalable-oversight story in code.
 
 > **We caught ourselves doing the exact thing DOS exists to catch.** A design doc

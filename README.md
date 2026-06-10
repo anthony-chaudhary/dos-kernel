@@ -12,10 +12,10 @@
      on PyPI they'd render broken (404 / unknown version). -->
 [![CI](https://github.com/anthony-chaudhary/dos-kernel/actions/workflows/ci.yml/badge.svg)](https://github.com/anthony-chaudhary/dos-kernel/actions/workflows/ci.yml)
 [![verified by DOS](https://github.com/anthony-chaudhary/dos-kernel/actions/workflows/dos-gate.yml/badge.svg)](https://github.com/anthony-chaudhary/dos-kernel/actions/workflows/dos-gate.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/anthony-chaudhary/dos-kernel/blob/master/LICENSE)
 
 <p align="center">
-  <img src="docs/assets/loop-hero.svg" alt="Two agent fleets side by side. Left, no referee: agents all report 'done!', every report is believed, and silent corruption (lies, collisions, spin) piles up into a codebase that 'sorta works' and can't be changed. Right, DOS adjudicates: dos verify reads git and the run branches to SHIPPED (exit 0, land it) or NOT_SHIPPED (exit 1, re-dispatch — caught), and that verdict steers the next step." width="100%">
+  <img src="https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/docs/assets/loop-hero.svg" alt="Two agent fleets side by side. Left, no referee: agents all report 'done!', every report is believed, and silent corruption (lies, collisions, spin) piles up into a codebase that 'sorta works' and can't be changed. Right, DOS adjudicates: dos verify reads git and the run branches to SHIPPED (exit 0, land it) or NOT_SHIPPED (exit 1, re-dispatch — caught), and that verdict steers the next step." width="100%">
   <br>
   <em>Run a fleet of agents on one repo. The left loop just feels like progress; the right one you can steer.
   The only difference is a verdict DOS reads from the real world — here, git — never the agent's word.</em>
@@ -67,7 +67,7 @@ smoke run · the only runtime dependency is **PyYAML** · **MIT**.</sub>
 
 </details>
 
-> **Reading this as an AI agent?** Start with **[AGENTS.md](AGENTS.md)** — a short
+> **Reading this as an AI agent?** Start with **[AGENTS.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/AGENTS.md)** — a short
 > orientation written for you: what DOS is in three lines, how to build/test/check
 > your work, the ~5 files actually worth reading, and the architecture rules a
 > change must satisfy.
@@ -117,22 +117,22 @@ An agent can claim `AUTH2` is done all day long; `verify` just reports what the
 artifacts say — and they say it isn't. The `via grep-subject` / `via none` tag
 tells you *how it knows*: it found the phase token in a commit subject, or it
 found it nowhere. The full walkthrough is in
-**[docs/QUICKSTART.md](docs/QUICKSTART.md)**.
+**[docs/QUICKSTART.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/QUICKSTART.md)**.
 
 </details>
 
 <p align="center">
-  <img src="examples/demo/verify-moment.svg" alt="The dos verify money-moment. Two equally-confident agent claims, checked against git. Left, what the agent claims (forgeable): 'Shipped AUTH1 — the login endpoint is done' and 'AUTH2 is done too — all work completed!'. Right, what git actually records: one real commit e389e8b 'AUTH1: ship the login endpoint', and no commit anywhere mentions AUTH2. The two verdicts: dos verify AUTH AUTH1 finds the token in a real commit subject → SHIPPED, exit 0, via grep-subject; dos verify AUTH AUTH2 finds it nowhere → NOT_SHIPPED, exit 1, via none. The confident AUTH2 claim collapses the instant no commit backs it." width="100%">
+  <img src="https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/examples/demo/verify-moment.svg" alt="The dos verify money-moment. Two equally-confident agent claims, checked against git. Left, what the agent claims (forgeable): 'Shipped AUTH1 — the login endpoint is done' and 'AUTH2 is done too — all work completed!'. Right, what git actually records: one real commit e389e8b 'AUTH1: ship the login endpoint', and no commit anywhere mentions AUTH2. The two verdicts: dos verify AUTH AUTH1 finds the token in a real commit subject → SHIPPED, exit 0, via grep-subject; dos verify AUTH AUTH2 finds it nowhere → NOT_SHIPPED, exit 1, via none. The confident AUTH2 claim collapses the instant no commit backs it." width="100%">
   <br>
-  <sub><em>Two equally confident claims, one verdict each — <code>SHIPPED</code> for the one git can back, <code>NOT_SHIPPED</code> for the one nothing landed for. Every string is verbatim output of <a href="examples/demo/verify_demo.sh"><code>examples/demo/verify_demo.sh</code></a>. <a href="examples/demo/verify_visual.html">Step through it locally</a> for the click-through version (it's an HTML file — clone the repo and open it in a browser; GitHub shows its source, not the running page).</em></sub>
+  <sub><em>Two equally confident claims, one verdict each — <code>SHIPPED</code> for the one git can back, <code>NOT_SHIPPED</code> for the one nothing landed for. Every string is verbatim output of <a href="https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/demo/verify_demo.sh"><code>examples/demo/verify_demo.sh</code></a>. <a href="https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/demo/verify_visual.html">Step through it locally</a> for the click-through version (it's an HTML file — clone the repo and open it in a browser; GitHub shows its source, not the running page).</em></sub>
 </p>
 
 The smallest real win: in a CI step or dispatch loop, replace the line that
 trusts an agent's "done" with `dos verify PLAN PHASE` and branch on its exit
 code (`0` shipped / `1` not). No parsing, no plan, no config — the
-[CI integration cookbook](examples/playbooks/cookbook-ci-integration.md) walks it
+[CI integration cookbook](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/cookbook-ci-integration.md) walks it
 end-to-end. To run it on a repo shaped like yours, start with
-[Onboard a repo in 10 minutes](examples/playbooks/01_onboard-a-repo.md).
+[Onboard a repo in 10 minutes](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/01_onboard-a-repo.md).
 
 ## What goes wrong in a fleet
 
@@ -193,14 +193,14 @@ The first row is the most common one. The classic tell is a cheerful one-liner,
 *"all work completed!"*, from a worker that did little or nothing. DOS never
 reads that line; it reads the ground truth, so the claim collapses the instant
 no artifact backs it (more in
-[docs/108](docs/108_the-cheap-lie-and-the-narration-taxonomy.md)). That's also
+[docs/108](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/108_the-cheap-lie-and-the-narration-taxonomy.md)). That's also
 what makes it cheap to adopt: `verify` needs no plan, no registry, no config,
 and the exit code *is* the verdict — any shell or CI step can branch on it
 without parsing a word.
 
 <sub>*Prefer to watch it move?* The two loops are also a self-contained animation you
 step through one frame at a time — clone the repo and open
-[`docs/assets/loop_visual.html`](docs/assets/loop_visual.html) in a browser. (It's an
+[`docs/assets/loop_visual.html`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/assets/loop_visual.html) in a browser. (It's an
 HTML file, so GitHub shows its source rather than running it — open it locally.)</sub>
 
 ### How far you take it
@@ -212,17 +212,17 @@ end and it keeps paying off as you wade deeper — the same kernel the whole way
 - **Zero config.** Point `dos verify PLAN PHASE` at a plain git
   repo — no plan, no registry, no `dos.toml`. It answers from commit history
   alone (`via grep-subject` / `via none`). This is the whole of
-  [QUICKSTART](docs/QUICKSTART.md) and the day-one CI win above.
+  [QUICKSTART](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/QUICKSTART.md) and the day-one CI win above.
 - **Tell it your structure.** `dos init` writes a `dos.toml` (lanes, paths,
   ship grammar as data); add a plan doc and `dos plan` lays each phase's
   *claim* beside the oracle's verdict. Here's [exactly what a plan file looks
-  like](examples/plans/example-plan.md) (copyable, round-trips with the built-in
-  reader), and four worked [example workspaces](examples/workspaces/).
+  like](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/plans/example-plan.md) (copyable, round-trips with the built-in
+  reader), and four worked [example workspaces](https://github.com/anthony-chaudhary/dos-kernel/tree/master/examples/workspaces).
 - **Teach it your own types.** Declare your own block reasons, gate
   verdicts, output renderers, admission predicates, a model-backed judge, a
   custom plan dialect, or a whole host driver — all as workspace policy,
-  never a fork. The map is **[docs/HACKING.md](docs/HACKING.md)** (seven extension
-  axes) + the copy-me **[`examples/dos_ext/`](examples/dos_ext/)**.
+  never a fork. The map is **[docs/HACKING.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/HACKING.md)** (seven extension
+  axes) + the copy-me **[`examples/dos_ext/`](https://github.com/anthony-chaudhary/dos-kernel/tree/master/examples/dos_ext)**.
 
 ### How you plug it in
 
@@ -234,13 +234,13 @@ reachable through every row here, lowest-friction first:
 | Surface | Adopt it when… | The move |
 |---|---|---|
 | **MCP server** | you drive an agent through an MCP host (Claude Desktop, Cursor, Cline, an Agent-SDK app) | add one line to the host config (`{ "command": "dos-mcp" }`) and ask the agent to `dos_verify` its own last claim — **zero code**. The *advisory* path (the agent asks). See [Give your agent a lie detector](#give-your-agent-a-lie-detector-mcp). |
-| **Runtime hooks** | you run an agent loop (Claude Code, Cursor, Codex CLI, Gemini CLI) and want the verdict to *act*, not just be available | `dos init --hooks <runtime>` wires the verdict into that host's own hook config — a refused call is **denied before it runs**, a false "done" is **refused**. The *enforcement* path (the host denies). One command, no hand-edited YAML. See [QUICKSTART](docs/QUICKSTART.md) + [docs/221](docs/221_the-cross-vendor-hook-installer.md). |
+| **Runtime hooks** | you run an agent loop (Claude Code, Cursor, Codex CLI, Gemini CLI) and want the verdict to *act*, not just be available | `dos init --hooks <runtime>` wires the verdict into that host's own hook config — a refused call is **denied before it runs**, a false "done" is **refused**. The *enforcement* path (the host denies). One command, no hand-edited YAML. See [QUICKSTART](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/QUICKSTART.md) + [docs/221](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/221_the-cross-vendor-hook-installer.md). |
 | **CLI exit-code** | you have a shell pipeline or CI step that trusts an agent's "done" | replace that step with `dos verify PLAN PHASE` and branch on the exit code (`0` shipped / `1` not) — **the verdict *is* the exit code**. The day-one win above. |
-| **Python API** | your dispatcher/orchestrator is already Python | `import dos` and call the pure syscalls (`dos.oracle.is_shipped`, `dos.arbiter.arbitrate`, …) — state-in / verdict-out, no subprocess. The [Python cookbook](examples/playbooks/cookbook-python-api.md). |
-| **Fleet framework** | your fleet already runs on LangGraph, CrewAI, AutoGen, or the OpenAI/Claude Agents SDK | bolt the referee onto the framework's own seam — a referee node, a termination condition only git can satisfy, an output guardrail with a git tripwire. One function, no rewrite; every seam executed against the real framework. The [fleet-framework cookbook](examples/playbooks/cookbook-fleet-frameworks.md). |
-| **Swarm runtime** | your agents run on **Hermes, OpenClaw**, or a SwarmClaw-style autonomous swarm — privileged tools, shared memory docs / task boards, and **no lock manager** for either | drop a two-function adapter into the tool-execution loop: `guard_action` refuses an arbitrary-exec command **before it runs**, and `acquire_lease` / `release_lease` bracket each shared-state write so the lost update never lands. No `import dos` — it shells the CLI; Hermes' `pre_tool_call` hook also speaks DOS natively (`dos hook pretool --dialect hermes`). The runnable, A/B-measured [Hermes / OpenClaw worked example](examples/hermes_integration/) + [docs/278](docs/278_integrating-dos-with-hermes-and-openclaw-the-missing-lock-manager-for-agent-swarms.md). |
-| **Skill pack** | you run agents in Claude Code and want the workflow, not just the verdict | `dos init --skills` drops editable `SKILL.md` screenplays that wire the syscalls into a snapshot → audit → gate → take-a-lane loop. See [QUICKSTART §2](docs/QUICKSTART.md). |
-| **Driver** | your lanes must be *computed*, or you add a provider-backed judge | write one `dos/drivers/<host>.py` (a `LaneTaxonomy` + a config factory), loaded by name, never imported by the kernel. The map is [HACKING.md](docs/HACKING.md). |
+| **Python API** | your dispatcher/orchestrator is already Python | `import dos` and call the pure syscalls (`dos.oracle.is_shipped`, `dos.arbiter.arbitrate`, …) — state-in / verdict-out, no subprocess. The [Python cookbook](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/cookbook-python-api.md). |
+| **Fleet framework** | your fleet already runs on LangGraph, CrewAI, AutoGen, or the OpenAI/Claude Agents SDK | bolt the referee onto the framework's own seam — a referee node, a termination condition only git can satisfy, an output guardrail with a git tripwire. One function, no rewrite; every seam executed against the real framework. The [fleet-framework cookbook](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/cookbook-fleet-frameworks.md). |
+| **Swarm runtime** | your agents run on **Hermes, OpenClaw**, or a SwarmClaw-style autonomous swarm — privileged tools, shared memory docs / task boards, and **no lock manager** for either | drop a two-function adapter into the tool-execution loop: `guard_action` refuses an arbitrary-exec command **before it runs**, and `acquire_lease` / `release_lease` bracket each shared-state write so the lost update never lands. No `import dos` — it shells the CLI; Hermes' `pre_tool_call` hook also speaks DOS natively (`dos hook pretool --dialect hermes`). The runnable, A/B-measured [Hermes / OpenClaw worked example](https://github.com/anthony-chaudhary/dos-kernel/tree/master/examples/hermes_integration) + [docs/278](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/278_integrating-dos-with-hermes-and-openclaw-the-missing-lock-manager-for-agent-swarms.md). |
+| **Skill pack** | you run agents in Claude Code and want the workflow, not just the verdict | `dos init --skills` drops editable `SKILL.md` screenplays that wire the syscalls into a snapshot → audit → gate → take-a-lane loop. See [QUICKSTART §2](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/QUICKSTART.md). |
+| **Driver** | your lanes must be *computed*, or you add a provider-backed judge | write one `dos/drivers/<host>.py` (a `LaneTaxonomy` + a config factory), loaded by name, never imported by the kernel. The map is [HACKING.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/HACKING.md). |
 
 The two axes are independent: a zero-config repo can adopt through any surface,
 and a deeply-configured one still answers over the same CLI and MCP tools.
@@ -252,11 +252,11 @@ Those surfaces are the upstream half of the value chain — who calls the
 referee. The same verdicts also flow downstream, to the systems that act on
 them: every adjudication lands in a verdict journal that `dos export` drains to
 your observability stack (Datadog / Honeycomb / Grafana —
-[docs/266](docs/266_the-verdict-exporter-shipping-the-journal-to-where-dashboards-live.md)),
+[docs/266](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/266_the-verdict-exporter-shipping-the-journal-to-where-dashboards-live.md)),
 `dos notify` pushes what-needs-a-human to Slack, `dos reward` gates what a
 fine-tune may train on, and `dos attest` mints a signed receipt a skeptic can
 check without loop access
-([docs/246](docs/246_dos-attest-the-portable-signed-receipt.md)). One kernel, one
+([docs/246](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/246_dos-attest-the-portable-signed-receipt.md)). One kernel, one
 verdict vocabulary, from the agent's tool call to your dashboard.
 
 ## Why not just run N agents?
@@ -286,13 +286,13 @@ You see that signal through three read-only screens — `dos top` (what's
 running), `dos decisions` (what's waiting on you), `dos plan` (claim vs. ground
 truth) — covered in [Three live projections](#three-live-projections-read-only-tuis)
 below and walked end-to-end in
-**[Debug a stuck fleet](examples/playbooks/06_debug-a-stuck-fleet.md)**.
+**[Debug a stuck fleet](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/06_debug-a-stuck-fleet.md)**.
 
 The referee grows along two axes: deterministic *verdicts* that read artifacts
 (`verify`, `liveness`, `scope`), and provider-backed *judges* — a model, a
 debate — that rule on what no deterministic check can, kept outside the kernel
 under a discipline that stops a wrong judge from clearing a falsehood. See
-**[the adjudicator-population note](docs/88_the-adjudicator-population.md)** for
+**[the adjudicator-population note](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/88_the-adjudicator-population.md)** for
 that scalable-oversight story in code.
 
 > **We caught ourselves doing the exact thing DOS exists to catch.** A design doc
@@ -316,7 +316,7 @@ agents. It would be easy to lead with one big number; instead, here's the
 split — what we actually measured, what we extrapolated from those
 measurements, and what is still a bet. Draw the line yourself. (Every *proven*
 number is from a live, re-runnable benchmark written up under
-[`benchmark/`](benchmark/) and the paper.)
+[`benchmark/`](https://github.com/anthony-chaudhary/dos-kernel/tree/master/benchmark) and the paper.)
 
 **✅ Proven — measured in live runs, scored against a fact the agent can't fake**
 (a test environment's database state, git history — bytes the agent wrote none of):
@@ -350,15 +350,15 @@ run (every number, hash, and ID is a verbatim read-off — never a hand-typed
 dramatization):
 
 <p align="center">
-  <img src="benchmark/agentprocessbench/writeadmit/gate-moment.svg" alt="The DOS write-admission gate catching a real over-claim. A live gemini-2.5-pro agent on a tau2 airline task reports 'You are all set! Your reservation number is HATHAT' — a confident write the agent authored. The witness is the environment DB-hash the agent wrote zero bytes of: gold hash 9f2c…gold vs the agent's resulting hash 4b7e…actual, so db_match = False — the booking it swore it made is not in the database. The gate verdict: a confident write REFUTED by an OS_RECORDED witness → GATE BLOCK, the phantom never reaches the next agent. Result across two models: J = 10 of 120 over-claims caught and blocked off the DB-hash, 9 of 9 honest writes admitted, zero correct work blocked, an identical 8.3% over-claim rate on the mid model and the strong one." width="100%">
+  <img src="https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/benchmark/agentprocessbench/writeadmit/gate-moment.svg" alt="The DOS write-admission gate catching a real over-claim. A live gemini-2.5-pro agent on a tau2 airline task reports 'You are all set! Your reservation number is HATHAT' — a confident write the agent authored. The witness is the environment DB-hash the agent wrote zero bytes of: gold hash 9f2c…gold vs the agent's resulting hash 4b7e…actual, so db_match = False — the booking it swore it made is not in the database. The gate verdict: a confident write REFUTED by an OS_RECORDED witness → GATE BLOCK, the phantom never reaches the next agent. Result across two models: J = 10 of 120 over-claims caught and blocked off the DB-hash, 9 of 9 honest writes admitted, zero correct work blocked, an identical 8.3% over-claim rate on the mid model and the strong one." width="100%">
   <br>
-  <sub><em><strong>It catches the lie and blocks it.</strong> A confident booking, refuted by the DB-hash the agent couldn't author, blocked before a downstream agent inherits the phantom. <a href="benchmark/agentprocessbench/writeadmit/gate_visual.html">Step through it locally</a> (an HTML walkthrough — clone and open in a browser; GitHub shows its source).</em></sub>
+  <sub><em><strong>It catches the lie and blocks it.</strong> A confident booking, refuted by the DB-hash the agent couldn't author, blocked before a downstream agent inherits the phantom. <a href="https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/agentprocessbench/writeadmit/gate_visual.html">Step through it locally</a> (an HTML walkthrough — clone and open in a browser; GitHub shows its source).</em></sub>
 </p>
 
 <p align="center">
-  <img src="benchmark/agentprocessbench/writeadmit/f2-moment.svg" alt="The DOS coordination payoff: a stale write clobbering a cancellation, then prevented. Two live agents act on one shared reservation NM1VX1, each having planned its tool-calls against the same original state, neither aware of the other. A1 cancels the reservation (DB-hash a3f1…afterA1). Under naive replay, A2's add-bag — computed on the original active state — blindly re-activates the reservation and adds a bag, silently overwriting A1's cancellation (composed hash 77c2…naive, a real lost update). Under the arbiter, dos.arbiter leases the region reservations/NM1VX1 to A1, refuses A2's overlapping lease, and A2 re-plans against the post-A1 cancelled state and correctly declines — the DB-hash matches the serialized-correct value and no update is lost. Across six natural conflict pairs drawn from the real task distribution, J = 4 of 6 clobbers were structurally prevented off the DB-hash." width="100%">
+  <img src="https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/benchmark/agentprocessbench/writeadmit/f2-moment.svg" alt="The DOS coordination payoff: a stale write clobbering a cancellation, then prevented. Two live agents act on one shared reservation NM1VX1, each having planned its tool-calls against the same original state, neither aware of the other. A1 cancels the reservation (DB-hash a3f1…afterA1). Under naive replay, A2's add-bag — computed on the original active state — blindly re-activates the reservation and adds a bag, silently overwriting A1's cancellation (composed hash 77c2…naive, a real lost update). Under the arbiter, dos.arbiter leases the region reservations/NM1VX1 to A1, refuses A2's overlapping lease, and A2 re-plans against the post-A1 cancelled state and correctly declines — the DB-hash matches the serialized-correct value and no update is lost. Across six natural conflict pairs drawn from the real task distribution, J = 4 of 6 clobbers were structurally prevented off the DB-hash." width="100%">
   <br>
-  <sub><em><strong>It prevents the collision.</strong> A stale add-bag clobbers a cancellation under naive replay; the arbiter serializes the two agents on the same region so neither overwrites the other. <a href="benchmark/agentprocessbench/writeadmit/f2_visual.html">Step through it locally</a> (an HTML walkthrough — clone and open in a browser).</em></sub>
+  <sub><em><strong>It prevents the collision.</strong> A stale add-bag clobbers a cancellation under naive replay; the arbiter serializes the two agents on the same region so neither overwrites the other. <a href="https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/agentprocessbench/writeadmit/f2_visual.html">Step through it locally</a> (an HTML walkthrough — clone and open in a browser).</em></sub>
 </p>
 
 **📈 Projected — real measurements, composed into a curve (and labelled as one).**
@@ -380,7 +380,7 @@ neutral party can hold, and a notary that proves what an agent did *to a
 skeptic who wasn't in the room* (the mechanism already ships — `dos attest`
 mints an HMAC-signed receipt over an effect-witness verdict and
 `dos verify-receipt` checks it with the shared key alone;
-[docs/246](docs/246_dos-attest-the-portable-signed-receipt.md)). The seeds are
+[docs/246](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/246_dos-attest-the-portable-signed-receipt.md)). The seeds are
 in the tree; we claim no results for any of it.
 
 > **The one distinction that keeps this honest:** a **J** is a *count of failures
@@ -405,7 +405,7 @@ the kernel applies to your agents:
 - **It is not a CI replacement or a test runner.** It sits *beside* them and lets a
   step branch on the exit-code verdict.
 - **The pluggable verdict/JUDGE adjudicator *registry* is specced, not yet
-  shipped** (see [docs/88](docs/88_the-adjudicator-population.md) §5); the JUDGE
+  shipped** (see [docs/88](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/88_the-adjudicator-population.md) §5); the JUDGE
   *seam* and built-in judges are.
 
 ## Give your agent a lie detector (MCP)
@@ -426,7 +426,7 @@ memory still true?), and `dos_doctor` (the workspace report) — so any
 MCP-speaking host — Claude Desktop, Cursor, Cline, an Agent-SDK app — can call
 the referee over JSON-on-stdio with zero Python coupling. Each verdict comes
 back with a one-line interpretation of what it means for the agent's next move.
-(See **[the MCP server surface](docs/80_mcp-server-surface.md)**.)
+(See **[the MCP server surface](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/80_mcp-server-surface.md)**.)
 
 ```jsonc
 // claude_desktop_config.json — paste, restart, then say:
@@ -436,7 +436,7 @@ back with a one-line interpretation of what it means for the agent's next move.
 
 The MCP server is **advisory**: the agent *calls* the referee when it (or you)
 thinks to. The per-host wiring for Cursor / Codex / Gemini is in
-**[the MCP README](src/dos_mcp/README.md)** — all four are MCP clients, so this
+**[the MCP README](https://github.com/anthony-chaudhary/dos-kernel/blob/master/src/dos_mcp/README.md)** — all four are MCP clients, so this
 works on every one of them with zero code.
 
 ### …then make the verdict *act* (hooks)
@@ -459,13 +459,13 @@ re-surfaces a stalled stream. This is the **enforcement** path (the *host*
 denies on a DOS verdict) — the complement to MCP's advisory path. Until
 recently this spoke only Claude Code; it now installs across five hosts —
 Claude Code, Cursor, Codex, Gemini, and Antigravity
-([docs/221](docs/221_the-cross-vendor-hook-installer.md),
-[docs/269](docs/269_antigravity-the-fifth-host.md)).
+([docs/221](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/221_the-cross-vendor-hook-installer.md),
+[docs/269](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/269_antigravity-the-fifth-host.md)).
 `--with-hooks` is the back-compat alias for `--hooks claude-code`.
 
 Under the installer sits a pluggable dialect seam: the verdict is decided
 once, then rendered into whatever JSON shape the host parses
-([docs/217](docs/217_the-cross-vendor-hook-dialect-seam.md)) — so a runtime the
+([docs/217](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/217_the-cross-vendor-hook-dialect-seam.md)) — so a runtime the
 installer doesn't cover yet can still consume the same hooks. A sixth shipped
 dialect speaks **Hermes**: `dos hook pretool --dialect hermes` emits the
 `{"decision": "block", "reason": …}` object Hermes' `pre_tool_call` shell hook
@@ -483,12 +483,12 @@ and is byte-identical to the Python kernel on the gated decision (the docs/124
 parity contract, pinned by Go parity tests). It owns the common fast path and
 falls back to the always-available Python verb for anything it doesn't yet
 serve, so a machine without the binary degrades cleanly with no wiring change
-([docs/125](docs/125_go-hook-fastpath-build-plan.md),
-[docs/270](docs/270_go-hook-fastpath-benchmarks.md)). You don't build it
+([docs/125](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/125_go-hook-fastpath-build-plan.md),
+[docs/270](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/270_go-hook-fastpath-benchmarks.md)). You don't build it
 yourself: the per-platform wheels bundle the binary, so a wheel install gets
 the native fast path with no Go toolchain — and any platform without a bundled
 binary (including a plain source install) just runs the pure-Python path
-([docs/286](docs/286_shipping-the-go-binary-through-pypi-per-platform-wheels.md)).
+([docs/286](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/286_shipping-the-go-binary-through-pypi-per-platform-wheels.md)).
 
 <a id="the-verbs-by-the-question-they-answer"></a>
 
@@ -502,31 +502,31 @@ contract — and the module names are auditable.
 |---|---|---|---|
 | `verify()` | an agent says a unit of work is **done** and you don't want to take its word | the **truth syscall** — "did (plan, phase) actually ship?" registry-first, ancestry-checked, from git history if there's no plan at all | `dos.oracle`, `dos.phase_shipped` |
 | `liveness()` | a long run says it's **"making progress"** and you want to know if it actually is | the **temporal verdict** — "is the run ADVANCING, or just SPINNING / STALLED?" from the git/journal delta and the clock | `dos.liveness` |
-| `verify-result()` | a **subagent hands a result back** to an orchestrator that folds it as a finding — but the result string may be a harness-synthesized error the worker never authored | the **fold-site result-state witness** ([docs/197](docs/197_how-dos-is-directly-useful-to-ultracode.md)) — classifies a subagent transcript's terminal record, gating on `message.model == "<synthetic>"` (the unforgeable harness-authorship marker), never the agent's self-report; **exit 3 = DEAD** (a harness 429 / quota / auth / server error), `0` = HEALTHY / UNREADABLE | `dos.result_state` |
+| `verify-result()` | a **subagent hands a result back** to an orchestrator that folds it as a finding — but the result string may be a harness-synthesized error the worker never authored | the **fold-site result-state witness** ([docs/197](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/197_how-dos-is-directly-useful-to-ultracode.md)) — classifies a subagent transcript's terminal record, gating on `message.model == "<synthetic>"` (the unforgeable harness-authorship marker), never the agent's self-report; **exit 3 = DEAD** (a harness 429 / quota / auth / server error), `0` = HEALTHY / UNREADABLE | `dos.result_state` |
 | `resume()` | a run **died or paused mid-flight** and you need to continue without re-doing work or double-applying it | the **third ARIES phase** — "how far did the *fossils* say it got, and what's the residual?" over a run-id-keyed intent ledger; re-enters from a git-VERIFIED SHA, never the dead run's self-report (RESUMABLE / COMPLETE / DIVERGED / UNRESUMABLE) | `dos.resume`, `dos.intent_ledger` |
 | `complete()` | you need to know if the **whole declared job** is verifiably done, not just one phase | the **completion verdict** — `residual = declared − verified`, asked forward; read-only, never self-certifies | `dos.completion` |
 | `rewind()` | a run thrashed and you want to **excise the dead-end turns** without the kernel authoring a correction | the **conversation-rewind verdict** — replays the ledger for a minted checkpoint and PROPOSES the excision (never truncates; the host owns the transcript) | `dos.rewind` |
-| `productivity()` | a long run is burning turns and you want to know if it's **still doing work, or fading** | the **loop-economics verdict** ([docs/218](docs/218_the-productivity-verdict-diminishing-returns-as-a-syscall.md)) — `classify(work-deltas) -> PRODUCTIVE / DIMINISHING / STALLED` over a trend of per-step work; pure, no I/O | `dos.productivity` |
-| `efficiency()` | you want to know if the **tokens a run spent actually bought work** (a run can be productive yet burn 10× its work's worth) | the **token-effectiveness verdict** ([docs/263](docs/263_token-effectiveness-verdict-plan.md)) — `work / tokens -> EFFICIENT / COSTLY / WASTEFUL`; both counts are env-authored, so a run can't narrate its way to EFFICIENT | `dos.efficiency` |
-| `improve()` | a **self-improving loop** proposes a change to its own code and you must decide **keep or revert** — without trusting the loop's own claim that it helped | the **keep-gate** ([docs/280](docs/280_the-self-improving-work-loop-the-kernel-adjudicates-its-own-improvement.md)) — `KEEP / REVERT / ESCALATE` from witnesses the candidate's author didn't write: the suite green on the candidate-only tree, the truth syscall clean, and a strictly-measured metric gain; a regression always REVERTs, a run of non-keeps ESCALATEs to a human | `dos.improve` |
-| `reward()` | a fine-tune is about to **train on an agent's trajectory** and the "it worked" label came from the agent itself | the **reward-set admission verdict** ([docs/230](docs/230_the-lab-facing-twin-rlvr-admit-the-non-distillable-reward-label.md)) — `ACCEPT / REJECT_POISON / ABSTAIN` off a witness the agent authored zero bytes of, so no answer text can flip a reject to an accept (the non-distillable label) | `dos.reward` |
-| `breaker()` | a **failure class keeps tripping** and you want to stop retrying and escalate | the **circuit-breaker primitive** ([docs/223](docs/223_the-circuit-breaker-primitive-failure-counting-as-mechanism.md)) — a pure two-counter state machine, `CLOSED / OPEN`, tripping on consecutive *or* total failures; an OPEN verdict names the escalation rung (none / judge / human) | `dos.breaker` |
-| `hook_exit()` / `exec_capability()` | you wire a **plain shell hook** into a runtime, or need to know if a command **grants arbitrary code execution** | two classifier leaves the cheapest integrations consult — `hook_exit` maps an exit code to an intervention ([docs/226](docs/226_the-hook-exit-classifier-a-shell-scripts-exit-code-as-a-verdict.md): 0 pass / 2 BLOCK / other WARN), `exec_capability` classifies the *invoked program token* — never a substring — as `GRANTS_ARBITRARY_EXEC / BOUNDED` ([docs/224](docs/224_the-exec-capability-classifier-a-shape-not-a-word.md)) | `dos.hook_exit`, `dos.exec_capability` |
+| `productivity()` | a long run is burning turns and you want to know if it's **still doing work, or fading** | the **loop-economics verdict** ([docs/218](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/218_the-productivity-verdict-diminishing-returns-as-a-syscall.md)) — `classify(work-deltas) -> PRODUCTIVE / DIMINISHING / STALLED` over a trend of per-step work; pure, no I/O | `dos.productivity` |
+| `efficiency()` | you want to know if the **tokens a run spent actually bought work** (a run can be productive yet burn 10× its work's worth) | the **token-effectiveness verdict** ([docs/263](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/263_token-effectiveness-verdict-plan.md)) — `work / tokens -> EFFICIENT / COSTLY / WASTEFUL`; both counts are env-authored, so a run can't narrate its way to EFFICIENT | `dos.efficiency` |
+| `improve()` | a **self-improving loop** proposes a change to its own code and you must decide **keep or revert** — without trusting the loop's own claim that it helped | the **keep-gate** ([docs/280](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/280_the-self-improving-work-loop-the-kernel-adjudicates-its-own-improvement.md)) — `KEEP / REVERT / ESCALATE` from witnesses the candidate's author didn't write: the suite green on the candidate-only tree, the truth syscall clean, and a strictly-measured metric gain; a regression always REVERTs, a run of non-keeps ESCALATEs to a human | `dos.improve` |
+| `reward()` | a fine-tune is about to **train on an agent's trajectory** and the "it worked" label came from the agent itself | the **reward-set admission verdict** ([docs/230](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/230_the-lab-facing-twin-rlvr-admit-the-non-distillable-reward-label.md)) — `ACCEPT / REJECT_POISON / ABSTAIN` off a witness the agent authored zero bytes of, so no answer text can flip a reject to an accept (the non-distillable label) | `dos.reward` |
+| `breaker()` | a **failure class keeps tripping** and you want to stop retrying and escalate | the **circuit-breaker primitive** ([docs/223](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/223_the-circuit-breaker-primitive-failure-counting-as-mechanism.md)) — a pure two-counter state machine, `CLOSED / OPEN`, tripping on consecutive *or* total failures; an OPEN verdict names the escalation rung (none / judge / human) | `dos.breaker` |
+| `hook_exit()` / `exec_capability()` | you wire a **plain shell hook** into a runtime, or need to know if a command **grants arbitrary code execution** | two classifier leaves the cheapest integrations consult — `hook_exit` maps an exit code to an intervention ([docs/226](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/226_the-hook-exit-classifier-a-shell-scripts-exit-code-as-a-verdict.md): 0 pass / 2 BLOCK / other WARN), `exec_capability` classifies the *invoked program token* — never a substring — as `GRANTS_ARBITRARY_EXEC / BOUNDED` ([docs/224](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/224_the-exec-capability-classifier-a-shape-not-a-word.md)) | `dos.hook_exit`, `dos.exec_capability` |
 | `refuse(reason)` | you need to say **why** a pick was blocked in a way a machine can act on | **structured refusal** — a closed, declared reason vocabulary (`dos.reasons`, extensible per-workspace), every reason emittable, verifiable, and refusable | `dos.wedge_reason`, `dos.picker_oracle` |
 | `lease()` / `arbitrate()` | two agents might **touch the same files** and you need to admit one without a collision | the **pure admission kernel** — `arbitrate(request, live_leases, config) -> decision`, state-in / decision-out, no I/O | `dos.arbiter` |
 | `spawn()` / `reap()` | you need every run to carry a **traceable identity** and its effects to be replayable | the **correlation spine** (sortable, lineage-carrying run-ids) + the lease **write-ahead log** | `dos.run_id`, `dos.lane_journal` |
-| `enumerate()` / `pickable()` / `cooldown()` / `reconcile()` | an unattended loop must know **is there anything pickable, why-not, have I tried it, and did the claim hold?** — without re-storming a known drain or believing a "done" the git can't confirm | the **picker substrate** ([docs/207](docs/207_dispatch-workflow-extraction-and-the-pickable-substrate-completion.md)) — `enumerate` is the phase-list producer (the `declared` set, never a silent empty); `pickable` the pre-dispatch gate (OFFERABLE / HELD(reason)); `cooldown` the anti-churn fold over pick-attempts (CLEAR / RECENTLY_ATTEMPTED); `reconcile` the quiet-completion join (VERIFIED / QUIET_INCOMPLETE / HONEST_OPEN, fail-closed on the claim) | `dos.enumerate`, `dos.pickable`, `dos.cooldown`, `dos.reconcile` |
+| `enumerate()` / `pickable()` / `cooldown()` / `reconcile()` | an unattended loop must know **is there anything pickable, why-not, have I tried it, and did the claim hold?** — without re-storming a known drain or believing a "done" the git can't confirm | the **picker substrate** ([docs/207](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/207_dispatch-workflow-extraction-and-the-pickable-substrate-completion.md)) — `enumerate` is the phase-list producer (the `declared` set, never a silent empty); `pickable` the pre-dispatch gate (OFFERABLE / HELD(reason)); `cooldown` the anti-churn fold over pick-attempts (CLEAR / RECENTLY_ATTEMPTED); `reconcile` the quiet-completion join (VERIFIED / QUIET_INCOMPLETE / HONEST_OPEN, fail-closed on the claim) | `dos.enumerate`, `dos.pickable`, `dos.cooldown`, `dos.reconcile` |
 
 > Three terms the table assumes: a **plan** (e.g. `AUTH`) groups **phases** —
 > a phase is a named unit of work (e.g. `AUTH1`); a **lane** is a leased region of
 > the file tree an agent works in. All are defined in the
-> [quickstart](docs/QUICKSTART.md).
+> [quickstart](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/QUICKSTART.md).
 
 > **The newest catch — a result that *died*.** When a subagent hands a result
 > back to an orchestrator that folds it as a finding (an ultracode `Workflow`, an
 > Agent-SDK fan-out), the result string itself may be a **harness-synthesized
 > error** the worker never authored — and ~32% of real subagents return exactly
-> that (a 429 / quota / auth string) where the fold expects a finding ([docs/197](docs/197_how-dos-is-directly-useful-to-ultracode.md)).
+> that (a 429 / quota / auth string) where the fold expects a finding ([docs/197](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/197_how-dos-is-directly-useful-to-ultracode.md)).
 > `verify-result` reads the transcript's terminal record and refuses to believe a
 > harness-authored death:
 >
@@ -547,13 +547,13 @@ contract — and the module names are auditable.
 
 Around these sit ~30 supporting kernel modules — the file-tree disjointness
 algebra, the timeline reader, the gate/loop classifiers, the typed-verdict
-contract, the JUDGE-rung seam. The full map is in **[CLAUDE.md](CLAUDE.md)**.
+contract, the JUDGE-rung seam. The full map is in **[CLAUDE.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/CLAUDE.md)**.
 
 ## Install
 
 Pick the row that matches how you work — the full matrix (every OS, every
 channel, upgrade/uninstall, WSL, troubleshooting) is in
-**[docs/INSTALL.md](docs/INSTALL.md)**:
+**[docs/INSTALL.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/INSTALL.md)**:
 
 ```bash
 # uv — the modern, fast, isolated CLI install (recommended), straight from GitHub:
@@ -574,34 +574,34 @@ pip install -e .                  # editable: your edits are live in the install
 > pulls an unrelated package that squats the name. The *import* name and the CLI
 > are still `dos`. The core kernel's only runtime dependency is PyYAML (the
 > `[mcp]` extra adds the MCP framework; `[tui]` adds the live `dos top` screens).
-> See [SECURITY.md](SECURITY.md), "Supply chain."
+> See [SECURITY.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/SECURITY.md), "Supply chain."
 
 Prefer a package manager? **uv** is the 2026 default — faster than `pipx`,
 isolates the tool, and manages Python versions; `pipx install
 git+https://github.com/anthony-chaudhary/dos-kernel` works the same way if your
 team already uses it. PyPI / Homebrew / WinGet / Scoop one-liners are next on the
-release runway (see [docs/INSTALL.md](docs/INSTALL.md)).
+release runway (see [docs/INSTALL.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/INSTALL.md)).
 
 A host repo adds DOS as a pinned dependency and points it at its own tree — never
 by vendoring the code in. DOS is stateless about which repo it serves: it
 resolves the workspace from `--workspace` › `$DISPATCH_WORKSPACE` › cwd, never
 its own install location, so the ground truth stays legible as the codebase
 grows. (The full separation contract — mechanism in the package, policy in the
-workspace's `dos.toml` — is in **[CLAUDE.md](CLAUDE.md)**.)
+workspace's `dos.toml` — is in **[CLAUDE.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/CLAUDE.md)**.)
 
 For most repos that one `dos.toml` is the whole policy surface — but when your
 lanes must be *computed* (from runtime state, an env var, a monorepo manifest)
 rather than listed, or you add a provider-backed JUDGE, you write a small
 **driver** instead: a `dos/drivers/<host>.py` exposing a `LaneTaxonomy` constant +
 a `<host>_config` factory, loaded by name via `dos --driver <host>` and never
-imported by the kernel. Copy [`dos/drivers/workshop.py`](src/dos/drivers/workshop.py)
-as the template; the full driver/plugin map is in **[docs/HACKING.md](docs/HACKING.md)**.
+imported by the kernel. Copy [`dos/drivers/workshop.py`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/src/dos/drivers/workshop.py)
+as the template; the full driver/plugin map is in **[docs/HACKING.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/HACKING.md)**.
 
 ### Claude Code plugin — hooks + MCP + skills in one install
 
 If you drive a fleet with Claude Code, the lowest-friction way to bind the
 verdict to the runtime is the bundled plugin under
-[`claude-plugin/`](claude-plugin/) — it packages all three runtime surfaces at
+[`claude-plugin/`](https://github.com/anthony-chaudhary/dos-kernel/tree/master/claude-plugin) — it packages all three runtime surfaces at
 once:
 
 - the **hooks** (`PreToolUse` → deny a structurally-refused call · `PostToolUse` →
@@ -629,11 +629,11 @@ is importable, reports what the plugin wired, and points at the next skill. The
 same three hooks are available à la carte via `dos init --hooks claude-code`
 (and for Cursor / Codex / Gemini); the plugin is just the pre-packaged Claude
 Code form. The bundle's design + the build that keeps its skills in lockstep
-with the source are in **[claude-plugin/README.md](claude-plugin/README.md)**.
+with the source are in **[claude-plugin/README.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/claude-plugin/README.md)**.
 
 ## CLI
 
-One `dos` entrypoint over the syscalls (see [QUICKSTART.md](docs/QUICKSTART.md) for
+One `dos` entrypoint over the syscalls (see [QUICKSTART.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/QUICKSTART.md) for
 a runnable tour of the core ones):
 
 ```bash
@@ -716,7 +716,7 @@ Most verbs take `--workspace .` (or honor `$DISPATCH_WORKSPACE` / cwd) and
 `--json` for machine-readable output. For verdict-bearing commands (`verify` /
 `liveness` / `gate`) **the exit code is the verdict.** A pluggable `--output
 <name>` renderer (the `dos.renderers` entry-point group) is covered in
-[HACKING.md](docs/HACKING.md).
+[HACKING.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/HACKING.md).
 
 ### Three live projections (read-only TUIs)
 
@@ -768,10 +768,10 @@ read-only · q quit · this screen mutates nothing
 ```
 
 The stuck-fleet walkthrough that drives all three end-to-end is
-**[Debug a stuck fleet](examples/playbooks/06_debug-a-stuck-fleet.md)**.
+**[Debug a stuck fleet](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/06_debug-a-stuck-fleet.md)**.
 
 <p align="center">
-  <img src="docs/assets/decisions-tui.svg" alt="The dos decisions queue: four pending arbiter refusals on the left, each routed to who can resolve it — a deterministic ORACLE (may auto-clear), an LLM JUDGE (could rule), or a HUMAN (your call) — and on the right the selected SELF_MODIFY decision expanded with its meaning, typical fix, and the exact commands to run." width="100%">
+  <img src="https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/docs/assets/decisions-tui.svg" alt="The dos decisions queue: four pending arbiter refusals on the left, each routed to who can resolve it — a deterministic ORACLE (may auto-clear), an LLM JUDGE (could rule), or a HUMAN (your call) — and on the right the selected SELF_MODIFY decision expanded with its meaning, typical fix, and the exact commands to run." width="100%">
 </p>
 
 ### Observability: the verdict journal, drained to your dashboards
@@ -780,14 +780,14 @@ Those three screens read a fleet's *running* state. Underneath, every verdict
 the kernel computes — each `verify` / `liveness` / `efficiency` / `breaker` /
 `reward` / hook decision — also lands in a **verdict journal**: a
 `run_id`-correlated write-ahead log of the kernel's *own* adjudications
-([docs/262](docs/262_the-verdict-journal-observability-as-a-first-class-surface.md)).
+([docs/262](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/262_the-verdict-journal-observability-as-a-first-class-surface.md)).
 Two verbs make it useful. `dos observe` is the read-only projection — fold the
 journal by run, syscall, or verdict, or replay one run's verdict history. `dos
 export` is the delivery seam: it drains the journal outward to an observability
 backend through the `dos.exporters` entry-point group, with three shipped
 transports — `file` (JSONL), `statsd` (DogStatsD counters), and `otlp`
 (OpenTelemetry log records → Datadog / Honeycomb / Grafana), the `null` default
-reporting only ([docs/266](docs/266_the-verdict-exporter-shipping-the-journal-to-where-dashboards-live.md)).
+reporting only ([docs/266](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/266_the-verdict-exporter-shipping-the-journal-to-where-dashboards-live.md)).
 So "how often did the fleet over-claim this week, and on which lanes?" becomes a
 dashboard panel, not a log grep — and adding a transport is a driver, never a
 kernel edit (the same kernel/driver split as judges and notifiers).
@@ -801,55 +801,55 @@ reasons, gate verdicts, admission/safety predicates, output renderers (the
 package edits. The block-reason vocabulary is fully data-driven: declare a
 reason in four lines of `dos.toml` and it becomes emittable, verifiable,
 refusable, and `dos man wedge`-documented through the same kernel calls a
-built-in uses. See **[docs/HACKING.md](docs/HACKING.md)** for the seven
-extension axes and the plugin model, and **[`examples/dos_ext/`](examples/dos_ext/)**
+built-in uses. See **[docs/HACKING.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/HACKING.md)** for the seven
+extension axes and the plugin model, and **[`examples/dos_ext/`](https://github.com/anthony-chaudhary/dos-kernel/tree/master/examples/dos_ext)**
 for a copy-me skeleton.
 
 ## Documentation
 
-- **[docs/QUICKSTART.md](docs/QUICKSTART.md)** — runnable 5-minute hello-world. Start here.
-- **[docs/README.md](docs/README.md)** — the docs index (guides vs. design notes
+- **[docs/QUICKSTART.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/QUICKSTART.md)** — runnable 5-minute hello-world. Start here.
+- **[docs/README.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/README.md)** — the docs index (guides vs. design notes
   vs. the dated build-journal; the numbers are chronology, not a reading order).
-- **[docs/HACKING.md](docs/HACKING.md)** — extend DOS without forking it.
-- **[CLAUDE.md](CLAUDE.md)** / **[CONTRIBUTING.md](CONTRIBUTING.md)** — the
+- **[docs/HACKING.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/HACKING.md)** — extend DOS without forking it.
+- **[CLAUDE.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/CLAUDE.md)** / **[CONTRIBUTING.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/CONTRIBUTING.md)** — the
   architecture contract and how to send a change.
-- **[docs/releases/](docs/releases/)** — per-version release notes (the changelog).
+- **[docs/releases/](https://github.com/anthony-chaudhary/dos-kernel/tree/master/docs/releases)** — per-version release notes (the changelog).
 
 ## Playbooks & examples
 
-**[`examples/playbooks/`](examples/playbooks/)** walks the syscalls end-to-end on
+**[`examples/playbooks/`](https://github.com/anthony-chaudhary/dos-kernel/tree/master/examples/playbooks)** walks the syscalls end-to-end on
 anonymized real-world repo shapes — every command was run and its output pasted
 back verbatim:
 
-- **[Onboard a repo in 10 minutes](examples/playbooks/01_onboard-a-repo.md)** —
+- **[Onboard a repo in 10 minutes](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/01_onboard-a-repo.md)** —
   `pip install` → first verified ship, on any repo.
-- Four archetypes — a [polyglot web-service fleet](examples/playbooks/02_polyglot-web-service.md)
-  (concurrent lanes), an [OSS library release](examples/playbooks/03_oss-library-release.md)
-  (the stamp grammar), a [data/ML pipeline](examples/playbooks/04_data-ml-pipeline.md)
-  (liveness), an [infra monorepo](examples/playbooks/05_infra-monorepo.md) (refusals).
-- [**Debug a stuck fleet** + FAQ](examples/playbooks/06_debug-a-stuck-fleet.md) —
+- Four archetypes — a [polyglot web-service fleet](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/02_polyglot-web-service.md)
+  (concurrent lanes), an [OSS library release](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/03_oss-library-release.md)
+  (the stamp grammar), a [data/ML pipeline](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/04_data-ml-pipeline.md)
+  (liveness), an [infra monorepo](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/05_infra-monorepo.md) (refusals).
+- [**Debug a stuck fleet** + FAQ](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/06_debug-a-stuck-fleet.md) —
   symptom → the one command that diagnoses it.
-- Three cookbooks: [from Python](examples/playbooks/cookbook-python-api.md),
-  [CI / MCP integration](examples/playbooks/cookbook-ci-integration.md), and
-  [fleet frameworks](examples/playbooks/cookbook-fleet-frameworks.md) — LangGraph,
+- Three cookbooks: [from Python](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/cookbook-python-api.md),
+  [CI / MCP integration](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/cookbook-ci-integration.md), and
+  [fleet frameworks](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/cookbook-fleet-frameworks.md) — LangGraph,
   CrewAI, AutoGen, the OpenAI/Claude Agents SDK — with every framework recipe also
   shipped as a runnable, suite-pinned file under
-  [`examples/fleet_frameworks/`](examples/fleet_frameworks/).
-- [**Wire DOS into a Hermes / OpenClaw swarm**](examples/hermes_integration/) —
+  [`examples/fleet_frameworks/`](https://github.com/anthony-chaudhary/dos-kernel/tree/master/examples/fleet_frameworks).
+- [**Wire DOS into a Hermes / OpenClaw swarm**](https://github.com/anthony-chaudhary/dos-kernel/tree/master/examples/hermes_integration) —
   the offline, A/B-measured swarm-runtime example: the `exec-capability` gate
   refuses a prompt-injected command before it runs (real at a single agent), and
   the arbiter serves as the swarms' missing lock manager so the lost updates the
   runtime would silently incur drop to zero (value grows with fleet size; the
   honest K=1 falsifier is included). Both scoreboards read non-forgeable witnesses
-  ([docs/278](docs/278_integrating-dos-with-hermes-and-openclaw-the-missing-lock-manager-for-agent-swarms.md)).
-- Runnable [`examples/workspaces/`](examples/workspaces/) — `cd` in and run `dos`
+  ([docs/278](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/278_integrating-dos-with-hermes-and-openclaw-the-missing-lock-manager-for-agent-swarms.md)).
+- Runnable [`examples/workspaces/`](https://github.com/anthony-chaudhary/dos-kernel/tree/master/examples/workspaces) — `cd` in and run `dos`
   against a realistic lane taxonomy.
 
 ## Citation
 
 The ideas here are written up in a paper — *"Verification Is All You Need — But
 Not Where You Think"* — on the out-of-loop referee for agent fleets. A built PDF
-lives at [`paper/releases/`](paper/releases/); the arXiv preprint is in
+lives at [`paper/releases/`](https://github.com/anthony-chaudhary/dos-kernel/tree/master/paper/releases); the arXiv preprint is in
 preparation. Until the arXiv ID lands, cite the repository:
 
 ```bibtex
@@ -864,4 +864,4 @@ preparation. Until the arXiv ID lands, cite the repository:
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](https://github.com/anthony-chaudhary/dos-kernel/blob/master/LICENSE).

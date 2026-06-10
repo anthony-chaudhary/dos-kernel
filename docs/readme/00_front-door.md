@@ -6,10 +6,10 @@
      on PyPI they'd render broken (404 / unknown version). -->
 [![CI](https://github.com/anthony-chaudhary/dos-kernel/actions/workflows/ci.yml/badge.svg)](https://github.com/anthony-chaudhary/dos-kernel/actions/workflows/ci.yml)
 [![verified by DOS](https://github.com/anthony-chaudhary/dos-kernel/actions/workflows/dos-gate.yml/badge.svg)](https://github.com/anthony-chaudhary/dos-kernel/actions/workflows/dos-gate.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/anthony-chaudhary/dos-kernel/blob/master/LICENSE)
 
 <p align="center">
-  <img src="docs/assets/loop-hero.svg" alt="Two agent fleets side by side. Left, no referee: agents all report 'done!', every report is believed, and silent corruption (lies, collisions, spin) piles up into a codebase that 'sorta works' and can't be changed. Right, DOS adjudicates: dos verify reads git and the run branches to SHIPPED (exit 0, land it) or NOT_SHIPPED (exit 1, re-dispatch — caught), and that verdict steers the next step." width="100%">
+  <img src="https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/docs/assets/loop-hero.svg" alt="Two agent fleets side by side. Left, no referee: agents all report 'done!', every report is believed, and silent corruption (lies, collisions, spin) piles up into a codebase that 'sorta works' and can't be changed. Right, DOS adjudicates: dos verify reads git and the run branches to SHIPPED (exit 0, land it) or NOT_SHIPPED (exit 1, re-dispatch — caught), and that verdict steers the next step." width="100%">
   <br>
   <em>Run a fleet of agents on one repo. The left loop just feels like progress; the right one you can steer.
   The only difference is a verdict DOS reads from the real world — here, git — never the agent's word.</em>
@@ -61,7 +61,7 @@ smoke run · the only runtime dependency is **PyYAML** · **MIT**.</sub>
 
 </details>
 
-> **Reading this as an AI agent?** Start with **[AGENTS.md](AGENTS.md)** — a short
+> **Reading this as an AI agent?** Start with **[AGENTS.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/AGENTS.md)** — a short
 > orientation written for you: what DOS is in three lines, how to build/test/check
 > your work, the ~5 files actually worth reading, and the architecture rules a
 > change must satisfy.

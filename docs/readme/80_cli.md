@@ -1,6 +1,6 @@
 ## CLI
 
-One `dos` entrypoint over the syscalls (see [QUICKSTART.md](docs/QUICKSTART.md) for
+One `dos` entrypoint over the syscalls (see [QUICKSTART.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/QUICKSTART.md) for
 a runnable tour of the core ones):
 
 ```bash
@@ -83,7 +83,7 @@ Most verbs take `--workspace .` (or honor `$DISPATCH_WORKSPACE` / cwd) and
 `--json` for machine-readable output. For verdict-bearing commands (`verify` /
 `liveness` / `gate`) **the exit code is the verdict.** A pluggable `--output
 <name>` renderer (the `dos.renderers` entry-point group) is covered in
-[HACKING.md](docs/HACKING.md).
+[HACKING.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/HACKING.md).
 
 ### Three live projections (read-only TUIs)
 
@@ -135,10 +135,10 @@ read-only · q quit · this screen mutates nothing
 ```
 
 The stuck-fleet walkthrough that drives all three end-to-end is
-**[Debug a stuck fleet](examples/playbooks/06_debug-a-stuck-fleet.md)**.
+**[Debug a stuck fleet](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/06_debug-a-stuck-fleet.md)**.
 
 <p align="center">
-  <img src="docs/assets/decisions-tui.svg" alt="The dos decisions queue: four pending arbiter refusals on the left, each routed to who can resolve it — a deterministic ORACLE (may auto-clear), an LLM JUDGE (could rule), or a HUMAN (your call) — and on the right the selected SELF_MODIFY decision expanded with its meaning, typical fix, and the exact commands to run." width="100%">
+  <img src="https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/docs/assets/decisions-tui.svg" alt="The dos decisions queue: four pending arbiter refusals on the left, each routed to who can resolve it — a deterministic ORACLE (may auto-clear), an LLM JUDGE (could rule), or a HUMAN (your call) — and on the right the selected SELF_MODIFY decision expanded with its meaning, typical fix, and the exact commands to run." width="100%">
 </p>
 
 ### Observability: the verdict journal, drained to your dashboards
@@ -147,14 +147,14 @@ Those three screens read a fleet's *running* state. Underneath, every verdict
 the kernel computes — each `verify` / `liveness` / `efficiency` / `breaker` /
 `reward` / hook decision — also lands in a **verdict journal**: a
 `run_id`-correlated write-ahead log of the kernel's *own* adjudications
-([docs/262](docs/262_the-verdict-journal-observability-as-a-first-class-surface.md)).
+([docs/262](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/262_the-verdict-journal-observability-as-a-first-class-surface.md)).
 Two verbs make it useful. `dos observe` is the read-only projection — fold the
 journal by run, syscall, or verdict, or replay one run's verdict history. `dos
 export` is the delivery seam: it drains the journal outward to an observability
 backend through the `dos.exporters` entry-point group, with three shipped
 transports — `file` (JSONL), `statsd` (DogStatsD counters), and `otlp`
 (OpenTelemetry log records → Datadog / Honeycomb / Grafana), the `null` default
-reporting only ([docs/266](docs/266_the-verdict-exporter-shipping-the-journal-to-where-dashboards-live.md)).
+reporting only ([docs/266](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/266_the-verdict-exporter-shipping-the-journal-to-where-dashboards-live.md)).
 So "how often did the fleet over-claim this week, and on which lanes?" becomes a
 dashboard panel, not a log grep — and adding a transport is a driver, never a
 kernel edit (the same kernel/driver split as judges and notifiers).

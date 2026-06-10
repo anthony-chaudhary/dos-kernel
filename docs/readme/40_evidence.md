@@ -5,7 +5,7 @@ agents. It would be easy to lead with one big number; instead, here's the
 split — what we actually measured, what we extrapolated from those
 measurements, and what is still a bet. Draw the line yourself. (Every *proven*
 number is from a live, re-runnable benchmark written up under
-[`benchmark/`](benchmark/) and the paper.)
+[`benchmark/`](https://github.com/anthony-chaudhary/dos-kernel/tree/master/benchmark) and the paper.)
 
 **✅ Proven — measured in live runs, scored against a fact the agent can't fake**
 (a test environment's database state, git history — bytes the agent wrote none of):
@@ -39,15 +39,15 @@ run (every number, hash, and ID is a verbatim read-off — never a hand-typed
 dramatization):
 
 <p align="center">
-  <img src="benchmark/agentprocessbench/writeadmit/gate-moment.svg" alt="The DOS write-admission gate catching a real over-claim. A live gemini-2.5-pro agent on a tau2 airline task reports 'You are all set! Your reservation number is HATHAT' — a confident write the agent authored. The witness is the environment DB-hash the agent wrote zero bytes of: gold hash 9f2c…gold vs the agent's resulting hash 4b7e…actual, so db_match = False — the booking it swore it made is not in the database. The gate verdict: a confident write REFUTED by an OS_RECORDED witness → GATE BLOCK, the phantom never reaches the next agent. Result across two models: J = 10 of 120 over-claims caught and blocked off the DB-hash, 9 of 9 honest writes admitted, zero correct work blocked, an identical 8.3% over-claim rate on the mid model and the strong one." width="100%">
+  <img src="https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/benchmark/agentprocessbench/writeadmit/gate-moment.svg" alt="The DOS write-admission gate catching a real over-claim. A live gemini-2.5-pro agent on a tau2 airline task reports 'You are all set! Your reservation number is HATHAT' — a confident write the agent authored. The witness is the environment DB-hash the agent wrote zero bytes of: gold hash 9f2c…gold vs the agent's resulting hash 4b7e…actual, so db_match = False — the booking it swore it made is not in the database. The gate verdict: a confident write REFUTED by an OS_RECORDED witness → GATE BLOCK, the phantom never reaches the next agent. Result across two models: J = 10 of 120 over-claims caught and blocked off the DB-hash, 9 of 9 honest writes admitted, zero correct work blocked, an identical 8.3% over-claim rate on the mid model and the strong one." width="100%">
   <br>
-  <sub><em><strong>It catches the lie and blocks it.</strong> A confident booking, refuted by the DB-hash the agent couldn't author, blocked before a downstream agent inherits the phantom. <a href="benchmark/agentprocessbench/writeadmit/gate_visual.html">Step through it locally</a> (an HTML walkthrough — clone and open in a browser; GitHub shows its source).</em></sub>
+  <sub><em><strong>It catches the lie and blocks it.</strong> A confident booking, refuted by the DB-hash the agent couldn't author, blocked before a downstream agent inherits the phantom. <a href="https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/agentprocessbench/writeadmit/gate_visual.html">Step through it locally</a> (an HTML walkthrough — clone and open in a browser; GitHub shows its source).</em></sub>
 </p>
 
 <p align="center">
-  <img src="benchmark/agentprocessbench/writeadmit/f2-moment.svg" alt="The DOS coordination payoff: a stale write clobbering a cancellation, then prevented. Two live agents act on one shared reservation NM1VX1, each having planned its tool-calls against the same original state, neither aware of the other. A1 cancels the reservation (DB-hash a3f1…afterA1). Under naive replay, A2's add-bag — computed on the original active state — blindly re-activates the reservation and adds a bag, silently overwriting A1's cancellation (composed hash 77c2…naive, a real lost update). Under the arbiter, dos.arbiter leases the region reservations/NM1VX1 to A1, refuses A2's overlapping lease, and A2 re-plans against the post-A1 cancelled state and correctly declines — the DB-hash matches the serialized-correct value and no update is lost. Across six natural conflict pairs drawn from the real task distribution, J = 4 of 6 clobbers were structurally prevented off the DB-hash." width="100%">
+  <img src="https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/benchmark/agentprocessbench/writeadmit/f2-moment.svg" alt="The DOS coordination payoff: a stale write clobbering a cancellation, then prevented. Two live agents act on one shared reservation NM1VX1, each having planned its tool-calls against the same original state, neither aware of the other. A1 cancels the reservation (DB-hash a3f1…afterA1). Under naive replay, A2's add-bag — computed on the original active state — blindly re-activates the reservation and adds a bag, silently overwriting A1's cancellation (composed hash 77c2…naive, a real lost update). Under the arbiter, dos.arbiter leases the region reservations/NM1VX1 to A1, refuses A2's overlapping lease, and A2 re-plans against the post-A1 cancelled state and correctly declines — the DB-hash matches the serialized-correct value and no update is lost. Across six natural conflict pairs drawn from the real task distribution, J = 4 of 6 clobbers were structurally prevented off the DB-hash." width="100%">
   <br>
-  <sub><em><strong>It prevents the collision.</strong> A stale add-bag clobbers a cancellation under naive replay; the arbiter serializes the two agents on the same region so neither overwrites the other. <a href="benchmark/agentprocessbench/writeadmit/f2_visual.html">Step through it locally</a> (an HTML walkthrough — clone and open in a browser).</em></sub>
+  <sub><em><strong>It prevents the collision.</strong> A stale add-bag clobbers a cancellation under naive replay; the arbiter serializes the two agents on the same region so neither overwrites the other. <a href="https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/agentprocessbench/writeadmit/f2_visual.html">Step through it locally</a> (an HTML walkthrough — clone and open in a browser).</em></sub>
 </p>
 
 **📈 Projected — real measurements, composed into a curve (and labelled as one).**
@@ -69,7 +69,7 @@ neutral party can hold, and a notary that proves what an agent did *to a
 skeptic who wasn't in the room* (the mechanism already ships — `dos attest`
 mints an HMAC-signed receipt over an effect-witness verdict and
 `dos verify-receipt` checks it with the shared key alone;
-[docs/246](docs/246_dos-attest-the-portable-signed-receipt.md)). The seeds are
+[docs/246](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/246_dos-attest-the-portable-signed-receipt.md)). The seeds are
 in the tree; we claim no results for any of it.
 
 > **The one distinction that keeps this honest:** a **J** is a *count of failures
@@ -94,5 +94,5 @@ the kernel applies to your agents:
 - **It is not a CI replacement or a test runner.** It sits *beside* them and lets a
   step branch on the exit-code verdict.
 - **The pluggable verdict/JUDGE adjudicator *registry* is specced, not yet
-  shipped** (see [docs/88](docs/88_the-adjudicator-population.md) §5); the JUDGE
+  shipped** (see [docs/88](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/88_the-adjudicator-population.md) §5); the JUDGE
   *seam* and built-in judges are.

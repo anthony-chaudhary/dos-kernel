@@ -2,7 +2,7 @@
 
 The ideas here are written up in a paper — *"Verification Is All You Need — But
 Not Where You Think"* — on the out-of-loop referee for agent fleets. A built PDF
-lives at [`paper/releases/`](paper/releases/); the arXiv preprint is in
+lives at [`paper/releases/`](https://github.com/anthony-chaudhary/dos-kernel/tree/master/paper/releases); the arXiv preprint is in
 preparation. Until the arXiv ID lands, cite the repository:
 
 ```bibtex
@@ -17,4 +17,4 @@ preparation. Until the arXiv ID lands, cite the repository:
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](https://github.com/anthony-chaudhary/dos-kernel/blob/master/LICENSE).
