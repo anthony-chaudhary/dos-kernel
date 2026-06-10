@@ -243,12 +243,18 @@ dos arbitrate --workspace . --lane src
 # predicate guards the kernel's own path.
 
 # 3. verify — did a phase ACTUALLY ship? (the truth syscall, never self-report)
-dos verify --workspace . docs/82_liveness-oracle-plan liveness
-#   SHIPPED docs/82_liveness-oracle-plan liveness 80d4f30 (via grep-subject)
+dos verify --workspace . docs/292_readme-audience-gradient-plan P1
+#   SHIPPED docs/292_readme-audience-gradient-plan P1 85a3bad (via grep-subject)
 dos verify --workspace . docs/99_runtime-validation-and-the-actuation-boundary halt
 #   NOT_SHIPPED ... (via none)   ← still in flight; git ancestry has not stamped it
 # `source=grep`/`none` is the rung that answered. The verdict comes from git
 # ancestry + ship-stamp grammar, NOT from "I'm done" — that is the whole point.
+# ⚠ The oracle's evidence base is exactly the VISIBLE ancestry: this public repo
+# was seeded fresh 2026-06-10 (history starts at the v0.22.0 commit), so a phase
+# stamped before the seed (e.g. docs/82 liveness) answers NOT_SHIPPED via `none`
+# — a conservative abstain, not a bug. A history rewrite amputates the grep
+# rung's evidence; accept the abstain or re-stamp, never teach the oracle to
+# believe a `> **Status:**` sentence instead.
 
 # 4. man — what refusals/lanes does THIS workspace know? (self-describing registry)
 dos man wedge          # the closed reason vocabulary → resolver kind
@@ -257,7 +263,7 @@ dos man lane           # the lane taxonomy + file trees
 # 5. plan — does the plan's CLAIM match the oracle's VERDICT? (check the plan
 #          OUTSIDE the loop — the loop must not self-certify against its own plan)
 dos plan --once --workspace .          # fan the oracle over every declared phase
-dos plan --once docs/82_liveness-oracle-plan liveness  # or an explicit (plan,phase), no doc needed
+dos plan --once docs/292_readme-audience-gradient-plan P1  # or an explicit (plan,phase), no doc needed
 #   each row pairs the plan's self-reported status with `oracle.is_shipped` — the
 #   headline cell is the OVER-CLAIM (plan says SHIPPED, git says not). This is a
 #   verify()-fan-out, NOT a plan reader: a human or supervisor runs it from
