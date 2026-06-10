@@ -38,13 +38,19 @@ name: Publish to PyPI
 # ── HOW TO RELEASE ──────────────────────────────────────────────────────────────
 #   * Real publish:  push a `v*` tag (what `/release` already does), OR run this
 #     workflow manually (Actions → Publish to PyPI → Run workflow) with
-#     target=pypi. TWO gates stand before the upload: the `ci-green` job refuses
-#     any SHA without a green CI run on it (it polls while CI finishes), then the
-#     `pypi` environment's required-reviewer gate pauses for your approval.
-#   * Dry-run first (recommended before the FIRST real upload): run it manually
-#     with target=testpypi — uploads to TestPyPI, validating the entire OIDC path
-#     without touching real PyPI. TestPyPI rejects a version it already has, so
-#     bump or use a throwaway `.devN` for repeat dry-runs.
+#     target=pypi. THREE gates stand before the upload: the `ci-green` job refuses
+#     any SHA without a green CI run on it (it polls while CI finishes); the
+#     TestPyPI REHEARSAL (docs/295 P4) auto-uploads the same artifacts to TestPyPI
+#     and install-smokes them back out on a clean runner (soft gate: an upload
+#     outage ABSTAINS and proceeds, a failed install smoke is a real defect and
+#     refuses); then the `pypi` environment's required-reviewer gate pauses for
+#     your approval with all three verdicts visible.
+#   * Manual rehearsal only: run with target=testpypi — uploads to TestPyPI,
+#     validating the entire OIDC path without touching real PyPI (skip-existing is
+#     on, so repeat rehearsals of the same version no-op).
+#   * The testpypi trusted publisher (setup step 2) is what lets the rehearsal
+#     upload; without it the rehearsal ABSTAINS on every tag — releases still
+#     work, you just lose the registry read-back.
 
 on:
   # A version tag is the trigger for a real release — the same `vX.Y.Z` tag
@@ -203,18 +209,26 @@ jobs:
             sleep 30
           done
 
-  # ── 2a. Dry-run leg → TestPyPI ────────────────────────────────────────────────
-  # Runs only on a manual dispatch with target=testpypi. Validates the full OIDC
-  # publish path without polluting real PyPI.
+  # ── 2a. Rehearsal leg → TestPyPI (docs/295 P4) ─────────────────────────────────
+  # Fires AUTOMATICALLY on every `v*` tag push — before the `pypi` approval hold —
+  # and on a manual dispatch with target=testpypi. ci-green witnesses the TREE;
+  # this leg witnesses the PUBLISH: the same artifact set accepted by a real
+  # registry index, then installed back out of it on a clean runner (the smoke job
+  # below). Soft-gated in the docs/86 fail-to-abstain discipline: an upload
+  # failure here (TestPyPI outage / quota / a missing testpypi trusted publisher)
+  # marks the rehearsal ABSTAINED and the pypi leg still proceeds to its approval
+  # hold with that fact in the summary — but a SMOKE failure (uploaded fine,
+  # installs broken) is a real artifact defect and blocks the hold.
   publish-testpypi:
-    name: publish → TestPyPI (dry-run)
+    name: rehearse → TestPyPI
     needs: build
     # Repo guard: `/release` tags the PRIVATE archive too, and this workflow ships
     # in the seed — but the trusted publisher is bound to the public repo, so a
     # run anywhere else could only fail noisily at upload. Skip it there entirely.
     if: >-
       github.repository == 'anthony-chaudhary/dos-kernel' &&
-      github.event_name == 'workflow_dispatch' && inputs.target == 'testpypi'
+      (github.event_name == 'push' ||
+       (github.event_name == 'workflow_dispatch' && inputs.target == 'testpypi'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment:
@@ -222,6 +236,10 @@ jobs:
       url: https://test.pypi.org/project/dos-kernel/
     permissions:
       id-token: write   # the OIDC token mint — REQUIRED for trusted publishing
+    outputs:
+      # 'success' iff the upload step actually uploaded — the smoke job's
+      # admission condition, and the pypi leg's ABSTAIN-vs-defect discriminator.
+      uploaded: ${{ steps.upload.outcome }}
     steps:
       - name: Download the built distribution
         uses: actions/download-artifact@v4
@@ -229,14 +247,77 @@ jobs:
           name: dist
           path: dist
       - name: Publish to TestPyPI
+        id: upload
+        # Soft gate: a raise here must not fail the rehearsal job — the verdict
+        # split (ABSTAINED vs defect) is carried by `outputs.uploaded` + the
+        # smoke job, not by this job's color.
+        continue-on-error: true
         # SHA-pinned (= release/v1 at pin time): this is the credential-bearing
         # upload step, so it gets a full-SHA pin rather than a movable tag.
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b
         with:
           repository-url: https://test.pypi.org/legacy/
-          # TestPyPI is noisy with leftover versions; don't fail a dry-run just
+          # TestPyPI is noisy with leftover versions; don't fail a rehearsal just
           # because a file already exists there.
           skip-existing: true
+      - name: Report the rehearsal verdict
+        shell: bash
+        run: |
+          if [ "${{ steps.upload.outcome }}" = "success" ]; then
+            echo "rehearsal: TestPyPI accepted the artifacts — install smoke runs next." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::TestPyPI rehearsal ABSTAINED — the upload did not complete (outage / quota / publisher config). The PyPI leg still proceeds to its approval hold; weigh this when approving."
+            echo "rehearsal: ABSTAINED (upload failed — see the upload step log; the pypi hold is NOT blocked)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  # ── 2a′. The rehearsal's read-back — install smoke (docs/295 P4) ────────────────
+  # Installs the just-rehearsed version back OUT of TestPyPI on a clean runner and
+  # imports it — the env-authored read-back of the publish claim. Runs only when
+  # the rehearsal upload actually succeeded, so a failure HERE is never an outage:
+  # it is a real artifact defect (uninstallable wheel, broken import, version
+  # mismatch) and it blocks the pypi hold below.
+  rehearsal-smoke:
+    name: rehearsal install smoke
+    needs: [build, publish-testpypi]
+    if: >-
+      !cancelled() &&
+      needs.publish-testpypi.outputs.uploaded == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install from TestPyPI and import
+        shell: bash
+        run: |
+          set -euo pipefail
+          v="${{ needs.build.outputs.version }}"
+          # --extra-index-url points at real PyPI because TestPyPI does not
+          # mirror dependencies — without it the install fails on PyYAML, a
+          # false red. The pin is exact, so the dos-kernel bytes themselves can
+          # only come from the rehearsal upload (real PyPI does not have $v yet).
+          # The index can lag the upload by a moment; bounded retries absorb it.
+          for i in 1 2 3 4 5; do
+            if python -m pip install --index-url https://test.pypi.org/simple/ \
+                 --extra-index-url https://pypi.org/simple/ "dos-kernel==$v"; then
+              break
+            fi
+            if [ "$i" = 5 ]; then
+              echo "::error::dos-kernel==$v never became installable from TestPyPI — the upload claimed success but the read-back failed."
+              exit 1
+            fi
+            echo "index not serving dos-kernel==$v yet — retry $i/5 in 45s"
+            sleep 45
+          done
+          got="$(python -c 'import dos; print(dos.__version__)')"
+          echo "imported dos $got from the TestPyPI artifact"
+          if [ "$got" != "$v" ]; then
+            echo "::error::installed version $got != built $v"
+            exit 1
+          fi
+          dos doctor
+          echo "rehearsal smoke: dos-kernel==$v installs, imports, and answers doctor from a clean runner" >> "$GITHUB_STEP_SUMMARY"
 
   # ── 2b. Real publish → PyPI ───────────────────────────────────────────────────
   # Runs on a `v*` tag push, OR a manual dispatch with target=pypi. The `pypi`
@@ -246,15 +327,24 @@ jobs:
     name: publish → PyPI
     # ci-green is a hard prerequisite: the artifact may be perfect, but without a
     # green CI run on this exact SHA there is no witnessed suite verdict for the
-    # bytes being published. (Both gates resolve BEFORE the environment's
-    # required-reviewer pause, so the approver sees them green when deciding.)
-    needs: [build, ci-green]
-    # Same repo guard as the dry-run leg: a `v*` tag pushed in the private archive
-    # must not even attempt a publish from there.
+    # bytes being published. The rehearsal pair gates SOFTLY (docs/295 P4): a
+    # skipped smoke (upload abstained / manual pypi dispatch) proceeds, a FAILED
+    # smoke (real install defect) refuses. (All gates resolve BEFORE the
+    # environment's required-reviewer pause, so the approver sees their verdicts
+    # when deciding.)
+    needs: [build, ci-green, publish-testpypi, rehearsal-smoke]
+    # Same repo guard as the rehearsal leg: a `v*` tag pushed in the private
+    # archive must not even attempt a publish from there. `!cancelled()` (not a
+    # bare default) is what lets this job evaluate at all when the rehearsal
+    # legs were skipped — the explicit result conditions then decide.
     if: >-
+      !cancelled() &&
       github.repository == 'anthony-chaudhary/dos-kernel' &&
       (github.event_name == 'push' ||
-       (github.event_name == 'workflow_dispatch' && inputs.target == 'pypi'))
+       (github.event_name == 'workflow_dispatch' && inputs.target == 'pypi')) &&
+      needs.build.result == 'success' &&
+      needs.ci-green.result == 'success' &&
+      needs.rehearsal-smoke.result != 'failure'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment:
