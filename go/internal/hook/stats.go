@@ -50,6 +50,15 @@ type statsAgg struct {
 	MarkerRefuse int          `json:"marker_refuse"`
 	MarkerAllow  int          `json:"marker_allow"`
 
+	// The pretool intervention rate — "what percent of tool calls did the kernel
+	// touch?" One pretool record = one tool call adjudicated, so this verb is the
+	// honest denominator (posttool/stop/marker firings are not tool-call admissions).
+	// A `delegate` outcome is excluded from the intervened count: the Python
+	// fallback decided that call, and this log never saw its verdict.
+	PretoolCalls     int `json:"pretool_calls"`
+	PretoolPassed    int `json:"pretool_passed"`
+	PretoolDelegated int `json:"pretool_delegated"`
+
 	// latency, per verb: mean + p50/p95 over the observed latency_ms samples.
 	LatencyByVerb map[string]latStat `json:"latency_ms_by_verb,omitempty"`
 
@@ -167,6 +176,15 @@ func foldObservationsSince(path string, cutoff time.Time) statsAgg {
 		if verb == "stop" && strField(o, "outcome") == "block" {
 			agg.StopBlocks++
 		}
+		if verb == "pretool" {
+			agg.PretoolCalls++
+			switch strField(o, "outcome") {
+			case "passthrough":
+				agg.PretoolPassed++
+			case "delegate":
+				agg.PretoolDelegated++
+			}
+		}
 		if verb == "marker" {
 			switch strField(o, "outcome") {
 			case "refuse":
@@ -228,10 +246,29 @@ func round2(f float64) float64 {
 	return float64(int64(f*100+0.5)) / 100
 }
 
+// pretoolIntervened is the count of tool calls the hook actually changed (denied,
+// warned, …): everything that neither passed through nor was delegated to Python.
+func (a statsAgg) pretoolIntervened() int {
+	return a.PretoolCalls - a.PretoolPassed - a.PretoolDelegated
+}
+
+// pctOf renders n as a percent of d ("3.2%"); a zero denominator renders "0.0%"
+// (a read-only surface never divides by zero, it degrades).
+func pctOf(n, d int) string {
+	if d <= 0 {
+		return "0.0%"
+	}
+	return fmt.Sprintf("%.1f%%", float64(n)*100/float64(d))
+}
+
 // renderStatsJSON marshals the aggregate as a machine object (byte-stable via the
 // canonical pyJSONDumps after building a sorted plain map). We hand-build the map so
 // the empty-map omission is honored consistently with the human form.
 func renderStatsJSON(agg statsAgg) string {
+	intervenedPct := 0.0
+	if agg.PretoolCalls > 0 {
+		intervenedPct = round2(float64(agg.pretoolIntervened()) * 100 / float64(agg.PretoolCalls))
+	}
 	m := map[string]any{
 		"total_observations": agg.Total,
 		"by_verb":            toAnyMap(agg.ByVerb),
@@ -242,6 +279,10 @@ func renderStatsJSON(agg statsAgg) string {
 		"stop_blocks":        agg.StopBlocks,
 		"marker_refuse":      agg.MarkerRefuse,
 		"marker_allow":       agg.MarkerAllow,
+		"pretool_calls":      agg.PretoolCalls,
+		"pretool_passed":     agg.PretoolPassed,
+		"pretool_intervened": agg.pretoolIntervened(),
+		"pretool_intervened_pct": intervenedPct,
 	}
 	addAnyMapIf(m, "by_rung", agg.ByRung)
 	addAnyMapIf(m, "by_reason_class", agg.ByReason)
@@ -270,6 +311,13 @@ func renderStatsHuman(agg statsAgg, workspace, path string) string {
 		return strings.TrimRight(b.String(), "\n")
 	}
 	fmt.Fprintf(&b, "  observations   %d\n", agg.Total)
+	if agg.PretoolCalls > 0 {
+		iv := agg.pretoolIntervened()
+		fmt.Fprintf(&b, "  tool calls     %d adjudicated — %d passed untouched (%s), %d intervened (%s)\n",
+			agg.PretoolCalls,
+			agg.PretoolPassed, pctOf(agg.PretoolPassed, agg.PretoolCalls),
+			iv, pctOf(iv, agg.PretoolCalls))
+	}
 	renderCountLine(&b, "  by verb       ", agg.ByVerb)
 	renderCountLine(&b, "  by outcome    ", agg.ByOutcome)
 	renderCountLine(&b, "  by exit code  ", agg.ByExit)

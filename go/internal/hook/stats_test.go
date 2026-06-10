@@ -58,6 +58,60 @@ func TestFoldCountsByDimension(t *testing.T) {
 	}
 }
 
+// The pretool intervention rate — the "percent of overall tool calls touched"
+// headline. One pretool record = one tool call; a delegate is excluded from the
+// intervened count (Python decided it); other verbs never enter the denominator.
+func TestPretoolInterventionRate(t *testing.T) {
+	ws := writeObsLog(t,
+		obsLine(map[string]any{"verb": "pretool", "outcome": "passthrough", "exit": 0, "latency_ms": 1.0}),
+		obsLine(map[string]any{"verb": "pretool", "outcome": "passthrough", "exit": 0, "latency_ms": 1.0}),
+		obsLine(map[string]any{"verb": "pretool", "outcome": "deny", "exit": 2, "latency_ms": 1.0}),
+		obsLine(map[string]any{"verb": "pretool", "outcome": "delegate", "exit": 0, "latency_ms": 1.0}),
+		obsLine(map[string]any{"verb": "stop", "outcome": "block", "exit": 2, "latency_ms": 1.0}), // not a tool call
+	)
+	agg := foldObservations(obsLogPath(ws))
+	if agg.PretoolCalls != 4 || agg.PretoolPassed != 2 || agg.PretoolDelegated != 1 {
+		t.Fatalf("pretool tallies wrong: calls=%d passed=%d delegated=%d",
+			agg.PretoolCalls, agg.PretoolPassed, agg.PretoolDelegated)
+	}
+	if agg.pretoolIntervened() != 1 {
+		t.Fatalf("intervened = %d, want 1 (the deny; the delegate is Python's verdict)",
+			agg.pretoolIntervened())
+	}
+	human := renderStatsHuman(agg, "ws", "p")
+	if !strings.Contains(human, "4 adjudicated") ||
+		!strings.Contains(human, "2 passed untouched (50.0%)") ||
+		!strings.Contains(human, "1 intervened (25.0%)") {
+		t.Fatalf("human render missing the rate line:\n%s", human)
+	}
+	out := renderStatsJSON(agg)
+	var o map[string]any
+	if err := json.Unmarshal([]byte(out), &o); err != nil {
+		t.Fatalf("stats JSON not valid: %v\n%s", err, out)
+	}
+	if o["pretool_calls"].(float64) != 4 ||
+		o["pretool_intervened"].(float64) != 1 ||
+		o["pretool_intervened_pct"].(float64) != 25 {
+		t.Fatalf("JSON rate fields wrong: %s", out)
+	}
+}
+
+// pctOf never divides by zero — and a log with no pretool records renders no rate
+// line at all (a denominator of other verbs would be dishonest).
+func TestPretoolRateAbsentWithoutPretoolRecords(t *testing.T) {
+	if got := pctOf(1, 0); got != "0.0%" {
+		t.Fatalf("pctOf(1,0) = %q, want 0.0%%", got)
+	}
+	ws := writeObsLog(t,
+		obsLine(map[string]any{"verb": "stop", "outcome": "block", "exit": 2, "latency_ms": 1.0}),
+	)
+	agg := foldObservations(obsLogPath(ws))
+	human := renderStatsHuman(agg, "ws", "p")
+	if strings.Contains(human, "tool calls") {
+		t.Fatalf("rate line should be absent with zero pretool records:\n%s", human)
+	}
+}
+
 // A torn/corrupt line and a wrong-family / non-OBSERVE record are skipped, never
 // fatal — the durable_schema + tolerant-read discipline.
 func TestFoldTolerantOfBadLines(t *testing.T) {

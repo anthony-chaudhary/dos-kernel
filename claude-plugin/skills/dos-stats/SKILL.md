@@ -34,10 +34,11 @@ A populated run looks like this:
 ```
 dos-hook stats — /your/project
   observations   4
+  tool calls     3 adjudicated — 2 passed untouched (66.7%), 1 intervened (33.3%)
   by verb       posttool=1  pretool=3
-  by outcome    passthrough=4
-  by exit code  0=4
-  pretool rung  none=1  provenance=2
+  by outcome    deny=1  passthrough=3
+  by exit code  0=3  2=1
+  pretool rung  admission=1  none=1  provenance=1
   dialect       claude-code=3
   stream state  ADVANCING=1
   delegates     0  (native declined → Python)
@@ -56,6 +57,11 @@ empty until the hooks have fired at least once. Make any tool call in this proje
 - **observations / by verb** — how many calls the kernel adjudicated, split by hook
   (`pretool` = before a tool runs, `posttool` = after a read, `stop` = on a stop,
   `marker` = the keep-alive budget).
+- **tool calls** — the intervention RATE: of every tool call adjudicated (one
+  `pretool` record each), what share passed untouched vs was warned or denied. This
+  is the "is the substrate a light touch or a nanny?" number — numerator and
+  denominator come from the same log, so the percent cannot be argued with. A
+  delegated call is counted in neither (Python decided it; see **delegates**).
 - **by outcome** — `passthrough` (let it run), `deny` (refused a structurally-unsafe
   call, e.g. a self-modify of the kernel's own path), `warn` (advisory re-surface),
   `block` (a stop refused on an unverified claim).
