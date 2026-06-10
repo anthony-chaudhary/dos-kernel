@@ -44,22 +44,8 @@ zero config, and the only thing you ever install is one small Python package.
 <sub>**v0.22.0** · 3900+ tests · CI: Python 3.11–3.13 on Linux + a Windows 3.13
 smoke run · the only runtime dependency is **PyYAML** · **MIT**.</sub>
 
-<details>
-<summary><strong>The 30-second mental model</strong> (one paragraph, plain words) — click to expand</summary>
-
-> Coding agents narrate everything: what they shipped, which files they touched,
-> whether they're still making progress. DOS treats all of that as a claim, not
-> a fact, and hands you a verdict built from what actually happened. Under the
-> hood it's a small, deterministic kernel — the part that decides ground truth
-> across a crowd of unreliable workers and keeps their edits from colliding.
-> Nothing about it is coding-specific: your repo declares its own rules (which
-> file regions each agent may touch, how a commit signals "done") as data in one
-> `dos.toml`, and the kernel supplies only the machinery. You reach that
-> machinery through small, do-one-thing commands — `verify`, `arbitrate`,
-> `liveness`, `refuse` — from the `dos` CLI, an MCP server wired into the agent
-> host you already run, or straight from Python.
-
-</details>
+> 🧭 **Want it in plain words first?** What DOS is, what it catches, and what
+> adopting it costs — no code: **[the plain-words version](#the-plain-words-version)**, just below.
 
 > **Reading this as an AI agent?** Start with **[AGENTS.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/AGENTS.md)** — a short
 > orientation written for you: what DOS is in three lines, how to build/test/check
