@@ -11,8 +11,11 @@
 #
 # It is NOT a `curl | sh` remote installer — there is nothing to download; you
 # already have the source. (DOS is near-stdlib: the core kernel's only runtime
-# dependency is PyYAML.) If you prefer a package manager, see docs/INSTALL.md —
-# `uv tool install .` and `pip install -e .` are first-class alternatives.
+# dependency is PyYAML.) No clone at all? The default no-clone install is
+# straight from the public repo:
+#   pip install "dos-kernel @ git+https://github.com/anthony-chaudhary/dos-kernel.git"
+# If you prefer a package manager, see docs/INSTALL.md — `uv tool install .`
+# and `pip install -e .` are first-class alternatives.
 #
 # SECURITY: this script is committed in the repo you just cloned — read it
 # before running. It runs only `python install.py "$@"` against the local tree;
