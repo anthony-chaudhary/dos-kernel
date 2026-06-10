@@ -12,7 +12,7 @@ your job title, and every section hands off to the one above it.
 | *"What is this, in plain words, and why should my team care?"* | [the plain-words version](#the-plain-words-version), just below — no code | hand the [60-second demo](#try-it-in-60-seconds) to whoever runs your agents |
 | *"Show me it working, fast."* | [Try it in 60 seconds](#try-it-in-60-seconds) | [what goes wrong in a fleet](#what-goes-wrong-in-a-fleet) without it |
 | *"I already run agents — how do I wire the verdict into **my** stack?"* | [How you plug it in](#how-you-plug-it-in) | [the MCP lie detector](#give-your-agent-a-lie-detector-mcp) · [Install](#install) |
-| *"I run a fleet every day — how do I watch it, triage it, debug it?"* | [Three live projections](#three-live-projections-read-only-tuis) | [Debug a stuck fleet](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/06_debug-a-stuck-fleet.md) |
+| *"I run a fleet every day — how do I watch it, triage it, debug it?"* | [Operating a fleet](#operating-a-fleet) | [Three live projections](#three-live-projections-read-only-tuis) · [Debug a stuck fleet](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/06_debug-a-stuck-fleet.md) |
 | *"How do I bend it to my org without forking it?"* | [Hacking it](#hacking-it) | [docs/HACKING.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/HACKING.md) — the seven extension axes |
 | *"What is actually proven here — and can I re-run it?"* | [For researchers](#for-researchers) — claims → invariants → reproduction | [What's proven and what's still a bet](#whats-proven-and-whats-still-a-bet) · [Citation](#citation) |
 
