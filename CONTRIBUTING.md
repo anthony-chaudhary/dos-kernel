@@ -67,6 +67,26 @@ For the MCP server surface: `pip install -e ".[mcp]"` then `dos-mcp`.
 purpose; the suite is fast. A change that can't keep the suite green is a change that
 isn't ready.
 
+## Branching & merging
+
+`master` is the only long-lived branch, and it is protected:
+
+- **Changes land via pull request.** Direct pushes are reserved to the
+  maintainer (a transitional state); the contributor path is fork → branch → PR.
+- **One required check: `ci-ok`.** It folds the whole CI matrix (leak scan, lint,
+  the test legs, the wheel build) into a single verdict. The PR can merge when it
+  is green; no approving-review count is configured today (single-maintainer
+  reality — see "Maintenance reality" below).
+- **Rebase or squash only.** Merge commits are disabled and linear history is
+  enforced. A single-commit PR keeps its authored subject on squash, so write
+  the subject to the repo's grammar (`git log` shows it).
+- **Branch naming:** `lane/<lane>/<slug>` (e.g. `lane/docs/fix-readme-link`) is
+  the house style — `<lane>` mirrors the top-level directory the change touches,
+  the same taxonomy `dos arbitrate` adjudicates. Helpful but not enforced for
+  external PRs.
+- **Release tags are immutable** (`v*` and `stable/*`, by ruleset), and head
+  branches auto-delete on merge.
+
 ## What makes a good change
 
 - **Small, in one layer.** A PR that edits the kernel *and* a driver *and* a skill is

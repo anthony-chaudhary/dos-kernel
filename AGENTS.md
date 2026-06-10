@@ -186,6 +186,12 @@ the preference is to land promptly, not defer. A few specifics:
   rule is the "Out-of-scope findings" section of [CLAUDE.md](CLAUDE.md).
 - **Ask first only for the hard-to-reverse / outward-facing** — pushing, tagging, a
   release, history rewrites. A local commit on `master` is none of those.
+- **The GitHub remote is PR-gated** (since 2026-06-10): a non-maintainer change
+  lands via PR with the `ci-ok` check green; merges are rebase/squash only
+  (linear history). Maintainer/fleet commits to local `master` are unchanged
+  during the transition (admin bypass). PR-path work uses a
+  `lane/<lane>/<slug>` branch in its own worktree — never switch the shared
+  working tree's branch while another loop is editing it.
 
 ---
 
