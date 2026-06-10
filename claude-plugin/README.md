@@ -11,10 +11,12 @@ The plugin ships **JSON + markdown only**. The brains — the `verify` / `arbitr
 package**. So the one prerequisite is:
 
 ```bash
-pip install "dos-kernel[mcp]"
+pip install "dos-kernel[mcp] @ git+https://github.com/anthony-chaudhary/dos-kernel.git"
 ```
 
-installed into the **same interpreter Claude Code launches** (`python` on its PATH).
+(straight from the public repo — `dos-kernel` is pre-PyPI; once it publishes this
+shrinks to `pip install "dos-kernel[mcp]"`), installed into the **same interpreter
+Claude Code launches** (`python` on its PATH).
 The `[mcp]` extra is what the bundled MCP server needs; the core hooks need only the
 base package. If the package isn't importable, the hooks **fail safe** (emit nothing,
 exit 0 — they never break a turn) and the MCP server prints an install hint in `/mcp`.
@@ -22,8 +24,8 @@ exit 0 — they never break a turn) and the MCP server prints an install hint in
 ## Install
 
 ```bash
-# 1. the prerequisite (see above)
-pip install "dos-kernel[mcp]"
+# 1. the prerequisite (see above) — straight from the public repo while pre-PyPI
+pip install "dos-kernel[mcp] @ git+https://github.com/anthony-chaudhary/dos-kernel.git"
 
 # 2. inside Claude Code:
 /plugin marketplace add anthony-chaudhary/dos-kernel
