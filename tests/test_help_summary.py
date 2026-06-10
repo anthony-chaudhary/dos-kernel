@@ -387,6 +387,51 @@ def test_render_explain_shows_meaning_and_examples():
     assert "src/dos/arbiter.py" in text and "via Write" in text
 
 
+def test_by_reason_rung_splits_each_bucket_by_rung():
+    """`by_reason_rung` carries the per-bucket BLOCK/WARN split `--explain` labels with."""
+    recs = [
+        _enforce(reason_class="SELF_MODIFY", intervention="BLOCK"),
+        _enforce(reason_class="admission", intervention="BLOCK"),
+        _enforce(reason_class="admission", intervention="WARN", withheld=False),
+        _enforce(reason_class="admission", intervention="WARN", withheld=False),
+    ]
+    s = hs.summarize(recs)
+    assert s.by_reason_rung == {"SELF_MODIFY": {"BLOCK": 1},
+                                "admission": {"WARN": 2, "BLOCK": 1}}
+    assert s.to_dict()["by_reason_rung"]["admission"] == {"WARN": 2, "BLOCK": 1}
+
+
+def test_explain_bucket_label_is_rung_honest():
+    """A mixed bucket reads "1 block, 2 warns", never a flat "3 blocks" (issue #9)."""
+    recs = [
+        _enforce(reason_class="admission", intervention="BLOCK"),
+        _enforce(reason_class="admission", intervention="WARN", withheld=False),
+        _enforce(reason_class="admission", intervention="WARN", withheld=False),
+    ]
+    text = hs.render_explain_text(hs.summarize(recs, with_examples=True))
+    assert "admission  (1 block, 2 warns)" in text
+    assert "3 blocks" not in text
+
+
+def test_explain_warn_only_bucket_never_says_blocks():
+    """The issue #9 pin: a WARN-only bucket is never rendered with the word "blocks"."""
+    recs = [
+        _enforce(reason_class="admission", intervention="WARN", withheld=False),
+        _enforce(reason_class="admission", intervention="WARN", withheld=False),
+    ]
+    text = hs.render_explain_text(hs.summarize(recs, with_examples=True))
+    assert "admission  (2 warns)" in text
+    assert "blocks" not in text
+
+
+def test_explain_label_falls_back_to_neutral_catches():
+    """A summary built without the per-rung split degrades to the neutral noun."""
+    s = hs.HelpSummary(total=2, by_reason={"admission": 2})
+    text = hs.render_explain_text(s)
+    assert "admission  (2 catches)" in text
+    assert "blocks" not in text
+
+
 def test_explain_json_carries_examples_and_glossary(tmp_path, capsys):
     import json
     from dos import cli

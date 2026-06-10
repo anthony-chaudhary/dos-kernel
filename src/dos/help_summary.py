@@ -141,6 +141,10 @@ class HelpSummary:
     by_rung: dict[str, int] = field(default_factory=dict)
     by_reason: dict[str, int] = field(default_factory=dict)
     by_tool: dict[str, int] = field(default_factory=dict)
+    # reason class → {rung: count}. The per-bucket split `--explain` needs to label
+    # a bucket honestly — `by_reason` alone cannot say whether its 25 records were
+    # denies or advisory warns (issue #9: a mostly-WARN bucket rendered as "25 blocks").
+    by_reason_rung: dict[str, dict[str, int]] = field(default_factory=dict)
     examples: dict[str, tuple[Example, ...]] = field(default_factory=dict)
     since: str = ""
     latest: str = ""
@@ -167,6 +171,8 @@ class HelpSummary:
             "deferred": self.deferred,
             "by_rung": dict(self.by_rung),
             "by_reason": dict(self.by_reason),
+            "by_reason_rung": {cls: dict(rungs)
+                               for cls, rungs in self.by_reason_rung.items()},
             "by_tool": dict(self.by_tool),
             "since": self.since,
             "latest": self.latest,
@@ -288,6 +294,7 @@ def summarize(
     withheld = 0
     by_rung: dict[str, int] = {}
     by_reason: dict[str, int] = {}
+    by_reason_rung: dict[str, dict[str, int]] = {}
     by_tool: dict[str, int] = {}
     examples: dict[str, list[Example]] = {}
     seen_targets: dict[str, set[str]] = {}
@@ -322,6 +329,8 @@ def summarize(
         # "admission 597 / SELF_MODIFY 13" split into the honest single bucket.
         reason_class = _recover_reason_class(rec)
         by_reason[reason_class] = by_reason.get(reason_class, 0) + 1
+        rungs = by_reason_rung.setdefault(reason_class, {})
+        rungs[rung] = rungs.get(rung, 0) + 1
         tool = str(rec.get("tool") or "").strip() or "-"
         by_tool[tool] = by_tool.get(tool, 0) + 1
 
@@ -349,6 +358,10 @@ def summarize(
         withheld=withheld,
         by_rung=dict(sorted(by_rung.items(), key=lambda kv: (-kv[1], kv[0]))),
         by_reason=dict(sorted(by_reason.items(), key=lambda kv: (-kv[1], kv[0]))),
+        by_reason_rung={
+            cls: dict(sorted(rungs.items(), key=lambda kv: (-kv[1], kv[0])))
+            for cls, rungs in by_reason_rung.items()
+        },
         by_tool=dict(sorted(by_tool.items(), key=lambda kv: (-kv[1], kv[0]))),
         examples={cls: tuple(exs) for cls, exs in examples.items()},
         since=first_ts,
@@ -478,6 +491,31 @@ def render_summary_text(summary: HelpSummary, *, scope: str = "") -> str:
     return "\n".join(out)
 
 
+# The per-bucket heading noun, rung-honest (issue #9): the old flat "(N blocks)"
+# overstated enforcement — a bucket of 25 records could be 21 advisory warn-and-pass
+# WARNs and only 4 denies. Canonical rungs get their own noun; any record outside
+# them (a custom `help_rungs` set) falls back to the neutral "catch", the same verb
+# the headline uses.
+_RUNG_NOUNS = {"BLOCK": "block", "WARN": "warn", "DEFER": "defer"}
+
+
+def _bucket_label(total: int, rungs: dict[str, int]) -> str:
+    """The honest count label for one `--explain` reason bucket. PURE.
+
+    "4 blocks, 21 warns" when the per-rung split is known; "N catches" when it is
+    not (a summary built without `by_reason_rung`) or for records on a rung outside
+    the canonical three. A WARN-only bucket therefore never reads "blocks"."""
+    def plural(n: int, noun: str) -> str:
+        return f"{n} {noun}" + ("" if n == 1 else ("es" if noun == "catch" else "s"))
+
+    parts = [plural(rungs[r], _RUNG_NOUNS[r]) for r in ("BLOCK", "WARN", "DEFER")
+             if rungs.get(r)]
+    leftover = total - sum(rungs.get(r, 0) for r in _RUNG_NOUNS)
+    if leftover > 0:
+        parts.append(plural(leftover, "catch"))
+    return ", ".join(parts) if parts else plural(total, "catch")
+
+
 def render_explain_text(summary: HelpSummary, *, scope: str = "") -> str:
     """The `dos helped --explain` drill-down — per reason class: meaning + examples.
 
@@ -502,8 +540,8 @@ def render_explain_text(summary: HelpSummary, *, scope: str = "") -> str:
         return "\n".join(out)
     for reason, n in summary.by_reason.items():
         out.append("")
-        plural = "block" if n == 1 else "blocks"
-        out.append(f"  {reason}  ({n} {plural})")
+        label = _bucket_label(n, summary.by_reason_rung.get(reason, {}))
+        out.append(f"  {reason}  ({label})")
         gloss = explain_reason(reason)
         if gloss:
             out.append(f"    means: {gloss}")
