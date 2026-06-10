@@ -130,7 +130,7 @@ capability gap is surfaced at runtime, matching `/dos-dispatch-loop`.
 
 > **The shape, run for real.** `doctor → arbitrate → gate → ship → verify`,
 > with the actual `LaneDecision` JSON and the exit codes that branch it. Captured
-> against a live DOS workspace (`dos 0.23.3`); copy-paste, then read the RUNG.
+> against a live DOS workspace (`dos 0.23.4`); copy-paste, then read the RUNG.
 
 ```bash
 $ dos doctor --workspace . --json

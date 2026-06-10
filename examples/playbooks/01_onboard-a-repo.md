@@ -40,7 +40,7 @@ dos doctor --workspace .
 before you've configured anything:
 
 ```text
-DOS v0.23.3
+DOS v0.23.4
 workspace root      /home/you/code/my-service
 execution-state     /home/you/code/my-service/.dos/execution-state.yaml
 plans glob          docs/**/*-plan.md
@@ -58,7 +58,7 @@ supervisor target   1  (count_spinning_as_alive=yes, reap_stalled=yes, spin_halt
 is git workspace    yes
 runtime hooks       none wired   (run `dos init --hooks <runtime>` to bind)
 layout style        dos
-environment print   <hash>  (kernel v0.23.3 @ <sha>; py 3.13.7; <os>)
+environment print   <hash>  (kernel v0.23.4 @ <sha>; py 3.13.7; <os>)
   declared tools    (none declared)
 dos home            /home/you/.dos  (0 project(s) indexed)
 ```
