@@ -21,7 +21,7 @@ name: Publish to PyPI
 #   1. PyPI  → https://pypi.org/manage/account/publishing/  (Add a pending publisher)
 #        PyPI Project Name : dos-kernel
 #        Owner             : anthony-chaudhary
-#        Repository        : dos-kernel        (the PUBLIC repo name — see PUBLISHING.md)
+#        Repository        : dos-kernel        (the PUBLIC repo name)
 #        Workflow name     : publish.yml
 #        Environment       : pypi
 #      (A "pending" publisher reserves the name on first publish; after the first

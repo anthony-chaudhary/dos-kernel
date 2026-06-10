@@ -270,7 +270,8 @@ def main(argv: list[str] | None = None) -> int:
             ok_all = False
 
     print(f"\n{'OK' if ok_all else 'INCOMPLETE'}: {len(built)} artifact(s) in dist/. "
-          f"`twine check dist/*` then publish per PUBLISHING.md (owner-only upload).")
+          f"`twine check dist/*` then publish via the tag-gated workflow "
+          f"(owner-only upload; see .github/workflows/publish.yml).")
     return 0 if ok_all else 1
 
 

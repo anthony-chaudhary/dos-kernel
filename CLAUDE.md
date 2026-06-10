@@ -37,7 +37,8 @@ editing, and keep edits inside the layer they belong to.
 
 > **Tracked here = public-bound. Route privacy at AUTHORING time, not seed time.**
 > This checkout is the private *archive* of a public artifact: the publishable tree
-> is seeded fresh into the public `dos-kernel` repo (`PUBLISHING.md`), and **every
+> is seeded fresh into the public `dos-kernel` repo (the publishing playbook lives
+> in `dos-strategy` as `dispatch-os-publishing-playbook.md`), and **every
 > tracked file default-ships** unless the publication gate — `scripts/leak_scan.py`,
 > private-side tooling that itself never ships, run by CI on every push — excludes
 > it. The gate only catches a leak *after* it is committed, and the archive's

@@ -21,7 +21,7 @@ posting — they trace to `paper/sections/*.html` + `paper/meta.py`.*
 The repo and the package come first (the post links to them). A reasonable
 sequence:
 
-1. **Repo + PyPI live** (PUBLISHING.md stages 1–2) — so links resolve.
+1. **Repo + PyPI live** — so links resolve.
 2. **LinkedIn post** ([`linkedin.md`](linkedin.md)) — the launch. Attach the
    high-res hero poster (`docs/assets/loop-hero.png`, 3600×1920) or the TUI screenshot.
 3. **Blog / longer narrative** ([`blog.md`](blog.md)) — for anyone who clicks "read
@@ -31,7 +31,7 @@ sequence:
    first comment immediately. Independent of the others; the paper goes up as its
    own separate HN item later.
 5. **arXiv post** ([`arxiv-abstract.md`](arxiv-abstract.md)) — *after* arXiv
-   assigns an ID (PUBLISHING.md stage 3). Fill the `arXiv:XXXX.XXXXX` placeholder.
+   assigns an ID. Fill the `arXiv:XXXX.XXXXX` placeholder.
 
 ## The one rule for all of it
 

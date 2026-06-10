@@ -40,7 +40,7 @@ cleaner with the project's `[paper]` extra:  pip install -e ".[paper]"
 (or `pip install arxiv-latex-cleaner`). The tar still builds without it.
 
 The printed checklist is the manual-only residue (endorsement, license,
-moderation) — the part no script can take for you. See PUBLISHING.md → arXiv.
+moderation) — the part no script can take for you.
 """
 
 from __future__ import annotations
@@ -305,7 +305,6 @@ def _print_checklist(out: Path, missing: list[str], have_bbl: bool, have_refs: b
     print("   4. Pick categories (cs.SE primary, cs.AI; optionally cs.DC) + a license,")
     print("      confirm the title/author metadata, submit. Expect human moderation.")
     print("  ----------------------------------------------------------------------")
-    print("  Full walkthrough: PUBLISHING.md → 'Submit the paper to arXiv'.")
 
 
 def _finish(report: dict, args: argparse.Namespace, code: int) -> int:

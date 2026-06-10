@@ -7,8 +7,8 @@ This is the LOCAL, fully-reversible half of publishing: it produces
 `dist/dos_kernel-<version>{.tar.gz,-py3-none-any.whl}` and proves they are
 publishable (metadata renders, the wheel imports, the `dos` CLI runs from a
 clean throwaway venv) — but it does NOT upload. Upload is the one-way step the
-publish workflow (or a manual `twine upload`) takes, gated separately. See
-PUBLISHING.md.
+publish workflow (or a manual `twine upload`) takes, gated separately — see
+.github/workflows/publish.yml for the trigger + one-time owner setup.
 
 It is dev tooling that operates ON the package, not part of it (the layering
 note in CLAUDE.md: nothing under src/dos imports scripts/). It anchors on the
@@ -160,7 +160,8 @@ def main(argv: list[str] | None = None) -> int:
         report["ok"] = True
         if not args.json:
             print(f"\nAll steps passed. dist/ holds the publishable dos-kernel {version}.")
-            print("Next (one-way, NOT done here): see PUBLISHING.md -> 'Publish to PyPI'.")
+            print("Next (one-way, NOT done here): the tag-gated publish workflow uploads"
+                  " (see .github/workflows/publish.yml).")
         return _finish(report, args, 0)
 
     except subprocess.CalledProcessError as e:  # _package_version / git failures
