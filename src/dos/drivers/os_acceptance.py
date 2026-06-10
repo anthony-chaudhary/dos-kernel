@@ -134,6 +134,10 @@ class OsAcceptanceEvidenceSource:
                 check=False,
                 timeout=self._timeout_s,
                 cwd=self._cwd,
+                # docs/295 — never leak the caller's stdin into the acceptance
+                # command (an acceptance run is a witness, not an interactive
+                # session; inheriting a server's transport pipe wedges it).
+                stdin=subprocess.DEVNULL,
             )
         except FileNotFoundError:
             return EvidenceFacts.no_signal(

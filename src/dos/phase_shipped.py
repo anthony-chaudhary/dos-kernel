@@ -165,6 +165,10 @@ def _git_log(args: list[str]) -> list[str]:
         encoding="utf-8",
         errors="replace",
         check=False,
+        # Never inherit the caller's stdin: inside a long-lived stdio server
+        # (dos-mcp) it is the live transport pipe, and a git child holding it
+        # wedges on Windows — the docs/295 stall.
+        stdin=subprocess.DEVNULL,
     )
     if result.returncode != 0:
         raise RuntimeError(f"git log failed: {result.stderr.strip()}")

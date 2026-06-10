@@ -275,6 +275,11 @@ def _kernel_sha(kernel_root: Path | None) -> str | None:
             capture_output=True,
             text=True,
             timeout=_GIT_TIMEOUT_S,
+            # Never inherit the caller's stdin: inside a long-lived stdio server
+            # (dos-mcp) it is the live transport pipe, and a git child holding it
+            # wedges on Windows — the docs/295 stall. An evidence probe reads no
+            # stdin, so it declares that.
+            stdin=subprocess.DEVNULL,
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -298,6 +303,7 @@ def _tool_version(name: str) -> str:
             capture_output=True,
             text=True,
             timeout=_GIT_TIMEOUT_S,
+            stdin=subprocess.DEVNULL,  # docs/295 — never leak the caller's stdin
         )
     except (OSError, subprocess.SubprocessError):
         return ""

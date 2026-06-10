@@ -5529,7 +5529,8 @@ def cmd_quickstart(args: argparse.Namespace) -> int:
 
     def _run_git(*git_args: str) -> None:
         subprocess.run(["git", "-C", str(work), *git_args],
-                       check=True, capture_output=True, text=True)
+                       check=True, capture_output=True, text=True,
+                       stdin=subprocess.DEVNULL)  # docs/295
 
     driver_name = getattr(args, "driver", None)
 
@@ -5602,7 +5603,8 @@ def cmd_quickstart(args: argparse.Namespace) -> int:
         _run_git("add", "-A")
         _run_git("commit", "-q", "-m", _story.COMMIT_SUBJECT)
         head = subprocess.run(["git", "-C", str(work), "rev-parse", "--short", "HEAD"],
-                              check=True, capture_output=True, text=True).stdout.strip()
+                              check=True, capture_output=True, text=True,
+                              stdin=subprocess.DEVNULL).stdout.strip()  # docs/295
         _say(f"# {_story.SHIPPED_FEATURE.capitalize()} really did land — one commit, "
              "stamped with its work-unit")
         _say(f"# id (any letters+digit token at the front of a subject; "
@@ -5888,6 +5890,7 @@ def _stamp_coverage_finding(cfg: _config.SubstrateConfig) -> str | None:
             ["git", "log", "--format=%s", "-200"],
             cwd=str(cfg.paths.root), capture_output=True, text=True,
             encoding="utf-8", errors="replace", check=False, timeout=10,
+            stdin=subprocess.DEVNULL,  # docs/295 — never leak the caller's stdin
         )
         subjects = res.stdout.splitlines() if res.returncode == 0 else []
     except (OSError, subprocess.SubprocessError):
@@ -5908,6 +5911,7 @@ def _verifiability_headline(cfg: _config.SubstrateConfig) -> str:
             ["git", "log", "--format=%s", "-50"],
             cwd=str(cfg.paths.root), capture_output=True, text=True,
             encoding="utf-8", errors="replace", check=False, timeout=10,
+            stdin=subprocess.DEVNULL,  # docs/295 — never leak the caller's stdin
         )
         subjects = res.stdout.splitlines() if res.returncode == 0 else []
     except (OSError, subprocess.SubprocessError):
@@ -5946,6 +5950,7 @@ def _verifiability_facts(cfg: _config.SubstrateConfig) -> dict:
             ["git", "log", "--format=%s", "-50"],
             cwd=str(cfg.paths.root), capture_output=True, text=True,
             encoding="utf-8", errors="replace", check=False, timeout=10,
+            stdin=subprocess.DEVNULL,  # docs/295 — never leak the caller's stdin
         )
         subjects = res.stdout.splitlines() if res.returncode == 0 else []
     except (OSError, subprocess.SubprocessError):

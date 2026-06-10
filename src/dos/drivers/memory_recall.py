@@ -750,6 +750,7 @@ def _pickaxe_fix(literal: str, repo_file: str, root: Path) -> str:
         raw = subprocess.run(
             ["git", "log", "-S", literal, "-n", "1", "--pretty=format:%h\t%s", "--", repo_file],
             cwd=str(root), capture_output=True, text=True, check=False, timeout=_GIT_TIMEOUT_S,
+            stdin=subprocess.DEVNULL,  # docs/295 — never leak the caller's stdin
         )
     except (OSError, subprocess.TimeoutExpired):
         return ""
@@ -862,6 +863,7 @@ def _probe_sha(claim: MemoryClaim, root: Path) -> ClaimEvidence:
         r = subprocess.run(
             ["git", "merge-base", "--is-ancestor", sha, "HEAD"],
             cwd=str(root), capture_output=True, check=False, timeout=_GIT_TIMEOUT_S,
+            stdin=subprocess.DEVNULL,  # docs/295 — never leak the caller's stdin
         )
     except (OSError, subprocess.TimeoutExpired):
         return ClaimEvidence(claim, ProbeStatus.UNKNOWN, "git unavailable", "none")
@@ -896,6 +898,7 @@ def _path_deleting_commit(repo_file: str, root: Path) -> str:
         raw = subprocess.run(
             ["git", "log", "--diff-filter=D", "-n", "1", "--pretty=format:%h\t%s", "--", repo_file],
             cwd=str(root), capture_output=True, text=True, check=False, timeout=_GIT_TIMEOUT_S,
+            stdin=subprocess.DEVNULL,  # docs/295 — never leak the caller's stdin
         )
     except (OSError, subprocess.TimeoutExpired):
         return ""
@@ -919,6 +922,7 @@ def _path_ever_tracked(repo_file: str, root: Path) -> Optional[bool]:
         raw = subprocess.run(
             ["git", "log", "--all", "-n", "1", "--pretty=format:%h", "--", repo_file],
             cwd=str(root), capture_output=True, text=True, check=False, timeout=_GIT_TIMEOUT_S,
+            stdin=subprocess.DEVNULL,  # docs/295 — never leak the caller's stdin
         )
     except (OSError, subprocess.TimeoutExpired):
         return None

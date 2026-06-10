@@ -68,6 +68,7 @@ def _is_ancestor(sha: str, *, root: Path | str) -> bool:
             text=True,
             check=False,
             timeout=_GIT_TIMEOUT_S,
+            stdin=subprocess.DEVNULL,  # docs/295 — never leak the caller's stdin
         )
     except (OSError, subprocess.TimeoutExpired):
         return False
@@ -96,6 +97,7 @@ def _touched_files(sha: str, *, root: Path | str) -> set[str] | None:
             errors="replace",
             timeout=_GIT_TIMEOUT_S,
             check=False,
+            stdin=subprocess.DEVNULL,  # docs/295 — never leak the caller's stdin
         )
     except (OSError, subprocess.TimeoutExpired):
         return None

@@ -54,6 +54,7 @@ def commits_since(start_sha: str, *, root: Path | str) -> list[dict[str, str]]:
             text=True,
             check=False,
             timeout=_GIT_TIMEOUT_S,
+            stdin=subprocess.DEVNULL,  # docs/295 — never leak the caller's stdin
         )
     except (OSError, subprocess.TimeoutExpired):
         return []
@@ -106,6 +107,7 @@ def recent_commits(n: int = 10, *, root: Path | str) -> list[dict[str, str]]:
             text=True,
             check=False,
             timeout=_GIT_TIMEOUT_S,
+            stdin=subprocess.DEVNULL,  # docs/295 — never leak the caller's stdin
         )
     except (OSError, subprocess.TimeoutExpired):
         return []

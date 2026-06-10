@@ -408,6 +408,7 @@ def _run_gh(args: list[str]) -> tuple[Optional[str], str]:
             text=True,
             check=False,
             timeout=_GH_TIMEOUT_S,
+            stdin=subprocess.DEVNULL,  # docs/295 — never leak the caller's stdin
         )
     except FileNotFoundError:
         return None, "gh CLI not installed"
@@ -591,6 +592,7 @@ def main(argv: list[str] | None = None) -> int:
                 ["git", "rev-parse", sha],
                 cwd=str(cfg.paths.root), capture_output=True, text=True,
                 check=False, timeout=10,
+                stdin=subprocess.DEVNULL,  # docs/295 — never leak the caller's stdin
             )
             if r.returncode == 0 and r.stdout.strip():
                 sha = r.stdout.strip()

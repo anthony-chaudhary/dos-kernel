@@ -580,7 +580,8 @@ def _git(root: Path | str, *args: str) -> tuple[int, str]:
     try:
         r = subprocess.run(["git", "-C", str(root), *args],
                            capture_output=True, text=True, check=False,
-                           timeout=_GIT_TIMEOUT_S)
+                           timeout=_GIT_TIMEOUT_S,
+                           stdin=subprocess.DEVNULL)  # docs/295
     except (OSError, subprocess.SubprocessError):
         return 1, ""
     return r.returncode, r.stdout

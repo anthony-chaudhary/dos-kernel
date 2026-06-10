@@ -255,6 +255,7 @@ def _ship_oracle_verdict(plan_id: str, phase: str) -> str:
             text=True,
             check=False,
             timeout=10,
+            stdin=subprocess.DEVNULL,  # docs/295 — never leak the caller's stdin
         )
     except (OSError, subprocess.TimeoutExpired):
         return "ERROR"

@@ -443,6 +443,7 @@ def _git_log_subjects(scan_depth: int) -> list[str]:
             ["git", "log", "--oneline", f"-{scan_depth}", "--", *_ARCHIVE_PATHSPEC],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=20,
+            stdin=subprocess.DEVNULL,  # docs/295 — never leak the caller's stdin
         )
     except (OSError, subprocess.SubprocessError):
         return []

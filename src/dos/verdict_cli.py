@@ -57,6 +57,7 @@ def _git_diff_names(base: str, head: str, *, root: Path | str) -> frozenset[str]
             ["git", "diff", "--name-only", f"{base}..{head}"],
             cwd=str(root), capture_output=True, text=True,
             check=False, timeout=_GIT_TIMEOUT_S,
+            stdin=subprocess.DEVNULL,  # docs/295 — never leak the caller's stdin
         )
     except (OSError, subprocess.TimeoutExpired):
         return frozenset()

@@ -522,6 +522,7 @@ def _git_touched_files(sha: str, *, timeout: int = 15) -> set[str] | None:
             errors="replace",
             timeout=timeout,
             check=False,
+            stdin=subprocess.DEVNULL,  # docs/295 — never leak the caller's stdin
         )
     except (subprocess.TimeoutExpired, OSError):
         return None

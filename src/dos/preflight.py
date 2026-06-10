@@ -140,6 +140,7 @@ def _run(cmd: list[str], *, timeout: int = 30) -> tuple[int, str, str]:
             encoding="utf-8",
             errors="replace",
             timeout=timeout,
+            stdin=subprocess.DEVNULL,  # docs/295 — never leak the caller's stdin
         )
         return p.returncode, p.stdout, p.stderr
     except FileNotFoundError as e:
