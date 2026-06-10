@@ -688,12 +688,15 @@ dos commit-audit --sweep --warn-only --workspace . <last_tag>..HEAD
   was null on a first-ever release); fall back to `dos commit-audit --warn-only HEAD`
   for just the release commit, or skip — it's advisory.
 
-Why `commit-audit`, not `dos plan --once`: on THIS repo `dos plan --once` prints
-"(no plans declared)" and that is correct — DOS's `docs/NN_*.md` are prose, not a
-parseable phase table, so the plan board has no CLAIM to refute (the docs/228
-empty-case). This repo's claims live in **commit subjects**, so the commit-audit
-sweep is the witness it actually has. This step is **advisory** — it never gates
-the release; it surfaces drift for the operator, exactly as the contract intends.
+Why `commit-audit`, not `dos plan --once`: since docs/293 the plan board DOES
+parse this repo's prose plans (`dos.toml [plan]` declares the dialect), but its
+⚠over-claim rows are dominated by the evidence horizon — plans stamped before
+the 2026-06-10 fresh seed answer NOT_SHIPPED via `none` (a conservative abstain,
+not dishonesty; see CLAUDE.md step 5) — so the board is the wrong release
+witness here. This repo's release-window claims live in **commit subjects**, so
+the commit-audit sweep is the witness that actually adjudicates them. This step
+is **advisory** — it never gates the release; it surfaces drift for the
+operator, exactly as the contract intends.
 
 ## Final summary
 

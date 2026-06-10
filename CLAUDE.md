@@ -286,18 +286,19 @@ dos plan --once docs/292_readme-audience-gradient-plan P1  # or an explicit (pla
 #   outside the agent loop, so an over-claiming loop is caught by ground truth, not
 #   by re-reading its own narration. Read-only — stores nothing, takes no lease.
 #
-#   ⚠ ON THIS REPO `dos plan --once` PRINTS "(no plans declared)" AND THAT IS
-#   CORRECT — not a misconfiguration. `dos.toml` declares the glob
-#   (`[paths].plans_glob = docs/**/*-plan.md`, 17 docs match), but the markdown
-#   harvester (`plan_source.py:_looks_like_phase_id`) requires a phase token with
-#   BOTH a letter and a digit (`IF4.1`, `P2`, `1a`) and DELIBERATELY under-harvests
-#   a prose / bare-ordinal dialect rather than mine prose for phantom phases — and
-#   DOS's own `docs/NN_*.md` ARE prose (status lives in a `> **Status:**` sentence,
-#   not a `### N. PLAN PHASE` table). So the plan board has no parseable CLAIM to
-#   refute here: it is the docs/228 **Run-A empty case** (a sound witness aimed at a
-#   distribution with no parseable over-claims in it → J=0), and the conservative
-#   degrade is the litmus working, not a gap to "fix." This repo's claims live in
-#   COMMIT SUBJECTS, so its honesty witness is step 6, not the plan board.
+#   ⚠ ON THIS REPO the board is noisy in one specific, documented way. Since
+#   docs/293 the workspace declares its plan dialect (`dos.toml [plan]`), so the
+#   harvester DOES parse DOS's own prose plans — the old "(no plans declared)"
+#   empty case is gone. But read the ⚠over-claim rows carefully: every plan
+#   numbered at or below docs/184 was stamped BEFORE the 2026-06-10 fresh seed,
+#   so its ship-stamps live in the amputated ancestry and the oracle answers
+#   NOT_SHIPPED via `none` — the step-3 ⚠, now rendered at board scale. An
+#   honest "shipped" claim meeting an amputated witness reads as ⚠over-claim:
+#   that is "evidence horizon", not "caught lying". Accept the abstain or
+#   re-stamp; never teach the oracle to believe the `> **Status:**` sentence. A
+#   post-seed plan adjudicates cleanly (docs/293 itself reads ✓shipped off its
+#   trailer stamps). Day to day this repo's claims live in COMMIT SUBJECTS, so
+#   its working honesty witness is still step 6.
 
 # 6. commit-audit — does each commit's SUBJECT claim match its own DIFF? (the
 #          out-of-loop honesty witness THIS repo actually has — author-neutral,

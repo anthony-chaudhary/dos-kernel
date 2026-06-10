@@ -367,7 +367,8 @@ DOS witnesses release commit subjects twice, at two strengths — neither in job
    docs/228 lesson: the only witness worth trusting is one the claimant can't forge,
    and on this repo that is git, not a commit subject taken at its word.
 
-On this repo `dos plan --once` prints "(no plans declared)" and that is *correct*
-(DOS's `docs/NN_*.md` are prose, not a parseable phase table — the docs/228
-empty-case), so the commit-audit sweep is the honesty witness the release actually
-has; the plan board has no parseable CLAIM to refute here.
+On this repo the plan board (since docs/293) does parse the prose plans, but its
+⚠over-claim rows are dominated by the pre-seed evidence horizon (stamps amputated
+by the 2026-06-10 fresh seed → NOT_SHIPPED via `none`, a conservative abstain —
+see CLAUDE.md step 5), so the commit-audit sweep is the honesty witness the
+release actually has: it adjudicates the release window's own commits.
