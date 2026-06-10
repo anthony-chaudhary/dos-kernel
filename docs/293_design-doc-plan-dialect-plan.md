@@ -1,6 +1,19 @@
 # 293 — the design-doc plan dialect: `dos plan` rows from this repo's own prose plans
 
-> **Status:** PLAN (design accepted; no code shipped yet).
+> **Status:** PLAN (design accepted; Phase 1 shipped; Phase 2 in flight).
+>
+> **Design revision (2026-06-10, during Phase 2):** the first cut of Phase 2 put
+> the `[plan]` reader in `config.py` as a `SubstrateConfig.plan_source_name`
+> field — and the kernel's own SELF_MODIFY hook **refused the edit**
+> (`config.py` is in the T1 runtime set; `dos man wedge SELF_MODIFY`: the
+> agent-side fix is to not edit runtime files mid-loop — `--force` is the
+> operator's move, deliberately absent from the PreToolUse ABI). The revision
+> honors the refusal instead of routing around it: the `[plan]` grammar lives in
+> `plan_source.py` (the seam module that owns the axis, exactly as `stamp.py`
+> owns `[stamp]` — and not in the T1 set), read at the `plan_board.snapshot`
+> boundary where the projection's other reads already happen. Same declared
+> data, same resolution order, no live-kernel edit — the guard adjudicating
+> this work shaped it, which is the dogfood working.
 
 ## The gap this closes
 
@@ -32,13 +45,15 @@ Two pieces, one per phase:
    `drivers/` because it encodes a *host convention* (this repo's plan-doc
    grammar); the kernel seam (`dos.plan_source`) is not edited.
 2. **The `[plan]` data seam** — a workspace declares its plan source by name in
-   `dos.toml` (`[plan] source = "design-docs"`), mirroring `[overlap] policy`:
-   a new `SubstrateConfig.plan_source_name` (default `"markdown"`), read by
-   `plan_board.snapshot` when neither explicit phases nor `--source` was given.
-   Resolution: explicit rows › `--source` flag › declared `[plan].source` ›
-   built-in `markdown`. A declared name that does not resolve (plugin not
-   installed) **fails to empty** — the board degrades to its no-plan floor, never
-   to a silently substituted harvester.
+   `dos.toml` (`[plan] source = "design-docs"`), mirroring `[overlap] policy`.
+   The grammar lives with the seam (`plan_source.load_plan_source_name_from_toml`
+   + the boundary helpers `declared_source_name` / `default_source` — see the
+   status-note revision: NOT a `config.py` field), read by `plan_board.snapshot`
+   when neither explicit phases nor `--source` was given. Resolution: explicit
+   rows › `--source` flag › declared `[plan].source` › built-in `markdown`. A
+   declared name that does not resolve (plugin not installed) **fails to
+   empty** — the board degrades to its no-plan floor, never to a silently
+   substituted harvester.
 
 ### The harvest grammar (closed, and why each guard exists)
 
@@ -113,16 +128,23 @@ plan-id derivation; fail-to-empty on unreadable docs. Acceptance:
 
 ## Phase 2 — the `[plan]` data seam (declared, not flagged)
 
-`SubstrateConfig.plan_source_name` + a `[plan] source = "name"` reader in
-`config.py` (mirroring the `[overlap]` loader: unknown keys fail loud, absent
-table degrades to the base), layered into the `dos.toml` build;
-`plan_board.snapshot` consults it in the default branch (resolution order
-above, declared-but-unresolvable fails to empty); `dos doctor` reports the
-active plan source so the declaration is auditable; this repo's `dos.toml`
-declares `[plan] source = "design-docs"`. Tests pin the loader, the resolution
-order, and the fail-to-empty degrade. Acceptance: a bare
+A `[plan] source = "name"` reader in `plan_source.py` (the seam owns its table,
+as `stamp.py` owns `[stamp]`: unknown keys fail loud, absent table degrades to
+the base; see the status-note revision for why it is not a `config.py` field),
+plus the boundary helpers `declared_source_name` (warn-and-fall-back on a
+malformed table) and `default_source` (the (name, source) the default branch
+reads, unresolvable → `(name, None)` = fail-to-empty); `plan_board.snapshot`
+consults them in the default branch (resolution order above); this repo's
+`dos.toml` declares `[plan] source = "design-docs"`. Tests pin the loader, the
+resolution order, and the fail-to-empty degrade. Acceptance: a bare
 `dos plan --once --workspace .` on this repo shows the rows — the goal's
 headline — with `dos lint --strict` still clean.
+
+Deferred (named, not silent): the `dos doctor` plan-source line + `--json` key
+(the auditability surface) — `cli.py` carried a sibling session's uncommitted
+work when this phase landed, and staging it would have swept their edits into
+this commit; it is a follow-up edit to `cmd_doctor` mirroring the
+`overlap_policy` block.
 
 ## Out of scope (explicitly)
 
