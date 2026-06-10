@@ -2,7 +2,7 @@
   "name": "dos-kernel",
   "displayName": "DOS — the trust substrate for agent fleets",
   "description": "The kernel is the part that doesn't believe the agents. Bundles the DOS hooks (verify-on-stop, deny-a-refused-call, re-surface-a-stalled-stream), the DOS MCP server (verify / arbitrate / refuse-with-a-reason as tools), and the generic skill pack — one install. Requires the `dos-kernel` Python package: pip install 'dos-kernel[mcp]'.",
-  "version": "0.22.0",
+  "version": "0.23.0",
   "author": {
     "name": "Anthony Chaudhary",
     "url": "https://github.com/anthony-chaudhary/dos-kernel"

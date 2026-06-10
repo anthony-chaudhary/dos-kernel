@@ -28,7 +28,7 @@ the run.
 
 ```json
 {
-  "dos_version": "0.22.0",
+  "dos_version": "0.23.0",
   "git": true,
   "workspace_facts": { "is_kernel_repo": true, "kernel_runtime_files_present": 11 },
   "lanes": {

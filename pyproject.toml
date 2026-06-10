@@ -9,7 +9,7 @@ build-backend = "setuptools.build_meta"
 # src/), and the console scripts stay `dos` / `dos-mcp` — only the pip-install /
 # dependency-pin name is `dos-kernel`. See SECURITY.md "Supply chain".
 name = "dos-kernel"
-version = "0.22.0"
+version = "0.23.0"
 description = "Dispatch Operating System — the domain-free trust substrate for fleets of autonomous agents (verdict spine, ship oracle, structured refusal, lane arbiter, correlation spine)."
 # The PyPI project page renders this. Point it at the README so the page isn't
 # blank below the metadata (twine warns when it's missing). PyPI resolves

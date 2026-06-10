@@ -367,14 +367,14 @@ active set so you can audit exactly what is wired:
 
 ```text
 $ dos doctor --workspace .
-DOS v0.22.0
+DOS v0.23.0
 stamp convention    generic (any/no dir prefix)  [style=grep]
 admission predicates disjointness, self-modify, budget-guard                       # Axis 3 + your plugin
 judges (JUDGE rung)  abstain, keyword, llm, operator-decision, similarity           # Axis 6 + your plugin
 enforce handlers     observe
 overlap policy      prefix*, semantic-groups  (ratio_max=0.333; prefix floor always on)   # Axis 7 + your plugin
 stall reader        REPEATING>=3, STALLED>=5  (ignore_tools: (none))
-environment print   MJ614SR7R558  (kernel v0.22.0 @ <sha>; py 3.13.7; win32-AMD64)
+environment print   MJ614SR7R558  (kernel v0.23.0 @ <sha>; py 3.13.7; win32-AMD64)
 ```
 
 > `budget-guard` and `semantic-groups` appear here only because
