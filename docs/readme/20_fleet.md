@@ -122,3 +122,5 @@ fine-tune may train on, and `dos attest` mints a signed receipt a skeptic can
 check without loop access
 ([docs/246](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/246_dos-attest-the-portable-signed-receipt.md)). One kernel, one
 verdict vocabulary, from the agent's tool call to your dashboard.
+
+*Next level up — run it every day: [Operating a fleet](#operating-a-fleet).*

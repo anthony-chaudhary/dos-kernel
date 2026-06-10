@@ -57,3 +57,5 @@ code (`0` shipped / `1` not). No parsing, no plan, no config — the
 [CI integration cookbook](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/cookbook-ci-integration.md) walks it
 end-to-end. To run it on a repo shaped like yours, start with
 [Onboard a repo in 10 minutes](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/01_onboard-a-repo.md).
+
+*Next level up — wire the verdict into your own stack: [How you plug it in](#how-you-plug-it-in).*

@@ -50,3 +50,5 @@ back verbatim:
   ([docs/278](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/278_integrating-dos-with-hermes-and-openclaw-the-missing-lock-manager-for-agent-swarms.md)).
 - Runnable [`examples/workspaces/`](https://github.com/anthony-chaudhary/dos-kernel/tree/master/examples/workspaces) — `cd` in and run `dos`
   against a realistic lane taxonomy.
+
+*Next level up — evaluating the claims themselves: [For researchers](#for-researchers).*

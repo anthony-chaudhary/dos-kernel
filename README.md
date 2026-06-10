@@ -53,6 +53,10 @@ smoke run · the only runtime dependency is **PyYAML** · **MIT**.</sub>
 > 🧭 **Want it in plain words first?** What DOS is, what it catches, and what
 > adopting it costs — no code: **[the plain-words version](#the-plain-words-version)**, just below.
 
+> 🧭 **Or route yourself:** the page runs shallow → deep, and
+> **[Who this is for](#who-this-is-for)** matches the question you brought to the
+> section that answers it.
+
 > **Reading this as an AI agent?** Start with **[AGENTS.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/AGENTS.md)** — a short
 > orientation written for you: what DOS is in three lines, how to build/test/check
 > your work, the ~5 files actually worth reading, and the architecture rules a
@@ -181,6 +185,8 @@ code (`0` shipped / `1` not). No parsing, no plan, no config — the
 end-to-end. To run it on a repo shaped like yours, start with
 [Onboard a repo in 10 minutes](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/01_onboard-a-repo.md).
 
+*Next level up — wire the verdict into your own stack: [How you plug it in](#how-you-plug-it-in).*
+
 ## What goes wrong in a fleet
 
 Run a pile of agents at once with nobody refereeing, and here's how it goes:
@@ -305,6 +311,8 @@ fine-tune may train on, and `dos attest` mints a signed receipt a skeptic can
 check without loop access
 ([docs/246](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/246_dos-attest-the-portable-signed-receipt.md)). One kernel, one
 verdict vocabulary, from the agent's tool call to your dashboard.
+
+*Next level up — run it every day: [Operating a fleet](#operating-a-fleet).*
 
 ## Why not just run N agents?
 
@@ -536,6 +544,8 @@ yourself: the per-platform wheels bundle the binary, so a wheel install gets
 the native fast path with no Go toolchain — and any platform without a bundled
 binary (including a plain source install) just runs the pure-Python path
 ([docs/286](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/286_shipping-the-go-binary-through-pypi-per-platform-wheels.md)).
+
+*Next level up — what to watch once a fleet runs through these hooks: [Operating a fleet](#operating-a-fleet).*
 
 <a id="the-verbs-by-the-question-they-answer"></a>
 
@@ -929,6 +939,8 @@ back verbatim:
   ([docs/278](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/278_integrating-dos-with-hermes-and-openclaw-the-missing-lock-manager-for-agent-swarms.md)).
 - Runnable [`examples/workspaces/`](https://github.com/anthony-chaudhary/dos-kernel/tree/master/examples/workspaces) — `cd` in and run `dos`
   against a realistic lane taxonomy.
+
+*Next level up — evaluating the claims themselves: [For researchers](#for-researchers).*
 
 ## For researchers
 

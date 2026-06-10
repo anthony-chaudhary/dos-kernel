@@ -47,6 +47,10 @@ smoke run · the only runtime dependency is **PyYAML** · **MIT**.</sub>
 > 🧭 **Want it in plain words first?** What DOS is, what it catches, and what
 > adopting it costs — no code: **[the plain-words version](#the-plain-words-version)**, just below.
 
+> 🧭 **Or route yourself:** the page runs shallow → deep, and
+> **[Who this is for](#who-this-is-for)** matches the question you brought to the
+> section that answers it.
+
 > **Reading this as an AI agent?** Start with **[AGENTS.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/AGENTS.md)** — a short
 > orientation written for you: what DOS is in three lines, how to build/test/check
 > your work, the ~5 files actually worth reading, and the architecture rules a

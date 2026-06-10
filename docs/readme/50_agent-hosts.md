@@ -79,3 +79,5 @@ yourself: the per-platform wheels bundle the binary, so a wheel install gets
 the native fast path with no Go toolchain — and any platform without a bundled
 binary (including a plain source install) just runs the pure-Python path
 ([docs/286](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/286_shipping-the-go-binary-through-pypi-per-platform-wheels.md)).
+
+*Next level up — what to watch once a fleet runs through these hooks: [Operating a fleet](#operating-a-fleet).*
