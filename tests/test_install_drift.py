@@ -91,14 +91,15 @@ _HYPHEN_SCRIPT = re.compile(r"\bdos-([a-z]+)\b")
 #                                 scripts; they're invoked as `/dos-kernel:dos-<x>`, not run
 #                                 from a shell.
 #   * prose fragments           — `dos-is` (from "what DOS-is / is-not"), `dos-next` /
-#                                 `dos-dispatch` (skill stems)
+#                                 `dos-dispatch` (skill stems), `dos-with` (the docs/278
+#                                 filename `…integrating-dos-with-hermes…`)
 # The console scripts are exactly `[project.scripts]` (`dos`, `dos-mcp`); anything
 # else hyphenated is one of the above, so we allowlist by suffix.
 _NOT_A_SCRIPT = {
     "kernel", "strategy", "hook",                       # names, not commands
     "next", "dispatch", "setup", "promote", "replan",   # skill stems
     "supervise", "unstick", "witness", "goal", "self",  # skill stems
-    "class", "is",                                       # skill stem / prose fragment
+    "class", "is", "with",                               # skill stem / prose fragments
 }
 
 # The teaching sentence — "the dist name is `dos-kernel`, not `dos`; a bare

@@ -215,8 +215,8 @@ end and it keeps paying off as you wade deeper — the same kernel the whole way
 
 That slope is *how deep* your config goes. The other axis is *how you call the
 referee at all* — and you adopt through whichever surface matches how you already
-work, not by restructuring your stack. The same kernel verdicts are reachable six
-ways, lowest-friction first:
+work, not by restructuring your stack. The same kernel verdicts are reachable
+through every surface below, lowest-friction first:
 
 | Surface | Adopt it when… | The move |
 |---|---|---|
@@ -225,6 +225,7 @@ ways, lowest-friction first:
 | **CLI exit-code** | you have a shell pipeline or CI step that trusts an agent's "done" | replace that step with `dos verify PLAN PHASE` and branch on the exit code (`0` shipped / `1` not) — **the verdict *is* the exit code**. The day-one win above. |
 | **Python API** | your dispatcher/orchestrator is already Python | `import dos` and call the pure syscalls (`dos.oracle.is_shipped`, `dos.arbiter.arbitrate`, …) — state-in / verdict-out, no subprocess. The [Python cookbook](examples/playbooks/cookbook-python-api.md). |
 | **Fleet framework** | your fleet already runs on LangGraph, CrewAI, AutoGen, or the OpenAI/Claude Agents SDK | bolt the referee onto the framework's own seam — a referee node, a termination condition only git can satisfy, an output guardrail with a git tripwire. One function, no rewrite; every seam executed against the real framework. The [fleet-framework cookbook](examples/playbooks/cookbook-fleet-frameworks.md). |
+| **Swarm runtime** | your agents run on **Hermes, OpenClaw**, or a SwarmClaw-style autonomous swarm — privileged tools, shared memory docs / task boards, and **no lock manager** for either | drop a two-function adapter into the tool-execution loop: `guard_action` refuses an arbitrary-exec command **before it runs**, and `acquire_lease` / `release_lease` bracket each shared-state write so the lost update never lands. No `import dos` — it shells the CLI; Hermes' `pre_tool_call` hook also speaks DOS natively (`dos hook pretool --dialect hermes`). The runnable, A/B-measured [Hermes / OpenClaw worked example](examples/hermes_integration/) + [docs/278](docs/278_integrating-dos-with-hermes-and-openclaw-the-missing-lock-manager-for-agent-swarms.md). |
 | **Skill pack** | you run agents in Claude Code and want the workflow, not just the verdict | `dos init --skills` drops editable `SKILL.md` screenplays that wire the syscalls into a snapshot → audit → gate → take-a-lane loop. See [QUICKSTART §2](docs/QUICKSTART.md). |
 | **Driver** | your lanes must be *computed*, or you add a provider-backed judge | write one `dos/drivers/<host>.py` (a `LaneTaxonomy` + a config factory), loaded by name, never imported by the kernel. The map is [HACKING.md](docs/HACKING.md). |
 
@@ -233,6 +234,17 @@ a deeply-configured one still answers over the same CLI and MCP tools. Start at 
 top row — it's the one that costs nothing to try. The first two rows compose:
 **MCP advises** (the agent checks its own work), **hooks enforce** (the host stops a
 bad action) — wire both for the full loop.
+
+Those surfaces are the **upstream half of the value chain** — who calls the
+referee. The same verdicts also flow **downstream**, to the systems that act on
+them: every adjudication lands in a verdict journal that `dos export` drains to
+your observability stack (Datadog / Honeycomb / Grafana —
+[docs/266](docs/266_the-verdict-exporter-shipping-the-journal-to-where-dashboards-live.md)),
+`dos notify` pushes what-needs-a-human to Slack, `dos reward` gates what a
+fine-tune may train on, and `dos attest` mints a signed receipt a skeptic can
+check without loop access
+([docs/246](docs/246_dos-attest-the-portable-signed-receipt.md)). One kernel, one
+verdict vocabulary, from the agent's tool call to your dashboard.
 
 ## Why not just run N agents?
 
@@ -433,6 +445,15 @@ Claude Code; it now installs across five hosts — Claude Code, Cursor, Codex, G
 and Antigravity ([docs/221](docs/221_the-cross-vendor-hook-installer.md),
 [docs/269](docs/269_antigravity-the-fifth-host.md)).
 `--with-hooks` is the back-compat alias for `--hooks claude-code`.
+
+Under the installer sits a pluggable **dialect seam**: the verdict is decided
+once, then rendered into whatever JSON shape the host parses
+([docs/217](docs/217_the-cross-vendor-hook-dialect-seam.md)) — so a runtime the
+installer doesn't cover yet can still consume the same hooks. A sixth shipped
+dialect speaks **Hermes**: `dos hook pretool --dialect hermes` emits the
+`{"decision": "block", "reason": …}` object Hermes' `pre_tool_call` shell hook
+reads (wire it in `cli-config.yaml`). A new host's dialect is a driver, never a
+kernel edit.
 
 Because these hooks run on **every** tool call, the core kernel logic on the hot path is
 reimplemented in **native Go** — a `dos-hook` binary that ports the actual decision
@@ -786,8 +807,19 @@ back verbatim:
   (liveness), an [infra monorepo](examples/playbooks/05_infra-monorepo.md) (refusals).
 - [**Debug a stuck fleet** + FAQ](examples/playbooks/06_debug-a-stuck-fleet.md) —
   symptom → the one command that diagnoses it.
-- Two cookbooks: [from Python](examples/playbooks/cookbook-python-api.md) and
-  [CI / MCP integration](examples/playbooks/cookbook-ci-integration.md).
+- Three cookbooks: [from Python](examples/playbooks/cookbook-python-api.md),
+  [CI / MCP integration](examples/playbooks/cookbook-ci-integration.md), and
+  [fleet frameworks](examples/playbooks/cookbook-fleet-frameworks.md) — LangGraph,
+  CrewAI, AutoGen, the OpenAI/Claude Agents SDK — with every framework recipe also
+  shipped as a runnable, suite-pinned file under
+  [`examples/fleet_frameworks/`](examples/fleet_frameworks/).
+- [**Wire DOS into a Hermes / OpenClaw swarm**](examples/hermes_integration/) —
+  the offline, A/B-measured swarm-runtime example: the `exec-capability` gate
+  refuses a prompt-injected command before it runs (real at a single agent), and
+  the arbiter serves as the swarms' missing lock manager so the lost updates the
+  runtime would silently incur drop to zero (value grows with fleet size; the
+  honest K=1 falsifier is included). Both scoreboards read non-forgeable witnesses
+  ([docs/278](docs/278_integrating-dos-with-hermes-and-openclaw-the-missing-lock-manager-for-agent-swarms.md)).
 - Runnable [`examples/workspaces/`](examples/workspaces/) — `cd` in and run `dos`
   against a realistic lane taxonomy.
 
