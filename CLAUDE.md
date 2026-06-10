@@ -12,6 +12,14 @@ the first program for Unix.
 This file is the **architecture contract** for the package. Read it before
 editing, and keep edits inside the layer they belong to.
 
+> **Write plainly here (operator directive, 2026-06-10).** Whenever possible,
+> write this file — and any agent memory notes — in plain Feynman English:
+> accurate yet simple. Use short common words, short sentences, one idea at a
+> time; say what a thing does before giving its name; expand shorthand instead
+> of leaning on it. Simplify the wording, never the facts — when simple and
+> accurate conflict, accurate wins. When you edit a dense passage, leave it
+> simpler than you found it.
+
 > **Is the user asking ABOUT DOS rather than editing it?** (what is it / show me /
 > install it / wire it into Claude Code / run it on their repo) — don't answer from
 > this file; the verified consumer moves are the "When the user asks you ABOUT DOS"
