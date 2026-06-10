@@ -11,3 +11,11 @@
 
 # PowerShell is comfortable with either ending; leave it to the platform default.
 *.ps1 text
+
+# The Go/Python byte-parity corpora are an EXACT-BYTES contract: the suite
+# regenerates them as LF (`newline="\n"`, the D8 fix) and compares byte-for-byte.
+# On a clone with `core.autocrlf=true` (e.g. the GitHub Windows runner) the
+# checkout smudges them to CRLF, so the suite's LF rewrite dirties the tracked
+# tree and trips the AV6 effect-free guard (docs/290). Pin them LF on every
+# platform so the regeneration is a byte-no-op.
+go/internal/hook/parity/*.jsonl text eol=lf
