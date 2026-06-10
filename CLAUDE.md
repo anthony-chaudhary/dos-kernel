@@ -351,6 +351,37 @@ Match the existing commit-subject grammar (see `git log`). Do **not** add a
 agent co-authors on commits, and this overrides any harness default that
 appends one.
 
+### Out-of-scope findings — file an issue, don't widen the lane
+
+Working in here you will notice things that need doing but are not your task —
+a bug in another lane, a missing test, a doc gone stale. Do not absorb them
+into the current commit, and do not let them evaporate. **The default home for
+deferred work is a GitHub issue** (`gh issue create`), filed in the moment,
+then back to your lane. Three rules keep the tracker honest:
+
+- **File it with a done-condition.** Say what command or observable would show
+  the issue is resolved. Add a lane guess and where you found it. If you cannot
+  state the done-condition, it is not an issue yet — label it `design` (it
+  needs a `docs/NN` plan first) or take it to Discussions. Search for a
+  duplicate before filing (`gh issue list --search "…"`).
+- **Issue text is public, and the leak gate never sees it** — the pre-push scan
+  reads tracked files, not `gh` calls. The route-privacy-at-AUTHORING-time rule
+  applies verbatim: no dev-machine paths, hostnames, or private-process prose
+  in any issue body or comment.
+- **Never close an issue on your own say-so.** Put `Fixes #N` in the commit
+  BODY (the subject keeps its grammar); GitHub closes the issue when that
+  commit lands on `master` — an ancestry check, the same witness `dos verify`
+  rides. A fix that landed without the reference, or that lives outside this
+  repo's git, closes only through the evidenced path
+  (`.claude/skills/issue-verify/`).
+
+Design-shaped work stays in `docs/NN_*.md` plans — the oracle, not the tracker,
+adjudicates phases. An issue that grows design weight gets a plan; the issue
+then points at the plan and stays open as the public tracking handle until the
+shipping commit closes it. Triage labels: `ready` (done-condition present —
+anyone may pick it), `design` (plan first), `human-only` (operator judgment;
+the fleet skips it).
+
 ## Releasing (dev tooling — outside the kernel)
 
 Two user-invokable skills cut and promote versions. They are **tooling that

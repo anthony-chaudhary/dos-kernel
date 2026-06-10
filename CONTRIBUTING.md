@@ -145,6 +145,27 @@ DOS is consumed by others. Treat these as compatibility contracts:
 
 Breaking changes to these need a version bump and a note in the release.
 
+## Issues — the backlog, and how one closes
+
+The issue tracker is the project's backlog: bugs, chores, small features, and
+"later" items live there. Design-shaped work lives in `docs/NN_*.md` plans; an
+issue that needs one gets the `design` label and stays open, pointing at the
+plan, until the work lands.
+
+- **File with a done-condition.** Say what command or observable would show the
+  issue is resolved. An issue nobody could check is a discussion, not an issue.
+- **Triage labels:** `ready` — triaged, done-condition present, anyone (human
+  or agent) may pick it up; `design` — needs a design plan before work starts;
+  `human-only` — needs the maintainer's judgment, the agent fleet must skip it.
+  The GitHub defaults (`bug`, `enhancement`, `good first issue`, …) keep their
+  usual meanings.
+- **Issues close on evidence, not narration** — the same rule the kernel
+  enforces on its agents. The normal close is a fixing commit or PR carrying
+  `Fixes #N` in its body: GitHub closes the issue when it lands on `master`.
+  A manual close happens only with the evidence attached (the maintainers use
+  [`.claude/skills/issue-verify/`](.claude/skills/issue-verify/SKILL.md) for
+  this).
+
 ## Maintenance reality
 
 This is a young project with a very small maintainer set (currently one). That means:

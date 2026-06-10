@@ -56,7 +56,7 @@ from the long README:
 | "What is this? Show me." | `dos quickstart` — the 60-second caught-lie demo above. The hand-typed version is [docs/QUICKSTART.md](docs/QUICKSTART.md). |
 | "Install it" (to *use*) | **`dos-kernel` is on PyPI (since 2026-06-10)** — `pip install dos-kernel` (runtime, PyYAML-only) or `pip install "dos-kernel[mcp]"` (adds the MCP server); tracking unreleased `master` is `pip install "dos-kernel @ git+https://github.com/anthony-chaudhary/dos-kernel.git"`, and inside this clone `pip install -e .` works the same. Never `pip install dos` — that bare name is an unrelated squatter package. The full matrix (uv, pipx, wrappers, WSL) is [docs/INSTALL.md](docs/INSTALL.md). |
 | "Install it" (to *work on it*) | `pip install -e ".[dev,mcp]"` — exactly what CI installs; brings pytest/ruff/mypy. |
-| "Wire it into Claude Code" (or Cursor / Codex / Gemini / Antigravity) | Enforcement (hooks): `dos init --hooks claude-code <their repo>`. Advisory (MCP): register `dos-mcp` in the host config — or install the bundled plugin, [claude-plugin/README.md](claude-plugin/README.md) (prerequisite: the `[mcp]` install above). Hooks enforce, MCP advises; the repo recommends both. |
+| "Wire it into Claude Code" (or Cursor / Codex / Gemini / Antigravity) | Enforcement (hooks): `dos init --hooks claude-code <their repo>`. Advisory (MCP): register `dos-mcp` in the host config — or install the bundled plugin, [claude-plugin/README.md](claude-plugin/README.md) (prerequisite: the `[mcp]` install above). Hooks enforce, MCP advises; the repo recommends both. (Trae is the advisory-only exception: it has no hook seam, so it gets MCP + rules + skills and deliberately no `--hooks trae` — [docs/294](docs/294_trae-advisory-only-the-host-with-no-hook-seam.md).) |
 | "Use it on MY repo" | `cd <their repo> && dos init . && dos doctor` — then `dos verify PLAN PHASE` answers from their git history. Works on a plain git repo; the one `dos.toml` is all the config. |
 | "Wire it into LangGraph / CrewAI / AutoGen / the OpenAI or Claude Agents SDK" | [examples/playbooks/cookbook-fleet-frameworks.md](examples/playbooks/cookbook-fleet-frameworks.md) — one function at that framework's believe-the-agent seam (a referee node, a termination condition, an output guardrail); every recipe's seam was executed against the real framework, versions + verbatim output in the file. |
 | "Run the tests" | The `[dev]` install in the next section, then `python -m pytest -q` — and read that section's foreground note before you start. |
@@ -177,6 +177,13 @@ the preference is to land promptly, not defer. A few specifics:
 - **Match the existing commit-subject grammar** (`git log` shows it). Do **not**
   add a `Co-Authored-By` or other agent-attribution trailer — commits here carry
   no agent co-author, even if your harness appends one by default.
+- **Out of scope? File an issue, don't widen the commit.** A finding that isn't
+  your current task goes to `gh issue create` — with a checkable done-condition,
+  a lane guess, and where you found it. Issue text is public and the leak gate
+  never scans it: no private paths or hostnames. Never close an issue off your
+  own narration — put `Fixes #N` in the commit body and let the landing close
+  it (or use the `issue-verify` skill for an evidenced manual close). The full
+  rule is the "Out-of-scope findings" section of [CLAUDE.md](CLAUDE.md).
 - **Ask first only for the hard-to-reverse / outward-facing** — pushing, tagging, a
   release, history rewrites. A local commit on `master` is none of those.
 
