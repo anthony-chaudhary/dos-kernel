@@ -1,6 +1,9 @@
 # 292 — The README audience gradient: one front door, six on-ramps
 
-> **Status:** design plan (no phase shipped). Extends the modular README
+> **Status:** P1–P4 shipped (`85a3bad`, `7a337da`, `f1436a5`, `348147e` — let
+> `dos verify` be the judge, not this sentence). §6 adds P5–P8 from the
+> fresh-lens findings in [issue #16](https://github.com/anthony-chaudhary/dos-kernel/issues/16);
+> P8 waits on the program owner. Extends the modular README
 > (`docs/readme/`, one file per section, assembled in filename order by
 > `scripts/build_readme.py`, pinned by `tests/test_readme_assembly.py`) with
 > explicitly audience-graduated sections — from a reader who never opens a
@@ -148,3 +151,57 @@ Also out of scope: restructuring the existing task gradient (it works), and the
 registry-first install-prose flip that PyPI going live makes due in `10`/`70` —
 that is a separate, already-tracked edit; it touches different parts, so the
 two workstreams land independently.
+
+## 6. The fresh-lens findings — P5–P8 (issue #16)
+
+After P1–P4 shipped, a 2026-06-10 audit read the assembled README as a stranger
+([issue #16](https://github.com/anthony-chaudhary/dos-kernel/issues/16), the
+public tracking handle). Every command, flag, and link checked out real — the
+problem is volume and ordering, not accuracy: ~11k words where comparable infra
+READMEs run 1.5–3k, and the on-ramps this plan added now *compete* with the
+hero instead of routing away from it. Each finding gets the minimal fix
+consistent with §2's own rule — one screen that routes, not a chapter that
+contains. Four more phases:
+
+- **P5 — define the five words before first use** (finding 1). "lane" is used
+  from the fleet section onward but defined only in a note under the syscall
+  table; "oracle" and "stamp" are never defined at all. Fix: one short glossary
+  callout at the end of `00_front-door.md` — **plan / phase / lane / oracle /
+  stamp**, one clause each — so the vocabulary lands just before the router
+  that uses it. No new section, no expander.
+- **P6 — one install default, one reproducible demo** (findings 4 + 5). The
+  60-second demo says `pip install dos-kernel`; the install matrix then leads
+  with `uv tool install` "(recommended)" — telling the reader the command they
+  just ran was the wrong choice. Fix: the demo's `pip` line IS the default
+  (it is also what the plugin path and a host's own pin use); `70_install.md`
+  reorders to lead with it and presents `uv` as the isolated-CLI alternative,
+  keeping every channel. And the by-hand expansion in `10_try-it.md` shows a
+  hardcoded commit SHA (`e389e8b`) a copy-paster will never reproduce —
+  annotate it `<your-sha>` (the figure caption already does this).
+- **P7 — split the build journal out of the docs index** (finding 6).
+  `docs/README.md` opens as a routed index (the arrows + the guides table) and
+  then degrades into a research lab notebook — renumbering history, arc
+  synopses, relocated-doc notes. Fix: the index keeps the orientation, the
+  arrows, and the guides table; everything below moves to a clearly-labeled
+  **`docs/BUILD_JOURNAL.md`** (design notes, plan records, research arcs,
+  companions — content unchanged, including the renumbering note, which is
+  journal material). The index points at it in one paragraph. No inbound
+  anchor links exist to the moved sections (checked 2026-06-10), so nothing
+  breaks.
+- **P8 — the reference-weight moves** (findings 2 + 3) — **gated on the
+  program owner; do not ship unilaterally.** Two deliberate placements are
+  re-litigated here: the 17-row syscall table mid-README (finding 2 would keep
+  ~6 headline verbs + one link and move the full table to a docs page) and the
+  two first-person dogfood anecdotes in `30_why-a-referee.md` (finding 3 would
+  compress each to a sentence + link, or move both to the evidence tier — the
+  issue itself notes the second was added deliberately in v0.23.2).
+  Recommendation: do both — the audit's calibration says the on-ramps cannot
+  do their routing job while this much reference weight sits mid-page, and
+  both contents survive intact one click away. But placement was the owner's
+  call when it was made and stays the owner's call to unmake.
+
+Same shipping discipline as §4: each phase is part-edit → `python
+scripts/build_readme.py` → assembly test green → one commit carrying the part
+and the regenerated `README.md` together (P7 touches no part, so no rebuild).
+The issue stays open until P8 is decided; phases close by `dos verify`, never
+by this file's Status line.
