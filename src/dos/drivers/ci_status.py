@@ -96,7 +96,7 @@ from dos.evidence import Accountability, EvidenceFacts
 # <sha>` with no --repo adjudicates DOS's own pipeline. A host wiring this for its own
 # repo passes --repo / the `repo=` argument; this default is only a convenience for the
 # substrate verifying itself.
-DEFAULT_REPO = "anthony-chaudhary/dos"
+DEFAULT_REPO = "anthony-chaudhary/dos-kernel"
 
 # Cap the network call so a hung API can't stall an evidence-gather — the
 # `git_delta._GIT_TIMEOUT_S` discipline, a touch longer for a network round-trip.

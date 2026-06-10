@@ -408,7 +408,7 @@ def _http_get_json(url: str, *, token: str = "") -> "tuple[Optional[dict], str]"
     mode — network error, timeout, rate-limit (HTTP 429), auth failure, malformed JSON —
     returns `(None, <short reason>)` so `gather()` degrades to an unreachable evidence
     object → ABSTAIN. This is the one place CourtListener is touched."""
-    headers = {"User-Agent": "dos-citation-resolve/0.1 (https://github.com/anthony-chaudhary/dos)"}
+    headers = {"User-Agent": "dos-citation-resolve/0.1 (https://github.com/anthony-chaudhary/dos-kernel)"}
     if token:
         headers["Authorization"] = f"Token {token}"
     req = urllib.request.Request(url, headers=headers)

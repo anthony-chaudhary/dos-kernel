@@ -346,9 +346,9 @@ def main() -> int:
                         help="Skip the suite run (smoke / dry inspection only)")
     parser.add_argument("--skip-ci", action="store_true",
                         help="Skip the CI-oracle row (smoke / offline inspection)")
-    parser.add_argument("--repo", default="anthony-chaudhary/dos",
+    parser.add_argument("--repo", default="anthony-chaudhary/dos-kernel",
                         help="owner/name to read CI checks from "
-                             "(default: anthony-chaudhary/dos — this project's own pipeline)")
+                             "(default: anthony-chaudhary/dos-kernel — this project's own pipeline)")
     parser.add_argument("--force-promote", action="store_true",
                         help="Report blockers but still set all_green-eligible "
                              "(the skill still records the rationale)")

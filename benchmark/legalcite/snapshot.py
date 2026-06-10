@@ -34,7 +34,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 FROZEN = HERE / "frozen_corpus.json"
 BASE = "https://www.courtlistener.com"
-UA = {"User-Agent": "dos-citation-resolve/0.1 (https://github.com/anthony-chaudhary/dos)"}
+UA = {"User-Agent": "dos-citation-resolve/0.1 (https://github.com/anthony-chaudhary/dos-kernel)"}
 
 
 def _get(params: dict, retries: int = 4) -> dict:

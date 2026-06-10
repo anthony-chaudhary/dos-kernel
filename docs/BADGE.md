@@ -4,7 +4,7 @@
 > repo gates its agents' ship-claims with [`dos verify`](../README.md) — ground
 > truth from git history, **not the agent's word**.
 
-[![verified by DOS](https://img.shields.io/badge/verified%20by-DOS-2ea44f)](https://github.com/anthony-chaudhary/dos)
+[![verified by DOS](https://img.shields.io/badge/verified%20by-DOS-2ea44f)](https://github.com/anthony-chaudhary/dos-kernel)
 
 ## What it means
 
@@ -21,11 +21,11 @@ label/colour, no live query), so there's nothing to host and nothing to break,
 and it links back to the DOS repo:
 
 ```markdown
-[![verified by DOS](https://img.shields.io/badge/verified%20by-DOS-2ea44f)](https://github.com/anthony-chaudhary/dos)
+[![verified by DOS](https://img.shields.io/badge/verified%20by-DOS-2ea44f)](https://github.com/anthony-chaudhary/dos-kernel)
 ```
 
 Rendered:
-[![verified by DOS](https://img.shields.io/badge/verified%20by-DOS-2ea44f)](https://github.com/anthony-chaudhary/dos)
+[![verified by DOS](https://img.shields.io/badge/verified%20by-DOS-2ea44f)](https://github.com/anthony-chaudhary/dos-kernel)
 
 - `verified%20by` / `DOS` / `2ea44f` are the label, message, and the DOS ship
   green (`#2ea44f`) — the same green the oracle prints `SHIPPED` in.
@@ -40,7 +40,7 @@ reference it as a local `<img>`. It's a small, self-contained, two-segment pill
 that versions cleanly as text:
 
 ```html
-<a href="https://github.com/anthony-chaudhary/dos">
+<a href="https://github.com/anthony-chaudhary/dos-kernel">
   <img src="docs/assets/verified-by-dos.svg" alt="verified by DOS" height="20">
 </a>
 ```

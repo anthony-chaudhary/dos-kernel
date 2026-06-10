@@ -220,7 +220,7 @@ window_days: 3
 previous_stable: stable/2026-05-zephyr
 gate:
   pytest_suite_green: {pass: true, exit_code: 0}
-  ci_green: {pass: true, verdict: GREEN, advisory: false, repo: anthony-chaudhary/dos}
+  ci_green: {pass: true, verdict: GREEN, advisory: false, repo: anthony-chaudhary/dos-kernel}
   dos_verify_clean: {pass: true, exit_code: 1, source: none}
   tag_age: {pass: true, age_days: 5.2, window_days: 3}
 ---
