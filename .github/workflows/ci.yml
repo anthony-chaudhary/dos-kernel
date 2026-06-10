@@ -297,4 +297,5 @@ jobs:
           echo "::error::a needed job failed or was cancelled — results: ${{ join(needs.*.result, ', ') }}"
           exit 1
       - name: All needed jobs green
-        run: echo "ci-ok — needed results: ${{ join(needs.*.result, ', ') }}"
+        run: |
+          echo "ci-ok — needed results: ${{ join(needs.*.result, ', ') }}"
