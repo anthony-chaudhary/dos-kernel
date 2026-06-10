@@ -205,10 +205,12 @@ arbiter auto-picks a free cluster lane instead (it never double-books a region):
 
 ```bash
 $ dos arbitrate --workspace . --lane src
-{"auto_picked":true,"free_clusters":[],"lane":"benchmark","lane_kind":"cluster","outcome":"acquire","pick_count":null,"reason":"auto-picked free cluster lane benchmark (requested src was busy).","tree":["benchmark/**"]}
+{"auto_picked":true,"free_clusters":[],"lane":"benchmark","lane_kind":"cluster","outcome":"acquire","pick_count":null,"reason":"auto-picked free cluster lane benchmark (requested src was refused: lane src would edit the orchestrator's own running code … (SELF_MODIFY) …).","tree":["benchmark/**"]}
 ```
 
-→ exit `0` (`acquire`); the redirect IS the admission kernel refusing a collision.
+→ exit `0` (`acquire`); the redirect IS the admission kernel refusing an
+inadmissible region, with the real reason named in the parenthetical (a free,
+admissible lane you name is granted directly).
 
 Keep the beat alive across iterations — `acquire` once, `heartbeat` each pass,
 `release` at the end. The `HEARTBEAT` op is what makes `SPINNING` reachable from

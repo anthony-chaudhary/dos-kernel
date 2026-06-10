@@ -59,7 +59,7 @@ that scalable-oversight story in code.
 > reporting the artifact that leg exists to land. The closing comment runs the
 > kernel's verdict on itself — `dos reward --claim --witness confirm` →
 > **ACCEPT** — and the same evening, the same pipeline's witness gate
-> [refused to publish v0.23.0](https://github.com/anthony-chaudhary/dos-kernel/actions/runs/27310760144)
+> [refused to publish release 0.23.0](https://github.com/anthony-chaudhary/dos-kernel/actions/runs/27310760144)
 > because CI was red on the candidate commit: a release pipeline declining to
 > believe an unwitnessed "ready." Every link is public — click the runs, read
 > the registry JSON, audit the closure yourself.

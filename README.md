@@ -47,7 +47,7 @@ zero config, and the only thing you ever install is one small Python package.
 > ⏱️ **Want to try it right now?** Jump to **[Try it in 60 seconds](#try-it-in-60-seconds)**
 > — one command, real output, then come back for the why.
 
-<sub>**v0.22.0** · 3900+ tests · CI: Python 3.11–3.13 on Linux + a Windows 3.13
+<sub>**v0.23.2** · 3900+ tests · CI: Python 3.11–3.13 on Linux + a Windows 3.13
 smoke run · the only runtime dependency is **PyYAML** · **MIT**.</sub>
 
 > 🧭 **Want it in plain words first?** What DOS is, what it catches, and what
@@ -363,6 +363,22 @@ that scalable-oversight story in code.
 > reading what came back — an independent witness, exactly the move `verify` makes
 > against an agent's "done." The correction is pinned in git (`docs/124`, commit
 > `651ba03`), because here too the record is the commit, not the claim.
+
+> **And the first issue ever filed on this repo was closed the same way.**
+> [Issue #1](https://github.com/anthony-chaudhary/dos-kernel/issues/1) is the
+> publish pipeline's TestPyPI rehearsal failing its OIDC token exchange
+> (`invalid-publisher`). The bug is ordinary; the closure is the demo. It wasn't
+> closed on "fixed it" narration — it was closed on two read-backs the claimant
+> didn't author: the next pipeline run's own conclusion
+> ([the dry-run leg, green](https://github.com/anthony-chaudhary/dos-kernel/actions/runs/27309748423))
+> and [the registry's own JSON](https://test.pypi.org/pypi/dos-kernel/json)
+> reporting the artifact that leg exists to land. The closing comment runs the
+> kernel's verdict on itself — `dos reward --claim --witness confirm` →
+> **ACCEPT** — and the same evening, the same pipeline's witness gate
+> [refused to publish release 0.23.0](https://github.com/anthony-chaudhary/dos-kernel/actions/runs/27310760144)
+> because CI was red on the candidate commit: a release pipeline declining to
+> believe an unwitnessed "ready." Every link is public — click the runs, read
+> the registry JSON, audit the closure yourself.
 
 ## What's proven and what's still a bet
 

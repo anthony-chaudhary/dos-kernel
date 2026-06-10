@@ -139,11 +139,14 @@ A worker's lease is what the supervisor counts — and the arbiter never double-
 
 ```bash
 $ dos arbitrate --workspace . --lane src
-{"auto_picked":true,"free_clusters":[],"lane":"benchmark","lane_kind":"cluster","outcome":"acquire","pick_count":null,"reason":"auto-picked free cluster lane benchmark (requested src was busy)."}
+{"auto_picked":true,"free_clusters":[],"lane":"benchmark","lane_kind":"cluster","outcome":"acquire","pick_count":null,"reason":"auto-picked free cluster lane benchmark (requested src was refused: lane src would edit the orchestrator's own running code … (SELF_MODIFY) …)."}
 ```
 
-You asked for `src`; a live lease made it contended, so the arbiter redirected to
-`benchmark` — exit `0` (acquire). The redirect IS admission refusing a busy region.
+You asked for `src`; the admission conjunction refused the hint (here SELF_MODIFY —
+`src/**` is the running kernel on its own repo; a lane contended by a live lease
+redirects the same way), so the arbiter redirected to `benchmark` — exit `0`
+(acquire), the real reason named in the parenthetical. A free, admissible lane
+you name is granted directly.
 
 Per run, fold ONE digest instead of re-reading state files (no `claimed` field):
 

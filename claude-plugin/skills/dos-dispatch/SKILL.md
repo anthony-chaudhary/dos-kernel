@@ -130,7 +130,7 @@ capability gap is surfaced at runtime, matching `/dos-dispatch-loop`.
 
 > **The shape, run for real.** `doctor → arbitrate → gate → ship → verify`,
 > with the actual `LaneDecision` JSON and the exit codes that branch it. Captured
-> against a live DOS workspace (`dos 0.23.1`); copy-paste, then read the RUNG.
+> against a live DOS workspace (`dos 0.23.2`); copy-paste, then read the RUNG.
 
 ```bash
 $ dos doctor --workspace . --json
@@ -143,10 +143,13 @@ The WCR on-ramp — lanes/paths/stamp are DATA. Nothing below is hardcoded.
 
 ```bash
 $ dos arbitrate --workspace . --lane src
-{"auto_picked":true,"free_clusters":[],"lane":"benchmark","lane_kind":"cluster","outcome":"acquire","pick_count":null,"reason":"auto-picked free cluster lane benchmark (requested src was busy).","tree":["benchmark/**"]}
+{"auto_picked":true,"free_clusters":[],"lane":"benchmark","lane_kind":"cluster","outcome":"acquire","pick_count":null,"reason":"auto-picked free cluster lane benchmark (requested src was refused: lane src would edit the orchestrator's own running code … (SELF_MODIFY) …).","tree":["benchmark/**"]}
 ```
-exit 0 (**acquire**) — but you asked for `src` and got `benchmark`: a live lease made
-`src` contended, so the admission kernel redirected rather than double-book. Run on
+exit 0 (**acquire**) — but you asked for `src` and got `benchmark`: the admission
+conjunction refused the hint (here SELF_MODIFY — on the kernel's own repo `src/**`
+IS the running kernel; a lane contended by a live lease redirects the same way,
+with the real reason in the parenthetical), so the kernel redirected rather than
+double-book. A free, admissible lane you name is granted directly. Run on
 `lane` (= `benchmark`), not your request. exit 1 (**refuse**) would mean stop / pick from `free_clusters`.
 
 ```bash

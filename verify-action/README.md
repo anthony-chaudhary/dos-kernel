@@ -47,7 +47,7 @@ declared phase instead:
 | `plan` / `phase` | — | For `verify`: the plan/series + phase ids. |
 | `fail-on` | `unwitnessed` | `unwitnessed` blocks a `CLAIM_UNWITNESSED` / `NOT_SHIPPED`; `none` is observe-only (reports to the step summary, never blocks). |
 | `workspace` | `.` | Repo root to verify against. |
-| `dos-version` | latest | Pin the install, e.g. `==0.22.0`. |
+| `dos-version` | latest | Pin the install, e.g. `==0.23.2`. |
 | `install-from` | — (PyPI) | Override the install source: a local path (`.` = the checked-out repo) or a VCS URL (`git+https://github.com/anthony-chaudhary/dos-kernel`). Optional — the default resolves from PyPI; set it to gate with an unreleased tree. |
 
 > **The live example.** The kernel's own repo is this Action's first consumer:
@@ -89,7 +89,7 @@ The same verdict fires before the push via the bundled
 ```yaml
 repos:
   - repo: https://github.com/anthony-chaudhary/dos-kernel
-    rev: v0.22.0                        # the latest release tag
+    rev: v0.23.2                        # the latest release tag
     hooks:
       - id: dos-commit-audit            # block; or dos-commit-audit-warn for observe-only
 ```

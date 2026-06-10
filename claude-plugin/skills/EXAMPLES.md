@@ -28,7 +28,7 @@ the run.
 
 ```json
 {
-  "dos_version": "0.23.1",
+  "dos_version": "0.23.2",
   "git": true,
   "workspace_facts": { "is_kernel_repo": true, "kernel_runtime_files_present": 11 },
   "lanes": {
@@ -157,20 +157,24 @@ write, and you honor whatever it hands back.
 
 **Verbs.** `dos arbitrate --workspace . --lane L [--kind cluster] [--leases <json>]`
 
-**Transcript** — asked for `src`, a live lease made it busy, the arbiter
+**Transcript** — asked for `src` (on the kernel's own repo, where `src/**` IS
+the running kernel), the admission conjunction refused the hint, the arbiter
 auto-picked a *different* free lane:
 
 ```json
 $ dos arbitrate --workspace . --lane src
 {"auto_picked":true,"free_clusters":[],"lane":"benchmark","lane_kind":"cluster",
  "outcome":"acquire","pick_count":null,
- "reason":"auto-picked free cluster lane benchmark (requested src was busy).",
+ "reason":"auto-picked free cluster lane benchmark (requested src was refused:
+           lane src would edit the orchestrator's own running code … (SELF_MODIFY) …).",
  "tree":["benchmark/**"]}
 ```
 
 You asked for `src`; you got `benchmark`. That redirect **is the admission
-kernel working** — a live lease over `src` made the region contended, and the
-arbiter refused to double-book it, handing back a disjoint free lane instead. The
+kernel working** — the conjunction refused the hinted region and the arbiter
+handed back a disjoint free lane, naming the REAL refusal in the parenthetical
+(here SELF_MODIFY; a region contended by a live lease redirects the same way).
+A free, admissible lane you name is simply granted (`auto_picked:false`). The
 outcome is still `acquire` (exit 0), so the skill proceeds — *on the lane it was
 given*, writing under `benchmark/**`, not the `src/**` it asked for.
 

@@ -41,7 +41,7 @@ zero config, and the only thing you ever install is one small Python package.
 > ⏱️ **Want to try it right now?** Jump to **[Try it in 60 seconds](#try-it-in-60-seconds)**
 > — one command, real output, then come back for the why.
 
-<sub>**v0.22.0** · 3900+ tests · CI: Python 3.11–3.13 on Linux + a Windows 3.13
+<sub>**v0.23.2** · 3900+ tests · CI: Python 3.11–3.13 on Linux + a Windows 3.13
 smoke run · the only runtime dependency is **PyYAML** · **MIT**.</sub>
 
 > 🧭 **Want it in plain words first?** What DOS is, what it catches, and what
