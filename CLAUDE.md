@@ -359,6 +359,21 @@ Match the existing commit-subject grammar (see `git log`). Do **not** add a
 agent co-authors on commits, and this overrides any harness default that
 appends one.
 
+**The remote is PR-gated (Phase 1 of the branching cutover, 2026-06-10).**
+`master` on GitHub is branch-protected. For anyone but the maintainer, the
+way in is a PR with a green `ci-ok` check — the one required check; it folds
+the whole CI matrix into a single verdict. Merges are rebase or squash only
+(linear history; merge commits are off). Release tags (`v*`, `stable/*`)
+cannot be moved or deleted (a tag ruleset; admins keep a recovery bypass).
+The maintainer and this machine's fleet ride the admin bypass for now, so the
+local direct-commit-to-`master` ritual above is unchanged during the
+transition. PR-path work takes a `lane/<lane>/<slug>` branch in its **own
+worktree** (`git worktree add` — never switch the shared tree's branch under
+a concurrent loop); the branch name mirrors the arbiter's lane claim. The
+full cutover plan and the remaining steps (fleet + release-skill conversion,
+bypass removal) live in the private sibling repo,
+`notes/2026-06-10_branching-model-plan.md`.
+
 ### Out-of-scope findings — file an issue, don't widen the lane
 
 Working in here you will notice things that need doing but are not your task —
