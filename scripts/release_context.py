@@ -69,6 +69,23 @@ Output JSON shape (top-level keys):
                             journal, the journal is unreadable, or `dos` is not
                             importable -- this key NEVER crashes the release-context
                             read (it is advisory auto-defer, not a gate).
+  workflows_parse_ok:      {ok: bool, files: {path: error|null}, note} -- a YAML
+                            parse of every .github/workflows/*.yml at the working
+                            tree (docs/295 P1). The v0.23.0 class: an unparseable
+                            workflow fails CI in 0 seconds on every push, so a
+                            release cut on top of it can never green. ok=true with
+                            a note when there is no workflows dir or no PyYAML
+                            (fail-to-abstain, never a crash).
+  ci_on_head:              {status, runs_on_head, latest_trunk_ci, note} -- a
+                            `gh`-derived digest of CI state (docs/295 P1):
+                            `runs_on_head` lists runs on the exact HEAD sha (often
+                            empty pre-push -- normal), `latest_trunk_ci` is the
+                            most recent COMPLETED ci.yml run on the trunk (the
+                            base this release builds on; its red was visible 3
+                            minutes before the v0.23.0 tag). `status` folds
+                            latest_trunk_ci to green|red|none|unknown. Advisory,
+                            fail-to-abstain: a missing `gh` / offline / timeout
+                            degrades to status=unknown, never blocks.
 """
 
 from __future__ import annotations
@@ -566,6 +583,134 @@ def compute_active_leases(root: Path) -> list[dict]:
     return out
 
 
+# ---- P1 preflight facts (docs/295) ------------------------------------------
+#
+# Two facts the v0.23.x night proved are release-blocking yet were never read
+# pre-tag. Both are advisory and fail-to-abstain: their job is to put the fact
+# in the Step-1 payload the skill already consumes, never to crash or block it.
+
+def compute_workflows_parse(root: Path) -> dict:
+    """YAML-parse every workflow file — the v0.23.0 class, caught offline in ms.
+
+    An unparseable workflow fails CI in 0 seconds on every push, so a release
+    cut on top of it can never satisfy the publish ci-green witness. Returns
+    ``{ok, files: {rel_path: error|None}, note}``; degrades to ``ok=True`` with
+    a note (no workflows dir / no PyYAML) rather than guessing red.
+    """
+    out: dict = {"ok": True, "files": {}, "note": None}
+    wf_dir = root / ".github" / "workflows"
+    if not wf_dir.is_dir():
+        out["note"] = "no .github/workflows directory"
+        return out
+    try:
+        import yaml as _yaml
+    except Exception:
+        out["note"] = "PyYAML unavailable - parse check skipped"
+        return out
+    paths = sorted(list(wf_dir.glob("*.yml")) + list(wf_dir.glob("*.yaml")))
+    for p in paths:
+        rel = p.relative_to(root).as_posix()
+        try:
+            _yaml.safe_load(p.read_text(encoding="utf-8"))
+            out["files"][rel] = None
+        except Exception as exc:
+            # One line, whitespace-folded: yaml errors are multiline with
+            # position info; keep the position, drop the layout.
+            out["files"][rel] = " ".join(str(exc).split())[:300] or exc.__class__.__name__
+            out["ok"] = False
+    return out
+
+
+_GH_TIMEOUT_SECONDS = 15
+
+
+def _run_gh_json(args: list[str]) -> object | None:
+    """Run a `gh ... --json ...` command, parse stdout as JSON; None on any
+    failure (gh missing, offline, timeout, auth, junk output)."""
+    try:
+        raw = subprocess.check_output(
+            ["gh", *args], stderr=subprocess.DEVNULL, text=True,
+            encoding="utf-8", errors="replace", timeout=_GH_TIMEOUT_SECONDS,
+        )
+        return json.loads(raw)
+    except Exception:
+        return None
+
+
+def compute_ci_on_head(default_branch: str) -> dict:
+    """Digest CI state around the release base — the fact nobody read pre-tag.
+
+    ``runs_on_head`` lists runs on the exact HEAD sha (usually empty before the
+    release pushes — that is normal, not red). ``latest_trunk_ci`` is the most
+    recent COMPLETED ci.yml run on the trunk: the base this release builds on.
+    The v0.23.0 parse break was visible there as a 0-second failure three
+    minutes before the tag. ``status`` folds latest_trunk_ci to
+    green|red|none|unknown; unknown means `gh` could not answer (advisory,
+    fail-to-abstain — the skill warns, never blocks, on unknown).
+    """
+    head = run(["git", "rev-parse", "HEAD"]).strip()
+    runs_on_head: list[dict] = []
+    if head:
+        got = _run_gh_json([
+            "run", "list", "--commit", head, "--limit", "10",
+            "--json", "workflowName,status,conclusion",
+        ])
+        if isinstance(got, list):
+            runs_on_head = [
+                {
+                    "workflow": r.get("workflowName"),
+                    "status": r.get("status"),
+                    "conclusion": r.get("conclusion") or None,
+                }
+                for r in got if isinstance(r, dict)
+            ]
+
+    # The newest DECISIVE completed run: a cancelled/skipped run (superseded by
+    # a newer push under concurrency rules) carries no verdict on the trunk —
+    # folding it to red would cry wolf, folding it to green would lie. Walk the
+    # recent completed runs and report the first one whose conclusion actually
+    # adjudicates the bytes.
+    _DECISIVE = {"success", "failure", "timed_out", "startup_failure"}
+    latest_trunk = _run_gh_json([
+        "run", "list", "--workflow", "ci.yml", "--branch", default_branch,
+        "--status", "completed", "--limit", "5",
+        "--json", "conclusion,headSha,updatedAt",
+    ])
+    trunk_ci: dict | None = None
+    indecisive_skipped = 0
+    if isinstance(latest_trunk, list):
+        for r in latest_trunk:
+            if not isinstance(r, dict):
+                continue
+            if (r.get("conclusion") or "") in _DECISIVE:
+                trunk_ci = {
+                    "conclusion": r.get("conclusion"),
+                    "head_sha": (r.get("headSha") or "")[:7] or None,
+                    "updated_at": r.get("updatedAt"),
+                    "indecisive_runs_since": indecisive_skipped,
+                }
+                break
+            indecisive_skipped += 1
+
+    if latest_trunk is None:
+        status, note = "unknown", "gh unavailable/offline - CI state not read"
+    elif trunk_ci is None:
+        status, note = "none", "no decisive completed ci.yml run on the trunk in the last 5"
+    elif trunk_ci["conclusion"] == "success":
+        status, note = "green", None
+    else:
+        status, note = "red", (
+            "the latest decisive trunk CI run is not green - a release cut on "
+            "this base inherits it; fix forward before tagging (docs/295 P1)"
+        )
+    return {
+        "status": status,
+        "runs_on_head": runs_on_head,
+        "latest_trunk_ci": trunk_ci,
+        "note": note,
+    }
+
+
 def classify_untracked(paths: list[str]) -> dict:
     scratch: list[str] = []
     release_drafts: list[str] = []
@@ -682,6 +827,8 @@ def main() -> int:
         "drafted_release_past_tag": drafted_release_past(root, tag),
         "docs_only": compute_docs_only(modified, untracked),
         "active_leases": compute_active_leases(root),
+        "workflows_parse_ok": compute_workflows_parse(root),
+        "ci_on_head": compute_ci_on_head(DEFAULT_BRANCH),
     }
 
     phantom_diffs: list[dict] = []
