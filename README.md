@@ -1,3 +1,9 @@
+<!-- GENERATED FILE — do not edit README.md directly.
+     The source of truth is docs/readme/ (one file per section, assembled
+     in filename order). Edit the part, then run:
+         python scripts/build_readme.py
+     tests/test_readme_assembly.py pins this file to the parts. -->
+
 # DOS — the Dispatch Operating System
 
 > ### Catch your AI agents when they lie about what they shipped.
@@ -15,28 +21,28 @@
   The only difference is a verdict DOS reads from the real world — here, git — never the agent's word.</em>
 </p>
 
-**An AI agent will tell you it finished. DOS checks the real world instead of
-taking its word** — and the nearest piece of the real world is your git history.
+An AI agent will tell you it finished. DOS checks the real world instead of
+taking its word — and the nearest piece of the real world is your git history.
 
-That's the whole idea. An agent says it shipped the login endpoint. Did it? You
-run one command — `dos verify` — and it answers from the **artifacts the work
-actually left behind** (here, git history), not from what the agent typed. If a
-commit backs the claim, you get `SHIPPED` and exit code `0`. If nothing landed,
-you get `NOT_SHIPPED` and exit code `1`. The agent's story never enters into it.
-(Git is just the first witness DOS reads; the file tree, the clock, a CI status, a
-test environment's own state are others — anything the agent didn't author.)
+An agent says it shipped the login endpoint. Did it? Run one command,
+`dos verify`, and it answers from the artifacts the work actually left behind,
+not from what the agent typed. If a commit backs the claim, you get `SHIPPED`
+and exit code `0`. If nothing landed, you get `NOT_SHIPPED` and exit code `1`.
+The agent's story never enters into it. (Git is just the first witness DOS
+reads; the file tree, the clock, a CI status, a test environment's own state
+are others — anything the agent didn't author.)
 
 ```bash
 dos verify AUTH AUTH1   # → SHIPPED      AUTH AUTH1 e62f74d   (exit 0)
 dos verify AUTH AUTH2   # → NOT_SHIPPED  AUTH AUTH2           (exit 1)
 ```
 
-That's the smallest version. It scales up too: point a dozen agents at one repo —
-in CI, in a fleet, racing on the same files — and DOS also tells you which ones
-are **stepping on each other**, which one is **spinning in circles**, and which
-claim of "done" is **real**. Every answer comes from the artifacts (git, the file
-tree, the clock), never the narration. It works on a plain `git` repo with **zero
-config**, and the only thing you ever have to install is one small Python package.
+That's the smallest version. It scales up, too: point a dozen agents at one
+repo — in CI, in a fleet, racing on the same files — and DOS also tells you
+which ones are stepping on each other, which one is spinning in circles, and
+which claim of "done" is real. Every answer comes from the artifacts (git, the
+file tree, the clock), never the narration. It works on a plain `git` repo with
+zero config, and the only thing you ever install is one small Python package.
 
 > ⏱️ **Want to try it right now?** Jump to **[Try it in 60 seconds](#try-it-in-60-seconds)**
 > — one command, real output, then come back for the why.
@@ -47,17 +53,17 @@ smoke run · the only runtime dependency is **PyYAML** · **MIT**.</sub>
 <details>
 <summary><strong>The 30-second mental model</strong> (one paragraph, plain words) — click to expand</summary>
 
-> Coding agents narrate everything: *what they shipped, which files they touched,
-> whether they're still making progress.* DOS treats all of that as a **claim**, not
-> a fact, and hands you a **verdict** built from what actually happened. Under the
-> hood it's a small, deterministic **kernel** — the part that decides ground truth
-> across a crowd of unreliable workers and keeps their edits from colliding. Nothing
-> about it is coding-specific: your repo declares its own rules (which file regions
-> each agent may touch, how a commit signals "done") as data in one `dos.toml`, and
-> the kernel supplies only the machinery. You reach that machinery through small,
-> do-one-thing commands — `verify`, `arbitrate`, `liveness`, `refuse` — from the
-> `dos` CLI, an MCP server wired into the agent host you already run, or straight
-> from Python.
+> Coding agents narrate everything: what they shipped, which files they touched,
+> whether they're still making progress. DOS treats all of that as a claim, not
+> a fact, and hands you a verdict built from what actually happened. Under the
+> hood it's a small, deterministic kernel — the part that decides ground truth
+> across a crowd of unreliable workers and keeps their edits from colliding.
+> Nothing about it is coding-specific: your repo declares its own rules (which
+> file regions each agent may touch, how a commit signals "done") as data in one
+> `dos.toml`, and the kernel supplies only the machinery. You reach that
+> machinery through small, do-one-thing commands — `verify`, `arbitrate`,
+> `liveness`, `refuse` — from the `dos` CLI, an MCP server wired into the agent
+> host you already run, or straight from Python.
 
 </details>
 
@@ -68,9 +74,8 @@ smoke run · the only runtime dependency is **PyYAML** · **MIT**.</sub>
 
 ## Try it in 60 seconds
 
-Got 60 seconds and a terminal? Run the whole aha-moment in a throwaway repo. This
-one command scaffolds a repo, makes a real commit, verifies it, and cleans up
-after itself:
+Got a terminal? This runs the whole thing in a throwaway repo — one command
+scaffolds it, makes a real commit, verifies it, and cleans up after itself:
 
 ```bash
 git clone https://github.com/anthony-chaudhary/dos-kernel.git && cd dos-kernel
@@ -78,12 +83,12 @@ pip install -e .            # from the clone — PyYAML is the only runtime dep
 dos quickstart              # → SHIPPED AUTH AUTH1 … then NOT_SHIPPED AUTH AUTH2
 ```
 
-That's it. One `SHIPPED`, one `NOT_SHIPPED` — the first is a claim git can back,
-the second is a claim nothing landed for. **That contrast is the whole product in
-one command.** The demo closes with a router to wherever you already run agents —
-a Claude Code / Cursor tab (`dos init --hooks`), an MCP host, a CI step, or a
-fleet — so your next move is one line, not a docs dig. (Add `--keep ./demo` to
-keep the repo and poke at it. No clone wanted? `uvx --from
+One `SHIPPED`, one `NOT_SHIPPED`: the first is a claim git can back, the second
+is a claim nothing landed for. That contrast is the product. The demo closes
+with a router to wherever you already run agents — a Claude Code / Cursor tab
+(`dos init --hooks`), an MCP host, a CI step, or a fleet — so your next move is
+one line, not a docs dig. (Add `--keep ./demo` to keep the repo and poke at it.
+No clone wanted? `uvx --from
 git+https://github.com/anthony-chaudhary/dos-kernel dos quickstart` runs the same
 demo ephemerally — nothing left behind.)
 
@@ -108,41 +113,47 @@ dos verify --workspace . AUTH AUTH1   # → SHIPPED     AUTH AUTH1 e389e8b (via 
 dos verify --workspace . AUTH AUTH2   # → NOT_SHIPPED  AUTH AUTH2          (via none)          exit 1
 ```
 
-An agent can **claim** `AUTH2` is done all day long; `verify` just reports what the
-artifacts say — and they say it isn't. The `via grep-subject` / `via none` tag tells
-you *how it knows*: it found the phase token in a commit subject, or it found it
-nowhere. The full walkthrough is in **[docs/QUICKSTART.md](docs/QUICKSTART.md)**.
+An agent can claim `AUTH2` is done all day long; `verify` just reports what the
+artifacts say — and they say it isn't. The `via grep-subject` / `via none` tag
+tells you *how it knows*: it found the phase token in a commit subject, or it
+found it nowhere. The full walkthrough is in
+**[docs/QUICKSTART.md](docs/QUICKSTART.md)**.
 
 </details>
 
 <p align="center">
   <img src="examples/demo/verify-moment.svg" alt="The dos verify money-moment. Two equally-confident agent claims, checked against git. Left, what the agent claims (forgeable): 'Shipped AUTH1 — the login endpoint is done' and 'AUTH2 is done too — all work completed!'. Right, what git actually records: one real commit e389e8b 'AUTH1: ship the login endpoint', and no commit anywhere mentions AUTH2. The two verdicts: dos verify AUTH AUTH1 finds the token in a real commit subject → SHIPPED, exit 0, via grep-subject; dos verify AUTH AUTH2 finds it nowhere → NOT_SHIPPED, exit 1, via none. The confident AUTH2 claim collapses the instant no commit backs it." width="100%">
   <br>
-  <sub><em>The money-moment: two equally-confident claims, one verdict each — <code>SHIPPED</code> for the one git can back, <code>NOT_SHIPPED</code> for the one nothing landed for. Every string is verbatim output of <a href="examples/demo/verify_demo.sh"><code>examples/demo/verify_demo.sh</code></a>. <a href="examples/demo/verify_visual.html">Step through it locally</a> for the click-through version (it's an HTML file — clone the repo and open it in a browser; GitHub shows its source, not the running page).</em></sub>
+  <sub><em>Two equally confident claims, one verdict each — <code>SHIPPED</code> for the one git can back, <code>NOT_SHIPPED</code> for the one nothing landed for. Every string is verbatim output of <a href="examples/demo/verify_demo.sh"><code>examples/demo/verify_demo.sh</code></a>. <a href="examples/demo/verify_visual.html">Step through it locally</a> for the click-through version (it's an HTML file — clone the repo and open it in a browser; GitHub shows its source, not the running page).</em></sub>
 </p>
 
-**The smallest real win:** in a CI step or dispatch loop, replace the line that
-trusts an agent's "done" with `dos verify PLAN PHASE` and branch on its exit code
-(`0` shipped / `1` not). No parsing, no plan, no config — the
+The smallest real win: in a CI step or dispatch loop, replace the line that
+trusts an agent's "done" with `dos verify PLAN PHASE` and branch on its exit
+code (`0` shipped / `1` not). No parsing, no plan, no config — the
 [CI integration cookbook](examples/playbooks/cookbook-ci-integration.md) walks it
 end-to-end. To run it on a repo shaped like yours, start with
 [Onboard a repo in 10 minutes](examples/playbooks/01_onboard-a-repo.md).
 
-## What goes wrong in a fleet — and what catches it
+## What goes wrong in a fleet
 
-Now the *why*. Run a pile of agents at once with nobody refereeing, and here's how
-it goes. Each worker reports its own success, and you believe the reports — what
-else is there to go on? Meanwhile the unchecked problems pile up quietly: a lie
-here, two agents clobbering the same file there, a little scope-creep, one worker
-spinning in circles. Eventually the codebase *sorta* works and nobody can safely
+Run a pile of agents at once with nobody refereeing, and here's how it goes:
+each worker reports its own success, and you believe the reports, because what
+else is there to go on? The unchecked problems pile up quietly — a lie here,
+two agents clobbering the same file there, a little scope creep, one worker
+spinning in circles — until the codebase *sorta* works and nobody can safely
 change it.
 
-The trouble is you launched the agents, they graded their own homework, and you
-have no signal you trust to steer on. DOS gives you that missing signal — a verdict
-from ground truth — so the loop closes. Here is the same fleet under both regimes:
+The trouble is you launched the agents and then let them grade their own
+homework. DOS gives you the missing signal — a verdict from ground truth — so
+the loop closes. Here is the same fleet under both regimes:
 
+<!-- Don't reference the diagram's left/right in prose. Mermaid decides where
+     disconnected subgraphs land (GitHub stacks them vertically), so a positional
+     caption is a claim about a render nobody verified — name the subgraph
+     titles instead; those travel with the boxes wherever the renderer puts
+     them. -->
 <details open>
-<summary>The two regimes as a flowchart — <strong>left:</strong> you believe the narration; <strong>right:</strong> you steer on a verdict</summary>
+<summary>The two regimes as a flowchart — <strong>NO REFEREE:</strong> you believe the narration; <strong>DOS ADJUDICATES:</strong> you steer on a verdict</summary>
 
 ```mermaid
 flowchart LR
@@ -178,23 +189,24 @@ that quietly contradicts the worker's story — and the verdict DOS hands back:
 | overruns the file region it claimed | footprint reaches beyond the declared tree | `scope-gate` → **REFUSE** (before the write lands) |
 | reports "making progress" | 0 commits, only a fresh heartbeat | `liveness` → **SPINNING** |
 
-Pause on the first row — it's the most common one. The classic tell is a cheerful
-one-liner, *"all work completed!"*, from a worker that did little or nothing. DOS
-never reads that line; it reads the ground truth, so the claim collapses the instant
-no artifact backs it (more in [docs/108](docs/108_the-cheap-lie-and-the-narration-taxonomy.md)).
-That's what makes it cheap to adopt: `verify` needs **no plan, no registry, no
-config**, and **the exit code _is_ the verdict** — any shell or CI step can branch
-on it without parsing a word.
+The first row is the most common one. The classic tell is a cheerful one-liner,
+*"all work completed!"*, from a worker that did little or nothing. DOS never
+reads that line; it reads the ground truth, so the claim collapses the instant
+no artifact backs it (more in
+[docs/108](docs/108_the-cheap-lie-and-the-narration-taxonomy.md)). That's also
+what makes it cheap to adopt: `verify` needs no plan, no registry, no config,
+and the exit code *is* the verdict — any shell or CI step can branch on it
+without parsing a word.
 
 <sub>*Prefer to watch it move?* The two loops are also a self-contained animation you
 step through one frame at a time — clone the repo and open
 [`docs/assets/loop_visual.html`](docs/assets/loop_visual.html) in a browser. (It's an
 HTML file, so GitHub shows its source rather than running it — open it locally.)</sub>
 
-### How far you take it — one slope, not a menu
+### How far you take it
 
-**It works on a plain `git init` with zero config, and gets smarter the more you
-tell it.** You don't adopt a framework and pick a tier; you start at the shallow
+It works on a plain `git init` with zero config, and gets smarter the more you
+tell it. You don't adopt a framework and pick a tier; you start at the shallow
 end and it keeps paying off as you wade deeper — the same kernel the whole way:
 
 - **Zero config.** Point `dos verify PLAN PHASE` at a plain git
@@ -202,22 +214,22 @@ end and it keeps paying off as you wade deeper — the same kernel the whole way
   alone (`via grep-subject` / `via none`). This is the whole of
   [QUICKSTART](docs/QUICKSTART.md) and the day-one CI win above.
 - **Tell it your structure.** `dos init` writes a `dos.toml` (lanes, paths,
-  ship grammar as data); add a **plan doc** and `dos plan` lays each phase's
+  ship grammar as data); add a plan doc and `dos plan` lays each phase's
   *claim* beside the oracle's verdict. Here's [exactly what a plan file looks
   like](examples/plans/example-plan.md) (copyable, round-trips with the built-in
   reader), and four worked [example workspaces](examples/workspaces/).
 - **Teach it your own types.** Declare your own block reasons, gate
-  verdicts, output renderers, admission predicates, a model-backed **judge**, a
-  custom **plan dialect**, or a whole host **driver** — all as workspace policy,
+  verdicts, output renderers, admission predicates, a model-backed judge, a
+  custom plan dialect, or a whole host driver — all as workspace policy,
   never a fork. The map is **[docs/HACKING.md](docs/HACKING.md)** (seven extension
   axes) + the copy-me **[`examples/dos_ext/`](examples/dos_ext/)**.
 
-### How you plug it in — pick the surface, not a rewrite
+### How you plug it in
 
-That slope is *how deep* your config goes. The other axis is *how you call the
-referee at all* — and you adopt through whichever surface matches how you already
-work, not by restructuring your stack. The same kernel verdicts are reachable
-through every surface below, lowest-friction first:
+That slope is how deep your config goes. The other axis is how you call the
+referee at all — and you adopt through whichever surface matches how you
+already work, not by restructuring your stack. The same kernel verdicts are
+reachable through every row here, lowest-friction first:
 
 | Surface | Adopt it when… | The move |
 |---|---|---|
@@ -230,14 +242,14 @@ through every surface below, lowest-friction first:
 | **Skill pack** | you run agents in Claude Code and want the workflow, not just the verdict | `dos init --skills` drops editable `SKILL.md` screenplays that wire the syscalls into a snapshot → audit → gate → take-a-lane loop. See [QUICKSTART §2](docs/QUICKSTART.md). |
 | **Driver** | your lanes must be *computed*, or you add a provider-backed judge | write one `dos/drivers/<host>.py` (a `LaneTaxonomy` + a config factory), loaded by name, never imported by the kernel. The map is [HACKING.md](docs/HACKING.md). |
 
-The two axes are independent: a zero-config repo can adopt through any surface, and
-a deeply-configured one still answers over the same CLI and MCP tools. Start at the
-top row — it's the one that costs nothing to try. The first two rows compose:
-**MCP advises** (the agent checks its own work), **hooks enforce** (the host stops a
-bad action) — wire both for the full loop.
+The two axes are independent: a zero-config repo can adopt through any surface,
+and a deeply-configured one still answers over the same CLI and MCP tools.
+Start at the top row — it's the one that costs nothing to try. The first two
+rows also compose: MCP advises (the agent checks its own work), hooks enforce
+(the host stops a bad action) — wire both for the full loop.
 
-Those surfaces are the **upstream half of the value chain** — who calls the
-referee. The same verdicts also flow **downstream**, to the systems that act on
+Those surfaces are the upstream half of the value chain — who calls the
+referee. The same verdicts also flow downstream, to the systems that act on
 them: every adjudication lands in a verdict journal that `dos export` drains to
 your observability stack (Datadog / Honeycomb / Grafana —
 [docs/266](docs/266_the-verdict-exporter-shipping-the-journal-to-where-dashboards-live.md)),
@@ -249,86 +261,87 @@ verdict vocabulary, from the agent's tool call to your dashboard.
 
 ## Why not just run N agents?
 
-Fair question — why add a referee at all? Because N agents with no referee is that
-**open loop** again: you launch them, they self-report, and you've got nothing
-solid to steer on. DOS hands you that missing signal. Specifically, it gives you
-**sensors** —
+Fair question — why add a referee at all? Because N agents with no referee is
+that open loop again: you launch them, they self-report, and you've got nothing
+solid to steer on. DOS hands you that missing signal. Specifically, it gives
+you **sensors** —
 
 - `verify` — did it really ship? (from git, not the agent's word)
 - `liveness` — is it ADVANCING, or just SPINNING / STALLED?
-- `scope-gate` — did it stay in its lane? A **binding pre-effect** gate
+- `scope-gate` — did it stay in its lane? A binding pre-effect gate
   (`dos scope-gate`, ALLOW/REFUSE, exit 0/5/6) over the same `dos.scope`
   classifier that also reports post-hoc.
 
 — and **actuators**: `arbitrate` (let this lane in, or refuse the collision) and
-`refuse` (say no with a reason a machine can act on). Together they turn a pile of
-workers into something you can actually drive. The kernel's job is the **signal**,
-but it also ships a reference supervisor to show what you do with it: `dos watch`
-checks `liveness` on each tracked run and *proposes* a halt when one spins or
-blows its budget — it recommends, it never pulls the trigger — and `dos loop`
-keeps N dispatch-loops alive. Use those, or build your own on the same signal.
-Either way, it's the difference between *"I launched 20 sessions and I'm hoping"*
-and *"I can see which two are lying and which one is wedged."*
+`refuse` (say no with a reason a machine can act on). Together they turn a pile
+of workers into something you can actually drive. The kernel's job is the
+signal, but it also ships a reference supervisor to show what you do with it:
+`dos watch` checks `liveness` on each tracked run and *proposes* a halt when one
+spins or blows its budget — it recommends, it never pulls the trigger — and
+`dos loop` keeps N dispatch-loops alive. Use those, or build your own on the
+same signal. Either way, it's the difference between *"I launched 20 sessions
+and I'm hoping"* and *"I can see which two are lying and which one is wedged."*
 
-You see that signal through **three read-only screens** — `dos top` (what's
+You see that signal through three read-only screens — `dos top` (what's
 running), `dos decisions` (what's waiting on you), `dos plan` (claim vs. ground
 truth) — covered in [Three live projections](#three-live-projections-read-only-tuis)
 below and walked end-to-end in
 **[Debug a stuck fleet](examples/playbooks/06_debug-a-stuck-fleet.md)**.
 
-The referee grows along **two axes**: deterministic *verdicts* that read artifacts
-(`verify`, `liveness`, `scope`), and provider-backed *judges* — a model, a debate
-— that rule on what no deterministic check can, kept outside the kernel under a
-discipline that stops a wrong judge from clearing a falsehood. See
+The referee grows along two axes: deterministic *verdicts* that read artifacts
+(`verify`, `liveness`, `scope`), and provider-backed *judges* — a model, a
+debate — that rule on what no deterministic check can, kept outside the kernel
+under a discipline that stops a wrong judge from clearing a falsehood. See
 **[the adjudicator-population note](docs/88_the-adjudicator-population.md)** for
 that scalable-oversight story in code.
 
 > **We caught ourselves doing the exact thing DOS exists to catch.** A design doc
 > in this repo included a small worked example — "here's what this snippet prints" —
 > written by the agent building DOS. It read perfectly plausible. It was reviewed. It
-> was committed. And it was **wrong**, for the dullest possible reason: *nobody had
+> was committed. And it was wrong, for the dullest possible reason: *nobody had
 > actually run it.* The agent had reasoned out what the code "would" print and typed
 > that down as fact. An adversarial review later did the one thing the author hadn't
-> — **executed the snippet** — and the real output flatly contradicted the prose.
-> That's the whole thesis in one anecdote: **a confident narration is not evidence,
-> even when the narrator is us, even after a human reviewed it.** The reasoning felt
+> — executed the snippet — and the real output flatly contradicted the prose.
+> That's the whole thesis in one anecdote: a confident narration is not evidence,
+> even when the narrator is us, even after a human reviewed it. The reasoning felt
 > like checking; it wasn't. The only thing that settled it was running the code and
 > reading what came back — an independent witness, exactly the move `verify` makes
 > against an agent's "done." The correction is pinned in git (`docs/124`, commit
 > `651ba03`), because here too the record is the commit, not the claim.
 
-## What's proven — and what's still a bet
+## What's proven and what's still a bet
 
-We apply the same honesty to our own claims that the kernel applies to your agents.
-It would be easy to lead with one big number; instead, here's the honest split —
-**what we actually measured, what we extrapolated from those measurements, and what
-is still a bet.** Draw the line yourself. (Every *proven* number is from a live,
-re-runnable benchmark written up under [`benchmark/`](benchmark/) and the paper.)
+We apply the same honesty to our own claims that the kernel applies to your
+agents. It would be easy to lead with one big number; instead, here's the
+split — what we actually measured, what we extrapolated from those
+measurements, and what is still a bet. Draw the line yourself. (Every *proven*
+number is from a live, re-runnable benchmark written up under
+[`benchmark/`](benchmark/) and the paper.)
 
 **✅ Proven — measured in live runs, scored against a fact the agent can't fake**
 (a test environment's database state, git history — bytes the agent wrote none of):
 
-- **It catches the lie and blocks it.** Across **120 clean tasks** on a standard
-  agent benchmark, a DOS gate caught **10 genuine "I shipped it" lies** and let
-  every honest write through — at the same **8.3% catch rate on both a mid-size and
-  a top-tier model.** The signal doesn't fade when you upgrade the model. (Over the
-  full benchmark: 15 lies caught in 258 tasks, two models, **zero false alarms**.)
-  *(▶ the money-moment is the [gate figure below](#the-two-money-moments-rendered).)*
-- **It prevents the collision.** The same referee put two live agents on one shared
-  record and stopped **6 of 8** cases of one silently overwriting the other — **4 of
-  6** when the cases were drawn from the real task mix. This is the half a sandbox
-  *can't* cover: an isolated workspace still shares the outside world.
+- **It catches the lie and blocks it.** Across 120 clean tasks on a standard
+  agent benchmark, a DOS gate caught 10 genuine "I shipped it" lies and let
+  every honest write through — at the same 8.3% catch rate on both a mid-size
+  and a top-tier model. The signal doesn't fade when you upgrade the model.
+  (Over the full benchmark: 15 lies caught in 258 tasks, two models, zero false
+  alarms.) *(▶ the catch itself is the [gate figure below](#the-two-money-moments-rendered).)*
+- **It prevents the collision.** The same referee put two live agents on one
+  shared record and stopped 6 of 8 cases of one silently overwriting the other
+  — 4 of 6 when the cases were drawn from the real task mix. This is the half a
+  sandbox *can't* cover: an isolated workspace still shares the outside world.
   *(▶ the collision being prevented is the [coordination figure below](#the-two-money-moments-rendered).)*
-- **Mid-run "fixes" don't help; quitting a doomed run does.** Every active fix we
-  tried mid-run (warn it, rewind it, inject a hint) came out flat-to-negative —
-  poking a run also disturbs the ones that would have passed. The one move that
-  helps writes nothing: **give up at the right moment** — 0 runs wrongly killed out
-  of 1,634 winners across 22 models, ~11% of fleet compute saved.
-- **The training label can't be gamed.** For "may a fine-tune learn from this run?"
-  (`dos reward`), the yes/no is computed from environment state the agent authored none of — so no
-  amount of clever output text can flip a *no* to a *yes*. That's a proof, plus a
-  measured **60% → 100% precision** lift from filtering out the poison a naive
-  self-graded collector would have kept.
+- **Mid-run "fixes" don't help; quitting a doomed run does.** Every active fix
+  we tried mid-run (warn it, rewind it, inject a hint) came out flat-to-negative
+  — poking a run also disturbs the ones that would have passed. The one move
+  that helps writes nothing: give up at the right moment — 0 runs wrongly
+  killed out of 1,634 winners across 22 models, ~11% of fleet compute saved.
+- **The training label can't be gamed.** For "may a fine-tune learn from this
+  run?" (`dos reward`), the yes/no is computed from environment state the agent
+  authored none of — so no amount of clever output text can flip a *no* to a
+  *yes*. That's a proof, plus a measured 60% → 100% precision lift from
+  filtering out the poison a naive self-graded collector would have kept.
 
 <a id="the-two-money-moments-rendered"></a>
 
@@ -349,36 +362,37 @@ dramatization):
 </p>
 
 **📈 Projected — real measurements, composed into a curve (and labelled as one).**
-Here's the honest crux: **catching a lie is only worth something to whoever can't
-catch it themselves.** Hand the verdict to one strong agent that re-checks its own
-inputs and it buys you almost nothing — that agent recovers on its own. Hand it to
-something that *can't* re-check — a non-LLM system, a weaker model, a long
-multi-step chain, or a training loop — and it pays off (up to a full +1.0 in our
-no-recovery upper bound). In short: **DOS is worth more the less your downstream can
-check itself.** Our fleet-scale figure (≈173–505 corrupted results prevented at a
-32-agent fleet) projects these real per-run rates onto fleet math — it's geometry on
-top of measured numbers, not a measured fleet run.
+Here's the crux: catching a lie is only worth something to whoever can't catch
+it themselves. Hand the verdict to one strong agent that re-checks its own
+inputs and it buys you almost nothing — that agent recovers on its own. Hand it
+to something that *can't* re-check — a non-LLM system, a weaker model, a long
+multi-step chain, or a training loop — and it pays off (up to a full +1.0 in
+our no-recovery upper bound). In short: DOS is worth more the less your
+downstream can check itself. Our fleet-scale figure (≈173–505 corrupted results
+prevented at a 32-agent fleet) projects these real per-run rates onto fleet
+math — it's geometry on top of measured numbers, not a measured fleet run.
 
 **🎲 A bet — stated as one.** Where this goes if the floor holds: a frozen,
-cross-vendor **trust standard** (the "deny" message is already byte-identical across
-Claude Code, Codex, and Qwen — a de-facto standard waiting to be named), a shared
-**arbiter for real-world effects**, the claim-vs-reality **corpus** only a neutral
-party can hold, and a **notary** that proves what an agent did *to a skeptic who
-wasn't in the room* (the mechanism already ships — `dos attest` mints an
-HMAC-signed receipt over an effect-witness verdict and `dos verify-receipt` checks
-it with the shared key alone; [docs/246](docs/246_dos-attest-the-portable-signed-receipt.md)).
-The seeds are in the tree; we claim no results for any of it.
+cross-vendor trust standard (the "deny" message is already byte-identical
+across Claude Code, Codex, and Qwen — a de-facto standard waiting to be named),
+a shared arbiter for real-world effects, the claim-vs-reality corpus only a
+neutral party can hold, and a notary that proves what an agent did *to a
+skeptic who wasn't in the room* (the mechanism already ships — `dos attest`
+mints an HMAC-signed receipt over an effect-witness verdict and
+`dos verify-receipt` checks it with the shared key alone;
+[docs/246](docs/246_dos-attest-the-portable-signed-receipt.md)). The seeds are
+in the tree; we claim no results for any of it.
 
 > **The one distinction that keeps this honest:** a **J** is a *count of failures
 > blocked off ground truth* — never a downstream outcome delta. "Blocked 10 real
-> over-claims" is proven; "made the fleet 10% better" is not the same sentence, and
-> we don't write it.
+> over-claims" is proven; "made the fleet 10% better" is not the same sentence,
+> and we don't write it.
 
 ## What DOS does *not* do
 
-The proven/bet gradient above is about *evidence*; this is about *capability* — the
-boundaries are part of the contract, and stating them is the same honesty the
-kernel applies to your agents:
+The proven/bet gradient above is about *evidence*; this is about *capability* —
+the boundaries are part of the contract, and stating them is the same honesty
+the kernel applies to your agents:
 
 - **It adjudicates that a ship *happened*, not that the code is correct or good.**
   `verify` reads git ancestry, so it catches "no commit landed," not "the
@@ -397,21 +411,22 @@ kernel applies to your agents:
 ## Give your agent a lie detector (MCP)
 
 The easiest way in doesn't involve writing any Python. Point the agent host you
-already use at the bundled **MCP server**, then ask your agent to `dos_verify` its
-own last claim. The first time it comes back `NOT_SHIPPED … (via none)` on work the
-agent *swore* it finished, the whole point of this repo clicks into place — in your
+already use at the bundled MCP server, then ask your agent to `dos_verify` its
+own last claim. The first time it comes back `NOT_SHIPPED … (via none)` on work
+the agent *swore* it finished, you'll see why this repo exists — in your
 terminal, on your fleet.
 
 Installed with the `[mcp]` extra (`pip install -e ".[mcp]"` from your clone — see
-[Install](#install)), DOS exposes the syscalls as **MCP tools** — the truth tools first (`dos_verify` "did it ship?",
-`dos_commit_audit` "does this commit's claim match its diff?", `dos_status` one
-folded fact about a run), then `dos_arbitrate` (may two workers run without
-colliding?), the structured-refusal pair (`dos_refuse_reasons` / `dos_check_reason`),
-`dos_recall` (is this recalled memory still true?), and `dos_doctor` (the workspace
-report) — so any MCP-speaking host — **Claude Desktop, Cursor, Cline, an Agent-SDK
-app** — can call the referee over JSON-on-stdio with **zero Python coupling**. Each
-verdict comes back with a one-line interpretation of what it means for the agent's
-next move. (See **[the MCP server surface](docs/80_mcp-server-surface.md)**.)
+[Install](#install)), DOS exposes the syscalls as MCP tools — the truth tools
+first (`dos_verify` "did it ship?", `dos_commit_audit` "does this commit's claim
+match its diff?", `dos_status` one folded fact about a run), then
+`dos_arbitrate` (may two workers run without colliding?), the structured-refusal
+pair (`dos_refuse_reasons` / `dos_check_reason`), `dos_recall` (is this recalled
+memory still true?), and `dos_doctor` (the workspace report) — so any
+MCP-speaking host — Claude Desktop, Cursor, Cline, an Agent-SDK app — can call
+the referee over JSON-on-stdio with zero Python coupling. Each verdict comes
+back with a one-line interpretation of what it means for the agent's next move.
+(See **[the MCP server surface](docs/80_mcp-server-surface.md)**.)
 
 ```jsonc
 // claude_desktop_config.json — paste, restart, then say:
@@ -419,16 +434,16 @@ next move. (See **[the MCP server surface](docs/80_mcp-server-surface.md)**.)
 { "mcpServers": { "dos": { "command": "dos-mcp" } } }
 ```
 
-The MCP server is **advisory**: the agent *calls* the referee when it (or you) thinks
-to. The per-host wiring for Cursor / Codex / Gemini is in
-**[the MCP README](src/dos_mcp/README.md)** — all four are MCP clients, so this works
-on every one of them with zero code.
+The MCP server is **advisory**: the agent *calls* the referee when it (or you)
+thinks to. The per-host wiring for Cursor / Codex / Gemini is in
+**[the MCP README](src/dos_mcp/README.md)** — all four are MCP clients, so this
+works on every one of them with zero code.
 
 ### …then make the verdict *act* (hooks)
 
-To go from "the agent can ask" to "the host won't let a bad call through," wire DOS's
-**hooks** into the runtime you actually run. One command per host — it writes that
-host's own hook-config file, merged into anything already there:
+To go from "the agent can ask" to "the host won't let a bad call through", wire
+DOS's hooks into the runtime you actually run. One command per host — it writes
+that host's own hook-config file, merged into anything already there:
 
 ```bash
 dos init --hooks claude-code .   # .claude/settings.json
@@ -438,16 +453,17 @@ dos init --hooks gemini .        # .gemini/settings.json
 dos init --hooks antigravity .   # .agents/hooks.json
 ```
 
-That binds three shipped hooks: **`pretool`** denies a structurally-refused call
-before it runs, **`stop`** refuses a stop on an unverified "done," **`posttool`**
-re-surfaces a stalled stream. This is the **enforcement** path (the *host* denies on a
-DOS verdict) — the complement to MCP's advisory path. Until recently this spoke only
-Claude Code; it now installs across five hosts — Claude Code, Cursor, Codex, Gemini,
-and Antigravity ([docs/221](docs/221_the-cross-vendor-hook-installer.md),
+That binds three shipped hooks: `pretool` denies a structurally-refused call
+before it runs, `stop` refuses a stop on an unverified "done," `posttool`
+re-surfaces a stalled stream. This is the **enforcement** path (the *host*
+denies on a DOS verdict) — the complement to MCP's advisory path. Until
+recently this spoke only Claude Code; it now installs across five hosts —
+Claude Code, Cursor, Codex, Gemini, and Antigravity
+([docs/221](docs/221_the-cross-vendor-hook-installer.md),
 [docs/269](docs/269_antigravity-the-fifth-host.md)).
 `--with-hooks` is the back-compat alias for `--hooks claude-code`.
 
-Under the installer sits a pluggable **dialect seam**: the verdict is decided
+Under the installer sits a pluggable dialect seam: the verdict is decided
 once, then rendered into whatever JSON shape the host parses
 ([docs/217](docs/217_the-cross-vendor-hook-dialect-seam.md)) — so a runtime the
 installer doesn't cover yet can still consume the same hooks. A sixth shipped
@@ -456,22 +472,25 @@ dialect speaks **Hermes**: `dos hook pretool --dialect hermes` emits the
 reads (wire it in `cli-config.yaml`). A new host's dialect is a driver, never a
 kernel edit.
 
-Because these hooks run on **every** tool call, the core kernel logic on the hot path is
-reimplemented in **native Go** — a `dos-hook` binary that ports the actual decision
-predicates (the conjunctive-only lease-admission and prefix-disjointness floor, the
-`verify()` grep rung, self-modify, the marker budget, the WAL) rather than just shelling
-out to Python. It is **highly performant**: it serves the per-call verdict in ~10 ms —
-**16–43× faster** than shelling `python -m dos.cli hook …` (~0.25–0.8 s, dominated by
-interpreter cold-start) — and is **byte-identical** to the Python kernel on the gated
-decision (the docs/124 parity contract, pinned by Go parity tests). It owns the common
-fast path and falls back to the always-available Python verb for anything it doesn't yet
+Because these hooks run on *every* tool call, the core kernel logic on the hot
+path is reimplemented in native Go — a `dos-hook` binary that ports the actual
+decision predicates (the conjunctive-only lease-admission and
+prefix-disjointness floor, the `verify()` grep rung, self-modify, the marker
+budget, the WAL) rather than just shelling out to Python. It serves the
+per-call verdict in ~10 ms — 16–43× faster than shelling
+`python -m dos.cli hook …` (~0.25–0.8 s, dominated by interpreter cold-start) —
+and is byte-identical to the Python kernel on the gated decision (the docs/124
+parity contract, pinned by Go parity tests). It owns the common fast path and
+falls back to the always-available Python verb for anything it doesn't yet
 serve, so a machine without the binary degrades cleanly with no wiring change
 ([docs/125](docs/125_go-hook-fastpath-build-plan.md),
-[docs/270](docs/270_go-hook-fastpath-benchmarks.md)). You don't build it yourself:
-the per-platform wheels bundle the binary, so a wheel install gets the native fast
-path with **no Go toolchain** — and any platform without a bundled binary (including
-a plain source install) just runs the pure-Python path
+[docs/270](docs/270_go-hook-fastpath-benchmarks.md)). You don't build it
+yourself: the per-platform wheels bundle the binary, so a wheel install gets
+the native fast path with no Go toolchain — and any platform without a bundled
+binary (including a plain source install) just runs the pure-Python path
 ([docs/286](docs/286_shipping-the-go-binary-through-pypi-per-platform-wheels.md)).
+
+<a id="the-verbs-by-the-question-they-answer"></a>
 
 ## The syscall ABI
 
@@ -553,7 +572,7 @@ pip install -e .                  # editable: your edits are live in the install
 
 > **The distribution name is `dos-kernel`, not `dos`** — a bare `pip install dos`
 > pulls an unrelated package that squats the name. The *import* name and the CLI
-> are still `dos`. The **core kernel's only runtime dependency is PyYAML** (the
+> are still `dos`. The core kernel's only runtime dependency is PyYAML (the
 > `[mcp]` extra adds the MCP framework; `[tui]` adds the live `dos top` screens).
 > See [SECURITY.md](SECURITY.md), "Supply chain."
 
@@ -564,10 +583,10 @@ team already uses it. PyPI / Homebrew / WinGet / Scoop one-liners are next on th
 release runway (see [docs/INSTALL.md](docs/INSTALL.md)).
 
 A host repo adds DOS as a pinned dependency and points it at its own tree — never
-by vendoring the code in. DOS is **stateless about which repo it serves**: it
-resolves the workspace from `--workspace` › `$DISPATCH_WORKSPACE` › cwd, never its
-own install location, so the ground truth stays legible as the codebase grows.
-(The full separation contract — mechanism in the package, policy in the
+by vendoring the code in. DOS is stateless about which repo it serves: it
+resolves the workspace from `--workspace` › `$DISPATCH_WORKSPACE` › cwd, never
+its own install location, so the ground truth stays legible as the codebase
+grows. (The full separation contract — mechanism in the package, policy in the
 workspace's `dos.toml` — is in **[CLAUDE.md](CLAUDE.md)**.)
 
 For most repos that one `dos.toml` is the whole policy surface — but when your
@@ -580,9 +599,10 @@ as the template; the full driver/plugin map is in **[docs/HACKING.md](docs/HACKI
 
 ### Claude Code plugin — hooks + MCP + skills in one install
 
-If you drive a fleet with **Claude Code**, the lowest-friction way to bind the
+If you drive a fleet with Claude Code, the lowest-friction way to bind the
 verdict to the runtime is the bundled plugin under
-[`claude-plugin/`](claude-plugin/) — it packages all three runtime surfaces at once:
+[`claude-plugin/`](claude-plugin/) — it packages all three runtime surfaces at
+once:
 
 - the **hooks** (`PreToolUse` → deny a structurally-refused call · `PostToolUse` →
   re-surface a stalled tool stream · `Stop` → refuse to stop on an unverified
@@ -604,12 +624,12 @@ pip install "dos-kernel[mcp] @ git+https://github.com/anthony-chaudhary/dos-kern
 /plugin install dos-kernel@dos
 ```
 
-After installing, run **`/dos-kernel:dos-setup`** once — it confirms the package is
-importable, reports what the plugin wired, and points at the next skill. The same
-three hooks are available à la carte via `dos init --hooks claude-code` (and for
-Cursor / Codex / Gemini); the plugin is just the pre-packaged Claude Code form. The
-bundle's design + the build that keeps its skills in lockstep with the source are in
-**[claude-plugin/README.md](claude-plugin/README.md)**.
+After installing, run **`/dos-kernel:dos-setup`** once — it confirms the package
+is importable, reports what the plugin wired, and points at the next skill. The
+same three hooks are available à la carte via `dos init --hooks claude-code`
+(and for Cursor / Codex / Gemini); the plugin is just the pre-packaged Claude
+Code form. The bundle's design + the build that keeps its skills in lockstep
+with the source are in **[claude-plugin/README.md](claude-plugin/README.md)**.
 
 ## CLI
 
@@ -701,11 +721,11 @@ Most verbs take `--workspace .` (or honor `$DISPATCH_WORKSPACE` / cwd) and
 ### Three live projections (read-only TUIs)
 
 A fleet leaves its state scattered across git history, a write-ahead log, and a
-pile of verdict envelopes. DOS folds that into **three read-only screens**, each
-answering a different operator question. They are *projections*, not stores: every
-one reads kernel state, **mutates nothing, takes no lease, launches nothing** —
-delete any of them and you lose the screen, not the data. Pick by the question
-you're asking:
+pile of verdict envelopes. DOS folds that into three read-only screens, each
+answering a different operator question. They are *projections*, not stores:
+every one reads kernel state, mutates nothing, takes no lease, launches nothing
+— delete any of them and you lose the screen, not the data. Pick by the
+question you're asking:
 
 | Screen | Answers | Reads |
 |---|---|---|
@@ -723,8 +743,8 @@ substrate. `dos plan` is a `verify()` fan-out, **not** a plan reader: a human ru
 it from *outside* the agent loop, so an over-claiming loop is caught by ground
 truth, not by re-reading its own narration.
 
-All three have a **plain-text floor that needs no dependencies** — the live
-`rich` redraw is the optional `[tui]` extra, but `--once` (one frame) and `--json`
+All three have a plain-text floor that needs no dependencies — the live `rich`
+redraw is the optional `[tui]` extra, but `--once` (one frame) and `--json`
 work on a bare core install (no extras). Here is `dos top --once` on a fresh
 checkout (no leases yet, so every lane is `FREE` and the git strip carries the
 content):
@@ -754,18 +774,18 @@ The stuck-fleet walkthrough that drives all three end-to-end is
   <img src="docs/assets/decisions-tui.svg" alt="The dos decisions queue: four pending arbiter refusals on the left, each routed to who can resolve it — a deterministic ORACLE (may auto-clear), an LLM JUDGE (could rule), or a HUMAN (your call) — and on the right the selected SELF_MODIFY decision expanded with its meaning, typical fix, and the exact commands to run." width="100%">
 </p>
 
-### Observability — the verdict journal, drained to where dashboards live
+### Observability: the verdict journal, drained to your dashboards
 
-Those three screens read a fleet's *running* state. Underneath, every verdict the
-kernel computes — each `verify` / `liveness` / `efficiency` / `breaker` / `reward`
-/ hook decision — also lands in a **verdict journal**: a `run_id`-correlated
-write-ahead log of the kernel's *own* adjudications
+Those three screens read a fleet's *running* state. Underneath, every verdict
+the kernel computes — each `verify` / `liveness` / `efficiency` / `breaker` /
+`reward` / hook decision — also lands in a **verdict journal**: a
+`run_id`-correlated write-ahead log of the kernel's *own* adjudications
 ([docs/262](docs/262_the-verdict-journal-observability-as-a-first-class-surface.md)).
 Two verbs make it useful. `dos observe` is the read-only projection — fold the
 journal by run, syscall, or verdict, or replay one run's verdict history. `dos
-export` is the **delivery seam**: it drains the journal outward to an
-observability backend through the `dos.exporters` entry-point group, with three
-shipped transports — `file` (JSONL), `statsd` (DogStatsD counters), and `otlp`
+export` is the delivery seam: it drains the journal outward to an observability
+backend through the `dos.exporters` entry-point group, with three shipped
+transports — `file` (JSONL), `statsd` (DogStatsD counters), and `otlp`
 (OpenTelemetry log records → Datadog / Honeycomb / Grafana), the `null` default
 reporting only ([docs/266](docs/266_the-verdict-exporter-shipping-the-journal-to-where-dashboards-live.md)).
 So "how often did the fleet over-claim this week, and on which lanes?" becomes a
@@ -774,15 +794,16 @@ kernel edit (the same kernel/driver split as judges and notifiers).
 
 ## Hacking it
 
-DOS is built to be extended **without forking the package** — add your own block
+DOS is built to be extended without forking the package — add your own block
 reasons, gate verdicts, admission/safety predicates, output renderers (the
-`dos.renderers` entry-point group), and your own **judge** for the JUDGE rung
-(`dos.judges`, scored by `dos judge-eval`), all as *workspace policy*, not package
-edits. The block-reason vocabulary is fully data-driven: declare a reason in four
-lines of `dos.toml` and it becomes emittable, verifiable, refusable, and `dos man
-wedge`-documented through the same kernel calls a built-in uses. See
-**[docs/HACKING.md](docs/HACKING.md)** for the seven extension axes and the plugin
-model, and **[`examples/dos_ext/`](examples/dos_ext/)** for a copy-me skeleton.
+`dos.renderers` entry-point group), and your own judge for the JUDGE rung
+(`dos.judges`, scored by `dos judge-eval`), all as *workspace policy*, not
+package edits. The block-reason vocabulary is fully data-driven: declare a
+reason in four lines of `dos.toml` and it becomes emittable, verifiable,
+refusable, and `dos man wedge`-documented through the same kernel calls a
+built-in uses. See **[docs/HACKING.md](docs/HACKING.md)** for the seven
+extension axes and the plugin model, and **[`examples/dos_ext/`](examples/dos_ext/)**
+for a copy-me skeleton.
 
 ## Documentation
 
