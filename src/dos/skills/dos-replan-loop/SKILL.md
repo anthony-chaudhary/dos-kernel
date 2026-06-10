@@ -102,9 +102,9 @@ exit=3
 
 ```bash
 $ dos arbitrate --workspace . --lane src
-{"auto_picked":true,"free_clusters":[],"lane":"benchmark","lane_kind":"cluster","outcome":"acquire","pick_count":null,"reason":"auto-picked free cluster lane benchmark (requested src was busy).","tree":["benchmark/**"]}
+{"auto_picked":true,"free_clusters":[],"lane":"benchmark","lane_kind":"cluster","outcome":"acquire","pick_count":null,"reason":"auto-picked free cluster lane benchmark (requested src was refused: lane src would edit the orchestrator's own running code … (SELF_MODIFY) …).","tree":["benchmark/**"]}
 ```
-You asked for `src`; the arbiter handed back `benchmark` (exit 0, `outcome:acquire`) — a live lease made `src` contended, and the admission kernel refused to double-book the busy region.
+You asked for `src`; the arbiter handed back `benchmark` (exit 0, `outcome:acquire`) — the admission conjunction refused the hint (here SELF_MODIFY; a lane contended by a live lease redirects the same way) and the kernel named the real reason rather than double-book or false-narrate. A free, admissible lane you name is granted directly.
 
 ## Anti-patterns
 
