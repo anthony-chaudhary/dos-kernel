@@ -5,13 +5,13 @@ channel, upgrade/uninstall, WSL, troubleshooting) is in
 **[docs/INSTALL.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/INSTALL.md)**:
 
 ```bash
-# uv — the modern, fast, isolated CLI install (recommended):
-uv tool install dos-kernel        # `dos` + `dos-mcp` on PATH
-uvx --from dos-kernel dos doctor  # or run it once, ephemerally
-
-# pip — the library-consumer path (a host pins dos-kernel in its own venv):
+# pip — the default (the line the 60-second demo ran; also how a host pins it):
 pip install dos-kernel            # core kernel (PyYAML only)
 pip install "dos-kernel[mcp]"     # + the MCP server (dos-mcp)
+
+# uv — the isolated CLI install (keeps `dos` + `dos-mcp` off your project venv):
+uv tool install dos-kernel        # `dos` + `dos-mcp` on PATH
+uvx --from dos-kernel dos doctor  # or run it once, ephemerally
 
 # from a clone — editable, the contributor path (tracking unreleased master:
 # pip install "dos-kernel @ git+https://github.com/anthony-chaudhary/dos-kernel", no clone needed):
@@ -26,10 +26,12 @@ pip install -e .                  # editable: your edits are live in the install
 > `[mcp]` extra adds the MCP framework; `[tui]` adds the live `dos top` screens).
 > See [SECURITY.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/SECURITY.md), "Supply chain."
 
-Prefer a package manager? **uv** is the 2026 default — faster than `pipx`,
-isolates the tool, and manages Python versions; `pipx install dos-kernel` works
-the same way if your team already uses it. Homebrew / WinGet / Scoop one-liners
-are next on the release runway (see [docs/INSTALL.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/INSTALL.md)).
+`pip install dos-kernel` is the whole install — if it worked in the demo,
+you're done here. The other rows exist for how *your* team works: **uv** if you
+want the CLI isolated from your project venv (faster than `pipx`, manages
+Python versions; `pipx install dos-kernel` works the same way), the clone if
+you're contributing. Homebrew / WinGet / Scoop one-liners are next on the
+release runway (see [docs/INSTALL.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/INSTALL.md)).
 
 A host repo adds DOS as a pinned dependency and points it at its own tree — never
 by vendoring the code in. DOS is stateless about which repo it serves: it

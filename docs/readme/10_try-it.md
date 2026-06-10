@@ -33,8 +33,8 @@ echo 'def login(): ...' > login.py
 git add -A
 git commit -m "AUTH1: ship the login endpoint"   # stamp AUTH1 shipped: <PHASE-ID>: <message>
 
-dos verify --workspace . AUTH AUTH1   # → SHIPPED     AUTH AUTH1 e389e8b (via grep-subject)   exit 0
-dos verify --workspace . AUTH AUTH2   # → NOT_SHIPPED  AUTH AUTH2          (via none)          exit 1
+dos verify --workspace . AUTH AUTH1   # → SHIPPED     AUTH AUTH1 <your-sha> (via grep-subject)  exit 0
+dos verify --workspace . AUTH AUTH2   # → NOT_SHIPPED  AUTH AUTH2            (via none)          exit 1
 ```
 
 An agent can claim `AUTH2` is done all day long; `verify` just reports what the
