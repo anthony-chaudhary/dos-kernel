@@ -1,0 +1,48 @@
+# DOS — the Dispatch Operating System (dos-kernel)
+
+> Catch your AI agents when they lie about what they shipped. DOS is a small,
+> deterministic kernel that referees fleets of autonomous agents: `dos verify`
+> answers "did the agent actually do it?" from git evidence (never the agent's
+> self-report), `dos arbitrate` stops two agents from colliding on the same
+> files, and `dos refuse` says no with a machine-actionable reason. Install:
+> `pip install dos-kernel` (the import name is `dos`; the bare `dos` package on
+> PyPI is an unrelated squatter — never install that).
+
+DOS works on any plain git repository with zero configuration: no plan files,
+no database, no API key, no LLM. The kernel is deterministic Python 3.11+ with
+one runtime dependency (PyYAML), MIT-licensed. It is a referee, not an
+orchestrator — it runs beside whatever already drives your agents. Enforcement
+hooks ship for Claude Code, Cursor, Codex, Gemini CLI, Antigravity, and Claude
+Cowork (`dos init --hooks <host>`); an MCP server (`dos-mcp`) serves the same
+verdicts to any MCP host; cookbook recipes cover LangGraph, CrewAI, AutoGen,
+and the OpenAI/Claude Agents SDKs. Every verdict is also an exit code, so a CI
+job or an agent loop can gate on it directly.
+
+## Start here
+
+- [README](https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/README.md): the full story, shallow to deep — what DOS catches, the 60-second demo, who it is for
+- [AGENTS.md](https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/AGENTS.md): orientation written for an AI agent — build/test commands, the consumer-moves table, the rules a change must satisfy
+- [FAQ](https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/docs/FAQ.md): direct answers to the questions that lead here — verifying agent claims, stopping collisions, detecting spinning loops
+- [Quickstart](https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/docs/QUICKSTART.md): five minutes, hand-typed, every line real output
+- [Install](https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/docs/INSTALL.md): the full matrix — pip, uv, pipx, WSL, the MCP extra
+
+## The kernel
+
+- [Architecture](https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/docs/ARCHITECTURE.md): the per-module map — every verdict, its design lineage, and the byte-clean argument for each leaf
+- [Architecture contract](https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/CLAUDE.md): the layering rules (mechanism in the kernel, policy in drivers) and the litmus tests that enforce them
+- [Extending DOS](https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/docs/HACKING.md): the plugin seams — judges, dialects, notifiers, exporters, evidence sources
+- [Security](https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/SECURITY.md): the threat model and the supply-chain notes (including the `dos` name squatter)
+
+## Integrations
+
+- [Claude Code plugin](https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/claude-plugin/README.md): hooks + MCP + the skill pack, bundled for one-command install
+- [MCP server](https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/src/dos_mcp/README.md): the syscalls as MCP tools — JSON over stdio for Claude Desktop, Cursor, Cline, any MCP host
+- [Fleet-framework cookbook](https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/examples/playbooks/cookbook-fleet-frameworks.md): one verified recipe per framework — LangGraph, CrewAI, AutoGen, the Agents SDKs
+- [PyPI package](https://pypi.org/project/dos-kernel/): `dos-kernel` — releases, wheels, the `[mcp]`/`[tui]` extras
+
+## Optional
+
+- [Paper](https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/paper/README.md): the research write-up of the verdict spine
+- [Benchmarks](https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/benchmark/README.md): fleet-horizon and the detector-evaluation harnesses
+- [Release notes](https://github.com/anthony-chaudhary/dos-kernel/tree/master/docs/releases): one file per version
+- [Issue tracker](https://github.com/anthony-chaudhary/dos-kernel/issues): bugs and design discussions
