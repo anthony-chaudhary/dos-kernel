@@ -11,6 +11,7 @@ TRUTH — did it actually happen? (the verdict IS the exit code; `dos exit-codes
     dos liveness --run-id R ...    is the run moving (ADVANCING) or spinning (STALLED)?
     dos productivity --deltas ...  is the run still doing work, or fading?
     dos efficiency --work W ...    did the tokens buy work?  (work per token spent)
+    dos efficiency-trend ...       is work-per-token fading ACROSS runs? (fold the fossils)
     dos improve --work W ...       may a self-improving loop KEEP this candidate?
     dos test-witness ...           does a NEW test witness the change? (red->green, never pass/pass)
     dos complete ...               is this unit done, or quietly incomplete?
@@ -158,10 +159,22 @@ def _maybe_observe(args: argparse.Namespace, syscall: str, token: str, verdict=N
             try:
                 vd = verdict.to_dict()
                 # Keep the evidence-ish scalar fields; drop the prose reason + the
-                # redundant verdict token (already the event's `verdict`).
-                det = {k: v for k, v in vd.items()
-                       if k not in {"reason", "verdict"}
-                       and isinstance(v, (int, float, str, bool))}
+                # redundant verdict token (already the event's `verdict`). Nested
+                # evidence dicts are flattened ONE level with dotted keys
+                # (`evidence.work`, `evidence.tokens`, …) — docs/300: the journal
+                # fossil must carry the counts a later fold (the efficiency trend)
+                # reads back, not just the one-word verdict.
+                det = {}
+                for k, v in vd.items():
+                    if k in {"reason", "verdict"}:
+                        continue
+                    if isinstance(v, (int, float, str, bool)):
+                        det[k] = v
+                    elif isinstance(v, dict):
+                        for kk, vv in v.items():
+                            if isinstance(vv, (int, float, str, bool)):
+                                det[f"{k}.{kk}"] = vv
+                det = det or None
             except Exception:
                 det = None
         _vj.record(_vj.VerdictEvent(
@@ -1868,6 +1881,40 @@ _EFFICIENCY_EXIT_UNKNOWN = _EFFICIENCY_EXITS.unknown
 _EFFICIENCY_EXIT_CONTRACT_ERROR = _EFFICIENCY_EXITS.contract_error
 
 
+def _read_usage_breakdown(args: argparse.Namespace):
+    """Parse `--usage-json PATH|-` into a `SpendBreakdown`, or None when absent.
+
+    docs/300 — the ONE place a provider usage record is read for the efficiency
+    family: a file (or stdin via `-`), JSON-decoded and normalized through
+    `spend.parse_usage` (which detects the additive vs inclusive wire shape and
+    kills the double-count asymmetry at this boundary). All I/O happens HERE;
+    the classifiers stay pure. Raises ValueError with an operator-facing message
+    on any malformed input — the caller maps it to the contract-error exit.
+    """
+    raw_path = getattr(args, "usage_json", None)
+    if not raw_path:
+        return None
+    from dos import spend
+
+    if raw_path == "-":
+        text = sys.stdin.read()
+    else:
+        try:
+            text = Path(raw_path).read_text(encoding="utf-8")
+        except OSError as e:
+            raise ValueError(f"--usage-json: cannot read {raw_path!r}: {e}") from None
+    try:
+        record = json.loads(text)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"--usage-json: not valid JSON ({e})") from None
+    if not isinstance(record, dict):
+        raise ValueError(
+            f"--usage-json: expected a JSON object (a usage record), "
+            f"got {type(record).__name__}"
+        )
+    return spend.parse_usage(record)
+
+
 def cmd_efficiency(args: argparse.Namespace) -> int:
     """Classify whether a run's tokens were spent EFFICIENT / COSTLY / WASTEFUL (docs/263, EFF).
 
@@ -1883,8 +1930,9 @@ def cmd_efficiency(args: argparse.Namespace) -> int:
         else efficiency.DEFAULT_POLICY.floor,
     )
     try:
+        breakdown = _read_usage_breakdown(args)
         evidence = efficiency.EfficiencyEvidence.of(
-            work=args.work, tokens=args.tokens
+            work=args.work, tokens=args.tokens, breakdown=breakdown
         )
     except ValueError as e:
         print(f"error: {e}", file=sys.stderr)
@@ -1893,6 +1941,104 @@ def cmd_efficiency(args: argparse.Namespace) -> int:
     verdict = efficiency.classify(evidence, policy)
 
     return _EFFICIENCY_EXITS.emit(args, verdict, verdict.verdict.value)
+
+
+# ---------------------------------------------------------------------------
+# efficiency-trend  (the cross-run fold — is work-per-token fading across runs?)
+#   (full prose: docs/CLI.md § "efficiency-trend  (the cross-run fold — is work-per-token fa")
+_EFFICIENCY_TREND_EXITS = ExitMap(
+    {"IMPROVING": 0, "STEADY": 0, "DEGRADING": 3},
+    unknown=5,  # a future verdict the CLI hasn't caught up to — non-zero, distinct
+    syscall="efficiency_trend",  # docs/262 P2 — auto-record when observing
+)
+_EFFICIENCY_TREND_EXIT_CODES = _EFFICIENCY_TREND_EXITS.codes
+_EFFICIENCY_TREND_EXIT_UNKNOWN = _EFFICIENCY_TREND_EXITS.unknown
+_EFFICIENCY_TREND_EXIT_CONTRACT_ERROR = _EFFICIENCY_TREND_EXITS.contract_error
+
+
+def _trend_samples_from_journal(args: argparse.Namespace) -> list[tuple[int, int]]:
+    """Gather (work, tokens) samples from the verdict journal's efficiency fossils.
+
+    docs/300 P3 — the boundary read behind `--from-journal`: every `--observe`d
+    `dos efficiency` verdict recorded its evidence (`evidence.work` /
+    `evidence.tokens`, the dotted-key flatten) to the journal; this collects
+    them in append order (oldest first — exactly the order the pure fold wants),
+    optionally scoped to one `--run`. Read-only, the `dos observe` discipline:
+    no lease, no mutation, and the fold itself stays pure.
+    """
+    from dos import verdict_journal
+
+    pairs: list[tuple[int, int]] = []
+    for ev in verdict_journal.read_events():
+        if ev.syscall != "efficiency":
+            continue
+        if getattr(args, "run", None) and ev.run_id != args.run:
+            continue
+        detail = ev.detail or {}
+        work = detail.get("evidence.work")
+        tokens = detail.get("evidence.tokens")
+        # An event that predates the dotted-key flatten carries no counts —
+        # skipped, not guessed (a fossil with no bones is not a sample).
+        if isinstance(work, (int, float)) and isinstance(tokens, (int, float)):
+            pairs.append((int(work), int(tokens)))
+    limit = getattr(args, "last", None)
+    if limit is not None and limit > 0:
+        pairs = pairs[-limit:]
+    return pairs
+
+
+def cmd_efficiency_trend(args: argparse.Namespace) -> int:
+    """Classify a loop's cross-run token effectiveness: IMPROVING / STEADY / DEGRADING (docs/300, TRD).
+
+    Detail: docs/CLI.md § cmd_efficiency_trend.
+    """
+    _apply_workspace(args)
+    from dos import efficiency_trend
+
+    if bool(args.samples) == bool(args.from_journal):
+        print(
+            "error: give exactly one evidence source — --samples \"w:t,w:t,…\" "
+            "(caller-assembled, oldest first) or --from-journal (fold the "
+            "verdict journal's recorded efficiency evidence)",
+            file=sys.stderr,
+        )
+        return _EFFICIENCY_TREND_EXIT_CONTRACT_ERROR
+
+    if args.samples:
+        pairs = []
+        for token in (t.strip() for t in args.samples.split(",")):
+            if not token:
+                continue
+            head, sep, tail = token.partition(":")
+            try:
+                if not sep:
+                    raise ValueError
+                pairs.append((int(head), int(tail)))
+            except ValueError:
+                print(
+                    f"error: --samples must be a comma list of work:tokens pairs "
+                    f"(non-negative integers, oldest first); got {token!r}",
+                    file=sys.stderr,
+                )
+                return _EFFICIENCY_TREND_EXIT_CONTRACT_ERROR
+    else:
+        pairs = _trend_samples_from_journal(args)
+
+    policy = efficiency_trend.TrendPolicy(
+        min_samples=args.min_samples if args.min_samples is not None
+        else efficiency_trend.DEFAULT_POLICY.min_samples,
+        tolerance=args.tolerance if args.tolerance is not None
+        else efficiency_trend.DEFAULT_POLICY.tolerance,
+    )
+    try:
+        history = efficiency_trend.TrendHistory.of(pairs)
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return _EFFICIENCY_TREND_EXIT_CONTRACT_ERROR
+
+    verdict = efficiency_trend.classify(history, policy)
+
+    return _EFFICIENCY_TREND_EXITS.emit(args, verdict, verdict.verdict.value)
 
 
 # ---------------------------------------------------------------------------
@@ -1933,6 +2079,7 @@ def cmd_improve(args: argparse.Namespace) -> int:
             tokens=args.tokens,
             consecutive_reverts=args.consecutive_reverts,
             narrated=args.narrated or "",
+            breakdown=_read_usage_breakdown(args),  # docs/300 P4 — optional price facts
         )
     except ValueError as e:
         print(f"error: {e}", file=sys.stderr)
@@ -5606,6 +5753,7 @@ def _exit_code_contract() -> dict:
         "liveness": _LIVENESS_EXITS.contract(),
         "productivity": _PRODUCTIVITY_EXITS.contract(),
         "efficiency": _EFFICIENCY_EXITS.contract(),
+        "efficiency-trend": _EFFICIENCY_TREND_EXITS.contract(),
         "improve": _IMPROVE_EXITS.contract(),
         "breaker": _BREAKER_EXITS.contract(),
         "exec-capability": _EXEC_CAPABILITY_EXITS.contract(),
@@ -6867,6 +7015,14 @@ provider billed:
   dos efficiency --work 1200 --tokens 45000                    →  EFFICIENT, exit 0
   dos efficiency --work 0    --tokens 80000                    →  WASTEFUL, exit 4
   dos efficiency --work 3 --tokens 90000 --floor 0.0001        →  COSTLY,  exit 3
+  dos efficiency --work 5 --usage-json usage.json --json       →  + the spend split
+
+--usage-json (docs/300) reads the provider's usage record itself (a file, or `-` for
+stdin), normalizes the two wire shapes (input-excludes-cached vs input-includes-cached)
+into the typed five-way split (input / output / cache_read / cache_creation /
+reasoning), derives the scalar total, and surfaces the diagnostics — cache-hit ratio,
+decode share, reasoning share — in the JSON verdict. Pure legibility: the ladder is
+unchanged; a richer breakdown can never flip a verdict toward EFFICIENT.
 
 Both counts are bytes the AGENT did not author (a commit git wrote, the API's usage
 record), so a run cannot narrate its way to EFFICIENT — the docs/138 invariant. The
@@ -6877,6 +7033,28 @@ disabled so a unit mismatch never manufactures a false COSTLY).
 Needs nothing else — no git, no plan, no journal, no clock (efficiency is timeless, it
 reads two numbers). Advisory: it reports, it never kills a run. The verdict IS the exit
 code: 0 EFFICIENT, 3 COSTLY, 4 WASTEFUL, 2 contract error (a bad --work/--tokens)."""
+
+_HELP_EFFICIENCY_TREND = """the cross-run fold — is this loop's work-per-token fading ACROSS runs?
+
+USE THIS WHEN: single-run verdicts look fine but you suspect drift — each successive
+run buying a little less work per token than the runs before it. `efficiency` prices
+ONE run; this folds many (a self-improving loop's cycles, a lane's dispatches) and
+answers the direction: IMPROVING / STEADY / DEGRADING. The token-cost regression
+check, as a pure kernel verdict (docs/300).
+
+Two evidence sources — give exactly one:
+  dos efficiency-trend --samples "9:1000,8:1100,3:2000,2:2400"   →  DEGRADING, exit 3
+  dos efficiency-trend --from-journal [--run RID] [--last N]     →  fold the fossils
+
+--from-journal reads the verdict journal at this boundary: every `--observe`d
+`dos efficiency` call fossilized its (work, tokens) evidence, and the fold reads those
+counts back in append order — so a fleet gets a cross-run trend for free once it
+records verdicts. The ladder mirrors `productivity`: withhold under --min-samples
+runs; accuse only when the last TWO runs both fall more than --tolerance below the
+median of the runs before them (sustained — one outlier run cannot trip it).
+
+Advisory: it reports, it never stops a loop. The verdict IS the exit code:
+0 IMPROVING/STEADY, 3 DEGRADING, 2 contract error (a bad --samples / both sources)."""
 
 _HELP_IMPROVE = """the self-improving-loop keep-gate — may this loop KEEP this candidate?
 
@@ -7566,10 +7744,52 @@ def build_parser() -> argparse.ArgumentParser:
                            "clear to be EFFICIENT (default 0.0 = DISABLED, so only "
                            "WASTEFUL fires). Arm it with a ratio that means something for "
                            "YOUR work unit; under it (with nonzero work) ⇒ COSTLY")
+    peff.add_argument("--usage-json", dest="usage_json", default=None, metavar="PATH",
+                      help="read the provider usage record itself (a JSON file, or "
+                           "`-` for stdin) — docs/300: normalizes the wire shape into "
+                           "the typed five-way split, derives --tokens from its total "
+                           "(or cross-checks an explicit --tokens), and surfaces the "
+                           "cache-hit / decode / reasoning diagnostics in the verdict")
     peff.add_argument("--json", action="store_true",
                       help="machine-readable verdict {verdict, reason, evidence}")
     _add_output_flag(peff)
     peff.set_defaults(func=cmd_efficiency)
+
+    # efficiency-trend (docs/300) — the cross-run fold over the same two counts:
+    # is work-per-token fading ACROSS runs? Evidence comes caller-assembled
+    # (--samples) or from the verdict journal's fossils (--from-journal).
+    ptrd = sub.add_parser(
+        "efficiency-trend",
+        help="the cross-run token-effectiveness trend: is work-per-token fading "
+             "across runs (IMPROVING/STEADY/DEGRADING)?",
+        description=_HELP_EFFICIENCY_TREND,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    _add_workspace_flags(ptrd)
+    ptrd.add_argument("--samples", default=None, metavar="W:T,W:T,…",
+                      help="the per-run (work:tokens) pairs, OLDEST first — the same "
+                           "two env-authored counts `dos efficiency` reads, one pair "
+                           "per run. Mutually exclusive with --from-journal")
+    ptrd.add_argument("--from-journal", dest="from_journal", action="store_true",
+                      help="fold the verdict journal's recorded efficiency evidence "
+                           "instead (every --observe'd `dos efficiency` call recorded "
+                           "its work/tokens). Read-only; oldest first")
+    ptrd.add_argument("--run", default=None, metavar="RID",
+                      help="with --from-journal: only this run-id's efficiency events")
+    ptrd.add_argument("--last", type=int, default=None, metavar="N",
+                      help="with --from-journal: fold only the most recent N samples")
+    ptrd.add_argument("--min-samples", dest="min_samples", type=int, default=None,
+                      metavar="N",
+                      help="minimum runs before the trend will judge a direction "
+                           "(default 3; never below 3 — two recent runs + one "
+                           "baseline run is the smallest readable shape)")
+    ptrd.add_argument("--tolerance", type=float, default=None, metavar="FRAC",
+                      help="the fractional band around the prior-median ratio "
+                           "(default 0.25): DEGRADING/IMPROVING need the last TWO "
+                           "runs both outside it (sustained, one outlier can't trip)")
+    ptrd.add_argument("--json", action="store_true",
+                      help="machine-readable verdict {verdict, reason, history}")
+    _add_output_flag(ptrd)
+    ptrd.set_defaults(func=cmd_efficiency_trend)
 
     # improve (docs/280) — the keep-gate of the first self-improving work loop for
     #   (full prose: docs/CLI.md § "improve (docs/280) — the keep-gate of the first self-improvi")
@@ -7621,6 +7841,11 @@ def build_parser() -> argparse.ArgumentParser:
                       help="the candidate's own description — carried for the operator "
                            "surface and parsed for NOTHING (it cannot move REVERT→KEEP; "
                            "docs/234)")
+    pimp.add_argument("--usage-json", dest="usage_json", default=None, metavar="PATH",
+                      help="read the proposing agent's provider usage record (a JSON "
+                           "file, or `-` for stdin) — docs/300: derives --tokens from "
+                           "the typed five-way split and carries the cache-hit / "
+                           "decode / reasoning diagnostics into the keep/revert record")
     pimp.add_argument("--json", action="store_true",
                       help="machine-readable verdict {verdict, revert_cause, escalation, "
                            "next_consecutive_reverts, reason, evidence}")
