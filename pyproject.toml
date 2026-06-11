@@ -24,6 +24,11 @@ keywords = [
     "agents", "ai-agents", "llm", "multi-agent", "agent-orchestration",
     "orchestration", "dispatch", "scheduler", "oracle", "leases",
     "verification", "trust", "mcp",
+    # The arrival terms an agent or answer engine actually types (docs/299 P3).
+    # Honesty rule: every keyword must be true of the package — no aspirational
+    # or adjacent-product terms.
+    "claude", "claude-code", "mcp-server", "model-context-protocol",
+    "agent-verification", "autonomous-agents", "agent-monitoring",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -296,6 +301,9 @@ claude-cowork = "dos.drivers.hook_dialects:claude_cowork_install_spec"
 [project.urls]
 Homepage = "https://github.com/anthony-chaudhary/dos-kernel"
 Documentation = "https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/QUICKSTART.md"
+FAQ = "https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/FAQ.md"
+# The agent-facing index (docs/299): the raw URL is the fetchable spelling.
+"llms.txt" = "https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/llms.txt"
 Repository = "https://github.com/anthony-chaudhary/dos-kernel"
 Issues = "https://github.com/anthony-chaudhary/dos-kernel/issues"
 Changelog = "https://github.com/anthony-chaudhary/dos-kernel/tree/master/docs/releases"

@@ -1,0 +1,35 @@
+# Machine-readable citation metadata (GitHub's "Cite this repository" reads
+# this; so do scholarly agents). Keep it in lockstep with the README citation
+# block (docs/readme/95_citation-license.md). No `version:` field on purpose —
+# the release skill does not bump this file, and a stale pin is worse than none.
+cff-version: 1.2.0
+message: "If you use DOS, please cite it as below."
+type: software
+title: "DOS — the Dispatch Operating System (dos-kernel)"
+abstract: >-
+  A small, deterministic kernel that referees fleets of autonomous AI agents:
+  it verifies what an agent actually shipped from git evidence (never the
+  agent's self-report), arbitrates file-tree collisions between concurrent
+  agents, and refuses with structured, machine-actionable reasons.
+authors:
+  - family-names: Chaudhary
+    given-names: Anthony
+license: MIT
+repository-code: "https://github.com/anthony-chaudhary/dos-kernel"
+url: "https://github.com/anthony-chaudhary/dos-kernel"
+keywords:
+  - ai-agents
+  - multi-agent
+  - agent-orchestration
+  - agent-verification
+  - trust
+  - verification
+preferred-citation:
+  type: generic
+  title: "Verification Is All You Need — But Not Where You Think"
+  authors:
+    - family-names: Chaudhary
+      given-names: Anthony
+  year: 2026
+  notes: "DOS — the Dispatch Operating System; arXiv preprint in preparation"
+  url: "https://github.com/anthony-chaudhary/dos-kernel"
