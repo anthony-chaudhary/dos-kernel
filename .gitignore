@@ -112,14 +112,16 @@ benchmark/*/_runs/
 # per-day re-run fact sheets (the paper PROSE is the tracked artifact):
 paper/_VERIFIED_FACTS_*.md
 paper/_rewrite_workflow.js
-# (paper/figs_src/_audit_render.py
+# (paper/figs_src/_audit_render.py is handled in paper/.gitignore — it sits under
+# a `!figs_src/*.py` negation there, so it must be re-excluded in that file, not here.)
 
 # Reverse-engineered Claude Code extraction artifacts (the docs/189 audit scratch:
 # internal symbol names + line ranges decompiled from a third-party clone). Dropped
 # from tracking 2026-06-08 ahead of the public seed; keep the family ignored so a
 # regenerated dump never re-tracks. See PRE_PUBLISH_AUDIT_2026-06-08.md.
-benchmark/_cc_* is handled in paper/.gitignore — it sits under
-# a `!figs_src/*.py` negation there, so it must be re-excluded in that file, not here.)
+# NB a pattern line is ALL pattern — prose fused onto it (as happened here in the
+# v0.22.0 seed: this pattern carried half a comment) silently matches nothing:
+benchmark/_cc_*
 # toolathlon facet probes (the SCORED result is in docs/157/177):
 benchmark/toolathlon/_readback_independence.py
 benchmark/toolathlon/_temporal_drill.py
