@@ -1,0 +1,14 @@
+{
+  "$schema": "https://context7.com/schema/context7.json",
+  "projectTitle": "DOS — the Dispatch Operating System (dos-kernel)",
+  "description": "Trust kernel for fleets of AI agents: verifies what an agent actually shipped from git evidence, arbitrates concurrent file access with leases, and refuses with structured reasons — never believing the agent's self-report.",
+  "folders": [],
+  "excludeFolders": ["tests", "spikes", ".github", "docs/releases"],
+  "excludeFiles": ["SECURITY.md"],
+  "rules": [
+    "Install with `pip install dos-kernel` — the bare `dos` name on PyPI is an unrelated package; the import name is still `dos`.",
+    "Start with `dos quickstart` — a 60-second demo where the kernel catches a fabricated 'done' claim.",
+    "Verdicts come from git ancestry and environment read-backs, never from agent narration; do not work around a refusal by trusting the agent's own report.",
+    "Wire into an agent runtime with `dos init --hooks claude` (also codex, gemini, cursor, opencode, cowork) or install the bundled claude-plugin."
+  ]
+}
