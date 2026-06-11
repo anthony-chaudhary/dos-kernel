@@ -88,9 +88,9 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
           cache: pip
@@ -139,7 +139,7 @@ jobs:
           fi
 
       - name: Upload the distribution for the publish jobs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/*
@@ -171,7 +171,7 @@ jobs:
       # For an ANNOTATED tag push (what /release cuts), github.sha is the tag
       # OBJECT's SHA, not the commit's (the actions/checkout#290 gotcha) — and CI
       # runs are keyed by commit. Check the ref out and dereference to the commit.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 1
       - name: Wait for the CI verdict on the candidate commit
@@ -242,7 +242,7 @@ jobs:
       uploaded: ${{ steps.upload.outcome }}
     steps:
       - name: Download the built distribution
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist
@@ -285,7 +285,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
       - name: Install from TestPyPI and import
@@ -354,7 +354,7 @@ jobs:
       id-token: write   # the OIDC token mint — REQUIRED for trusted publishing
     steps:
       - name: Download the built distribution
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist

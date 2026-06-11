@@ -58,11 +58,11 @@ jobs:
     # them — bound it so a hung install can't sit on the 6-hour default.
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0 # both legs read git ancestry, not a shallow tip
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
           cache: pip
