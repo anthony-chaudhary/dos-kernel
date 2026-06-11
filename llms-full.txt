@@ -2391,10 +2391,13 @@ env-measured metric gain AND not WASTEFUL; a regression is the non-negotiable
 conjunctive floor → REVERT; a safe no-op → REVERT; N non-keeps in a row →
 ESCALATE to a human (the RSI human-judgment bottleneck as a kernel rule). The
 `narrated` string is carried for the operator and parsed for NOTHING — the only
-path to KEEP is to actually move the metric. A true leaf: it imports neither
-`efficiency` nor `breaker` — their verdicts arrive as DATA in the evidence, and
-the worktree-isolated propose→gather→classify→actuate engine is a driver
-(`dos.drivers.self_improve`).
+path to KEEP is to actually move the metric. It composes two sibling kernel
+leaves directly: `dos.breaker` runs the escalation arithmetic and
+`dos.efficiency` prices the gain (the WASTEFUL revert rung — dead until a host
+arms a floor; with docs/300 the candidate's optional `SpendBreakdown` rides
+into that rung so a keep/revert record can state its price facts). Only the
+breaker's carried COUNT arrives as data in the evidence; the worktree-isolated
+propose→gather→classify→actuate engine is a driver (`dos.drivers.self_improve`).
 
 ## The Claude-Code-audit family (docs/189 lifts)
 
