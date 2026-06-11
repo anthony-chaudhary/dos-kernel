@@ -150,6 +150,10 @@ destination is future surface, noted in §5 — the copy above is the same bytes
 
 ## 4. The revisit trigger — PARTIALLY FIRED 2026-06-09 (enterprise CN)
 
+> Tracking handle: [issue #27](https://github.com/anthony-chaudhary/dos-kernel/issues/27)
+> — the implementation ticket that closes when the contract below is published
+> and the docs/269 playbook lands.
+
 The TRAE Enterprise (CN) changelog (volcengine doc 2529909, 2026-06-09)
 announces Hooks for IDE Enterprise v3.3.65: "a lifecycle hook mechanism …
 allowing enterprise users to insert custom logic at key nodes of agent
