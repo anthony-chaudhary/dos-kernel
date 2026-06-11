@@ -153,6 +153,55 @@ def test_antigravity_writes_agents_hooks_json_cc_shaped_with_its_dialect(tmp_pat
     assert "version" not in cfg
 
 
+def test_claude_cowork_writes_the_shared_claude_settings_file(tmp_path: Path):
+    """Claude Cowork is the SHARED-surface host (docs/298): it runs the Claude Code
+    harness, so its hook surface IS `.claude/settings.json` — and the wired command
+    carries NO --dialect (the shared file is read by both runtimes; the default CC
+    envelope is the one both honor). A cowork install is byte-identical to a
+    claude-code install; only the operator-facing note differs."""
+    a = tmp_path / "a"
+    b = tmp_path / "b"
+    proc = _cli("init", "--hooks", "claude-cowork", str(a))
+    assert proc.returncode == 0, proc.stderr
+    assert _cli("init", "--hooks", "claude-code", str(b)).returncode == 0
+    spec = hi.host_spec("claude-cowork")
+    # The right file: the SAME path the claude-code spec writes.
+    assert spec.config_path == (".claude", "settings.json")
+    fa = (a / ".claude" / "settings.json").read_text(encoding="utf-8")
+    fb = (b / ".claude" / "settings.json").read_text(encoding="utf-8")
+    assert fa == fb
+    cfg = json.loads(fa)
+    # CC events, dialect-less commands (the default IS the envelope — both runtimes
+    # run the CC harness), group-wrapped CC shape.
+    assert _flat_commands(cfg, "PreToolUse") == ["dos hook pretool --workspace ."]
+    assert _flat_commands(cfg, "PostToolUse") == ["dos hook posttool --workspace ."]
+    assert _flat_commands(cfg, "Stop") == ["dos hook stop --workspace ."]
+    group = cfg["hooks"]["PreToolUse"][0]
+    assert set(group) == {"hooks"}
+    assert group["hooks"][0]["type"] == "command"
+    # The Cowork-specific coverage note is surfaced: the product does not FIRE hooks
+    # yet (anthropics/claude-code#63360) — the Codex coverage-limit precedent.
+    assert "63360" in proc.stdout
+    assert "Cowork" in proc.stdout
+
+
+def test_claude_cowork_and_claude_code_share_one_set_of_hooks(tmp_path: Path):
+    """Wiring either host name wires BOTH runtimes — one file, one set of hooks.
+    A second install under the sibling name is the idempotent path ('already'),
+    never a duplicate entry, in both orders."""
+    for first, second in (("claude-code", "claude-cowork"),
+                          ("claude-cowork", "claude-code")):
+        dest = tmp_path / f"{first}-then-{second}"
+        assert _cli("init", "--hooks", first, str(dest)).returncode == 0
+        proc = _cli("init", "--hooks", second, str(dest))
+        assert proc.returncode == 0, proc.stderr
+        assert "untouched" in proc.stdout
+        cfg = _json_config(dest, hi.host_spec(second))
+        for ev in ("PreToolUse", "PostToolUse", "Stop"):
+            dos_cmds = [c for c in _flat_commands(cfg, ev) if c.startswith("dos hook ")]
+            assert len(dos_cmds) == 1, (first, second, ev, dos_cmds)
+
+
 def test_claude_code_via_hooks_flag_matches_with_hooks(tmp_path: Path):
     """`--hooks claude-code` and `--with-hooks` produce the IDENTICAL CC file."""
     a = tmp_path / "a"
@@ -193,7 +242,7 @@ def test_cursor_merge_preserves_user_hooks_and_keys(tmp_path: Path):
 
 
 def test_idempotent_rerun_does_not_duplicate(tmp_path: Path):
-    for host in ("cursor", "codex", "gemini", "antigravity"):
+    for host in ("cursor", "codex", "gemini", "antigravity", "claude-cowork"):
         dest = tmp_path / host
         assert _cli("init", "--hooks", host, str(dest)).returncode == 0
         proc = _cli("init", "--hooks", host, str(dest))

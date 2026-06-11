@@ -53,6 +53,31 @@ class CodexDialect:
         return _CLAUDE_CODE.render(verdict)
 
 
+class ClaudeCoworkDialect:
+    """Anthropic's **Claude Cowork** — the Claude Code agent harness in a desktop VM.
+
+    Cowork is the agentic desktop app for general knowledge work (docs/298). Under
+    the UI it runs the SAME agent harness as Claude Code, inside a Linux VM — so its
+    hook output grammar is not "like" CC's, it IS CC's (the nested
+    `hookSpecificOutput` envelope, parsed by the same code). This dialect therefore
+    delegates to the CC renderer, exactly the Codex precedent: kept as its own class
+    for an explicit by-name entry (`--dialect claude-cowork` resolves for an
+    Agent-SDK consumer driving the verbs directly) and so a future Cowork-specific
+    divergence has a home.
+
+    The host fact that is Cowork's OWN — the product does not FIRE hooks yet
+    (anthropics/claude-code#63360, verified 2026-06-10) — is an install-time
+    coverage note, not a render difference: DOS emits the right bytes; Cowork's
+    harness defines them; the product will start firing them upstream. See
+    `claude_cowork_install_spec` below.
+    """
+
+    name = "claude-cowork"
+
+    def render(self, verdict: HookVerdict) -> Optional[dict]:
+        return _CLAUDE_CODE.render(verdict)
+
+
 class GeminiDialect:
     """Google Gemini CLI — `BeforeTool` / `AfterTool` / `AfterAgent` hooks.
 
@@ -388,4 +413,47 @@ def antigravity_install_spec() -> HostHookSpec:
              "/ Stop). A workspace .agents/hooks.json takes precedence over the global "
              "one. The hook OUTPUT is top-level {\"decision\":\"deny\"} (Gemini-shaped, "
              "via --dialect antigravity), even though the CONFIG is Claude-Code-shaped.",
+    )
+
+
+def claude_cowork_install_spec() -> HostHookSpec:
+    """Claude Cowork — the SHARED surface: the same `.claude/settings.json` Claude
+    Code reads, because Cowork runs the same agent harness (docs/298).
+
+    Every facet equals `claude_code_spec()` — file, format, shape, events — and the
+    wired command carries NO `--dialect`, deliberately: the shared file is read by
+    BOTH runtimes, so the command must emit bytes both honor, and both run the CC
+    harness, so the one universally-correct envelope is the default one. (A
+    per-runtime divergence could never ride a shared file anyway; an explicit flag
+    would add a resolution step and buy nothing.) Wiring either host name wires
+    both — the merge is idempotent on the `dos hook ` prefix — and `dos doctor`
+    truthfully reports both bindings.
+
+    What is Cowork's OWN is the `note`: as of 2026-06-10 the Cowork desktop app
+    does not FIRE hooks (anthropics/claude-code#63360 — user-scope hooks verified
+    not firing 2026-05-28; the config/scripts live on the host while the session
+    runs in a Linux VM). That is the Codex precedent — a host coverage limit
+    carried as data, printed at wiring time — NOT the Trae one (docs/294): nothing
+    here is invented; the grammar, events, and envelope are the CC harness's own,
+    Claude Code enforces them on this workspace today, and Cowork starts enforcing
+    them when the upstream issue closes, with zero DOS change.
+    """
+    return HostHookSpec(
+        host="claude-cowork",
+        config_path=(".claude", "settings.json"),
+        fmt=ConfigFormat.JSON,
+        pre_events=("PreToolUse",),
+        post_events=("PostToolUse",),
+        stop_events=("Stop",),
+        dialect_flag="",          # shared file, shared harness — the default IS the envelope.
+        json_entry_has_type=True,
+        json_group_wraps=True,    # CC-shaped: entries nest under {"hooks": [...]} groups.
+        json_version=None,
+        note="Claude Cowork runs the Claude Code harness, so these hooks wire the "
+             "SAME .claude/settings.json Claude Code enforces on this workspace. "
+             "Cowork itself does not fire hooks yet (anthropics/claude-code#63360, "
+             "as of 2026-06-10) — until that closes, Cowork's working DOS surface "
+             "is advisory (MCP + skills; see src/dos_mcp/README.md). The wired "
+             "`dos hook` command must be on PATH inside the session that fires it "
+             "(in Cowork's VM: pip install dos-kernel there).",
     )

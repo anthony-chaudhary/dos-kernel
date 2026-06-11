@@ -35,11 +35,12 @@ from dos import pretool_sensor as prt
 # raise a bare ValueError — so we verify discovery once here and SKIP with a precise
 # remediation rather than failing every dialect test cryptically. (The kernel's own
 # `claude-code` default needs no plugin and is always present.)
-_DRIVER_DIALECTS = ("codex", "gemini", "cursor", "antigravity", "hermes")
+_DRIVER_DIALECTS = ("codex", "gemini", "cursor", "antigravity", "hermes", "claude-cowork")
 if any(name not in hd.available_dialects() for name in _DRIVER_DIALECTS):
     pytest.skip(
         "the dos.hook_dialects driver entry points are not registered "
-        "(run `pip install -e .` to register codex/gemini/cursor/antigravity/hermes — docs/217/278)",
+        "(run `pip install -e .` to register codex/gemini/cursor/antigravity/hermes/"
+        "claude-cowork — docs/217/278/298)",
         allow_module_level=True,
     )
 
@@ -115,6 +116,22 @@ def test_codex_deny_is_claude_code_identical():
     """Codex copied CC's envelope — the deny bytes must match the CC dialect exactly."""
     v = _deny_verdict(context="read it first")
     assert hd.resolve_dialect("codex").render(v) == hd.resolve_dialect("claude-code").render(v)
+
+
+def test_claude_cowork_render_is_claude_code_identical():
+    """Claude Cowork RUNS the Claude Code harness (docs/298) — its envelope is not
+    'like' CC's, it IS CC's. The dialect delegates, so every (moment, action) must
+    render byte-identical to the CC dialect — deny, warn, and pass alike."""
+    cw = hd.resolve_dialect("claude-cowork")
+    cc = hd.resolve_dialect("claude-code")
+    for moment in (hd.HookMoment.PRE, hd.HookMoment.POST, hd.HookMoment.STOP):
+        for v in (
+            hd.HookVerdict(moment=moment, action=hd.HookAction.DENY,
+                           reason="blocked by DOS", context="read it first"),
+            hd.HookVerdict(moment=moment, action=hd.HookAction.WARN, context="scope it"),
+            hd.HookVerdict(moment=moment, action=hd.HookAction.PASS),
+        ):
+            assert cw.render(v) == cc.render(v), (moment, v.action)
 
 
 def test_antigravity_deny_is_top_level_decision():
@@ -231,7 +248,7 @@ def _blocking_signal(out: dict | None) -> str:
     return ""
 
 
-@pytest.mark.parametrize("name", ["claude-code", "codex", "gemini", "cursor", "antigravity", "hermes"])
+@pytest.mark.parametrize("name", ["claude-code", "codex", "gemini", "cursor", "antigravity", "hermes", "claude-cowork"])
 @pytest.mark.parametrize("moment", [hd.HookMoment.PRE, hd.HookMoment.POST, hd.HookMoment.STOP])
 def test_deny_carries_a_blocking_signal_for_every_dialect_and_moment(name, moment):
     """No (dialect, moment) DENY may render to a shape with no blocking signal — that
@@ -265,7 +282,7 @@ def test_gemini_deny_moment_split_is_the_documented_one():
 # ---------------------------------------------------------------------------
 # PASS emits nothing — on EVERY dialect.
 # ---------------------------------------------------------------------------
-@pytest.mark.parametrize("name", ["claude-code", "codex", "gemini", "cursor", "antigravity"])
+@pytest.mark.parametrize("name", ["claude-code", "codex", "gemini", "cursor", "antigravity", "claude-cowork"])
 def test_pass_renders_none_on_every_dialect(name):
     v = hd.HookVerdict(moment=hd.HookMoment.PRE, action=hd.HookAction.PASS)
     assert hd.resolve_dialect(name).render(v) is None
@@ -296,7 +313,7 @@ def test_empty_or_none_dialect_is_the_default():
 
 def test_available_dialects_lists_every_host():
     names = hd.available_dialects()
-    assert {"claude-code", "codex", "gemini", "cursor", "antigravity"} <= set(names)
+    assert {"claude-code", "codex", "gemini", "cursor", "antigravity", "claude-cowork"} <= set(names)
 
 
 def test_trae_dialect_is_a_deliberate_absence():
@@ -317,7 +334,7 @@ def test_trae_dialect_is_a_deliberate_absence():
 # ---------------------------------------------------------------------------
 # The byte-author floor — NO dialect ever emits a tool-input rewrite key.
 # ---------------------------------------------------------------------------
-@pytest.mark.parametrize("name", ["claude-code", "codex", "gemini", "cursor"])
+@pytest.mark.parametrize("name", ["claude-code", "codex", "gemini", "cursor", "claude-cowork"])
 @pytest.mark.parametrize("action", [hd.HookAction.DENY, hd.HookAction.WARN])
 def test_no_dialect_emits_a_rewrite_key(name, action):
     """docs/191 §4: a corrective is a fact to re-surface, never a rewritten argument.

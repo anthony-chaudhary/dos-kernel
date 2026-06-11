@@ -188,6 +188,10 @@ codex = "dos.drivers.hook_dialects:CodexDialect"
 gemini = "dos.drivers.hook_dialects:GeminiDialect"
 cursor = "dos.drivers.hook_dialects:CursorDialect"
 antigravity = "dos.drivers.hook_dialects:AntigravityDialect"
+# Claude Cowork runs the Claude Code agent harness in a desktop VM, so its envelope
+# IS CC's — the renderer delegates (the Codex precedent), kept as a named entry so
+# `--dialect claude-cowork` resolves and a future divergence has a home (docs/298).
+claude-cowork = "dos.drivers.hook_dialects:ClaudeCoworkDialect"
 # Hermes Agent (Nous Research) — its `pre_tool_call` SHELL hook is a real
 # stdout-JSON deny surface (`{"decision":"block","reason":…}`), docs/278. (OpenClaw's
 # real hook is an in-process TS return, not stdout — no renderer consumer; SwarmClaw
@@ -282,6 +286,12 @@ codex = "dos.drivers.hook_dialects:codex_install_spec"
 gemini = "dos.drivers.hook_dialects:gemini_install_spec"
 cursor = "dos.drivers.hook_dialects:cursor_install_spec"
 antigravity = "dos.drivers.hook_dialects:antigravity_install_spec"
+# Claude Cowork — the SHARED surface: the same .claude/settings.json Claude Code
+# reads (same harness, same file; the wired command carries NO --dialect because the
+# shared file must serve both runtimes and the default IS the envelope). The spec's
+# note carries the one Cowork-specific fact: the product does not fire hooks yet
+# (anthropics/claude-code#63360, docs/298).
+claude-cowork = "dos.drivers.hook_dialects:claude_cowork_install_spec"
 
 [project.urls]
 Homepage = "https://github.com/anthony-chaudhary/dos-kernel"

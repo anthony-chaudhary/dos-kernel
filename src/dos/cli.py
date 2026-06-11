@@ -772,8 +772,9 @@ def cmd_init(args: argparse.Namespace) -> int:
         or getattr(args, "all", False)
     )
     # docs/221 — the runtime to wire hooks into. `--hooks <host>` selects it
-    # explicitly (claude-code/cursor/codex/gemini/antigravity); `--with-hooks` is the backward-
-    # compatible alias for `--hooks claude-code`. None of either → no hooks wired.
+    # explicitly (claude-code/cursor/codex/gemini/antigravity/claude-cowork);
+    # `--with-hooks` is the backward-compatible alias for `--hooks claude-code`.
+    # None of either → no hooks wired.
     hook_host = getattr(args, "hooks", None)
     if hook_host is None and getattr(args, "with_hooks", False):
         hook_host = "claude-code"
@@ -846,7 +847,8 @@ def cmd_init(args: argparse.Namespace) -> int:
         # docs/134 §6 / docs/221 — bind the verdict to the chosen runtime by wiring
         # the three DOS hooks into that host's own config file (merged, never
         # clobbering the user's). claude-code → .claude/settings.json (today's path);
-        # cursor/codex/gemini/antigravity → their config files with the right --dialect.
+        # cursor/codex/gemini/antigravity → their config files with the right --dialect;
+        # claude-cowork → the SAME .claude/settings.json (shared harness, docs/298).
         dry_run = getattr(args, "dry_run", False)
         try:
             spec, config_path, wired, already, proposed = _install_host_hooks(
@@ -5863,8 +5865,8 @@ def cmd_quickstart(args: argparse.Namespace) -> int:
                 _say("\nThen plug the verdict in where you already run agents:")
                 _say("  an agent runtime   dos init --hooks <runtime> .   "
                      "(claude-code, cursor, codex,")
-                _say("                     gemini, antigravity) — the host itself "
-                     'refuses a false "done"')
+                _say("                     gemini, antigravity, claude-cowork) — "
+                     'the host itself refuses a false "done"')
                 _say('  an MCP host        {"mcpServers": {"dos": {"command": '
                      '"dos-mcp"}}} — then ask the')
                 _say("                     agent to dos_verify its own last claim "
@@ -7142,11 +7144,14 @@ wheel or a hand-edited settings file:
   dos init --hooks codex .              # …or Codex CLI   (writes .codex/config.toml)
   dos init --hooks gemini .             # …or Gemini CLI  (writes .gemini/settings.json)
   dos init --hooks antigravity .        # …or Antigravity (writes .agents/hooks.json)
+  dos init --hooks claude-cowork .      # …or Claude Cowork (the SAME .claude/settings.json
+                                        #    Claude Code reads — shared harness, docs/298)
 
 `--hooks <runtime>` (docs/221) is CROSS-VENDOR: it wires three SHIPPED hooks (the
 verdict bound to the runtime, docs/134 §6 / docs/217) into the host you actually run
-— Claude Code, Cursor, Codex CLI, Gemini CLI, or Google Antigravity — each in its own
-file/format, with the matching `--dialect` so the host parses the verdict it honors:
+— Claude Code, Cursor, Codex CLI, Gemini CLI, Google Antigravity, or Claude Cowork —
+each in its own file/format, with the matching `--dialect` so the host parses the
+verdict it honors:
   Stop/AfterAgent      → `dos hook stop`     (refuse to stop on an unverified claim),
   PreToolUse/BeforeTool/beforeShellExecution → `dos hook pretool` (deny a refused call),
   PostToolUse/AfterTool/afterFileEdit        → `dos hook posttool` (re-surface a stalled stream).
@@ -8310,7 +8315,7 @@ def build_parser() -> argparse.ArgumentParser:
     phs.add_argument("--dialect", default=None,
                      help="render the stop refusal in a host's shape instead of the "
                           "default Claude-Code {\"decision\":\"block\",…}: "
-                          "{gemini,cursor,codex,antigravity} (docs/217/268). Same "
+                          "{gemini,cursor,codex,antigravity,claude-cowork} (docs/217/268). Same "
                           "verdict, different envelope (Gemini's {\"decision\":\"deny\",…}, "
                           "Cursor's {\"permission\":\"deny\",…}). Wired by "
                           "`dos init --hooks <host>` so a non-CC host's stop hook is "
@@ -8412,8 +8417,8 @@ def build_parser() -> argparse.ArgumentParser:
     php.add_argument("--dialect", default="claude-code",
                      help="the host runtime whose hook envelope to emit "
                           "(claude-code [default] / codex / gemini / cursor / "
-                          "antigravity, or a dos.hook_dialects plugin). An unknown "
-                          "name fails loud and emits nothing (docs/217)")
+                          "antigravity / claude-cowork, or a dos.hook_dialects plugin). "
+                          "An unknown name fails loud and emits nothing (docs/217)")
     php.set_defaults(func=cmd_hook_posttool)
 
     ppt = hsub.add_parser(
@@ -8450,9 +8455,9 @@ def build_parser() -> argparse.ArgumentParser:
     ppt.add_argument("--dialect", default="claude-code",
                      help="the host runtime whose hook envelope to emit "
                           "(claude-code [default] / codex / gemini / cursor / "
-                          "antigravity, or a dos.hook_dialects plugin). DENY is honored "
-                          "by every host; an unknown name fails loud and emits nothing "
-                          "(docs/217)")
+                          "antigravity / claude-cowork, or a dos.hook_dialects plugin). "
+                          "DENY is honored by every host; an unknown name fails loud "
+                          "and emits nothing (docs/217)")
     ppt.set_defaults(func=cmd_hook_pretool)
 
     pia = sub.add_parser(
