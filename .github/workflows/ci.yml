@@ -245,7 +245,7 @@ jobs:
       # Match the publish workflow: build the per-platform wheels (each embedding the
       # native dos-hook binary, docs/286) + the pure-source sdist, so a broken
       # build_wheels.py / Go build is caught on every push, not first at a tag.
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: "1.25"
           cache-dependency-path: go/go.sum
