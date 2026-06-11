@@ -428,6 +428,30 @@ NAME — the Law-1 litmus, pinned at the finding-text level). Typed `Finding` (c
 rewrites `dos.toml`, never refuses a lease — `dos doctor --check` and the focused
 `dos lint` verb gate on it (error/warn gate; info is cosmetic and never gates).
 
+## The hook telemetry contract (docs/276 → 297)
+
+### `hook_observation`
+The **`hook-observation` record family** (docs/297, issue #24): the kernel-owned
+per-call telemetry contract every hook runtime writes — one schema-tagged JSONL
+line per hook invocation under `.dos/metrics/observations.jsonl` (verb, outcome,
+exit, latency; verb-specific fields written only-when-set, the additive
+contract). Born on the plugin's Go binary (docs/276 Part 2), lifted to a kernel
+leaf so the kernel reads a contract IT defines, not a log "only the plugin
+writes" — the Option-B ownership inversion that keeps the awareness arrow clean:
+nothing here names a vendor or a binary; the Go binary and the Python hook verbs
+(`dos hook pretool/posttool/stop/marker`) are both *conforming writers*. Owns
+the PURE entry builder, the FAIL-SOFT fsync'd append (a telemetry fault can
+never change an emitted dialect or exit code — docs/99; `DOS_HOOK_METRICS=0`
+opts out), the tolerant `durable_schema`-gated reader, and the PURE
+`intervention_rate` fold — the denominator `dos helped` lacked (issue #24):
+`adjudicated` = pretool records minus `delegate` handoffs (a handoff's real
+verdict is the deciding runtime's own record, so each call counts exactly once
+in the binary-only / Python-only / mixed writer worlds), `intervened` =
+adjudicated minus passthrough. Like-for-like by construction: the fold admits
+observation records only — the lane journal (a different log, window, and
+scope) has no path into either side of the ratio. Byte-clean (docs/138): every
+counted field is env-authored, downstream of an already-decided verdict.
+
 ## The seam-data leaf
 
 ### `lifecycle`
