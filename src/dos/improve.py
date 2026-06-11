@@ -72,6 +72,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from dos import breaker, efficiency
+from dos.spend import SpendBreakdown
 
 
 class Candidate(str, enum.Enum):
@@ -221,6 +222,15 @@ class CandidateEvidence:
                        a row did not KEEP. Threaded by the driver through the cycle
                        (the `breaker.BreakerCounts.consecutive` / `LoopState`
                        counter). Non-negative.
+      breakdown      — OPTIONAL (docs/300): the typed five-way split of the same
+                       spend (`dos.spend.SpendBreakdown`), threaded into the
+                       efficiency rung so the keep/revert record can state WHAT
+                       KIND of spend bought the candidate (cache-hit ratio,
+                       decode share, reasoning share). Pure legibility — the
+                       keep-bit still rides the scalar ladder. When given with
+                       `tokens=0` the scalar derives from `breakdown.total`;
+                       when both are given they must agree (a mismatch is a
+                       contract error, the `EfficiencyEvidence` rule).
 
     `narrated` is the candidate's own description of what it did — carried for the
     operator surface (`dos improve --json` echoes it) and **parsed for nothing**.
@@ -237,6 +247,7 @@ class CandidateEvidence:
     tokens: int = 0
     consecutive_reverts: int = 0
     narrated: str = ""
+    breakdown: Optional[SpendBreakdown] = None
 
     def __post_init__(self) -> None:
         if self.work < 0:
@@ -247,6 +258,16 @@ class CandidateEvidence:
             raise ValueError("tokens must be non-negative (a count of tokens spent)")
         if self.consecutive_reverts < 0:
             raise ValueError("consecutive_reverts must be non-negative")
+        if self.breakdown is not None:
+            if self.tokens == 0:
+                # The scalar derives from the split — one source of truth.
+                object.__setattr__(self, "tokens", self.breakdown.total)
+            elif self.tokens != self.breakdown.total:
+                raise ValueError(
+                    f"tokens ({self.tokens}) disagrees with breakdown.total "
+                    f"({self.breakdown.total}) — an inconsistent evidence pair is "
+                    f"a contract error, never silently reconciled"
+                )
 
     @property
     def improved(self) -> bool:
@@ -283,6 +304,11 @@ class CandidateVerdict:
     evidence: CandidateEvidence
     revert_cause: Optional[RevertCause] = None
     escalation: breaker.Escalation = breaker.Escalation.NONE
+    # docs/300 — the efficiency rung's full verdict, set whenever the rung ran
+    # (the improving paths). Carried so a breakdown-bearing keep/revert record
+    # can state the candidate's price facts; None on the paths that never
+    # priced the candidate (a regression / a no-improvement miss).
+    efficiency_verdict: Optional[efficiency.EfficiencyVerdict] = None
 
     @property
     def is_keep(self) -> bool:
@@ -290,7 +316,7 @@ class CandidateVerdict:
 
     def to_dict(self) -> dict:
         e = self.evidence
-        return {
+        out = {
             "verdict": self.verdict.value,
             "revert_cause": self.revert_cause.value if self.revert_cause else None,
             "escalation": self.escalation.value,
@@ -308,6 +334,13 @@ class CandidateVerdict:
                 "narrated": e.narrated,
             },
         }
+        # docs/300 — the price facts, surfaced ONLY for breakdown-carrying
+        # evidence so the scalar path keeps its exact old JSON shape.
+        if e.breakdown is not None:
+            out["evidence"]["breakdown"] = e.breakdown.to_dict()
+            if self.efficiency_verdict is not None:
+                out["efficiency"] = self.efficiency_verdict.to_dict()
+        return out
 
 
 def _efficiency_policy(policy: ImprovePolicy) -> efficiency.EfficiencyPolicy:
@@ -420,7 +453,11 @@ def classify(
         # disabled floor, `efficiency` always returns EFFICIENT for nonzero work, so
         # this rung is a no-op until a host arms a floor.
         eff = efficiency.classify(
-            efficiency.EfficiencyEvidence.of(work=evidence.delta, tokens=evidence.tokens),
+            efficiency.EfficiencyEvidence.of(
+                work=evidence.delta,
+                tokens=evidence.tokens,
+                breakdown=evidence.breakdown,  # docs/300 — the price facts ride along
+            ),
             _efficiency_policy(policy),
         )
         if eff.verdict is efficiency.Efficiency.EFFICIENT:
@@ -438,6 +475,7 @@ def classify(
                     f"witnessed by bytes the loop did not author, so the gain is real"
                 ),
                 evidence=evidence,
+                efficiency_verdict=eff,
             )
         # Improved, but the host's efficiency floor refused the price. A REVERT, not
         # a KEEP — bump the breaker like any other non-keep.
@@ -462,6 +500,7 @@ def classify(
             evidence=evidence,
             revert_cause=RevertCause.WASTEFUL,
             escalation=trip.verdict.escalation,
+            efficiency_verdict=eff,
         )
 
     # 4. REVERT (no improvement) — safe but the metric did not move. A miss, not a

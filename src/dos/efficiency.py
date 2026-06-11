@@ -64,6 +64,9 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass
+from typing import Optional
+
+from dos.spend import SpendBreakdown
 
 
 class Efficiency(str, enum.Enum):
@@ -162,6 +165,16 @@ class EfficiencyEvidence:
                the env-authored price. Non-negative. Zero tokens is the degenerate
                "no spend yet" case (a ratio is undefined) — handled as
                EFFICIENT-benign, never a divide-by-zero.
+      breakdown — OPTIONAL (docs/300): the typed five-way split of that same
+               spend (`dos.spend.SpendBreakdown` — input / output / cache_read /
+               cache_creation / reasoning). Pure legibility: the verdict ladder
+               still rides the scalar `tokens`, so a richer breakdown can never
+               flip a verdict — it only lets the JSON say *what kind* of spend
+               was behind it (cache-hit ratio, decode share, reasoning share).
+               When given with `tokens=0` the scalar derives from
+               `breakdown.total`; when both are given they must AGREE — a
+               mismatched pair is a contract error, refused loudly, never
+               silently reconciled (the double-count discipline).
 
     Both are env-authored (the docs/138 invariant): `work` is what git/the test
     runner witnessed, `tokens` is what the API billed — neither is the agent's
@@ -171,12 +184,23 @@ class EfficiencyEvidence:
 
     work: int = 0
     tokens: int = 0
+    breakdown: Optional[SpendBreakdown] = None
 
     def __post_init__(self) -> None:
         if self.work < 0:
             raise ValueError("work must be non-negative (a count of work done)")
         if self.tokens < 0:
             raise ValueError("tokens must be non-negative (a count of tokens spent)")
+        if self.breakdown is not None:
+            if self.tokens == 0:
+                # The scalar derives from the split — one source of truth.
+                object.__setattr__(self, "tokens", self.breakdown.total)
+            elif self.tokens != self.breakdown.total:
+                raise ValueError(
+                    f"tokens ({self.tokens}) disagrees with breakdown.total "
+                    f"({self.breakdown.total}) — an inconsistent evidence pair is "
+                    f"a contract error, never silently reconciled"
+                )
 
     @property
     def ratio(self) -> float:
@@ -188,9 +212,12 @@ class EfficiencyEvidence:
         return self.work / self.tokens
 
     @classmethod
-    def of(cls, work: int, tokens: int) -> "EfficiencyEvidence":
-        """Build evidence from a work count and a token count."""
-        return cls(work=work, tokens=tokens)
+    def of(
+        cls, work: int, tokens: int, breakdown: Optional[SpendBreakdown] = None
+    ) -> "EfficiencyEvidence":
+        """Build evidence from a work count and a token count (and, optionally,
+        the typed spend breakdown behind that count — docs/300)."""
+        return cls(work=work, tokens=tokens, breakdown=breakdown)
 
 
 @dataclass(frozen=True)
@@ -212,14 +239,20 @@ class EfficiencyVerdict:
 
     def to_dict(self) -> dict:
         e = self.evidence
+        evidence: dict = {
+            "work": e.work,
+            "tokens": e.tokens,
+            "ratio": e.ratio,
+        }
+        # docs/300 — the optional spend diagnostics. Omitted entirely when the
+        # caller supplied only the scalar, so the pre-breakdown JSON shape stays
+        # byte-identical for every existing consumer.
+        if e.breakdown is not None:
+            evidence["breakdown"] = e.breakdown.to_dict()
         return {
             "verdict": self.verdict.value,
             "reason": self.reason,
-            "evidence": {
-                "work": e.work,
-                "tokens": e.tokens,
-                "ratio": e.ratio,
-            },
+            "evidence": evidence,
         }
 
 
