@@ -1,13 +1,16 @@
 # 300 — SPEND: the token-spend breakdown, the efficiency trend, and the loop surface
 
-> **Status:** in flight (2026-06-11). The forcing question (operator `/goal`): *make
-> token-effectiveness observability 10× deeper — prefill/decode, trends, and the
-> self-improvement surface — grounded in what the field standardized in the last
-> few months.* This plan widens the docs/263 efficiency family in three steps:
-> a typed **spend breakdown** (P1–P2), an **efficiency trend** over the verdict
-> journal's fossils (P3), and the **improve() pass-through** so a self-improving
-> loop's keep/revert record carries its price facts (P4). Everything else found
-> in the research is deliberately offloaded to issues (§7).
+> **Status:** shipped (2026-06-11) — P1–P4 oracle-verified the same day
+> (`dos verify` answers SHIPPED for each off the stamped subjects; the
+> commit-audit sweep over the range is clean). The forcing question (operator
+> `/goal`): *make token-effectiveness observability 10× deeper — prefill/decode,
+> trends, and the self-improvement surface — grounded in what the field
+> standardized in the last few months.* This plan widens the docs/263 efficiency
+> family: a typed **spend breakdown** (P1), the **evidence widening** through
+> efficiency and improve so keep/revert records carry their price facts (P2),
+> an **efficiency trend** over the verdict journal's fossils (P3), and the
+> **CLI boundary** that reads usage records in and fossils back out (P4).
+> Everything else found in the research is deliberately offloaded to issues (§7).
 
 ---
 
