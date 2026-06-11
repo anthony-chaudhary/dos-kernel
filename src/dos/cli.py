@@ -59,6 +59,7 @@ import dataclasses
 import json
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -3337,12 +3338,41 @@ def cmd_guard(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 # hook stop  (the verify-on-stop binding — docs/134 §2/§2.2)
 # ---------------------------------------------------------------------------
+def _record_hook_observation(cfg, *, verb: str, outcome: str, started: float,
+                             debug: bool = False, **fields) -> None:
+    """Append one `hook-observation` record for a DECIDED hook call (docs/297 P3).
+
+    The Python hook verbs' half of the kernel-owned observation contract
+    (`dos.hook_observation`) — the second conforming writer beside the native
+    binary. Called only AFTER a verb has decided + emitted, with the
+    `time.monotonic()` the verb captured at entry, so telemetry stays strictly
+    downstream of the decision (docs/99). The native-served path never reaches
+    this (the binary already recorded its own observation); a DELEGATED call
+    does — its record is the call's real verdict, which is exactly what the
+    docs/297 denominator rule pairs with the binary's `delegate` handoff row.
+    Fail-soft by construction: any fault is swallowed, so a telemetry write can
+    never change a verdict, a dialect, or an exit code.
+    """
+    try:
+        from dos import hook_observation as _hobs
+        entry = _hobs.observation_entry(
+            verb, outcome,
+            latency_ms=round((time.monotonic() - started) * 1000.0, 3),
+            run_id=os.environ.get("CID_RUN_ID", "") or "",
+            **fields)
+        _hobs.append(entry, cfg=cfg, debug=debug)
+    except Exception:  # noqa: BLE001 — telemetry is advisory, never load-bearing
+        return
+
+
 def cmd_hook_stop(args: argparse.Namespace) -> int:
     """A `Stop`/`SubagentStop` hook: refuse to let an agent stop on a false done.
 
     Detail: docs/CLI.md § cmd_hook_stop.
     """
     from dos import claim_extract
+
+    started = time.monotonic()
 
     # 1. Read the hook event from stdin (the host's contract). Any failure → let
     #    the agent stop (we never block on our own inability to read).
@@ -3427,6 +3457,8 @@ def cmd_hook_stop(args: argparse.Namespace) -> int:
         # Nothing the agent confidently claimed → nothing to check. Let it stop.
         _emit_help_digest(event, cfg=_config.active(), args=args)
         _emit(blocked=False, results=[], checked=0)
+        _record_hook_observation(_config.active(), verb="stop", outcome="no-claims",
+                                 started=started, debug=bool(getattr(args, "debug", False)))
         return 0
 
     # 5. Verify each claim against git (the truth syscall). Block on a NOT_SHIPPED
@@ -3457,11 +3489,20 @@ def cmd_hook_stop(args: argparse.Namespace) -> int:
             f"(with the ship-stamp grammar) or correct the claim before stopping."
         )
         _emit(blocked=True, reason=reason, results=results)
+        _record_hook_observation(cfg, verb="stop", outcome="block", started=started,
+                                 debug=bool(getattr(args, "debug", False)),
+                                 claims_seen=len(claims),
+                                 verify_source=str(failures[0].get("source") or ""),
+                                 blocked_plan=str(failures[0].get("plan") or ""),
+                                 blocked_phase=str(failures[0].get("phase") or ""))
         return 0  # exit 0 + {"decision":"block"} is CC's "keep working" signal
 
     # Every actionable claim verified. Let the agent stop.
     _emit_help_digest(event, cfg=cfg, args=args)
     _emit(blocked=False, results=results, checked=len(results))
+    _record_hook_observation(cfg, verb="stop", outcome="all-verified", started=started,
+                             debug=bool(getattr(args, "debug", False)),
+                             claims_seen=len(claims))
     return 0
 
 
@@ -3509,6 +3550,7 @@ def cmd_hook_marker(args: argparse.Namespace) -> int:
     from dos import marker_gate as _mg
     from dos import marker_sensor as _ms
 
+    started = time.monotonic()
     debug = bool(getattr(args, "debug", False))
 
     def _dbg(msg: str) -> None:
@@ -3596,6 +3638,14 @@ def cmd_hook_marker(args: argparse.Namespace) -> int:
     _dbg(f"emitted={emitted} max={cap} allow={decision.allow} "
          f"reason={budget_reason} ({arm.reason})")
 
+    # docs/297 P3: one observation per ARMED budget decision (an unarmed ordinary
+    # turn reached no verdict — nothing to record). Downstream of the classify;
+    # the emission below follows deterministically from `decision.allow`.
+    _record_hook_observation(cfg, verb="marker",
+                             outcome="allow" if decision.allow else "refuse",
+                             started=started, debug=debug,
+                             marker_count=decision.noop_turns, max_markers=cap)
+
     if args.json:
         # A machine-readable surface for tooling / non-CC hosts — never the bytes CC
         # reads. Mirrors `cmd_hook_stop --json`.
@@ -3645,6 +3695,7 @@ def cmd_hook_posttool(args: argparse.Namespace) -> int:
     """
     from dos import posttool_sensor as _pts
 
+    started = time.monotonic()
     debug = bool(getattr(args, "debug", False))
 
     def _dbg(msg: str) -> None:
@@ -3735,6 +3786,7 @@ def cmd_hook_posttool(args: argparse.Namespace) -> int:
     _dbg(f"verdict={verdict.state} repeat_run={verdict.repeat_run} "
          f"step_index={step_index} run_id={firing_run_id or '-'} "
          f"warn={'yes' if payload else 'no'}")
+    warn_emitted = False
     if payload is not None:
         # The ONLY thing on stdout: the host's PostToolUse dialect. `warn_payload`
         #   (full prose: docs/CLI.md § "The ONLY thing on stdout: the host's PostToolUse dialect. `w")
@@ -3747,6 +3799,11 @@ def cmd_hook_posttool(args: argparse.Namespace) -> int:
             host_dialect = None
         if host_dialect is not None:
             print(json.dumps(host_dialect, sort_keys=True))
+            warn_emitted = True
+    _record_hook_observation(cfg, verb="posttool",
+                             outcome="warn" if warn_emitted else "passthrough",
+                             started=started, debug=debug,
+                             stream_state=verdict.state.value)
     return 0
 
 
@@ -3757,6 +3814,7 @@ def cmd_hook_pretool(args: argparse.Namespace) -> int:
     """
     from dos import pretool_sensor as _prt
 
+    started = time.monotonic()
     debug = bool(getattr(args, "debug", False))
 
     def _dbg(msg: str) -> None:
@@ -3857,6 +3915,20 @@ def cmd_hook_pretool(args: argparse.Namespace) -> int:
             host_dialect = None
         if host_dialect is not None:
             print(json.dumps(host_dialect, sort_keys=True))
+
+    # 7. docs/297 P3: one observation per decided call — THE denominator record
+    #    (one pretool record = one tool call adjudicated). On the native fast path
+    #    the binary recorded its own; this is the Python-decided record, including
+    #    the call a binary DELEGATED here (the docs/297 pairing). Fail-soft,
+    #    strictly downstream of the emitted dialect.
+    from dos.hook_dialect import DEFAULT_DIALECT as _default_dialect
+    _record_hook_observation(cfg, verb="pretool", outcome=str(decision),
+                             started=started, debug=debug,
+                             rung=str(outcome.get("rung") or ""),
+                             reason_class=str(outcome.get("reason_class") or ""),
+                             dialect=str(getattr(args, "dialect", None) or _default_dialect),
+                             tree_known=(bool(outcome["tree_known"])
+                                         if "tree_known" in outcome else None))
     return 0
 
 
@@ -4962,8 +5034,29 @@ def cmd_helped(args: argparse.Namespace) -> int:
     summary = _help.summarize(records, holder=holder, since=since,
                               with_examples=explain or bool(getattr(args, "json", False)))
 
+    # The denominator (docs/297 P2, issue #24): the per-call hook-observation log,
+    # read ONCE at this boundary. Like-for-like only — BOTH sides of the rate come
+    # from that one log; the lane-journal counts above never enter it. Graceful
+    # absence: no log / nothing adjudicated / an unreadable file → rate stays None
+    # and every output below is byte-identical to the rate-less form. A --session
+    # scope also suppresses it (observation records carry no session key, so a
+    # session-scoped rate would silently widen to the whole fleet — dishonest).
+    rate = None
+    if not holder:
+        from dos import hook_observation as _hobs
+        try:
+            folded = _hobs.intervention_rate(
+                _hobs.read_observations(cfg=cfg), since=since)
+            if folded.adjudicated > 0:
+                rate = folded
+        except Exception:  # noqa: BLE001 — a rate fold fault degrades to "no rate line"
+            rate = None
+
     if getattr(args, "json", False):
-        print(json.dumps(summary.to_dict(), indent=2, default=str))
+        payload = summary.to_dict()
+        if rate is not None:
+            payload["tool_calls"] = rate.to_dict()
+        print(json.dumps(payload, indent=2, default=str))
         return 0
 
     scope = ""
@@ -4974,7 +5067,7 @@ def cmd_helped(args: argparse.Namespace) -> int:
     if explain:
         print(_help.render_explain_text(summary, scope=scope))
     else:
-        print(_help.render_summary_text(summary, scope=scope))
+        print(_help.render_summary_text(summary, scope=scope, rate=rate))
     return 0
 
 

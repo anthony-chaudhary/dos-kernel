@@ -433,12 +433,39 @@ def nudge_line(summary: HelpSummary) -> str:
     )
 
 
-def render_summary_text(summary: HelpSummary, *, scope: str = "") -> str:
+def _rate_lines(rate) -> list[str]:
+    """The "of N adjudicated calls" block for an `InterventionRate`, or []. Pure.
+
+    The docs/297 denominator line. `rate` is a `dos.hook_observation
+    .InterventionRate` (duck-typed: `adjudicated`/`passed`/`intervened` + the
+    `*_pct` properties) — every number in it came from ONE observation log, by
+    construction of that fold. None, or zero adjudicated calls, renders nothing
+    at all, so a workspace without an observation log keeps today's bytes. The
+    trailing note is the honesty caveat: the rate's log and the catch counts'
+    journal have different windows and scopes, so the two never share a number.
+    """
+    if rate is None or rate.adjudicated <= 0:
+        return []
+    return [
+        "",
+        (f"  of {rate.adjudicated} tool calls adjudicated by the hooks, "
+         f"{rate.passed} passed untouched ({rate.passed_pct:.1f}%) and "
+         f"{rate.intervened} were intervened on ({rate.intervened_pct:.1f}%)"),
+        ("    (from the per-call hook observation log — its window and scope "
+         "differ from the catch counts above)"),
+    ]
+
+
+def render_summary_text(summary: HelpSummary, *, scope: str = "",
+                        rate=None) -> str:
     """The full `dos helped` operator rollup — headline + breakdowns. Pure.
 
     Leads with the headline count, then the by-reason-class and by-tool tables (the
     "what kind of help, on which tool" an operator wants), and an honest footer
     noting how many firings were observe-only (recorded but not a behavior-change).
+    `rate` (docs/297) is an optional `hook_observation.InterventionRate` — when
+    present it adds the self-contained "of N adjudicated calls" block; when None
+    (no observation log) the output is byte-identical to the rate-less form.
     """
     out: list[str] = []
     title = "# dos helped"
@@ -465,7 +492,9 @@ def render_summary_text(summary: HelpSummary, *, scope: str = "") -> str:
         if summary.enforced:
             out.append(f"  ({summary.enforced} enforcement record(s) seen, "
                        f"all observe-only)")
+        out.extend(_rate_lines(rate))
         return "\n".join(out)
+    out.extend(_rate_lines(rate))
     if summary.by_reason:
         out.append("")
         out.append("  by reason")
