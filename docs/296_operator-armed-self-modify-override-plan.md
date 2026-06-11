@@ -1,9 +1,18 @@
 # 296 — the operator-armed SELF_MODIFY override: a wired affordance for the HUMAN rung
 
-> **Status:** 📋 **PLANNED** (commissioned 2026-06-10) — the operator asked for
-> this seam directly, after a session in which the guard worked exactly as
-> designed and the sanctioned escape hatch turned out not to exist as a
-> *mechanism*, only as a *sentence*.
+> **Status:** 🚧 **P1–P2 SHIPPED, P3 OPEN** (2026-06-10) — closed by the
+> oracle, not this sentence: `dos verify --workspace .
+> docs/296_operator-armed-self-modify-override-plan "Phase 1"` / `"Phase 2"`.
+> Phase 3 (Go hook parity + the live-binary swap) is operator-gated and open —
+> until it lands, the LIVE plugin hook (the Go fast path) still denies inside
+> an armed window; the Python hook path and any wiring that falls through to
+> it honor the window now. One P2 line item deliberately rides the FIRST
+> armed window instead of shipping here: the `dos man wedge SELF_MODIFY`
+> TYPICAL-FIX sentence (it lives in the T1 reason registry, so its own edit
+> is, fittingly, the seam's first customer). Commissioned 2026-06-10 by the
+> operator, after a session in which the guard worked exactly as designed and
+> the sanctioned escape hatch turned out not to exist as a *mechanism*, only
+> as a *sentence*.
 >
 > **Design revision (2026-06-10, same day, before any code):** the first cut
 > put the override evidence INTO the pure classify (`self_modify`, T1) — which

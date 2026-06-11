@@ -3153,6 +3153,53 @@ def cmd_lease_lane(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# override  (docs/296 — the operator's SELF_MODIFY override window: report or
+# disarm, NEVER arm. Arming is the operator's hand on the arm file by design —
+# any verb an agent's shell can call is an arming path an agent can take, so
+# the asymmetry IS the security property: anyone may disarm, only the human
+# arms. `status` exit code is the state: 0 armed / 1 disarmed-or-expired.)
+# ---------------------------------------------------------------------------
+def cmd_override(args: argparse.Namespace) -> int:
+    _apply_workspace(args)
+    from dos import override_facts as _ovr
+    import datetime as _dt
+    cfg = _config.active()
+    p = _ovr.arm_path(cfg.paths.root)
+
+    if args.override_cmd == "disarm":
+        # Always safe, for anyone — lowering the window can only restore the deny.
+        existed = p.exists()
+        if existed:
+            try:
+                p.unlink()
+            except OSError as e:
+                print(f"error: could not remove the arm file ({e})", file=sys.stderr)
+                return 2
+        print(json.dumps({"disarmed": existed, "path": str(p)}, sort_keys=True))
+        return 0
+
+    # status
+    facts = _ovr.read_override(cfg.paths.root)
+    now = _dt.datetime.now(_dt.timezone.utc)
+    if facts is None:
+        print(json.dumps({"armed": False, "path": str(p),
+                          "note": "no valid arm file — the SELF_MODIFY deny "
+                                  "stands (docs/296; arming is by hand)"},
+                         sort_keys=True))
+        return 1
+    armed = now <= facts.until
+    print(json.dumps({
+        "armed": armed,
+        "expired": not armed,
+        "until": facts.until.isoformat(),
+        "reason": facts.reason,
+        "scope": list(facts.scope),
+        "path": str(p),
+    }, sort_keys=True))
+    return 0 if armed else 1
+
+
+# ---------------------------------------------------------------------------
 # halt  (docs/99 — record a STOP DECISION for an in-flight run + propose the
 #   (full prose: docs/CLI.md § "halt  (docs/99 — record a STOP DECISION for an in-flight run")
 # ---------------------------------------------------------------------------
@@ -5364,6 +5411,21 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         bound = ", ".join(wired_bits) if wired_bits else "none wired"
         print(f"runtime hooks       {bound}"
               + ("" if wired_bits else "   (run `dos init --hooks <runtime>` to bind)"))
+    # docs/296 — the operator's SELF_MODIFY override window, made visible: an
+    # armed window changes what the PRE hook will admit, so the report that
+    # answers "what am I configured as?" must show it. Read-only, fail-soft.
+    try:
+        from dos import override_facts as _ovr
+        import datetime as _dt
+        _facts = _ovr.read_override(cfg.paths.root)
+        if _facts is not None and _dt.datetime.now(_dt.timezone.utc) <= _facts.until:
+            _scope = ", ".join(_facts.scope) if _facts.scope else "the whole runtime set"
+            print(f"self-mod override   ARMED until {_facts.until.isoformat()} "
+                  f"({_facts.reason}) — scope: {_scope}")
+        else:
+            print("self-mod override   disarmed")
+    except Exception:  # noqa: BLE001 — a report row must never break doctor
+        print("self-mod override   disarmed")
     print(f"layout style        {cfg.paths.style}")
     # The environment print (docs/115): *under what* this kernel adjudicates. The
     #   (full prose: docs/CLI.md § "The environment print (docs/115): *under what* this kernel a")
@@ -7984,6 +8046,23 @@ def build_parser() -> argparse.ArgumentParser:
         "live", help="the live-lease set reconstructed from the WAL (feeds --leases)")
     lll.add_argument("--pretty", action="store_true")
     pll.set_defaults(func=cmd_lease_lane)
+
+    # override — the operator's SELF_MODIFY override window (docs/296): report
+    # or disarm. Deliberately NO `arm` subcommand — arming is the operator's
+    # hand on `.dos/override/self-modify.toml`, never a verb an agent can call.
+    pov = sub.add_parser(
+        "override",
+        help="the operator's SELF_MODIFY override window: status / disarm "
+             "(arming is by hand — docs/296)")
+    _add_workspace_flags(pov)
+    ovsub = pov.add_subparsers(dest="override_cmd", required=True)
+    ovsub.add_parser(
+        "status",
+        help="report the armed window (exit 0 armed / 1 disarmed-or-expired)")
+    ovsub.add_parser(
+        "disarm",
+        help="delete the arm file — always safe, for anyone (restores the deny)")
+    pov.set_defaults(func=cmd_override)
 
     # halt — record a STOP DECISION for an in-flight run + propose the command
     #   (full prose: docs/CLI.md § "halt — record a STOP DECISION for an in-flight run + propose")
