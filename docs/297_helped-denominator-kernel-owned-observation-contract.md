@@ -1,8 +1,24 @@
 # 297 — the `helped` denominator: the hook-observation log becomes a kernel-owned contract (issue #24)
 
-> **Status:** 📋 **PLANNED** (2026-06-10) — the design decision issue #24 asked
-> for, plus the phased lift. Issue #24 stays open as the tracking handle until
-> the done-condition ships.
+> **Status:** ✅ **SHIPPED** (2026-06-10, same day) — P1–P3 landed in `9105438`
+> (the leaf + the `dos helped` rate + the Python writer, with the issue's three
+> done-condition clauses pinned in `tests/test_hook_observation.py`), P4 in
+> `e99bc9d` (the Go fold alignment). `Fixes #24` rides the P1–P3 commit.
+>
+> **Field amendments (recorded while shipping, same day):**
+>
+> * **One phase per ship-stamp.** The trailer stamp grammar is fail-closed on a
+>   multi-phase tail — `(docs/297 P1 P2 P3)` stamps nothing (the close paren
+>   must hug the single phase token). The three phases were therefore closed by
+>   their real follow-up artifacts, one stamp each: the `docs/ARCHITECTURE.md`
+>   leaf entry (P1), the `docs/CLI.md § cmd_helped` rate detail (P2), and this
+>   status + the `§ cmd_hook_pretool` writer detail (P3).
+> * **Measured cost** (the performance check): the Python fallback hot path
+>   pays ~1 ms per fsync'd append, riding a ~0.3–0.8 s interpreter start; the
+>   native-served path is untouched. The `dos helped` read+fold measured
+>   ~0.4 ms on a 50-record log, linear in log size — which makes the log's
+>   UNBOUNDED growth the follow-up worth tracking: `retention` does not cover
+>   `.dos/metrics/`, a gap born with docs/276 (filed as its own issue).
 
 ## The gap
 

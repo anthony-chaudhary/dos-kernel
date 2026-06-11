@@ -1269,6 +1269,18 @@ denies on its own typed refusal (operator-visible, `--force`-overridable upstrea
 any non-passthrough outcome an `OP_ENFORCE` lane-journal record is appended (docs/189
 §C4) so the deny is a durable, joinable WAL fact, not self-report.
 
+Every DECIDED call — passthrough included — also appends one `hook-observation`
+record (docs/297 P3; `dos.hook_observation`, fail-soft, `DOS_HOOK_METRICS=0` opts
+out): the Python verbs are the second conforming writer of the kernel-owned
+telemetry family the native binary already writes, and a pretool record IS the
+denominator `dos helped` folds into its intervention rate. The native-served
+path writes nothing here (the binary records its own observation); a call the
+binary DELEGATED and Python then decided writes its real verdict — the record
+the docs/297 rule pairs with the binary's `delegate` handoff row, so a mixed
+log counts each call once. The other hook verbs (`posttool`/`stop`/`marker`)
+append the same family for their own decided outcomes; none of them enter the
+tool-call denominator.
+
 `--debug` prints diagnostics to STDERR only — never polluting the stdout dialect CC
 parses (the load-bearing no-op-avoidance discipline).
 
