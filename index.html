@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DOS Kernel — catch AI agents lying about what they shipped</title>
+  <meta name="description" content="DOS (dos-kernel) is a small open-source trust kernel for AI coding agents: verify what actually shipped from git evidence, arbitrate file collisions between parallel agents, refuse with structured reasons. Python, MIT.">
+  <link rel="canonical" href="https://anthony-chaudhary.github.io/dos-kernel/">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="DOS Kernel — catch AI agents lying about what they shipped">
+  <meta property="og:description" content="A small open-source trust kernel for AI coding agents: verify work from git evidence instead of agent self-reports, arbitrate parallel agents on one repo, refuse with structured reasons.">
+  <meta property="og:url" content="https://anthony-chaudhary.github.io/dos-kernel/">
+  <meta property="og:image" content="https://opengraph.githubassets.com/1/anthony-chaudhary/dos-kernel">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="DOS Kernel — catch AI agents lying about what they shipped">
+  <meta name="twitter:description" content="Verify AI agent work from git evidence, not self-reports. Arbitrate parallel agents on one repo. Open source, Python, MIT.">
+  <meta name="twitter:image" content="https://opengraph.githubassets.com/1/anthony-chaudhary/dos-kernel">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "DOS — the Dispatch Operating System (dos-kernel)",
+    "alternateName": "dos-kernel",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Windows, macOS, Linux",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "license": "https://github.com/anthony-chaudhary/dos-kernel/blob/master/LICENSE",
+    "url": "https://anthony-chaudhary.github.io/dos-kernel/",
+    "downloadUrl": "https://pypi.org/project/dos-kernel/",
+    "softwareVersion": "0.24.1",
+    "programmingLanguage": "Python",
+    "author": { "@type": "Person", "name": "Anthony Chaudhary", "url": "https://github.com/anthony-chaudhary" },
+    "sameAs": [
+      "https://github.com/anthony-chaudhary/dos-kernel",
+      "https://pypi.org/project/dos-kernel/",
+      "https://context7.com/anthony-chaudhary/dos-kernel"
+    ],
+    "description": "A small deterministic kernel for fleets of AI coding agents: dos verify answers 'did this actually ship?' from git evidence rather than the agent's self-report; dos arbitrate referees which agents may touch which files concurrently; refusals are structured, machine-checkable reasons from a closed vocabulary."
+  }
+  </script>
+  <style>
+    :root {
+      --bg: #0d1117; --panel: #161b22; --border: #30363d;
+      --fg: #e6edf3; --muted: #9198a1; --accent: #58a6ff; --green: #3fb950; --red: #f85149;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--fg);
+      font: 17px/1.6 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    main { max-width: 760px; margin: 0 auto; padding: 48px 20px 64px; }
+    h1 { font-size: 2rem; line-height: 1.25; margin: 0 0 8px; }
+    h2 { font-size: 1.3rem; margin: 40px 0 8px; }
+    p { margin: 12px 0; }
+    .tagline { color: var(--muted); font-size: 1.1rem; margin-top: 0; }
+    pre {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+      padding: 14px 16px; overflow-x: auto; font-size: 14px; line-height: 1.5;
+    }
+    code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
+    p > code, li > code {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 4px; padding: 1px 5px; font-size: 0.9em;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .ok { color: var(--green); } .no { color: var(--red); } .dim { color: var(--muted); }
+    ul { padding-left: 22px; } li { margin: 6px 0; }
+    .links { display: flex; flex-wrap: wrap; gap: 10px 18px; padding: 0; list-style: none; }
+    footer { margin-top: 56px; color: var(--muted); font-size: 0.85rem; border-top: 1px solid var(--border); padding-top: 16px; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>The kernel that doesn't believe your AI agents.</h1>
+  <p class="tagline">DOS (<code>dos-kernel</code>) catches AI coding agents when they lie about what
+  they shipped — by reading the evidence they couldn't have written.</p>
+
+  <p>An AI agent will tell you it finished. DOS checks the real world instead of
+  taking its word — and the nearest piece of the real world is your git history.
+  Run a dozen agents on one repo and DOS tells you which claim of “done” is real,
+  which agents are stepping on each other's files, and which run is spinning in
+  circles. Every verdict comes from artifacts (git, the file tree, the clock),
+  never from the agent's narration.</p>
+
+  <h2>Try it in 60 seconds</h2>
+  <pre><code>pip install dos-kernel
+dos quickstart        <span class="dim"># stages an agent lying about a commit — and catches it</span></code></pre>
+  <pre><code>dos verify AUTH AUTH1 <span class="dim">#</span> <span class="ok">SHIPPED</span>      AUTH AUTH1 e62f74d  <span class="dim">(exit 0)</span>
+dos verify AUTH AUTH2 <span class="dim">#</span> <span class="no">NOT_SHIPPED</span>  AUTH AUTH2          <span class="dim">(exit 1)</span></code></pre>
+  <p>Works on a plain git repo with zero config. One small Python package; the
+  only runtime dependency is PyYAML. MIT licensed.</p>
+
+  <h2>What it answers</h2>
+  <ul>
+    <li><strong><code>dos verify</code></strong> — did this work <em>actually ship</em>?
+        Answered from git ancestry, never from the agent's self-report.</li>
+    <li><strong><code>dos arbitrate</code></strong> — may this agent take these files right now?
+        A deterministic referee between parallel agents; no double-booking, structured refusals.</li>
+    <li><strong><code>dos liveness</code></strong> — is this run still moving, or just spinning?
+        Judged from the git and journal delta, not from “making progress…”.</li>
+    <li><strong><code>dos top</code> / <code>dos decisions</code></strong> — live terminal views of
+        what's running now and what needs a human.</li>
+  </ul>
+
+  <h2>Works where your agents work</h2>
+  <p>A plain CLI with exit-code verdicts (drop it into CI), an
+  <a href="https://github.com/anthony-chaudhary/dos-kernel/tree/master/src/dos_mcp">MCP server</a>
+  exposing the verdicts as tools, and a
+  <a href="https://github.com/anthony-chaudhary/dos-kernel/tree/master/claude-plugin">Claude Code plugin</a>
+  that wires the checks in as hooks. Host integrations cover Claude Code, Codex,
+  Gemini CLI, Cursor, and more via <code>dos init --hooks</code>.</p>
+
+  <h2>Learn more</h2>
+  <ul class="links">
+    <li><a href="https://github.com/anthony-chaudhary/dos-kernel">GitHub</a></li>
+    <li><a href="https://pypi.org/project/dos-kernel/">PyPI</a></li>
+    <li><a href="https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/FAQ.md">FAQ</a></li>
+    <li><a href="https://github.com/anthony-chaudhary/dos-kernel/blob/master/AGENTS.md">AGENTS.md (for AI agents)</a></li>
+    <li><a href="https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/llms.txt">llms.txt</a></li>
+    <li><a href="https://github.com/anthony-chaudhary/dos-kernel/discussions">Discussions</a></li>
+  </ul>
+
+  <footer>
+    <p>DOS — the Dispatch Operating System. Open source under the
+    <a href="https://github.com/anthony-chaudhary/dos-kernel/blob/master/LICENSE">MIT license</a>.
+    Install with <code>pip install dos-kernel</code> (the bare <code>dos</code> name on PyPI is an
+    unrelated package).</p>
+  </footer>
+</main>
+</body>
+</html>

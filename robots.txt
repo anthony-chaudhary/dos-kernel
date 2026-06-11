@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://anthony-chaudhary.github.io/dos-kernel/sitemap.xml
