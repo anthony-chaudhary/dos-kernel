@@ -89,6 +89,22 @@ the 0-2 items in its operator summary (Step 6) and reads the existing queue here
 named open seam — see `docs/74-friction-log.md`). Do not imply `dos decisions`
 writes; it lists and drills in.
 
+## Step 5b — Concrete findings go to the issue tracker, not the inbox
+
+A sweep surfaces more than closures: a bug in another lane, a missing test, a
+doc that drifted from the code. The 0-2 operator slots are for *decisions*; a
+concrete, public-subject finding with a checkable done-condition is *work*, and
+its durable home is the workspace's public issue tracker (on a GitHub-hosted
+repo, the `gh` CLI) — not the inbox, not a memory file, not silence. The filing
+discipline is `/dos-dispatch`'s "Out-of-scope findings" section: **dedupe
+first** (`gh issue list --search "<keywords>"`); give the body a checkable
+**done-condition**, a lane guess, and where you found it; **leak-check the
+drafted body before posting** (issue text is public output no tracked-file gate
+scans — no machine-absolute paths, hostnames, or personal identifiers; if the
+workspace ships a publication leak-scanner, pipe the draft through it and treat
+a hit as a refusal). An issue closes only via `Fixes #N` in the body of the
+commit that resolves it — never `gh issue close` off your own narration.
+
 ## Step 6 — Emit the operator summary
 
 Print a terse summary: how many items closed (Step 2), how many remain, and the
@@ -157,3 +173,5 @@ rung and drop the doc's self-narrated status. (Exit 0 = LIVE, 3 = DRAIN, 5 = BLO
   everything a mechanism can resolve stays out of it.
 - ❌ Reporting an unproductive sweep as productive — it would arm a false
   drained-twice stop in the loop. Report honestly.
+- ❌ Parking a concrete finding in the operator inbox (or dropping it) — the
+  inbox is for decisions; file the finding as an issue with a done-condition.

@@ -111,6 +111,36 @@ dos lease --workspace . release <owner>
 The lane lease itself is advisory state in `live_leases`; a real loop
 (`/dos-dispatch-loop`) threads it forward. A single dispatch simply finishes.
 
+## Out-of-scope findings — file an issue, don't widen the lane
+
+Shipping on one lane surfaces work that belongs to another: a bug in a
+different tree, a missing test, a doc that drifted from the code. Do not absorb
+it into this run's commits — the lease covers ONE lane's tree, and a widened
+diff is exactly the collision the admission kernel exists to prevent. Do not
+let it evaporate either. If the workspace has a public issue tracker (on a
+GitHub-hosted repo, the `gh` CLI), capture it there, then return to the leased
+lane:
+
+1. **Dedupe first.** Search before filing — `gh issue list --search
+   "<keywords>"` — and comment on the existing issue rather than opening a twin.
+2. **File it as a claim.** The body carries a checkable **done-condition** (the
+   command or observable that would witness it resolved), a lane guess, and
+   where you found it. No done-condition yet = not an issue yet — it is
+   design-shaped work for the workspace's planning surface.
+3. **Leak-check the drafted body BEFORE posting.** Issue text is public output
+   that leaves through a door no tracked-file publication gate scans. Never
+   include a machine-absolute path, a hostname, or a personal identifier; write
+   paths workspace-relative. If the workspace ships a publication leak-scanner,
+   pipe the draft through it first (write the body to a file outside the repo,
+   scan it, post with `--body-file`); a hit is a refusal, not a warning.
+4. **Close only by ancestry, never by narration.** The honest close is
+   `Fixes #N` in the commit BODY of the change that resolves it — the platform
+   closes the issue when that commit lands on the trunk, an ancestry check the
+   claimant didn't author (the same witness `dos verify` rides). `gh issue
+   close` off "I fixed it" is the self-report this kernel exists to refuse;
+   non-commit closes (duplicate, wontfix) are operator moves an agent may
+   propose, never execute.
+
 ## What this skill deliberately does NOT do (no silent gap)
 
 - **No per-pick soft-claim leasing.** It takes a *lane* lease (`dos arbitrate`),
@@ -178,3 +208,5 @@ the phase from git, never from "I'm done." Then `/release` cuts the version.
 - ❌ `--force`-ing past a refuse in automation — a refuse means a real collision;
   pick a free lane from `free_clusters` or stop.
 - ❌ Hardcoding a run dir or a commit prefix — read them from `dos doctor --json`.
+- ❌ Absorbing an out-of-scope finding into the lane's commit — or dropping it.
+  File an issue (dedupe → done-condition → leak-check), then stay in the leased tree.
