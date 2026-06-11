@@ -23,6 +23,8 @@ for a copy-me skeleton.
 - **[CLAUDE.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/CLAUDE.md)** / **[CONTRIBUTING.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/CONTRIBUTING.md)** — the
   architecture contract and how to send a change.
 - **[docs/releases/](https://github.com/anthony-chaudhary/dos-kernel/tree/master/docs/releases)** — per-version release notes (the changelog).
+- **[The website](https://anthony-chaudhary.github.io/dos-kernel/)** — this page,
+  condensed to one screen (good for sending to someone).
 
 ## Playbooks & examples
 
