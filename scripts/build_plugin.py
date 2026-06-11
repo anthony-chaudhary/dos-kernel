@@ -121,7 +121,7 @@ def _is_launcher(name: str) -> bool:
 DOS_SETUP_SKILL = """\
 ---
 name: dos-setup
-description: One-time check that the DOS kernel plugin is ready to use — confirm the `dos-kernel` Python package is importable (the hooks and MCP server need it), report what the plugin bundled (hooks, the `dos` MCP tools, the generic skill pack), and point at the next skill to run. Use right after installing the dos-kernel plugin, or when `/mcp` shows the `dos` server failing to start or a `dos hook` command erroring. Read-only: it runs `dos doctor` to confirm wiring; it installs nothing and changes no config.
+description: "One-time check that the DOS kernel plugin is ready to use — confirm the `dos-kernel` Python package is importable (the hooks and MCP server need it), report what the plugin bundled (hooks, the `dos` MCP tools, the generic skill pack), and point at the next skill to run. Use right after installing the dos-kernel plugin, or when `/mcp` shows the `dos` server failing to start or a `dos hook` command erroring. Read-only: it runs `dos doctor` to confirm wiring; it installs nothing and changes no config."
 ---
 
 # dos-setup — confirm the plugin is wired, then point at the next move
@@ -256,7 +256,7 @@ any `dos.toml`.
 DOS_STATS_SKILL = """\
 ---
 name: dos-stats
-description: Show what the bundled DOS hook binary has been doing — fold its per-call observation log into an at-a-glance report (how many tool calls it adjudicated, how many it DENIED / WARNED / passed through, which reason classes fired, how often verify-on-stop blocked a false "done", the wait-marker budget, and per-verb latency). Use when you want to see the trust substrate's OWN activity on this project, confirm the native fast-path is actually serving calls (not silently delegating to Python), or check how fast the hooks run. Read-only: it folds a log the hooks already wrote; it takes no lease, launches nothing, and changes nothing.
+description: "Show what the bundled DOS hook binary has been doing — fold its per-call observation log into an at-a-glance report (how many tool calls it adjudicated, how many it DENIED / WARNED / passed through, which reason classes fired, how often verify-on-stop blocked a false \\"done\\", the wait-marker budget, and per-verb latency). Use when you want to see the trust substrate's OWN activity on this project, confirm the native fast-path is actually serving calls (not silently delegating to Python), or check how fast the hooks run. Read-only: it folds a log the hooks already wrote; it takes no lease, launches nothing, and changes nothing."
 ---
 
 # dos-stats — read the kernel's own activity log

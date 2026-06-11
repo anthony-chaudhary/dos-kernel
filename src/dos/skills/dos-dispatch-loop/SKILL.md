@@ -1,6 +1,6 @@
 ---
 name: dos-dispatch-loop
-description: Run /dos-dispatch on a recurring cadence, alternating with /dos-replan when the backlog drains — the dispatch→replan→dispatch cycle. The continue/stop/next-mode decision is the kernel's typed loop decision, not inline prose: each iteration is classified (`dos gate`) into a verdict and the loop's counters (drained-twice, the unclear/dirty-zero breakers, the iteration cap) drive the next step. Several loops on disjoint lanes run concurrently, each taking its own lane lease via `dos arbitrate`. Driven entirely by `dos` verbs + the workspace's `dos.toml`. The DOS reference loop workflow (SKP Axis 5).
+description: "Run /dos-dispatch on a recurring cadence, alternating with /dos-replan when the backlog drains — the dispatch→replan→dispatch cycle. The continue/stop/next-mode decision is the kernel's typed loop decision, not inline prose: each iteration is classified (`dos gate`) into a verdict and the loop's counters (drained-twice, the unclear/dirty-zero breakers, the iteration cap) drive the next step. Several loops on disjoint lanes run concurrently, each taking its own lane lease via `dos arbitrate`. Driven entirely by `dos` verbs + the workspace's `dos.toml`. The DOS reference loop workflow (SKP Axis 5)."
 ---
 
 # dos-dispatch-loop — the generic dispatch⇄replan cadence

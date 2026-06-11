@@ -1,6 +1,6 @@
 ---
 name: dos-stats
-description: Show what the bundled DOS hook binary has been doing — fold its per-call observation log into an at-a-glance report (how many tool calls it adjudicated, how many it DENIED / WARNED / passed through, which reason classes fired, how often verify-on-stop blocked a false "done", the wait-marker budget, and per-verb latency). Use when you want to see the trust substrate's OWN activity on this project, confirm the native fast-path is actually serving calls (not silently delegating to Python), or check how fast the hooks run. Read-only: it folds a log the hooks already wrote; it takes no lease, launches nothing, and changes nothing.
+description: "Show what the bundled DOS hook binary has been doing — fold its per-call observation log into an at-a-glance report (how many tool calls it adjudicated, how many it DENIED / WARNED / passed through, which reason classes fired, how often verify-on-stop blocked a false \"done\", the wait-marker budget, and per-verb latency). Use when you want to see the trust substrate's OWN activity on this project, confirm the native fast-path is actually serving calls (not silently delegating to Python), or check how fast the hooks run. Read-only: it folds a log the hooks already wrote; it takes no lease, launches nothing, and changes nothing."
 ---
 
 # dos-stats — read the kernel's own activity log

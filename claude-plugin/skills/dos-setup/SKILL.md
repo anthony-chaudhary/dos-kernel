@@ -1,6 +1,6 @@
 ---
 name: dos-setup
-description: One-time check that the DOS kernel plugin is ready to use — confirm the `dos-kernel` Python package is importable (the hooks and MCP server need it), report what the plugin bundled (hooks, the `dos` MCP tools, the generic skill pack), and point at the next skill to run. Use right after installing the dos-kernel plugin, or when `/mcp` shows the `dos` server failing to start or a `dos hook` command erroring. Read-only: it runs `dos doctor` to confirm wiring; it installs nothing and changes no config.
+description: "One-time check that the DOS kernel plugin is ready to use — confirm the `dos-kernel` Python package is importable (the hooks and MCP server need it), report what the plugin bundled (hooks, the `dos` MCP tools, the generic skill pack), and point at the next skill to run. Use right after installing the dos-kernel plugin, or when `/mcp` shows the `dos` server failing to start or a `dos hook` command erroring. Read-only: it runs `dos doctor` to confirm wiring; it installs nothing and changes no config."
 ---
 
 # dos-setup — confirm the plugin is wired, then point at the next move
