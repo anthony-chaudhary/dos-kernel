@@ -1,0 +1,57 @@
+name: Scoreboard request
+description: Register your repository for the opt-in drift-scoreboard tier — a per-repo verdict.json + commit-claims badge, receipts included.
+title: "scoreboard: register <org>/<repo>"
+labels: ["scoreboard-request"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The scoreboard's opt-in tier publishes, **only on your request**, a
+        per-repo [`verdict.json`](../../docs/scoreboard/methodology.md) (the
+        machine endpoint: audited range, witnessed/unwitnessed counts,
+        receipt SHAs, grader version) and a shields.io `badge.json` you can
+        embed in your README. The verdict is `dos commit-audit --sweep` —
+        whether each commit's claim is witnessed by its own diff; never a
+        correctness or honesty grade. Read the
+        [methodology](../../docs/scoreboard/methodology.md) first: it is the
+        contract every artifact links back to. You will see the artifacts
+        **before** they publish (right of reply), and delisting is this same
+        form.
+  - type: input
+    id: repo
+    attributes:
+      label: Repository
+      description: The public GitHub repository to sweep, as `<org>/<repo>`.
+      placeholder: acme/widgets
+    validations:
+      required: true
+  - type: checkboxes
+    id: authority
+    attributes:
+      label: Authority
+      description: Registration must come from someone who can speak for the repo.
+      options:
+        - label: I have write (or admin) access to this repository, verifiable from my GitHub account.
+          required: true
+  - type: dropdown
+    id: action
+    attributes:
+      label: What do you want?
+      options:
+        - Register (run the sweep, show me the artifacts, then publish)
+        - Re-sweep (refresh my existing entry)
+        - Delist (remove my entry)
+        - Dispute (a published verdict reads wrong — SHA below)
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Range or dispute details
+      description: |
+        Optional. A range to audit (default: the full default-branch history),
+        or — for a dispute — the SHA(s) and what you believe the verdict
+        misread. Disputes are re-adjudicated against the published
+        methodology; every verdict carries the grader version that produced it.
+    validations:
+      required: false
