@@ -70,11 +70,16 @@ maintainer's). P3 is deferred until the README lane is free.*
 Done-condition: suite green; `pre-commit try-repo . dos-commit-audit
 --hook-stage pre-push` runs the gate against this repo.
 
-## P2 — list the hook where the ecosystem looks (external)
+## P2 — list the hook where the ecosystem looks (external — GATED)
 
-pre-commit.com's "supported hooks" page is generated from
-`pre-commit/pre-commit.github.io` (`all-repos.yaml`). One PR adds this repo.
-Merge timing is the maintainer's; the PR URL is the tracking handle.
+Checked 2026-06-12: pre-commit.com no longer runs an open `all-repos.yaml`
+directory. Its hooks page is hand-picked, and a PR adding a tool is closed
+without comment unless the tool is "already fairly popular (>500 stars)".
+So P2 is gated on traction, not on work here. Two things still hold today:
+the four-line consumer YAML works with no listing at all (the `repo:` URL is
+the distribution), and the hooks page links a Sourcegraph query over every
+public `.pre-commit-hooks.yaml` — this repo surfaces there organically now
+that the manifest is pushed. Revisit when the star count clears the bar.
 
 ## P3 — surface docs (deferred: README lane busy at authoring time)
 
