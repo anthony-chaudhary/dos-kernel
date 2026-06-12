@@ -84,6 +84,9 @@ func (e *Event) treeFromEvent() (tree []string, known bool) {
 	if tn == "Bash" {
 		if v, ok := ti["command"]; ok {
 			if cmd, isStr := v.(string); isStr && strings.TrimSpace(cmd) != "" {
+				if commandHasNoWriteFootprint(cmd) {
+					return nil, true // known-empty: the invoked programs cannot write a path
+				}
 				paths := pathsFromCommand(cmd)
 				if len(paths) > 0 {
 					out := make([]string, 0, len(paths))
@@ -116,6 +119,145 @@ func (e *Event) repoRelative(path string) string {
 		}
 	}
 	return strings.TrimLeft(p, "/")
+}
+
+// noWriteFootprintPrefixes is the closed set of command invocations that cannot
+// WRITE a filesystem path named in their arguments — port of
+// `dos.pretool_sensor._NO_WRITE_FOOTPRINT_PREFIXES` (issue #12). Keys are the
+// invocation prefix tokens joined with a single space; a one-token key admits the
+// program with any arguments, a longer key admits only that subcommand. See the
+// Python twin for the membership rationale and the deliberate exclusions.
+var noWriteFootprintPrefixes = func() map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, p := range []string{
+		// stdout-only filters/reporters.
+		"cat", "grep", "rg", "head", "tail", "wc", "ls",
+		"stat", "du", "df", "pwd", "echo", "printf", "which",
+		"diff", "cmp", "cut", "tr", "nl", "basename", "dirname",
+		"realpath", "readlink", "md5sum", "sha1sum", "sha256sum",
+	} {
+		out[p] = struct{}{}
+	}
+	for _, sub := range []string{
+		"log", "diff", "status", "show", "blame", "grep", "rev-parse", "rev-list",
+		"ls-files", "ls-tree", "ls-remote", "cat-file", "describe", "shortlog",
+		"name-rev", "merge-base", "check-ignore",
+	} {
+		out["git "+sub] = struct{}{}
+	}
+	for _, verb := range []string{
+		"create", "list", "view", "comment", "close", "reopen", "edit", "status",
+		"lock", "unlock", "pin", "unpin", "transfer",
+	} {
+		out["gh issue "+verb] = struct{}{}
+	}
+	for _, verb := range []string{
+		"create", "list", "view", "diff", "checks", "status", "comment",
+		"close", "reopen", "edit",
+	} {
+		out["gh pr "+verb] = struct{}{}
+	}
+	for _, p := range []string{
+		"gh label", "gh search", "gh api",
+		"gh run list", "gh run view",
+		"gh release list", "gh release view",
+		"gh repo view",
+	} {
+		out[p] = struct{}{}
+	}
+	return out
+}()
+
+// shellWriteMetachars can route bytes into a file (or run a hidden command) around
+// the invoked program — port of `dos.pretool_sensor._SHELL_WRITE_METACHARS`.
+var shellWriteMetachars = []string{">", "`", "$(", "<("}
+
+// segmentSeparators join command segments; two-char operators replace before their
+// one-char prefixes — port of `dos.pretool_sensor._SEGMENT_SEPARATORS`.
+var segmentSeparators = []string{"&&", "||", ";", "|", "&", "\n"}
+
+// segmentLeadTokens returns the invoked program token + up to two non-flag
+// subcommand tokens — port of `dos.pretool_sensor._segment_lead_tokens`. Skips
+// leading VAR=value assignments, lower-cases the program's basename, skips flags
+// between program and subcommand. Wrappers (sudo/env/…) are NOT skipped: a wrapped
+// command reports the wrapper, fails the lookup, and stays conservative.
+func segmentLeadTokens(segment string, limit int) []string {
+	var toks []string
+	for _, raw := range strings.Fields(segment) {
+		tok := strings.TrimSpace(raw)
+		if tok == "" {
+			continue
+		}
+		if len(toks) == 0 {
+			if i := strings.Index(tok, "="); i > 0 {
+				head := tok[:i]
+				ok := true
+				for _, c := range head {
+					if !(c == '_' || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || ('0' <= c && c <= '9')) {
+						ok = false
+						break
+					}
+				}
+				if ok {
+					continue // a leading VAR=value assignment — skip
+				}
+			}
+			base := strings.ReplaceAll(tok, "\\", "/")
+			if i := strings.LastIndex(base, "/"); i != -1 {
+				base = base[i+1:]
+			}
+			toks = append(toks, strings.ToLower(base))
+		} else {
+			if strings.HasPrefix(tok, "-") {
+				continue // a flag between program and subcommand
+			}
+			toks = append(toks, strings.ToLower(tok))
+		}
+		if len(toks) >= limit {
+			break
+		}
+	}
+	return toks
+}
+
+// commandHasNoWriteFootprint reports whether EVERY segment of cmd invokes a known
+// no-write-footprint program with no shell metacharacter to write around them —
+// port of `dos.pretool_sensor._command_has_no_write_footprint` (issue #12). It can
+// only ADMIT-MORE for commands provably unable to write; one metacharacter or one
+// unrecognized segment and the caller falls back to the conservative scrape.
+func commandHasNoWriteFootprint(cmd string) bool {
+	for _, meta := range shellWriteMetachars {
+		if strings.Contains(cmd, meta) {
+			return false
+		}
+	}
+	work := cmd
+	for _, sep := range segmentSeparators {
+		work = strings.ReplaceAll(work, sep, "\x00")
+	}
+	any := false
+	for _, seg := range strings.Split(work, "\x00") {
+		seg = strings.TrimSpace(seg)
+		if seg == "" {
+			continue
+		}
+		any = true
+		toks := segmentLeadTokens(seg, 3)
+		if len(toks) == 0 {
+			return false
+		}
+		matched := false
+		for depth := 1; depth <= len(toks); depth++ {
+			if _, ok := noWriteFootprintPrefixes[strings.Join(toks[:depth], " ")]; ok {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+	return any
 }
 
 // pathsFromCommand is a best-effort scrape of path-shaped tokens from a Bash

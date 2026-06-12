@@ -54,7 +54,7 @@ var (
 	benchEvtDocPass     = eventFor("Edit", "/work/workspace", map[string]any{"file_path": "docs/notes.md"})
 	benchEvtSelfModify  = eventFor("Edit", "/work/workspace", map[string]any{"file_path": "src/dos/arbiter.py"})
 	benchEvtBashCollide = eventFor("Bash", "/work/workspace", map[string]any{"command": "rm src/dos/_tree.py"})
-	benchEvtUnknownWarn = eventFor("Bash", "/work/workspace", map[string]any{"command": "git status"})
+	benchEvtUnknownWarn = eventFor("Bash", "/work/workspace", map[string]any{"command": "make build"})
 )
 
 // benchLeaseSrc is a single held `src/**` lease — the contended-lane case that

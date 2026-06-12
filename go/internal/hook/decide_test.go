@@ -123,10 +123,11 @@ func TestReadAgainstContendedLaneWarnsNotDenies(t *testing.T) {
 }
 
 func TestUnknownTreeContendedWarns(t *testing.T) {
-	// A held `src/**` lease + `git status` (unknown tree) -> disjointness refuses
-	// (empty requested tree vs known lease) with no reason_class, tree unknown ->
-	// WARN-and-pass (additionalContext only, no permissionDecision).
-	e := eventFor("Bash", "/work/workspace", map[string]any{"command": "git status"})
+	// A held `src/**` lease + `make build` (unknown tree — not a known no-write
+	// program, nothing path-shaped) -> disjointness refuses (empty requested tree
+	// vs known lease) with no reason_class, tree unknown -> WARN-and-pass
+	// (additionalContext only, no permissionDecision).
+	e := eventFor("Bash", "/work/workspace", map[string]any{"command": "make build"})
 	in := Inputs{
 		LiveLeases:   []lease{{lane: "src", tree: []string{"src/**"}}},
 		RuntimeFiles: dosRuntimeFiles,
@@ -141,6 +142,29 @@ func TestUnknownTreeContendedWarns(t *testing.T) {
 	}
 	if !strings.Contains(out, "additionalContext") {
 		t.Fatalf("WARN must carry additionalContext: %s", out)
+	}
+}
+
+func TestMentionIsNotMutation(t *testing.T) {
+	// Issue #12: a Bash command whose invoked program provably cannot write
+	// (`gh issue create`) gets the read-only posture — a kernel runtime path inside
+	// an ARGUMENT is prose, not a write footprint, so SELF_MODIFY must not deny.
+	e := eventFor("Bash", "/work/workspace",
+		map[string]any{"command": `gh issue create --body "see src/dos/arbiter.py"`})
+	d := Decide(e, Inputs{RuntimeFiles: dosRuntimeFiles})
+	if d.DecisionTag == "deny" {
+		t.Fatalf("a path MENTION in a no-write command must not deny, got %s", d.Render())
+	}
+}
+
+func TestRedirectDefeatsMentionAllowance(t *testing.T) {
+	// The conservative direction is preserved: a `>` can write around even an
+	// allowed program, so the allowance is vetoed and the scrape still denies.
+	e := eventFor("Bash", "/work/workspace",
+		map[string]any{"command": "git log > src/dos/arbiter.py"})
+	d := Decide(e, Inputs{RuntimeFiles: dosRuntimeFiles})
+	if d.DecisionTag != "deny" {
+		t.Fatalf("redirect into a runtime file must still deny, got %q (%s)", d.DecisionTag, d.Render())
 	}
 }
 

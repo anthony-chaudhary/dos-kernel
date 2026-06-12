@@ -163,12 +163,19 @@ def _tree_from_event(event: dict) -> tuple[tuple[str, ...], bool]:
         v = tool_input.get(k)
         if isinstance(v, str) and v.strip():
             return (_repo_relative(v.strip(), event),), True
-    # Bash: best-effort scrape of path-shaped tokens from the command. Conservative — if we
-    # find nothing path-shaped we return UNKNOWN (not empty-known), so a mutating command we
-    # cannot parse is treated as unknown blast radius, never silently admitted.
+    # Bash: FIRST ask whether the invoked program can write at all (issue #12 — a mention
+    # is not a mutation). A command whose every segment invokes a known no-write-footprint
+    # program (`gh issue create`, `git log`, `grep`, …) and carries no shell write
+    # metacharacter gets the read-only posture: a kernel path in its ARGUMENTS is prose,
+    # not a write footprint. Only then the best-effort scrape of path-shaped tokens.
+    # Conservative both ways — an unrecognized program keeps today's scrape, and if we
+    # find nothing path-shaped we return UNKNOWN (not empty-known), so a mutating command
+    # we cannot parse is treated as unknown blast radius, never silently admitted.
     if tool_name == "Bash":
         cmd = tool_input.get("command")
         if isinstance(cmd, str) and cmd.strip():
+            if _command_has_no_write_footprint(cmd):
+                return (), True  # known-empty: the invoked programs cannot write a path
             paths = _paths_from_command(cmd)
             if paths:
                 return tuple(_repo_relative(p, event) for p in paths), True
@@ -199,6 +206,136 @@ def _repo_relative(path: str, event: dict) -> str:
         if p.startswith(c + "/"):
             return p[len(c) + 1 :]
     return p.lstrip("/")
+
+
+# The closed set of command invocations that cannot WRITE a filesystem path named in
+# their arguments — the docs/224 SHAPE move (`exec_capability.classify_command`'s
+# closed-set, invoked-program-token discipline) re-aimed from the EXEC capability onto
+# the WRITE capability (issue #12). Each entry is a prefix of program tokens: a one-token
+# entry admits the program with any arguments (`grep` has no write-to-file flag); a
+# longer entry admits only that subcommand (`git log` reads; bare `git` is NOT here).
+# Membership means "this program, so invoked, writes no file path it is handed" — NOT
+# "this command is safe" (a `gh issue close` mutates GitHub state; it just cannot touch
+# the kernel's files). Deliberately small and certain; notable EXCLUSIONS, each
+# write-capable despite looking read-only: `sort`/`uniq`/`tee`/`file`/`tree` (an output
+# file via flag or positional), `sed`/`awk`/`find` (in-place / -exec), `gh issue develop`
+# / `gh pr checkout` / `gh run download` / `gh release download` (write the local tree),
+# and every wrapper (`sudo`/`env`/`xargs`/`time` — the wrapped program decides, so a
+# wrapped command stays conservative). An absent program falls back to today's scrape:
+# under-matching is the safe direction.
+_NO_WRITE_FOOTPRINT_PREFIXES: frozenset[tuple[str, ...]] = frozenset(
+    [
+        # stdout-only filters/reporters — no flag or positional writes a file.
+        ("cat",), ("grep",), ("rg",), ("head",), ("tail",), ("wc",), ("ls",),
+        ("stat",), ("du",), ("df",), ("pwd",), ("echo",), ("printf",), ("which",),
+        ("diff",), ("cmp",), ("cut",), ("tr",), ("nl",), ("basename",), ("dirname",),
+        ("realpath",), ("readlink",), ("md5sum",), ("sha1sum",), ("sha256sum",),
+    ]
+    # git's read-only plumbing/porcelain — answers from the object store, writes nothing.
+    + [
+        ("git", sub) for sub in (
+            "log", "diff", "status", "show", "blame", "grep", "rev-parse", "rev-list",
+            "ls-files", "ls-tree", "ls-remote", "cat-file", "describe", "shortlog",
+            "name-rev", "merge-base", "check-ignore",
+        )
+    ]
+    # gh's network-only verbs — they mutate GitHub, never the local tree. (`develop`,
+    # `checkout`, `download`, `clone` are the local-write exceptions, kept OUT.)
+    + [
+        ("gh", "issue", verb) for verb in (
+            "create", "list", "view", "comment", "close", "reopen", "edit", "status",
+            "lock", "unlock", "pin", "unpin", "transfer",
+        )
+    ]
+    + [
+        ("gh", "pr", verb) for verb in (
+            "create", "list", "view", "diff", "checks", "status", "comment",
+            "close", "reopen", "edit",
+        )
+    ]
+    + [
+        ("gh", "label"), ("gh", "search"), ("gh", "api"),
+        ("gh", "run", "list"), ("gh", "run", "view"),
+        ("gh", "release", "list"), ("gh", "release", "view"),
+        ("gh", "repo", "view"),
+    ]
+)
+
+# Shell metacharacters that can route bytes into a file (or run a hidden command) AROUND
+# the invoked program: any redirection (`>` covers `>>`/`2>`/`&>`), a backtick or `$(`
+# command substitution, a `<(` process substitution. Their PRESENCE anywhere in the
+# command defeats the no-write-footprint classification — `git log > src/dos/arbiter.py`
+# writes even though `git log` cannot. Plain `<` (input) and `<<` (heredoc) only FEED a
+# program that already cannot write, so they are not vetoed.
+_SHELL_WRITE_METACHARS: tuple[str, ...] = (">", "`", "$(", "<(")
+
+# The shell operators that join command segments — each segment invokes its own program,
+# so each must independently classify as no-write-footprint. Order matters: the two-char
+# operators are replaced before their one-char prefixes.
+_SEGMENT_SEPARATORS: tuple[str, ...] = ("&&", "||", ";", "|", "&", "\n")
+
+
+def _segment_lead_tokens(segment: str, limit: int = 3) -> list[str]:
+    """The invoked program token + up to two non-flag subcommand tokens. PURE.
+
+    The same extraction discipline as `exec_capability._program_token`: skip leading
+    `VAR=value` assignments, take the program's basename lower-cased, then collect
+    following non-flag tokens (a `--no-pager` between `git` and `log` is skipped). A
+    flag that CONSUMES a value (`git -C dir log`) mis-reads the value as a subcommand —
+    which simply fails the closed-set lookup and falls back to the scrape (under-match,
+    the safe direction). Wrappers are NOT skipped here: a `sudo grep` reports `sudo`,
+    which is not in the no-write set, so a wrapped command stays conservative.
+    """
+    toks: list[str] = []
+    for raw in segment.split():
+        tok = raw.strip()
+        if not tok:
+            continue
+        if not toks:
+            if "=" in tok and not tok.startswith("="):
+                head = tok.split("=", 1)[0]
+                if head and all(c.isalnum() or c == "_" for c in head):
+                    continue  # a leading VAR=value assignment — skip
+            toks.append(tok.replace("\\", "/").rsplit("/", 1)[-1].lower())
+        else:
+            if tok.startswith("-"):
+                continue  # a flag between program and subcommand
+            toks.append(tok.lower())
+        if len(toks) >= limit:
+            break
+    return toks
+
+
+def _command_has_no_write_footprint(cmd: str) -> bool:
+    """True iff EVERY segment of `cmd` invokes a known no-write-footprint program and no
+    shell metacharacter can write around them. PURE — the issue-#12 classifier.
+
+    The conjunctive shape: one metacharacter anywhere, or one segment whose invocation
+    prefix is not in the closed set, and the whole command falls back to the
+    conservative scrape. So this can only ever ADMIT-MORE for commands provably unable
+    to write — it can never hide a write the old scrape would have caught (`echo x >
+    src/dos/arbiter.py` is vetoed by the `>`; `git log && rm f.py` fails on the `rm`
+    segment). The FQ-532 line, finally honored for prose: never invent a collision we
+    cannot prove — a path INSIDE an argument to a program that cannot write it is a
+    mention, not a mutation.
+    """
+    for meta in _SHELL_WRITE_METACHARS:
+        if meta in cmd:
+            return False
+    work = cmd
+    for sep in _SEGMENT_SEPARATORS:
+        work = work.replace(sep, "\x00")
+    segments = [s for s in (seg.strip() for seg in work.split("\x00")) if s]
+    if not segments:
+        return False
+    for segment in segments:
+        toks = _segment_lead_tokens(segment)
+        if not toks:
+            return False
+        if not any(tuple(toks[:depth]) in _NO_WRITE_FOOTPRINT_PREFIXES
+                   for depth in range(1, len(toks) + 1)):
+            return False
+    return True
 
 
 def _paths_from_command(cmd: str) -> tuple[str, ...]:

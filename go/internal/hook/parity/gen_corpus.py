@@ -162,9 +162,24 @@ def build_cases() -> list[dict]:
                       SRC_LEASE, ALL_RUNTIME))
     # --- WARN-and-pass (unknown tree, refused by a colliding lease) ---
     cases.append(case("warn-unknown-tree-contended",
-                      _ev("Bash", {"command": "git status"}), SRC_LEASE, ALL_RUNTIME))
+                      _ev("Bash", {"command": "make build"}), SRC_LEASE, ALL_RUNTIME))
     cases.append(case("warn-write-no-path-contended",
                       _ev("Write", {}), SRC_LEASE, ALL_RUNTIME))
+    # --- a mention is not a mutation (issue #12): a no-write-footprint command gets the
+    #     read-only posture — a kernel path inside an ARGUMENT is prose, never a deny;
+    #     a shell write metacharacter defeats the allowance and still denies. ---
+    cases.append(case("mention-gh-issue-body-passthrough",
+                      _ev("Bash", {"command": 'gh issue create --body "see src/dos/arbiter.py"'}),
+                      [], ALL_RUNTIME))
+    cases.append(case("mention-grep-kernel-path-passthrough",
+                      _ev("Bash", {"command": "grep -n foo src/dos/arbiter.py"}), [], ALL_RUNTIME))
+    cases.append(case("mention-git-log-kernel-path-passthrough",
+                      _ev("Bash", {"command": "git log --oneline -- src/dos/arbiter.py"}),
+                      [], ALL_RUNTIME))
+    cases.append(case("redirect-defeats-mention-allowance",
+                      _ev("Bash", {"command": "git log > src/dos/arbiter.py"}), [], ALL_RUNTIME))
+    cases.append(case("read-only-bash-contended-warns",
+                      _ev("Bash", {"command": "git status"}), SRC_LEASE, ALL_RUNTIME))
     # --- empty-tree lease never blocks ---
     cases.append(case("empty-tree-lease-admits",
                       _ev("Edit", {"file_path": "src/dos/cli.py"}), EMPTY_TREE_LEASE, ALL_RUNTIME))

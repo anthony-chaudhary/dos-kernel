@@ -443,10 +443,68 @@ def test_tree_write_extracts_path():
 
 
 def test_tree_unparseable_bash_is_unknown():
-    tree, known = prt._tree_from_event(_event("Bash", {"command": "ls -la"}))
+    tree, known = prt._tree_from_event(_event("Bash", {"command": "make build"}))
     assert tree == () and known is False  # unknown blast radius, conservative
 
 
 def test_tree_write_without_path_is_unknown():
     tree, known = prt._tree_from_event(_event("Write", {}))
     assert tree == () and known is False
+
+
+# ==========================================================================
+# A mention is not a mutation (issue #12) — a Bash command whose invoked program
+# provably cannot write gets the read-only posture (known-EMPTY tree), so a kernel
+# path appearing as PROSE inside an argument is no longer scraped into a write
+# footprint. The conservative direction is fully preserved: a shell write
+# metacharacter, an unrecognized program, a wrapper, or one bad segment in a chain
+# all fall back to today's scrape.
+# ==========================================================================
+@pytest.mark.parametrize("cmd", [
+    'gh issue create --body "see src/dos/arbiter.py"',  # the observed false deny
+    "grep -n foo src/dos/arbiter.py",                   # grep cannot write its args
+    "git log --oneline -5 -- src/dos/arbiter.py",       # git read-only subcommand
+    "git --no-pager diff src/dos/arbiter.py",           # flags before the subcommand
+    "ls -la",                                            # bare read-only program
+    "git status",
+    "git log | grep fix",                                # every pipe segment qualifies
+    "gh pr view 12 && gh issue list",                    # every chain segment qualifies
+    "FOO=1 grep x src/dos/arbiter.py",                   # leading VAR=value skipped
+])
+def test_tree_no_write_footprint_command_is_known_empty(cmd):
+    assert prt._tree_from_event(_event("Bash", {"command": cmd})) == ((), True)
+
+
+@pytest.mark.parametrize("cmd,tree", [
+    ("echo x > src/dos/arbiter.py", ("src/dos/arbiter.py",)),   # `>` defeats the allowance
+    ("git log > src/dos/arbiter.py", ("src/dos/arbiter.py",)),  # even for an allowed program
+    ("rm src/dos/_tree.py", ("src/dos/_tree.py",)),             # rm is not in the set
+    ("git log && rm src/dos/_tree.py", ("src/dos/_tree.py",)),  # one bad segment → scrape
+    ("sudo grep x src/dos/arbiter.py", ("src/dos/arbiter.py",)),  # a wrapper stays conservative
+    ("sort -o out.txt src/dos/arbiter.py", ("src/dos/arbiter.py",)),  # sort -o writes → excluded
+])
+def test_tree_write_capable_command_still_scrapes(cmd, tree):
+    assert prt._tree_from_event(_event("Bash", {"command": cmd})) == (tree, True)
+
+
+def test_tree_substitution_veto_falls_back_to_unknown():
+    """A `$(…)` substitution can run anything — the allowance is vetoed and the scrape
+    finds nothing path-shaped, leaving the conservative UNKNOWN tree."""
+    cmd = 'gh issue create --body "$(rm -rf x)"'
+    assert prt._tree_from_event(_event("Bash", {"command": cmd})) == ((), False)
+
+
+def test_gh_issue_mention_not_denied_but_redirect_still_denied():
+    """The issue-#12 done-condition, at the decide() level: filing an issue ABOUT a kernel
+    runtime file is not a SELF_MODIFY deny (the path is a mention), while actually
+    redirecting bytes INTO that file still denies."""
+    import tempfile
+    cfg = _kernel_cfg(Path(tempfile.mkdtemp()))
+    mention = _event("Bash", {"command": 'gh issue create --body "see src/dos/arbiter.py"'})
+    dialect, outcome = prt.decide(mention, cfg)
+    assert outcome["decision"] != "deny", outcome
+    write = _event("Bash", {"command": "echo x > src/dos/arbiter.py"})
+    dialect, outcome = prt.decide(write, cfg)
+    assert outcome["decision"] == "deny"
+    assert outcome["reason_class"] == "SELF_MODIFY"
+    assert dialect["hookSpecificOutput"]["permissionDecision"] == "deny"
