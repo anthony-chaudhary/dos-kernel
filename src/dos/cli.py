@@ -766,6 +766,36 @@ def _install_host_hooks(
     return spec, config_path, wired, already, new_text
 
 
+def _detect_auto_hosts(
+    target: Path,
+) -> tuple[list[tuple[str, tuple[str, ...]]], list[str]]:
+    """Resolve `--hooks auto` at the I/O boundary (docs/303).
+
+    Probe each known host's config dir under `target` (the spec's own
+    `detection_probe` parts) and its `env_markers` (is the installer running
+    *inside* that host right now?), then dedupe hosts sharing one config file
+    via the pure `choose_auto_hosts`. Returns `(chosen, probed)` — `chosen` as
+    `(host, also_covered_names)` pairs, `probed` as the display list of dirs
+    looked for (so a nothing-detected refusal can name them).
+    """
+    from dos import hook_install as _hi
+
+    detected: list[tuple[str, tuple[str, ...]]] = []
+    probed: list[str] = []
+    for name in _hi.host_names():
+        try:
+            spec = _hi.host_spec(name)
+        except ValueError:
+            continue  # a broken plugin spec never breaks detection
+        probe = _hi.detection_probe(spec)
+        probed.append("/".join(probe) + ("/" if len(spec.config_path) > 1 else ""))
+        present = target.joinpath(*probe).exists() or any(
+            marker in os.environ for marker in spec.env_markers)
+        if present:
+            detected.append((name, spec.config_path))
+    return _hi.choose_auto_hosts(detected), sorted(set(probed))
+
+
 def cmd_init(args: argparse.Namespace) -> int:
     # `init` is workspace-INSENSITIVE for config READBACK (it scaffolds the very
     #   (full prose: docs/CLI.md § "`init` is workspace-INSENSITIVE for config READBACK (it scaf")
@@ -862,40 +892,65 @@ def cmd_init(args: argparse.Namespace) -> int:
         # clobbering the user's). claude-code → .claude/settings.json (today's path);
         # cursor/codex/gemini/antigravity → their config files with the right --dialect;
         # claude-cowork → the SAME .claude/settings.json (shared harness, docs/298).
+        # `--hooks auto` (docs/303) resolves HERE, at the I/O boundary: probe which
+        # runtimes this workspace already uses, then wire each one through the same
+        # per-host path an explicit name takes. Nothing detected fails LOUD with the
+        # probe list — a guessed host would wire a no-op deny against the real one.
         dry_run = getattr(args, "dry_run", False)
-        try:
-            spec, config_path, wired, already, proposed = _install_host_hooks(
-                target, hook_host, force=args.force, dry_run=dry_run)
-        except ValueError as e:
-            print(f"dos init --hooks {hook_host}: {e}", file=sys.stderr)
-            return 1
-        if dry_run:
-            # Preview the merge before committing it — print what WOULD be written,
-            # write nothing. The "dress rehearsal" for hook wiring: an operator with
-            # a pre-existing config sees the exact result first.
-            verb = "would wire" if wired else "no new"
-            print(f"--dry-run: {verb} {len(wired)} DOS hook(s) "
-                  f"{'into' if wired else 'for'} {config_path}"
-                  + (f": {', '.join(wired)}" if wired else "")
-                  + " (nothing written)")
+        from dos import hook_install as _hi
+        if hook_host == _hi.AUTO_HOST:
+            chosen, probed = _detect_auto_hosts(target)
+            if not chosen:
+                print(f"dos init --hooks auto: no agent runtime detected under "
+                      f"{target} — none of {', '.join(probed)} exists here and no "
+                      f"runtime marker is in the environment. Run it from the repo "
+                      f"your agent works in, or name the host: dos init --hooks "
+                      f"<host> — one of: {', '.join(_hi.host_names())}.",
+                      file=sys.stderr)
+                return 1
+            print("--hooks auto: detected " + ", ".join(
+                name for name, _ in chosen))
+        else:
+            chosen = [(hook_host, ())]
+        for one_host, also_covers in chosen:
+            try:
+                spec, config_path, wired, already, proposed = _install_host_hooks(
+                    target, one_host, force=args.force, dry_run=dry_run)
+            except ValueError as e:
+                print(f"dos init --hooks {one_host}: {e}", file=sys.stderr)
+                return 1
+            if dry_run:
+                # Preview the merge before committing it — print what WOULD be
+                # written, write nothing. The "dress rehearsal" for hook wiring: an
+                # operator with a pre-existing config sees the exact result first.
+                verb = "would wire" if wired else "no new"
+                print(f"--dry-run: {verb} {len(wired)} DOS hook(s) "
+                      f"{'into' if wired else 'for'} {config_path}"
+                      + (f": {', '.join(wired)}" if wired else "")
+                      + " (nothing written)")
+                if already:
+                    print(f"  {len(already)} existing DOS hook(s) would be left "
+                          f"untouched (use --force to repair): {', '.join(already)}")
+                print(f"\n----- proposed {config_path.name} -----")
+                print(proposed.rstrip("\n"))
+                print("----- end preview (re-run without --dry-run to apply) -----")
+                continue
+            if wired:
+                print(f"wired {len(wired)} DOS hook(s) into {config_path}: "
+                      f"{', '.join(wired)}")
             if already:
-                print(f"  {len(already)} existing DOS hook(s) would be left untouched "
+                print(f"left {len(already)} existing DOS hook(s) untouched "
                       f"(use --force to repair): {', '.join(already)}")
-            print(f"\n----- proposed {config_path.name} -----")
-            print(proposed.rstrip("\n"))
-            print("----- end preview (re-run without --dry-run to apply) -----")
+            print(f"  bound to {spec.host}: a refused call is DENIED (pretool), "
+                  "a stalled stream is re-surfaced (posttool), a stop on an "
+                  "unverified claim is refused (stop).")
+            if also_covers:
+                print(f"  also covers {', '.join(also_covers)} — the same config "
+                      "file, one set of hooks.")
+            if spec.note:
+                print(f"  note: {spec.note}")
+        if dry_run:
             return 0
-        if wired:
-            print(f"wired {len(wired)} DOS hook(s) into {config_path}: "
-                  f"{', '.join(wired)}")
-        if already:
-            print(f"left {len(already)} existing DOS hook(s) untouched "
-                  f"(use --force to repair): {', '.join(already)}")
-        print(f"  bound to {spec.host}: a refused call is DENIED (pretool), a stalled "
-              "stream is re-surfaced (posttool), a stop on an unverified claim is "
-              "refused (stop).")
-        if spec.note:
-            print(f"  note: {spec.note}")
 
     print("DOS workspace initialised. Try:  dos doctor --workspace .")
     return 0
@@ -7317,6 +7372,8 @@ wheel or a hand-edited settings file:
   dos init --skills /tmp/svc            # dos.toml + the core skills (next-up/dispatch/loop/replan)
   dos init --skill dos-promote /tmp/svc # dos.toml + just the named skill(s) (repeatable)
   dos init --all .                      # the FULL pack into the current workspace
+  dos init --hooks auto .               # DETECT the runtime(s) this repo already uses
+                                        #    and wire them all — the zero-decision path
   dos init --hooks claude-code .        # dos.toml + bind the verdict to a Claude Code launch
   dos init --hooks cursor .             # …or Cursor      (writes .cursor/hooks.json)
   dos init --hooks codex .              # …or Codex CLI   (writes .codex/config.toml)
@@ -7335,6 +7392,11 @@ verdict it honors:
   PostToolUse/AfterTool/afterFileEdit        → `dos hook posttool` (re-surface a stalled stream).
 The block is MERGED into any existing config — your other hooks/keys are preserved.
 `--with-hooks` is the back-compat alias for `--hooks claude-code` (byte-identical).
+`--hooks auto` (docs/303) names the host FOR you: it probes which config dirs
+already exist here (.claude/, .cursor/, .codex/, .gemini/, .agents/) plus the env
+of the shell it runs in, wires every runtime it finds (a shared config file is
+wired once), and FAILS LOUD with this list when nothing is detected — never a
+guessed default.
 
 The copied skills/hooks are ordinary files you edit; the package-data is the SEED,
 not a runtime binding. Re-running is idempotent — a diverged local skill copy or an
@@ -7394,9 +7456,12 @@ def build_parser() -> argparse.ArgumentParser:
     # docs/134 §6 / docs/165 / docs/221 — bind the verdict to an agent runtime by
     #   (full prose: docs/CLI.md § "docs/134 §6 / docs/165 / docs/221 — bind the verdict to an a")
     from dos import hook_install as _hi_choices
-    pi.add_argument("--hooks", metavar="HOST", choices=_hi_choices.host_names(),
-                    help="wire the DOS hooks into a runtime's config file — one of: "
-                         + ", ".join(_hi_choices.host_names())
+    pi.add_argument("--hooks", metavar="HOST",
+                    choices=[_hi_choices.AUTO_HOST, *_hi_choices.host_names()],
+                    help="wire the DOS hooks into a runtime's config file. 'auto' "
+                         "detects the runtime(s) this repo already uses and wires "
+                         "them all (docs/303 — the zero-decision path); or name "
+                         "one of: " + ", ".join(_hi_choices.host_names())
                          + " (cursor → .cursor/hooks.json, codex → .codex/config.toml, "
                          "gemini → .gemini/settings.json, claude-code → "
                          ".claude/settings.json). pretool denies refused calls, "

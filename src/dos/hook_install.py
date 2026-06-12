@@ -88,6 +88,13 @@ TOML_FENCE_CLOSE = "# <<< dos hooks <<<"
 #: implicit, so its wired command is byte-identical to today's `--with-hooks`.
 DEFAULT_HOST = "claude-code"
 
+#: The installer MODE that detects the host(s) instead of asking the operator to
+#: name one (docs/303). NOT a host: `host_spec(AUTO_HOST)` raises like any other
+#: non-host name. The CLI resolves it at the boundary — probe each known spec's
+#: `detection_probe` dir + `env_markers`, then `choose_auto_hosts` — and wires
+#: each detected host through the ordinary per-host path.
+AUTO_HOST = "auto"
+
 
 class ConfigFormat(enum.Enum):
     """How the host's hook-config file is encoded."""
@@ -125,6 +132,12 @@ class HostHookSpec:
                      requires (Cursor needs `1`); `None` for none.
     `note`         — a one-line operator hint printed after wiring (e.g. Cursor's
                      `failClosed` option, Codex's handler-coverage limit).
+    `env_markers`  — environment-variable NAMES whose presence means the installer
+                     is running *inside* this host right now (docs/303: the second
+                     `--hooks auto` detection rung, for a fresh repo with no config
+                     dir yet). Carried as DATA so the detection machinery never
+                     compares against a vendor literal; `()` for a host with no
+                     verified marker (the config-dir rung covers it).
     """
 
     host: str
@@ -138,6 +151,7 @@ class HostHookSpec:
     json_group_wraps: bool = False
     json_version: Optional[int] = None
     note: str = ""
+    env_markers: tuple[str, ...] = ()
 
     def command_for(self, verb: str) -> str:
         """The exact `dos hook …` command string this host wires for `verb`.
@@ -189,6 +203,9 @@ def claude_code_spec() -> HostHookSpec:
         json_group_wraps=True,    # CC nests entries under {"hooks": [...]} matcher-groups.
         json_version=None,
         note="",
+        # The variable this host exports into every shell it spawns — presence
+        # means `dos init` is being run from inside it (the docs/303 env rung).
+        env_markers=("CLAUDECODE",),
     )
 
 
@@ -221,6 +238,50 @@ def host_spec(name: Optional[str]) -> HostHookSpec:
         f"unknown hook host {name!r} — known: {known}. Refusing to guess: a wrong "
         f"host would wire a no-op deny against your real runtime."
     )
+
+
+# ---------------------------------------------------------------------------
+# `--hooks auto` detection (docs/303). Both helpers are PURE — the existence
+# checks and the environ read live at the CLI boundary (`cli.py:cmd_init`), the
+# same split as the merges above. The detection signal is spec DATA
+# (`config_path`, `env_markers`); no vendor name is ever compared against.
+# ---------------------------------------------------------------------------
+def detection_probe(spec: HostHookSpec) -> tuple[str, ...]:
+    """The path parts whose presence under a workspace root signals this host is
+    in use — the config file's parent directory (`.cursor`, `.claude`, …), or the
+    file itself for a root-level config. PURE data; the caller does the I/O."""
+    return spec.config_path[:-1] or spec.config_path
+
+
+def choose_auto_hosts(
+    detected: "list[tuple[str, tuple[str, ...]]]",
+) -> "list[tuple[str, tuple[str, ...]]]":
+    """Pick the hosts `--hooks auto` wires from the detected `(name, config_path)`
+    pairs. PURE.
+
+    Hosts that share one config file are wired ONCE (claude-code / claude-cowork
+    both write `.claude/settings.json` — one set of hooks covers both, docs/298):
+    the first detected name per config path becomes the OWNER, with `DEFAULT_HOST`
+    always winning a file it shares (its wired command is the unshadowable
+    baseline). Returns `(owner, also_covered_names)` pairs — owners in detection
+    order (default first), the covered siblings carried so the operator message
+    can say "also covers …" instead of staying silent.
+    """
+    pairs = list(detected)
+    # Stable: the default host first, everything else keeps its given order.
+    pairs.sort(key=lambda p: p[0] != DEFAULT_HOST)
+    owner_by_path: dict[tuple[str, ...], str] = {}
+    covers: dict[str, list[str]] = {}
+    order: list[str] = []
+    for name, path in pairs:
+        owner = owner_by_path.get(path)
+        if owner is None:
+            owner_by_path[path] = name
+            covers[name] = []
+            order.append(name)
+        elif name != owner:
+            covers[owner].append(name)
+    return [(name, tuple(covers[name])) for name in order]
 
 
 # ---------------------------------------------------------------------------
