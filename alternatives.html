@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DOS and the alternatives — evals, guardrails, Temporal, in-toto, plain CI</title>
+  <meta name="description" content="How DOS (dos-kernel) relates to eval platforms like LangSmith, OpenAI Agents SDK and CrewAI guardrails, Temporal, in-toto/witness, and plain CI — what each does well, what DOS adds, and when NOT to use DOS.">
+  <link rel="canonical" href="https://anthony-chaudhary.github.io/dos-kernel/alternatives.html">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="DOS and the alternatives">
+  <meta property="og:description" content="What eval platforms, framework guardrails, Temporal, in-toto, and plain CI each do well — and the one job none of them do, which is the only job DOS does.">
+  <meta property="og:url" content="https://anthony-chaudhary.github.io/dos-kernel/alternatives.html">
+  <meta property="og:image" content="https://opengraph.githubassets.com/1/anthony-chaudhary/dos-kernel">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="DOS and the alternatives">
+  <meta name="twitter:description" content="Evals score quality. Guardrails check outputs. Temporal makes work durable. in-toto attests pipelines. CI gates merges. DOS adjudicates whether the agent's claim of 'done' is real.">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "TechArticle",
+    "headline": "DOS and the alternatives",
+    "description": "How DOS relates to eval platforms, framework guardrails, durable execution, supply-chain attestation, and plain CI — generously, with primary-doc citations, including when not to use DOS.",
+    "url": "https://anthony-chaudhary.github.io/dos-kernel/alternatives.html",
+    "datePublished": "2026-06-12",
+    "author": { "@type": "Person", "name": "Anthony Chaudhary", "url": "https://github.com/anthony-chaudhary" },
+    "isPartOf": { "@type": "WebSite", "url": "https://anthony-chaudhary.github.io/dos-kernel/" }
+  }
+  </script>
+  <style>
+    :root {
+      --bg: #0d1117; --panel: #161b22; --border: #30363d;
+      --fg: #e6edf3; --muted: #9198a1; --accent: #58a6ff; --green: #3fb950; --red: #f85149;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--fg);
+      font: 17px/1.6 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    main { max-width: 760px; margin: 0 auto; padding: 48px 20px 64px; }
+    h1 { font-size: 2rem; line-height: 1.25; margin: 0 0 8px; }
+    h2 { font-size: 1.3rem; margin: 40px 0 8px; }
+    p { margin: 12px 0; }
+    .tagline { color: var(--muted); font-size: 1.1rem; margin-top: 0; }
+    code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
+    p > code, li > code, td > code {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 4px; padding: 1px 5px; font-size: 0.9em;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .dim { color: var(--muted); }
+    ul { padding-left: 22px; } li { margin: 6px 0; }
+    table { border-collapse: collapse; width: 100%; font-size: 0.92em; }
+    th, td { border: 1px solid var(--border); padding: 7px 10px; text-align: left; vertical-align: top; }
+    th { background: var(--panel); }
+    .crumb { font-size: 0.9em; margin-bottom: 24px; }
+    footer { margin-top: 56px; color: var(--muted); font-size: 0.85rem; border-top: 1px solid var(--border); padding-top: 16px; }
+  </style>
+</head>
+<body>
+<main>
+  <p class="crumb"><a href="./">← DOS Kernel</a></p>
+
+  <h1>DOS and the alternatives</h1>
+  <p class="tagline">Every tool on this page is good at its job. This page shows which job
+  each one does — so you can see the one job none of them do, which is the only job DOS does.</p>
+
+  <p>DOS is a small deterministic kernel that adjudicates <strong>completed agent work</strong>
+  from <strong>evidence the agent did not author</strong>: git ancestry, exit codes, file trees,
+  read-backs of the world. It is a referee, not an orchestrator — it runs <em>beside</em>
+  everything below, and most sections end with the two composing. The one question to carry
+  through this page, including to DOS itself: <em>when this tool says "OK," what evidence did
+  it read, and who wrote that evidence?</em></p>
+
+  <h2>Hosted evals &amp; observability (LangSmith-class)</h2>
+  <p><a href="https://docs.langchain.com/langsmith/evaluation-concepts">Eval platforms</a> are how
+  you find out whether your agent is any <em>good</em>: offline evaluation against datasets,
+  LLM-as-judge scoring, human annotation, deterministic code evaluators, and online evaluation of
+  live production traffic. For prompt iteration and quality drift there is no DOS substitute.
+  <strong>What DOS adds:</strong> an evaluator scores the <em>run</em> your application emitted —
+  and for "did the agent actually do it?", the run is the wrong witness, because the claim under
+  test is part of the run. DOS's verdicts read nothing the agent emitted. Evals tell you the work
+  is good; DOS tells you the work is real.</p>
+
+  <h2>Framework guardrails (OpenAI Agents SDK, CrewAI)</h2>
+  <p>The <a href="https://openai.github.io/openai-agents-python/guardrails/">Agents SDK</a> halts a
+  run when an output guardrail trips; <a href="https://docs.crewai.com/en/concepts/tasks">CrewAI</a>
+  validates each task's output and retries on failure. These are the right seams in the right
+  places. <strong>What DOS adds:</strong> a guardrail checking schema or content is still reading
+  text the agent wrote. DOS ships a driver for each seat — one import line — that checks the
+  output's <em>claim</em> ("I committed X") against a read-back the agent didn't author, so the
+  retry loop retries until the work is <em>done</em>, not until the narration parses.</p>
+
+  <h2>Durable execution (Temporal-class)</h2>
+  <p><a href="https://docs.temporal.io/temporal">Temporal</a> records every workflow step in an
+  event history and resumes from the last recorded event after a crash — the engineered standard
+  for must-not-be-lost processes, and a design DOS's own recovery syscalls learned from.
+  <strong>What DOS adds:</strong> durability faithfully records what each step <em>returned</em>;
+  whether a returned claim about the world is <em>true</em> is outside its scope. DOS adjudicates
+  exactly that residue. Temporal makes sure the work survives; DOS makes sure the claimed work
+  happened.</p>
+
+  <h2>Supply-chain attestation (in-toto, witness)</h2>
+  <p><a href="https://github.com/in-toto/attestation">in-toto attestations</a> are signed,
+  verifiable claims about how software was produced;
+  <a href="https://github.com/in-toto/witness">witness</a> gathers that evidence at every pipeline
+  step. Philosophically the closest relative here: both refuse to let the worker be the only
+  author of the evidence about its work. <strong>What's different:</strong> in-toto attests
+  pipeline steps with real signing infrastructure, portable across organizations; DOS referees an
+  agent's claims at runtime with no keys and no setup — a plain git repo is enough. They compose:
+  a DOS verdict could ride in an attestation predicate
+  (<a href="https://github.com/anthony-chaudhary/dos-kernel/issues/70">tracked publicly</a>).</p>
+
+  <h2>Plain CI &amp; branch protection</h2>
+  <p><a href="https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches">Required
+  status checks</a> are the one evidence-authored gate almost everyone already runs — and for
+  plenty of setups, genuinely sufficient. <strong>What DOS adds:</strong> CI guards one path (the
+  merge) at one time (the end). A fleet's false claims mostly happen before and beside that path —
+  "committed!" with no commit, two agents in one working tree, a loop spinning all night. DOS runs
+  the same exit-code discipline at the work surface itself, and plugs back into CI: a
+  <a href="https://github.com/anthony-chaudhary/dos-kernel/blob/master/verify-action/README.md">shipped
+  GitHub Action</a> posts <code>dos commit-audit</code> as a required check — this repo gates on it.</p>
+
+  <h2>When NOT to use DOS</h2>
+  <ul>
+    <li><strong>One agent, reviewed diffs, good CI.</strong> Your review plus required checks
+        already provide the independent witness. A referee for one honest player is overhead.</li>
+    <li><strong>Fully isolated agents merging through a gated queue.</strong> Isolation already
+        serialized the effects; the collision half of DOS has little to do.</li>
+    <li><strong>You need hard, in-band prevention.</strong> DOS decides and reports; if a write
+        must be physically impossible, you want a sandbox or policy engine in the execution path.</li>
+    <li><strong>Your question is quality, not truth.</strong> DOS never grades whether work is
+        good — only whether a claim is witnessed. That's what evals and review are for.</li>
+  </ul>
+
+  <h2>At a glance</h2>
+  <table>
+    <tr><th>Tool</th><th>Gates what</th><th>Reads what</th></tr>
+    <tr><td>Evals / observability</td><td>quality of outputs</td><td>the run the app emitted</td></tr>
+    <tr><td>Framework guardrails</td><td>one task's output</td><td>the output text</td></tr>
+    <tr><td>Temporal-class</td><td>execution progress</td><td>its own event history</td></tr>
+    <tr><td>in-toto / witness</td><td>artifact provenance</td><td>signed step attestations</td></tr>
+    <tr><td>Plain CI</td><td>the merge</td><td>the checks' exit codes</td></tr>
+    <tr><td><strong>DOS</strong></td><td><strong>belief in "done"</strong></td><td><strong>git ancestry, exit codes, read-backs — never the agent's narration</strong></td></tr>
+  </table>
+
+  <p>The full page, with every claim cited to the neighbor's primary docs, lives in the repo:
+  <a href="https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/ALTERNATIVES.md">docs/ALTERNATIVES.md</a>.
+  Spotted a claim about your project that's wrong or stale?
+  <a href="https://github.com/anthony-chaudhary/dos-kernel/issues">Open an issue</a> — this page
+  holds itself to the standard it describes.</p>
+
+  <footer>
+    <p>DOS — the Dispatch Operating System. Open source under the
+    <a href="https://github.com/anthony-chaudhary/dos-kernel/blob/master/LICENSE">MIT license</a>.
+    Install with <code>pip install dos-kernel</code> (the bare <code>dos</code> name on PyPI is an
+    unrelated package).</p>
+  </footer>
+</main>
+</body>
+</html>
