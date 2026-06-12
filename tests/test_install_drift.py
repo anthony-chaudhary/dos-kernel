@@ -102,6 +102,7 @@ _NOT_A_SCRIPT = {
     "supervise", "unstick", "witness", "goal", "self",  # skill stems
     "class", "is", "with",                               # skill stem / prose fragments
     "gate",                                              # dos-gate.yml — a workflow slug (the README badge), not a command
+    "verify",                                            # dos-verify — the status-check / reusable-workflow name, not a command
 }
 
 # The teaching sentence — "the dist name is `dos-kernel`, not `dos`; a bare
