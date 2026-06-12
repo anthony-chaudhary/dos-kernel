@@ -47,6 +47,9 @@ LIVE_ONBOARDING_DOCS = (
     # checks out verbatim — a stale tag there 404s their hook install (the @v1 /
     # v0.13.0 forms shipped pointing at refs the fresh public history never had).
     "verify-action/README.md",
+    # Same copy-paste-pin shape: the hooks manifest's header shows the consumer
+    # `rev: vX.Y.Z` line (docs/304) — a stale tag there 404s the hook install.
+    ".pre-commit-hooks.yaml",
 )
 
 # Matches any `DOS v0.13.0` / `kernel v0.18.0` / `**v0.16.0**` style literal.

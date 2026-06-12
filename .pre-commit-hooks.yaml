@@ -1,40 +1,59 @@
-# DOS pre-commit hooks (docs/225) — the claim-vs-diff gate, fired locally at commit
-# time so an unwitnessed claim is caught before the push, not after.
+# DOS pre-commit hooks (docs/304) — the claim-vs-diff gate, fired locally so an
+# unwitnessed claim is caught before the push publishes it.
 #
 # Consumers add this to their .pre-commit-config.yaml:
 #
 #   repos:
 #     - repo: https://github.com/anthony-chaudhary/dos-kernel
-#       rev: v0.13.0
+#       rev: v0.25.0
 #       hooks:
-#         - id: dos-commit-audit        # block a commit whose claim its diff can't witness
+#         - id: dos-commit-audit        # block a push carrying an unwitnessed claim
 #
-# These are TOOLING that consumes the package (the `dos` CLI installed from PyPI);
-# nothing under src/dos/ imports them. The verdict IS the exit code, so pre-commit's
-# pass/fail is the kernel's verdict with no glue.
+# then install the stages these hooks run at (they are NOT the default stage):
 #
-# Scope note: `commit-audit` grades whether a diff did the KIND of thing its message
-# CLAIMED — it is presence/claim-witnessing, NOT correctness (Wall 3, docs/204 §3).
-# Keep your test/lint hooks too; this sits beside them. It abstains (never blocks) on
-# a wip/merge commit or a subject with no checkable claim.
+#   pre-commit install --hook-type pre-push --hook-type post-commit
+#
+# These are TOOLING that consumes the package (the `dos` CLI this repo installs);
+# nothing under src/dos/ imports them. The verdict IS the exit code, so
+# pre-commit's pass/fail is the kernel's verdict with no glue beyond the range
+# adapter (dos.drivers.pre_commit — pre-commit hands the pushed range to the
+# hook as env vars, and an `entry:` line gets no shell expansion).
+#
+# Stage note (the docs/304 fix): git's pre-commit stage runs BEFORE the commit
+# object exists — HEAD there is the PARENT of the commit being made, so a
+# commit-audit hook at that stage judges the wrong commit, off by one. The only
+# stages where the commit being judged exists are post-commit (advisory; cannot
+# block) and pre-push (gating). These hooks use exactly those two.
+#
+# Scope note: `commit-audit` grades whether a diff did the KIND of thing its
+# message CLAIMED — claim-witnessing, NOT correctness (Wall 3, docs/204 §3).
+# Keep your test/lint hooks too; this sits beside them. It abstains (never
+# blocks) on a wip/merge commit or a subject with no checkable claim.
 
 - id: dos-commit-audit
-  name: "DOS: a commit's claim must be backed by its diff"
-  description: "Block a commit whose subject claims work its diff does not witness (author-neutral, deterministic; abstains where it can't ground a verdict)."
-  entry: dos commit-audit
+  name: "DOS: a pushed commit's claim must be backed by its diff"
+  description: "Block a push containing a commit whose subject claims work its diff does not witness (author-neutral, deterministic; abstains where it can't ground a verdict)."
+  entry: python -m dos.drivers.pre_commit
   language: python
-  additional_dependencies: ["dos-kernel"]
-  # commit-audit defaults to HEAD; at commit time HEAD is the commit being made once
-  # pre-commit stages it. Pass no filenames (this is a whole-commit verdict, not a
-  # per-file linter).
+  # A whole-commit verdict, not a per-file linter — and always_run is
+  # load-bearing: the forgery this gate exists for (`git commit --allow-empty
+  # -m "implement the cache"`) changes ZERO files, and a hook with no matching
+  # files is otherwise skipped on exactly the commit it was built to catch.
   pass_filenames: false
-  stages: [commit]
+  always_run: true
+  stages: [pre-push]
+  minimum_pre_commit_version: "3.2.0"
 
 - id: dos-commit-audit-warn
   name: "DOS: claim-vs-diff (observe-only — warns, never blocks)"
-  description: "The advisory floor: report an unwitnessed claim but always exit 0. For teams that want the signal in the log without a hard block yet."
-  entry: dos commit-audit --warn-only
+  description: "The advisory floor: report an unwitnessed claim right after each commit but always exit 0. For teams that want the signal in the log without a hard gate yet."
+  entry: python -m dos.drivers.pre_commit --warn-only
   language: python
-  additional_dependencies: ["dos-kernel"]
   pass_filenames: false
-  stages: [commit]
+  # post-commit passes no filenames, so always_run is required for the hook to
+  # fire at all; verbose is required for a passing (exit-0) hook's report to be
+  # shown — without it a warn-only hook is silent forever.
+  always_run: true
+  verbose: true
+  stages: [post-commit]
+  minimum_pre_commit_version: "3.2.0"

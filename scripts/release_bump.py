@@ -288,6 +288,9 @@ _DOC_BANNER_FILES = (
     # roster since the public-repo flip, so it must be on the bumper's leash too
     # (the 2026-06-10 go/version audit found it stranded by a simulated bump).
     "verify-action/README.md",
+    # The hooks manifest's consumer `rev: vX.Y.Z` example (docs/304) — same
+    # copy-paste-pin shape, same leash.
+    ".pre-commit-hooks.yaml",
 )
 # README.md is GENERATED from the section parts under docs/readme/ (one file per
 # section, concatenated verbatim by scripts/build_readme.py). Sweeping only the
