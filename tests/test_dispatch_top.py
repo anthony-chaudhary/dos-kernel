@@ -498,3 +498,118 @@ class TestTuiFloor:
         rc = TUI.run_top(cfg, once=False)
         assert rc == 0
         assert "LANES" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# The spend column (issue #38) — the per-lane latest efficiency chip, read from
+# the verdict journal. Orthogonal to liveness; blank when nothing recorded.
+# ---------------------------------------------------------------------------
+from dos import verdict_journal as VJ
+
+
+class _Ev:
+    """A minimal duck-typed verdict event for the pure-fold tests."""
+    def __init__(self, syscall, verdict, lane, work=None, tokens=None):
+        self.syscall, self.verdict, self.lane = syscall, verdict, lane
+        self.detail = {}
+        if work is not None:
+            self.detail["evidence.work"] = work
+        if tokens is not None:
+            self.detail["evidence.tokens"] = tokens
+
+
+class TestSpendFold:
+    def test_latest_efficiency_per_lane_last_wins(self):
+        """The fold keeps the NEWEST efficiency verdict per lane (events are oldest
+        first, so a later record overwrites an earlier)."""
+        events = [
+            _Ev("efficiency", "EFFICIENT", "src", work=10, tokens=100),
+            _Ev("efficiency", "WASTEFUL", "src", work=0, tokens=900),   # newer wins
+            _Ev("efficiency", "COSTLY", "docs", work=2, tokens=500),
+        ]
+        out = T.latest_efficiency_by_lane(events)
+        assert out["src"].verdict == "WASTEFUL"
+        assert out["src"].work == 0 and out["src"].tokens == 900
+        assert out["docs"].verdict == "COSTLY"
+
+    def test_fold_ignores_non_efficiency_and_laneless_events(self):
+        events = [
+            _Ev("liveness", "SPINNING", "src"),       # wrong syscall
+            _Ev("efficiency", "EFFICIENT", ""),        # no lane → no column
+            _Ev("efficiency", "EFFICIENT", "tests", work=5, tokens=50),
+        ]
+        out = T.latest_efficiency_by_lane(events)
+        assert set(out) == {"tests"}
+
+    def test_fold_tolerates_a_fossil_with_no_counts(self):
+        out = T.latest_efficiency_by_lane([_Ev("efficiency", "EFFICIENT", "src")])
+        assert out["src"].verdict == "EFFICIENT"
+        assert out["src"].work is None and out["src"].tokens is None
+
+
+class TestSpendColumnRender:
+    def test_held_lane_carries_the_spend_chip(self):
+        payload = {
+            "leases": [_lease("src", acquired_min=60, hb_min=1)],
+            "spend_by_lane": {
+                "src": T.LaneSpend(verdict="WASTEFUL", work=0, tokens=900),
+            },
+        }
+        states = T.build_lane_states(
+            payload, roster=["src", "global"], exclusive=("global",), now=NOW)
+        src = next(s for s in states if s.lane == "src")
+        assert src.spend_chip == T._SPEND_CHIP["WASTEFUL"]
+        assert src.work == 0 and src.tokens == 900
+        text = T.render_lanes_text(tuple(states))
+        assert T._SPEND_CHIP["WASTEFUL"] in text
+        assert "(0w/900t)" in text
+
+    def test_unrecognized_verdict_token_renders_blank_not_crash(self):
+        payload = {
+            "leases": [_lease("src", acquired_min=60, hb_min=1)],
+            "spend_by_lane": {"src": T.LaneSpend(verdict="FUTURE_TOKEN")},
+        }
+        states = T.build_lane_states(
+            payload, roster=["src"], exclusive=(), now=NOW)
+        assert next(s for s in states).spend_chip == ""  # fail-soft
+
+    def test_no_spend_journal_is_byte_identical(self):
+        """A lane with no recorded efficiency verdict renders exactly as before #38
+        (the spend chip is absent; the row is unchanged)."""
+        payload = {"leases": [_lease("src", acquired_min=5, hb_min=1)]}
+        states = T.build_lane_states(
+            payload, roster=["src", "global"], exclusive=("global",), now=NOW)
+        src = next(s for s in states if s.lane == "src")
+        assert src.spend_chip == "" and src.work is None and src.tokens is None
+        # The rendered row carries no spend glyph.
+        text = T.render_lanes_text(tuple(states))
+        for chip in T._SPEND_CHIP.values():
+            assert chip not in text
+
+
+class TestSpendColumnSnapshot:
+    def test_snapshot_reads_efficiency_from_the_verdict_journal(self, tmp_path: Path):
+        """End-to-end (the done-condition): an efficiency verdict recorded for a held
+        lane's run surfaces as that lane's spend chip in a real snapshot frame."""
+        repo = _git_repo(tmp_path, commits=("seed",))
+        cfg = default_config(repo)
+        # Hold the `main` lane via the lane journal.
+        _write_journal(cfg, [_lease("main", acquired_min=60, hb_min=1)])
+        # Record an efficiency verdict for that lane into the verdict journal.
+        VJ.record(
+            VJ.VerdictEvent(
+                syscall="efficiency", verdict="WASTEFUL", lane="main",
+                detail={"evidence.work": 0, "evidence.tokens": 1200}),
+            path=cfg.paths.verdict_journal)
+
+        frame = T.snapshot(cfg, verify=lambda p, ph: False, now=NOW)
+        main = next(s for s in frame.lanes if s.lane == "main")
+        assert main.spend_chip == T._SPEND_CHIP["WASTEFUL"]
+        assert main.tokens == 1200
+        assert T._SPEND_CHIP["WASTEFUL"] in T.render_lanes_text(frame.lanes)
+
+    def test_snapshot_without_journal_has_no_spend_chips(self, tmp_path: Path):
+        repo = _git_repo(tmp_path, commits=("seed",))
+        cfg = default_config(repo)
+        frame = T.snapshot(cfg, verify=lambda p, ph: False, now=NOW)
+        assert all(s.spend_chip == "" for s in frame.lanes)

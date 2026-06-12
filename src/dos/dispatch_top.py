@@ -47,6 +47,7 @@ import io
 import json
 import sys
 from dataclasses import dataclass
+from typing import Iterable
 
 if hasattr(sys.stdout, "reconfigure"):
     try:
@@ -82,6 +83,20 @@ _CHIP_BY_LIVENESS = {
     _liveness.Liveness.ADVANCING: CHIP_ADVANCING,
     _liveness.Liveness.SPINNING: CHIP_SPINNING,
     _liveness.Liveness.STALLED: CHIP_STALLED,
+}
+
+# Spend chips — the per-lane LATEST efficiency verdict, read from the verdict
+# journal (docs/263 §6 + docs/300, issue #38). Orthogonal to the liveness chip: a
+# lane can be ADVANCING (moving) yet WASTEFUL (the tokens bought little). Absent a
+# recorded efficiency verdict the column renders blank, never an error — the
+# row-3 read-only projection discipline (no lease, no mutation). The verdict TOKEN
+# is the journal's own EfficiencyVerdict string, so a new value surfaces as a
+# missing-chip blank rather than a crash, the same fail-soft posture as the rest
+# of this module.
+_SPEND_CHIP = {
+    "EFFICIENT": "💚 EFFICIENT",
+    "COSTLY": "🟠 COSTLY",
+    "WASTEFUL": "🟤 WASTEFUL",
 }
 
 # How long a journaled OP_SPAWN keeps a lane reading SPAWNING before it ages out.
@@ -177,6 +192,11 @@ class LaneState:
     heartbeat_age_ms: int | None = None
     liveness_reason: str = ""         # the liveness verdict's one-line reason
     is_exclusive: bool = False        # an exclusive lane (renders a marker)
+    # The spend column (docs/263 §6, issue #38) — the lane's LATEST efficiency
+    # verdict, read from the verdict journal. "" when none recorded (blank column).
+    spend_chip: str = ""              # a _SPEND_CHIP value, or "" when none
+    work: int | None = None           # the journal's evidence.work, when present
+    tokens: int | None = None         # the journal's evidence.tokens, when present
 
     def to_dict(self) -> dict:
         return {
@@ -187,6 +207,9 @@ class LaneState:
             "heartbeat_age_ms": self.heartbeat_age_ms,
             "liveness_reason": self.liveness_reason,
             "is_exclusive": self.is_exclusive,
+            "spend_chip": self.spend_chip,
+            "work": self.work,
+            "tokens": self.tokens,
         }
 
 
@@ -248,6 +271,9 @@ def build_lane_states(
     leases_by_lane = {str(l.get("lane") or ""): l for l in payload.get("leases", [])}
     events_by_lane = payload.get("events_by_lane", {}) or {}
     spawning_by_lane = payload.get("spawning_by_lane", {}) or {}
+    # The spend column (issue #38): {lane: LaneSpend} from the verdict journal. A
+    # lane with no recorded efficiency verdict simply gets no chip (blank column).
+    spend_by_lane = payload.get("spend_by_lane", {}) or {}
 
     def _state(lane: str, lease: dict | None) -> LaneState:
         excl = lane in exclusive
@@ -274,6 +300,7 @@ def build_lane_states(
             now=now,
             policy=policy,
         )
+        spend = spend_by_lane.get(lane)
         return LaneState(
             lane=lane,
             chip=_CHIP_BY_LIVENESS[verdict.verdict],
@@ -282,6 +309,11 @@ def build_lane_states(
             heartbeat_age_ms=verdict.evidence.last_heartbeat_age_ms,
             liveness_reason=verdict.reason,
             is_exclusive=excl,
+            # The spend column rides on the held lane; an unrecognized verdict token
+            # maps to a blank chip (fail-soft), the work/tokens ride from the fossil.
+            spend_chip=_SPEND_CHIP.get(spend.verdict, "") if spend else "",
+            work=spend.work if spend else None,
+            tokens=spend.tokens if spend else None,
         )
 
     states: list[LaneState] = []
@@ -491,6 +523,44 @@ def _events_by_lane(entries: list[dict], live_by_lane: dict[str, dict]) -> dict[
 
 
 @dataclass(frozen=True)
+class LaneSpend:
+    """One lane's latest recorded efficiency verdict (pure data; issue #38)."""
+
+    verdict: str = ""            # EFFICIENT | COSTLY | WASTEFUL (the journal token)
+    work: int | None = None      # evidence.work, when the fossil carries it
+    tokens: int | None = None    # evidence.tokens, when the fossil carries it
+
+
+def latest_efficiency_by_lane(events: Iterable) -> dict[str, LaneSpend]:
+    """Fold verdict-journal events → the NEWEST efficiency verdict per lane. PURE.
+
+    Reads ONLY `syscall == "efficiency"` events (docs/263), keyed by `lane`; the
+    last one wins (events are appended oldest-first, so a later record overwrites an
+    earlier — the "latest verdict" the operator wants). `evidence.work` /
+    `evidence.tokens` ride from `detail` when present (the docs/300 dotted-key
+    flatten), `None` for a fossil that predates them. A lane-less efficiency event
+    (run with no lane) is skipped — it has no column to land in. Pure over
+    already-read events; the journal read is the caller's (snapshot's) boundary I/O.
+    """
+    out: dict[str, LaneSpend] = {}
+    for ev in events:
+        if getattr(ev, "syscall", "") != "efficiency":
+            continue
+        lane = str(getattr(ev, "lane", "") or "")
+        if not lane:
+            continue
+        detail = getattr(ev, "detail", None) or {}
+        w = detail.get("evidence.work")
+        t = detail.get("evidence.tokens")
+        out[lane] = LaneSpend(
+            verdict=str(getattr(ev, "verdict", "") or ""),
+            work=int(w) if isinstance(w, (int, float)) else None,
+            tokens=int(t) if isinstance(t, (int, float)) else None,
+        )
+    return out
+
+
+@dataclass(frozen=True)
 class SpawnIntent:
     """A lane reading SPAWNING — a recent OP_SPAWN with no live lease yet (pure data)."""
 
@@ -573,10 +643,22 @@ def snapshot(
     except Exception:
         leases = []
     live_by_lane = {str(l.get("lane") or ""): l for l in leases}
+    # --- spend (verdict journal → latest efficiency verdict per lane; issue #38) -
+    # The fifth read, fail-soft like the rest: a missing/torn journal yields no
+    # spend chips, never an error. Read-only — no lease, no mutation (row-3).
+    spend_by_lane: dict = {}
+    try:
+        from dos import verdict_journal
+        spend_by_lane = latest_efficiency_by_lane(
+            verdict_journal.read_events(cfg.paths.verdict_journal)
+        )
+    except Exception:
+        spend_by_lane = {}
     payload = {
         "leases": leases,
         "events_by_lane": _events_by_lane(entries, live_by_lane),
         "spawning_by_lane": _spawning_lanes(entries, live_by_lane, now=now),
+        "spend_by_lane": spend_by_lane,
     }
     roster = lane_roster(cfg)
     states = build_lane_states(
@@ -671,6 +753,14 @@ def render_lanes_text(states: tuple[LaneState, ...]) -> str:
             # lease to beat yet), so it reads `spawn <age>`, a held lane `hb <age>`.
             label = "spawn" if s.chip == CHIP_SPAWNING else "hb"
             bits.append(f"{label} {_fmt_age(s.heartbeat_age_ms)}")
+        # The spend column (issue #38): the latest efficiency chip + its counts, when
+        # recorded. Appended AFTER heartbeat so a lane with no efficiency fossil keeps
+        # its byte-identical pre-#38 line (the steady-state render is undisturbed).
+        if s.spend_chip:
+            counts = ""
+            if s.work is not None and s.tokens is not None:
+                counts = f" ({s.work}w/{s.tokens}t)"
+            bits.append(f"{s.spend_chip}{counts}")
         if s.holder:
             bits.append(s.holder)
         marker = "*" if s.is_exclusive else " "
