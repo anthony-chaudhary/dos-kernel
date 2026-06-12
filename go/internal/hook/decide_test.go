@@ -95,16 +95,15 @@ func TestDisjointnessCollisionDeny(t *testing.T) {
 	}
 }
 
-func TestReadAgainstContendedLaneWarnsNotDenies(t *testing.T) {
-	// FQ-532 Defect 3: a READ-ONLY tool has a KNOWN but EMPTY tree — it provably
-	// touches nothing, so it can NEVER collide. Against a live `src` lease the
-	// disjointness predicate refuses it ("empty requested tree vs known lease")
-	// with NO reason_class, and the OLD `reason_class || treeKnown` gate escalated
-	// that contention-only refusal to a hard DENY for every Read/Grep — the
-	// phantom-lane denial that blocked real agent reads. The fix keeps a
-	// contention-only refusal ADVISORY (WARN, no permissionDecision) regardless of
-	// treeKnown, so the read passes through. A Bash (unknown tree) already WARNed;
-	// this closes the Read/Edit-vs-Bash asymmetry.
+func TestReadAgainstContendedLanePassesClean(t *testing.T) {
+	// A proven no-footprint READ passes CLEAN against a contended lane (issue #46).
+	// A read-only tool has a KNOWN but EMPTY tree — it provably touches nothing, so
+	// it can NEVER collide with any live lease. It never denied (FQ-532 Defect 3
+	// fixed the phantom-lane DENY), but it still emitted a PRE-admission ADVISORY on
+	// every read while an unrelated lane was leased — ambient noise. Now a proven
+	// no-footprint refusal passes CLEAN: a nil dialect, a `passthrough` tag, no
+	// advisory bytes. The advisory is reserved for the genuinely-unknown footprint
+	// (TestUnknownTreeContendedWarns), where "scope it to a path" is real guidance.
 	for _, tool := range []string{"Read", "Grep"} {
 		e := eventFor(tool, "/work/workspace", map[string]any{"file_path": "docs/x.md"})
 		in := Inputs{
@@ -112,12 +111,12 @@ func TestReadAgainstContendedLaneWarnsNotDenies(t *testing.T) {
 			RuntimeFiles: dosRuntimeFiles,
 		}
 		d := Decide(e, in)
-		if d.DecisionTag != "warn" {
-			t.Fatalf("%s against a contended lane must WARN (a read cannot collide), got %q (%s)",
+		if d.DecisionTag != "passthrough" {
+			t.Fatalf("%s against a contended lane must pass CLEAN (a read cannot collide), got %q (%s)",
 				tool, d.DecisionTag, d.Render())
 		}
-		if strings.Contains(d.Render(), "permissionDecision") {
-			t.Fatalf("%s WARN must not carry permissionDecision (must pass through): %s", tool, d.Render())
+		if d.Render() != "" {
+			t.Fatalf("%s proven no-footprint pass must emit NOTHING (no advisory): %s", tool, d.Render())
 		}
 	}
 }

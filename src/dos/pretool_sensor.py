@@ -670,6 +670,27 @@ def decide(
                 "tree_known": tree_known,
             }
             return deny_payload(f"DOS PRE-admission: {reason}"), outcome
+        # (c) PROVEN no-footprint (issue #46) — a KNOWN-and-EMPTY tree with no
+        #     structural reason_class is a read (Read/Grep/Glob, a no-write Bash, a
+        #     read-only MCP tool): `_tree_from_event → ((), True)`. It provably
+        #     touches NOTHING, so it cannot collide with ANY live lease — the
+        #     advisory below even concedes "a read touches nothing". Firing it on
+        #     every read is ambient noise that trains the operator to skim past
+        #     PRE-admission output, the wrong reflex for the one call that matters.
+        #     So a proven no-footprint call passes CLEAN (no warn) — the advisory is
+        #     reserved for the genuinely-unknown case (`tree_known=False`, an
+        #     un-parseable mutating footprint), where "scope it to a path" is real
+        #     guidance. This only suppresses output; the call passed either way
+        #     (WARN was already pass-with-context), so no admission decision changes.
+        if tree_known and not tree:
+            return None, {
+                "rung": "admission",
+                "decision": "passthrough",
+                "reason_class": "",
+                "reason": "proven no-footprint call (a read touches nothing) — "
+                          "cannot collide with any live lease",
+                "tree_known": tree_known,
+            }
         outcome = {
             "rung": "admission",
             "decision": "warn",
@@ -680,7 +701,7 @@ def decide(
         return (
             warn_payload(
                 f"DOS PRE-admission (advisory): {reason} This call's footprint does not prove a "
-                f"collision (a read touches nothing; an unresolved write footprint is unknown), "
+                f"collision (an unresolved write footprint is unknown), "
                 f"so DOS cannot prove it collides — proceeding, but "
                 f"if this call mutates shared state, scope it to a declared path/lane."
             ),

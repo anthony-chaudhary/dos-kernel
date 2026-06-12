@@ -234,26 +234,27 @@ def test_unknown_tree_vs_live_lease_warns_not_denies(monkeypatch, tool, tool_inp
     ("Read", {"file_path": "src/dos/arbiter.py"}),  # a read of a path UNDER the held lease
     ("Grep", {"pattern": "x"}),                      # a pathless read
 ])
-def test_read_vs_live_lease_warns_not_denies(monkeypatch, tool, tool_input):
-    """FQ-532 Defect 3: a READ-ONLY tool has a KNOWN but EMPTY tree — it provably
-    touches NOTHING, so it can never collide. Against a live `src/` lease the
-    disjointness predicate refuses it ("empty requested tree vs known lease") with
-    NO reason_class, and the OLD `reason_class or tree_known` gate escalated that
-    contention-only refusal to a hard DENY for every Read/Grep — the phantom-lane
-    denial that blocked real agent reads. The fix keeps it ADVISORY (WARN, no
-    permissionDecision) regardless of tree_known, so the read passes through. This is
-    the Python parity of the Go `TestReadAgainstContendedLaneWarnsNotDenies`."""
+def test_read_vs_live_lease_passes_clean_no_advisory(monkeypatch, tool, tool_input):
+    """A proven no-footprint READ passes CLEAN against a live lease (issue #46).
+
+    A read-only tool has a KNOWN but EMPTY tree — it provably touches NOTHING, so it
+    can never collide with ANY live lease. It never denied (FQ-532 Defect 3 already
+    fixed the phantom-lane DENY), but it still emitted a PRE-admission ADVISORY on
+    every read while an unrelated lane was leased — ambient noise that trains the
+    operator to skim past PRE-admission output (the wrong reflex for the one call
+    that matters). Now a proven no-footprint refusal passes CLEAN: no dialect, no
+    additionalContext, a `passthrough` outcome. The advisory is reserved for the
+    genuinely-unknown footprint (the next test), where "scope it to a path" is real
+    guidance. Only the OUTPUT changed — the call passed either way."""
     import tempfile
     cfg = _kernel_cfg(Path(tempfile.mkdtemp()))
     monkeypatch.setattr(prt, "live_leases_for", lambda c: [_src_lease()])
     dialect, outcome = prt.decide(_event(tool, tool_input, cwd="/repo"), cfg)
-    assert outcome["decision"] == "warn", outcome
-    # A read has a KNOWN (empty) tree — tree_known is True, yet it must NOT deny:
-    # the fix's load-bearing point is that tree_known alone is not proof of collision.
+    assert outcome["decision"] == "passthrough", outcome
+    # A read has a KNOWN (empty) tree — tree_known True, yet no advisory: a proven
+    # no-footprint call cannot collide, so it passes clean, not even WARN.
     assert outcome["tree_known"] is True
-    hso = dialect["hookSpecificOutput"]
-    assert "permissionDecision" not in hso, "a read must pass through, never deny"
-    assert hso["additionalContext"]
+    assert dialect is None, "a proven no-footprint read emits nothing — no advisory"
 
 
 def test_known_tree_real_collision_still_denies(monkeypatch):

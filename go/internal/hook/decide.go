@@ -83,8 +83,25 @@ func Decide(e *Event, in Inputs) Decision {
 				TreeKnown:   treeKnown,
 			}
 		}
+		// PROVEN no-footprint (issue #46): a KNOWN-and-EMPTY tree with no
+		// reason_class is a read (Read/Grep/Glob, a no-write Bash, a read-only MCP
+		// tool) — it provably touches NOTHING, so it cannot collide with ANY live
+		// lease. Firing the advisory on every read is ambient noise; reserve it for
+		// the genuinely-unknown footprint (treeKnown == false), where "scope it to a
+		// path" is real guidance. A proven no-footprint call passes CLEAN. Only the
+		// OUTPUT changes (WARN was already pass-with-context) — no decision flips.
+		if treeKnown && len(tree) == 0 {
+			return Decision{
+				Dialect:     nil,
+				Rung:        "admission",
+				DecisionTag: "passthrough",
+				ReasonClass: "",
+				Reason:      "proven no-footprint call (a read touches nothing) — cannot collide with any live lease",
+				TreeKnown:   treeKnown,
+			}
+		}
 		warn := "DOS PRE-admission (advisory): " + reason +
-			" This call's footprint does not prove a collision (a read touches nothing; an unresolved write footprint is unknown), so DOS cannot prove it collides — proceeding, but if this call mutates shared state, scope it to a declared path/lane."
+			" This call's footprint does not prove a collision (an unresolved write footprint is unknown), so DOS cannot prove it collides — proceeding, but if this call mutates shared state, scope it to a declared path/lane."
 		return Decision{
 			Dialect:     warnPayload(warn),
 			Rung:        "admission",

@@ -82,10 +82,15 @@ def _decide_with(event: dict, leases: list[dict], runtime_files: tuple[str, ...]
         provable = bool(averdict.reason_class) or (tree_known and bool(tree))
         if provable:
             return prt.deny_payload(f"DOS PRE-admission: {reason}"), "deny"
+        # PROVEN no-footprint (issue #46): a KNOWN-and-EMPTY tree with no reason_class
+        # is a read — it cannot collide, so it passes CLEAN (no advisory). MUST mirror
+        # `pretool_sensor.decide`; the Go decider applies the identical branch.
+        if tree_known and not tree:
+            return None, "passthrough"
         return (
             prt.warn_payload(
                 f"DOS PRE-admission (advisory): {reason} This call's footprint does not prove a "
-                f"collision (a read touches nothing; an unresolved write footprint is unknown), "
+                f"collision (an unresolved write footprint is unknown), "
                 f"so DOS cannot prove it collides — proceeding, but "
                 f"if this call mutates shared state, scope it to a declared path/lane."
             ),
@@ -149,8 +154,12 @@ def build_cases() -> list[dict]:
     # --- reads never gated ---
     cases.append(case("read-runtime-file-passthrough",
                       _ev("Read", {"file_path": "src/dos/arbiter.py"}), [], ALL_RUNTIME))
+    # A proven no-footprint read against a CONTENDED lease passes CLEAN (issue #46):
+    # a read touches nothing, so it cannot collide — no advisory, no noise.
     cases.append(case("grep-passthrough",
                       _ev("Grep", {"pattern": "x"}), SRC_LEASE, ALL_RUNTIME))
+    cases.append(case("read-contended-lease-passes-clean",
+                      _ev("Read", {"file_path": "src/dos/arbiter.py"}), SRC_LEASE, ALL_RUNTIME))
     # --- disjoint edits pass through ---
     cases.append(case("edit-disjoint-doc",
                       _ev("Edit", {"file_path": "docs/notes.md"}), [], ALL_RUNTIME))
@@ -183,7 +192,9 @@ def build_cases() -> list[dict]:
                       [], ALL_RUNTIME))
     cases.append(case("redirect-defeats-mention-allowance",
                       _ev("Bash", {"command": "git log > src/dos/arbiter.py"}), [], ALL_RUNTIME))
-    cases.append(case("read-only-bash-contended-warns",
+    # A no-write-footprint Bash (git status) against a contended lease is a proven
+    # no-footprint call too — it passes CLEAN, the same as a Read/Grep (issue #46).
+    cases.append(case("read-only-bash-contended-passes",
                       _ev("Bash", {"command": "git status"}), SRC_LEASE, ALL_RUNTIME))
     # --- empty-tree lease never blocks ---
     cases.append(case("empty-tree-lease-admits",
