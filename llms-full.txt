@@ -1503,6 +1503,18 @@ pip install dos-kernel    # the distribution name is dos-kernel
 # or, from a clone of this repo:  pip install -e .
 ```
 
+> **Zero-install trial.** If you have [uv](https://docs.astral.sh/uv/), you can
+> run the whole tour — including the 60-second caught-lie demo — without
+> installing anything:
+>
+> ```bash
+> uvx --from dos-kernel dos quickstart
+> ```
+>
+> uv fetches the package into a throwaway environment and runs it; nothing
+> lands on your PATH. When you want the `dos` command for real, use the
+> `pip install` above (or `uv tool install dos-kernel`).
+
 > **The dist name is `dos-kernel`, not `dos`.** A bare `pip install dos` pulls an
 > unrelated package (a Flask/OpenAPI helper) that squats the `dos` name. The
 > *import* name is still `dos` (`import dos`, the `dos` command) — only the pip
