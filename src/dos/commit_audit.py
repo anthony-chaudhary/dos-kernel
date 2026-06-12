@@ -33,8 +33,13 @@ doc-only "fix" is *sometimes* legitimate (a comment fix); the verdict says
    so it witnesses on its own, honestly-typed rung, `data-witnessed`, one step
    below `diff-witnessed` (the receipt says which rung answered).
 2. **TEST_CLAIM_NO_TEST** — the subject claims tests ("add tests", "tests pass",
-   "fix the failing test") but the diff touches **no test file**, or **net-deletes**
-   test lines (the delete-the-assertion shape). Sound from the diff alone.
+   "fix the failing test") but the diff touches **no test file**; OR the subject
+   claims the suite **PASSES/green** yet **net-deletes** test lines (the
+   delete-the-assertion shape, where dropped assertions manufacture the green).
+   Sound from the diff alone. The net-delete catch is scoped to the *pass/green*
+   claim ONLY (issue #82): an honest `test: update tests for X` may legitimately
+   shrink — removing a stale case IS the update — so a net-delete under the update
+   shape is CONSISTENT with the claim, not a contradiction, and grades OK.
 3. **the forgeability RUNG of every commit** — `diff-witnessed` (the diff touches
    source the subject plausibly refers to) vs `subject-only` (the claim rests on
    message text alone). The generalization of `oracle._grade_grep_source` to "does
@@ -541,6 +546,26 @@ def _is_pure_move_or_rename(subject: str) -> bool:
     return any(w in ("rename", "move", "moved", "renamed") for w in words)
 
 
+def _claims_tests_pass(subject: str) -> bool:
+    """Does this TEST-kind subject claim the suite PASSES / is GREEN — the only
+    TEST shape a net line-delete CONTRADICTS (issue #82)?
+
+    The net-delete rule was designed for the "tests pass/green" claim, where
+    deleting assertions manufactures the green — there a `+2/-17` test diff
+    contradicts the claim. But a TEST claim has a second, distinct shape: an honest
+    `test: update tests for X` / `refactor the test helpers` simply CLAIMS the tests
+    were changed, and a shrink (dropping a stale case is part of the update) is
+    CONSISTENT with that. Firing the delete-the-assertion catch on the update shape
+    is the pilot artifact this scopes out. So the catch keys on the pass/green
+    PHRASE, not on TEST-kind alone — matching the `_TEST_PASS_PHRASES` set that one
+    of the three TEST-classification rungs already uses (`classify_claim`, the "fix
+    the failing test" / "all tests green" rung). PURE; fire-REDUCING only — it can
+    turn a net-delete fire into an OK, never the reverse.
+    """
+    s = subject.strip().lower()
+    return any(p in s for p in _TEST_PASS_PHRASES)
+
+
 def classify(claim: CommitClaim, diff: DiffFacts,
              policy: ClaimPolicy = DEFAULT_POLICY) -> ClaimVerdict:
     """THE verdict: does the commit's claim match its diff? Pure.
@@ -589,7 +614,10 @@ def classify(claim: CommitClaim, diff: DiffFacts,
 
     if kind is ClaimKind.TEST:
         # A test claim must touch a test file. Net-deleting test lines while
-        # claiming "tests pass/green" is the delete-the-assertion shape.
+        # claiming "tests PASS/green" is the delete-the-assertion shape — but ONLY
+        # the pass/green claim (issue #82): an honest `test: update tests` may
+        # legitimately shrink (a stale case removed IS the update), so the
+        # net-delete catch keys on the pass-phrase, not on TEST-kind alone.
         net_test_delta_known = (diff.test_lines_added >= 0
                                 and diff.test_lines_removed >= 0)
         net_deleted = (net_test_delta_known
@@ -601,11 +629,12 @@ def classify(claim: CommitClaim, diff: DiffFacts,
                 reason="claims tests but the diff touches no test file",
                 source_files=source_files, test_files=test_files,
             ci_files=ci_files, data_files=data_files)
-        if net_deleted and not _is_pure_move_or_rename(claim.subject):
+        if (net_deleted and _claims_tests_pass(claim.subject)
+                and not _is_pure_move_or_rename(claim.subject)):
             return ClaimVerdict(
                 sha=claim.sha, verdict=Verdict.CLAIM_UNWITNESSED, claim_kind=kind,
                 witness=Witness.SUBJECT_ONLY,
-                reason=(f"claims tests but net-DELETES test lines "
+                reason=(f"claims tests PASS but net-DELETES test lines "
                         f"(+{diff.test_lines_added}/-{diff.test_lines_removed}) "
                         "— the delete-the-assertion shape"),
                 source_files=source_files, test_files=test_files,

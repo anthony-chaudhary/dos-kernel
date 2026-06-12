@@ -112,6 +112,39 @@ def test_test_claim_net_deleting_assertions_is_unwitnessed():
     assert "net-DELETES" in v.reason
 
 
+# --- issue #82: the net-delete catch is scoped to the PASS/GREEN claim only ---
+def test_honest_test_update_shrink_is_ok_not_a_delete_the_assertion_fire():
+    """An honest `test: update tests for X` that net-DELETES lines (a stale case
+    removed IS the update) grades OK — the net-delete catch keys on the pass/green
+    claim, not on TEST-kind alone (issue #82, the #66 pilot artifact). This is the
+    exact pilot case: subject `test: Update tests …`, test files only, +2/-17."""
+    v = classify(_claim("test: update tests for git integration"),
+                 DiffFacts(files=("tests/test_git.py", "tests/test_x.py"),
+                           is_empty=False,
+                           test_lines_added=2, test_lines_removed=17))
+    assert v.claim_kind is ClaimKind.TEST
+    assert v.verdict is Verdict.OK, (
+        "an `update tests` claim is CONSISTENT with a shrink — it must not read as "
+        "the delete-the-assertion shape (the pre-#82 over-fire)")
+    assert "net-DELETES" not in v.reason
+
+
+def test_pass_phrase_claim_with_net_delete_still_fires_after_scoping():
+    """The scoping must NOT loosen the designed catch: a subject that claims the
+    suite PASSES/green while net-deleting test lines keeps firing CLAIM_UNWITNESSED
+    (the done-condition's invariant — true under BOTH resolutions of #82)."""
+    for subject in ("tests pass now, all green",
+                    "all tests passing after the fix",
+                    "fix the failing test"):
+        v = classify(_claim(subject),
+                     DiffFacts(files=("tests/test_x.py",), is_empty=False,
+                               test_lines_added=1, test_lines_removed=9))
+        assert v.verdict is Verdict.CLAIM_UNWITNESSED, (
+            f"{subject!r} claims the suite passes — a net test-line delete must "
+            f"still fire the delete-the-assertion catch")
+        assert "net-DELETES" in v.reason
+
+
 def test_test_claim_touching_no_test_file_is_unwitnessed():
     v = classify(_claim("add tests for the widget"),
                  DiffFacts(files=("src/widget.py",), is_empty=False))

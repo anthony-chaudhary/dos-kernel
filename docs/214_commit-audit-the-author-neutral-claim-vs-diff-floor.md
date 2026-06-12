@@ -54,7 +54,7 @@ non-forgeable fact about the commit, never on the message):
 | Verdict | Fires when | The non-forgeable fact |
 |---|---|---|
 | `CLAIM_UNWITNESSED` (empty/doc-only) | subject uses a **code verb** (`fix`/`add`/`implement`/…) but the commit touched **zero source files** (empty, or only docs/config/binary) | "touched 0 source files" |
-| `CLAIM_UNWITNESSED` (test) | subject claims **tests** ("add tests", "tests pass/green") but the diff touches **no test file**, or **net-deletes** test lines (the delete-the-assertion shape) | which files / the line delta |
+| `CLAIM_UNWITNESSED` (test) | subject claims **tests** ("add tests", "tests pass/green") but the diff touches **no test file**; OR the subject claims the suite **passes/green** yet **net-deletes** test lines (the delete-the-assertion shape). The net-delete catch is scoped to the *pass/green* claim only — an honest `test: update tests` may legitimately shrink, so a net-delete under the *update* shape grades `OK`, not a contradiction ([issue #82](https://github.com/anthony-chaudhary/dos-kernel/issues/82)) | which files / the line delta |
 | `OK` + a **rung** | the diff touches source/tests the claim refers to | the touched file set |
 | `ABSTAIN` | the subject makes **no checkable claim** (`wip`/`merge`/`bump`/`chore`) | — |
 
