@@ -166,6 +166,10 @@ from dos.reward import (  # noqa: F401  (the reward-set admission verdict, docs/
     AcceptanceAB,
     acceptance_ab as reward_acceptance_ab,
 )
+from dos.deprecation import (  # noqa: F401  (the typed deprecation category, docs/308)
+    DosDeprecationWarning,
+    warn_deprecated,
+)
 
 __all__ = [
     "__version__",
@@ -258,4 +262,6 @@ __all__ = [
     "reward_admit",
     "AcceptanceAB",
     "reward_acceptance_ab",
+    "DosDeprecationWarning",
+    "warn_deprecated",
 ]
