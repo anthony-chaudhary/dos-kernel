@@ -67,6 +67,7 @@ _SKIP_SUFFIXES = {
 # of quoting, which test_quickstart_consumes_the_declared_story pins.)
 _MUST_TELL_THE_STORY = (
     "README.md",
+    "docs/assets/caught-lie-cast.svg",
     "docs/readme/10_try-it.md",
     "docs/QUICKSTART.md",
     "examples/demo/verify_demo.sh",

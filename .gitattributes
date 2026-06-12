@@ -19,3 +19,9 @@
 # tree and trips the AV6 effect-free guard (docs/290). Pin them LF on every
 # platform so the regeneration is a byte-no-op.
 go/internal/hook/parity/*.jsonl text eol=lf
+
+# The README's first-screen cast is an exact-bytes contract too: the generator
+# (scripts/build_caught_lie_cast.py) writes it LF and the suite re-records and
+# compares (universal-newlines read, so this pin is belt-and-braces — it keeps
+# the working-tree bytes identical to the committed ones on every platform).
+docs/assets/caught-lie-cast.svg text eol=lf

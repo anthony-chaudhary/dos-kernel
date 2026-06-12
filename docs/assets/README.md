@@ -60,6 +60,7 @@ HTML previewer (e.g. `htmlpreview.github.io`).
 
 | File | What it shows | Source of truth |
 |---|---|---|
+| `caught-lie-cast.svg` | **The README's first-screen terminal cast** (issue #64): the quickstart's caught-lie moment as an animated recording — the agent claims both features shipped, `git log` shows the one real commit, `dos verify` answers `SHIPPED` (exit 0) then `NOT_SHIPPED` (exit 1) — CAUGHT. Typed commands, line-by-line reveal, settle-and-hold ending, `prefers-reduced-motion` + stripped-stylesheet fallbacks (the final frame is every element's natural state). | **Recorded, not drawn**: `scripts/build_caught_lie_cast.py` drives the real `dos` CLI in a throwaway repo (pinned commit identity/dates → byte-deterministic) and renders the captured transcript; `tests/test_caught_lie_cast.py` re-records and pins the committed bytes. |
 | `loop-hero.svg` | **The README hero.** An animated, self-contained SVG of the open-loop-vs-closed-loop contrast: left, a fleet whose `done!` reports are believed until lies / collisions / spin pile up into a codebase that "sorta works"; right, `dos verify` reads git and the run branches `SHIPPED` (exit 0, land it) / `NOT_SHIPPED` (exit 1, re-dispatch — caught), the verdict steering the next step. CSS-keyframe reveal with a `prefers-reduced-motion` fallback. | The README narrative (conceptual — the AUTH/`e62f74d` strings mirror the `dos verify` money-moment). |
 | `loop-hero.png` | **High-res raster backup** of the hero's resolved (reduced-motion) frame — 3600×1920. For surfaces that don't render SVG (LinkedIn / Twitter-X cards, slide decks, the announce docs). GitHub embeds the SVG; this is the fallback poster. | Rendered from `loop-hero.svg` at 3× DPR (the convert recipe below). |
 | `fleet-loop.svg` | **A static SVG backup for the "what goes wrong in a fleet" Mermaid flowchart** — the same open-loop-vs-closed-loop contrast as the hero (NO REFEREE: `done!` reports believed until a lie / collision / spin pile up; DOS ADJUDICATES: `dos verify` reads git and branches `SHIPPED` / `NOT_SHIPPED`, the verdict steering the next step). Same signature identity + freeze-safe reveal as `loop-hero.svg`. **Not currently embedded in the README** — the section now leads on the inline Mermaid flowchart (which renders on GitHub) and the verbatim failure table, with the hero already carrying the same contrast at the top; this SVG is kept as the always-embeds fallback for Markdown surfaces that render Mermaid blank. | The README narrative (conceptual; the `AUTH`/`e62f74d`/`exit 0`/`exit 1` strings mirror the `dos verify` money-moment, same as the hero). |
@@ -69,6 +70,16 @@ HTML previewer (e.g. `htmlpreview.github.io`).
 | `verified-by-dos.svg` | The **adoption badge** an adopter repo pastes into its README: a shields.io-style two-segment pill — dark `verified by` label, green `DOS` message — asserting the repo gates its agents' ship-claims with `dos verify`. | Hand-authored static badge (no live query); the paste-me page is [`docs/BADGE.md`](../BADGE.md). |
 
 ## Reproducing the content
+
+**`caught-lie-cast.svg`** — the one asset here that is fully scripted: run
+`python scripts/build_caught_lie_cast.py` and it re-records the whole cast — it
+builds a throwaway git repo telling the canonical caught-lie story
+(`dos._demo_story`), drives the real `dos verify` against it, and renders the
+captured transcript as the animated SVG. The recording is deterministic (pinned
+commit identity + dates), so `--check` can compare the committed file to a fresh
+re-recording byte for byte — that is what `tests/test_caught_lie_cast.py` runs.
+**Never edit the SVG by hand**: when the CLI's output changes shape, the test
+goes red and the fix is to re-run the script.
 
 **`loop-hero.svg`** — there's no script to capture: it renders the README's
 open-loop-vs-closed-loop *narrative* (the same conceptual story as

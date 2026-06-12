@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 570" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace" font-size="16" role="img" aria-label="A terminal recording of the caught lie. The agent reports: &quot;Done! Shipped the login endpoint (AUTH1) and the password reset (AUTH2).&quot; git log shows one commit — ee8f8e6 AUTH1: ship the login endpoint. dos verify AUTH AUTH1 answers SHIPPED AUTH AUTH1 ee8f8e6 (via grep-subject), exit 0. dos verify AUTH AUTH2 answers NOT_SHIPPED AUTH AUTH2 (via none), exit 1 — caught. The exit code is the verdict: gate the agent's done on it and a false claim cannot land.">
+  <title>DOS — the caught lie, recorded from the real CLI</title>
+  <desc>A terminal recording of the caught lie. The agent reports: "Done! Shipped the login endpoint (AUTH1) and the password reset (AUTH2)." git log shows one commit — ee8f8e6 AUTH1: ship the login endpoint. dos verify AUTH AUTH1 answers SHIPPED AUTH AUTH1 ee8f8e6 (via grep-subject), exit 0. dos verify AUTH AUTH2 answers NOT_SHIPPED AUTH AUTH2 (via none), exit 1 — caught. The exit code is the verdict: gate the agent's done on it and a false claim cannot land.</desc>
+
+  <!-- GENERATED FILE — do not edit by hand. Recorded by
+       scripts/build_caught_lie_cast.py driving the real `dos` CLI;
+       tests/test_caught_lie_cast.py pins these bytes to a fresh
+       re-recording. To change the cast, change the script and re-run it. -->
+
+  <style>
+
+    .canvas  { fill: #0a0a0f; }
+    .window  { fill: #10101a; stroke: #272736; }
+    .bar     { fill: #15151f; }
+    .ink     { fill: #eef1f6; }
+    .dim     { fill: #8b93a7; }
+    .faint   { fill: #5b6478; }
+    .lie     { fill: #ff4d57; }                 /* hot-red — NOT_SHIPPED */
+    .ship    { fill: #2bff88; }                 /* acid-green — SHIPPED */
+    .accent  { fill: #36e0ff; }                 /* electric cyan — the prompt */
+    .claim   { fill: #ffc24d; }                 /* amber — the forgeable narration */
+
+
+    /* Every element's NATURAL state is the final, fully-visible frame; the
+       intro hides it via `backwards` fill only. A renderer that strips this
+       stylesheet therefore shows the finished transcript, and
+       reduced-motion gets it immediately. Nothing returns to blank. */
+    .row { animation: rise 0.35s ease-out backwards; }
+    @keyframes rise { from { opacity: 0; transform: translateY(5px); } }
+    .tc { animation: pop 1ms steps(1, end) backwards; }
+    @keyframes pop { from { opacity: 0; } }
+    .thump {
+      animation: thump 0.5s cubic-bezier(0.2, 1.6, 0.4, 1) backwards;
+      transform-box: fill-box; transform-origin: center;
+    }
+    @keyframes thump { from { opacity: 0; transform: scale(1.7); } }
+    .cursor { animation: blink 1.2s steps(1, end) infinite; }
+    @keyframes blink { 50% { opacity: 0; } }
+    @media (prefers-reduced-motion: reduce) {
+      .row, .tc, .thump, .cursor { animation: none; }
+    }
+
+  </style>
+
+  <rect class="canvas" width="1040" height="570"/>
+  <rect class="window" x="8" y="8" width="1024" height="514" rx="14" stroke-width="1.5"/>
+  <path class="bar" d="M9.5 22 a12.5 12.5 0 0 1 12.5 -12.5 h996 a12.5 12.5 0 0 1 12.5 12.5 v30 h-1021 z"/>
+  <circle cx="34" cy="30" r="6.5" fill="#ff5f57"/>
+  <circle cx="56" cy="30" r="6.5" fill="#febc2e"/>
+  <circle cx="78" cy="30" r="6.5" fill="#28c840"/>
+  <text class="dim" x="520" y="35" text-anchor="middle" font-size="13.5">the caught lie — dos verify, recorded from the real CLI</text>
+
+    <text class="row claim" x="34" y="96" xml:space="preserve" style="animation-delay:0.00s">agent&gt; "Done! Shipped the login endpoint (AUTH1) and the password reset (AUTH2)."</text>
+  <text class="row dim" x="34" y="140" xml:space="preserve" style="animation-delay:1.20s"># One claim is true. One is a lie. Don't ask the agent — ask the repo:</text>
+  <text class="row ink" x="34" y="170" xml:space="preserve" style="animation-delay:2.10s"><tspan class="accent">$ </tspan><tspan class="tc" style="animation-delay:2.10s">g</tspan><tspan class="tc" style="animation-delay:2.15s">i</tspan><tspan class="tc" style="animation-delay:2.19s">t</tspan><tspan class="tc" style="animation-delay:2.23s"> </tspan><tspan class="tc" style="animation-delay:2.28s">l</tspan><tspan class="tc" style="animation-delay:2.32s">o</tspan><tspan class="tc" style="animation-delay:2.37s">g</tspan><tspan class="tc" style="animation-delay:2.41s"> </tspan><tspan class="tc" style="animation-delay:2.46s">-</tspan><tspan class="tc" style="animation-delay:2.50s">-</tspan><tspan class="tc" style="animation-delay:2.55s">o</tspan><tspan class="tc" style="animation-delay:2.59s">n</tspan><tspan class="tc" style="animation-delay:2.64s">e</tspan><tspan class="tc" style="animation-delay:2.68s">l</tspan><tspan class="tc" style="animation-delay:2.73s">i</tspan><tspan class="tc" style="animation-delay:2.77s">n</tspan><tspan class="tc" style="animation-delay:2.82s">e</tspan></text>
+  <text class="row ink" x="34" y="200" xml:space="preserve" style="animation-delay:3.31s">ee8f8e6 AUTH1: ship the login endpoint</text>
+  <text class="row dim" x="34" y="244" xml:space="preserve" style="animation-delay:4.41s"># Claim 1 — did the login endpoint (AUTH1) really ship? Ask git, not the agent:</text>
+  <text class="row ink" x="34" y="274" xml:space="preserve" style="animation-delay:5.21s"><tspan class="accent">$ </tspan><tspan class="tc" style="animation-delay:5.21s">d</tspan><tspan class="tc" style="animation-delay:5.26s">o</tspan><tspan class="tc" style="animation-delay:5.30s">s</tspan><tspan class="tc" style="animation-delay:5.35s"> </tspan><tspan class="tc" style="animation-delay:5.39s">v</tspan><tspan class="tc" style="animation-delay:5.44s">e</tspan><tspan class="tc" style="animation-delay:5.48s">r</tspan><tspan class="tc" style="animation-delay:5.53s">i</tspan><tspan class="tc" style="animation-delay:5.57s">f</tspan><tspan class="tc" style="animation-delay:5.62s">y</tspan><tspan class="tc" style="animation-delay:5.66s"> </tspan><tspan class="tc" style="animation-delay:5.71s">A</tspan><tspan class="tc" style="animation-delay:5.75s">U</tspan><tspan class="tc" style="animation-delay:5.80s">T</tspan><tspan class="tc" style="animation-delay:5.84s">H</tspan><tspan class="tc" style="animation-delay:5.89s"> </tspan><tspan class="tc" style="animation-delay:5.93s">A</tspan><tspan class="tc" style="animation-delay:5.98s">U</tspan><tspan class="tc" style="animation-delay:6.02s">T</tspan><tspan class="tc" style="animation-delay:6.07s">H</tspan><tspan class="tc" style="animation-delay:6.11s">1</tspan></text>
+  <text class="row" x="34" y="304" xml:space="preserve" style="animation-delay:6.61s"><tspan class="ship">SHIPPED AUTH AUTH1 ee8f8e6 (via grep-subject)</tspan><tspan class="faint">   # exit 0</tspan></text>
+  <text class="row dim" x="34" y="348" xml:space="preserve" style="animation-delay:7.71s"># Claim 2 — "the password reset (AUTH2) shipped too." Did it?</text>
+  <text class="row ink" x="34" y="378" xml:space="preserve" style="animation-delay:8.51s"><tspan class="accent">$ </tspan><tspan class="tc" style="animation-delay:8.51s">d</tspan><tspan class="tc" style="animation-delay:8.55s">o</tspan><tspan class="tc" style="animation-delay:8.60s">s</tspan><tspan class="tc" style="animation-delay:8.64s"> </tspan><tspan class="tc" style="animation-delay:8.69s">v</tspan><tspan class="tc" style="animation-delay:8.73s">e</tspan><tspan class="tc" style="animation-delay:8.78s">r</tspan><tspan class="tc" style="animation-delay:8.82s">i</tspan><tspan class="tc" style="animation-delay:8.87s">f</tspan><tspan class="tc" style="animation-delay:8.91s">y</tspan><tspan class="tc" style="animation-delay:8.96s"> </tspan><tspan class="tc" style="animation-delay:9.00s">A</tspan><tspan class="tc" style="animation-delay:9.05s">U</tspan><tspan class="tc" style="animation-delay:9.09s">T</tspan><tspan class="tc" style="animation-delay:9.14s">H</tspan><tspan class="tc" style="animation-delay:9.18s"> </tspan><tspan class="tc" style="animation-delay:9.23s">A</tspan><tspan class="tc" style="animation-delay:9.27s">U</tspan><tspan class="tc" style="animation-delay:9.32s">T</tspan><tspan class="tc" style="animation-delay:9.36s">H</tspan><tspan class="tc" style="animation-delay:9.41s">2</tspan></text>
+  <text class="row" x="34" y="408" xml:space="preserve" style="animation-delay:9.90s"><tspan class="lie">NOT_SHIPPED AUTH AUTH2 (via none)</tspan><tspan class="faint">   # exit 1</tspan></text>
+  <g transform="translate(640 402) rotate(-8)"><g class="thump" style="animation-delay:10.45s"><rect x="-86" y="-26" width="172" height="46" rx="7" fill="none" stroke="#ff4d57" stroke-width="3.5"/><text class="lie" x="0" y="9" text-anchor="middle" font-family="'Arial Black','Helvetica Neue',Arial,sans-serif" font-weight="900" font-size="27" letter-spacing="3">CAUGHT</text></g></g>
+  <text class="row dim" x="34" y="452" xml:space="preserve" style="animation-delay:11.40s"># The exit code IS the verdict: gate your agent's "done" on it, and a false claim cannot land.</text>
+  <g class="row" style="animation-delay:12.10s"><text class="accent" x="34" y="496" xml:space="preserve">$ </text><rect class="cursor ink" x="54" y="483" width="9" height="17"/></g>
+
+  <text class="faint" x="520" y="552" text-anchor="middle" font-size="12.5">every line above is the CLI's verbatim output — scripts/build_caught_lie_cast.py re-records this cast</text>
+</svg>
