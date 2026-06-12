@@ -84,6 +84,47 @@ func TestPassthroughWritesNoRecord(t *testing.T) {
 	}
 }
 
+// TestEnforceAppendRepairsTornTail pins the torn-tail repair (issue #62, parity
+// with Python `lane_journal.append`): a WAL whose final line is a terminator-less
+// fragment (a writer crashed mid-append) must NOT swallow the next record. The
+// repair writes the new record on a fresh line, so the fragment becomes its own
+// complete corrupt line (a `_CORRUPT` sentinel to readJournal) and the new
+// ENFORCE stays readable — never one glued unparseable line holding both.
+func TestEnforceAppendRepairsTornTail(t *testing.T) {
+	dir := t.TempDir()
+	wal := filepath.Join(dir, "lane-journal.jsonl")
+	// A crash mid-append: a partial record, no trailing newline.
+	if err := os.WriteFile(wal, []byte(`{"op": "ACQUIRE", "lane": "to`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e := eventFor("Edit", "/work/workspace", map[string]any{"file_path": "src/dos/arbiter.py"})
+	d := Decide(e, Inputs{RuntimeFiles: dispatchRuntimeFiles})
+	if d.DecisionTag != "deny" {
+		t.Fatalf("expected deny, got %q", d.DecisionTag)
+	}
+	AppendEnforceRecord(wal, e, d)
+
+	raw, err := os.ReadFile(wal)
+	if err != nil {
+		t.Fatalf("WAL not written: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected the fragment + the record on separate lines, got %d line(s):\n%s",
+			len(lines), string(raw))
+	}
+	entries := readJournal(wal)
+	if len(entries) != 2 {
+		t.Fatalf("expected a _CORRUPT sentinel + the ENFORCE record, got %d entries", len(entries))
+	}
+	if op := asStr(entries[0]["op"]); op != "_CORRUPT" {
+		t.Fatalf("fragment should surface as _CORRUPT, got %q", op)
+	}
+	if op := asStr(entries[1]["op"]); op != "ENFORCE" {
+		t.Fatalf("the appended record must stay readable, got %q", op)
+	}
+}
+
 // TestEnforceSeqIncrements pins that a second record gets seq=2 (next_seq reads the
 // existing WAL) — the append-order invariant.
 func TestEnforceSeqIncrements(t *testing.T) {

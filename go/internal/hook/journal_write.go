@@ -44,11 +44,27 @@ func AppendEnforceRecord(journalPath string, ev *Event, d Decision) {
 	if dir := dirOf(journalPath); dir != "" {
 		_ = os.MkdirAll(dir, 0o755)
 	}
-	f, err := os.OpenFile(journalPath, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o644)
+	// O_RDWR (not O_WRONLY): the torn-tail repair below must read the last byte.
+	f, err := os.OpenFile(journalPath, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0o644)
 	if err != nil {
 		return
 	}
 	defer f.Close()
+	// Torn-tail repair — parity with Python `lane_journal.append` (issue #62). A
+	// writer that died mid-append leaves a terminator-less final line; a bare
+	// O_APPEND would concatenate THIS record onto that fragment — one unparseable
+	// line — so the fsync'd record below would be invisible to readJournal/replay
+	// (a lost forensic ENFORCE here; on the Python ACQUIRE path, a falsely-free
+	// lane). A leading newline gives the fragment its own line (readJournal keeps
+	// it as a _CORRUPT sentinel) and this record stays readable. `\r` counts as a
+	// terminator (readJournal folds CR into LF). Fail-soft: an unreadable tail
+	// writes as before — the repair can never block the WAL.
+	if st, err := f.Stat(); err == nil && st.Size() > 0 {
+		buf := make([]byte, 1)
+		if _, err := f.ReadAt(buf, st.Size()-1); err == nil && buf[0] != '\n' && buf[0] != '\r' {
+			line = "\n" + line
+		}
+	}
 	if _, err := f.WriteString(line); err != nil {
 		return
 	}
