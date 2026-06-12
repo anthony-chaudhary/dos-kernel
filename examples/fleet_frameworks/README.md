@@ -17,10 +17,16 @@ the proof.
 | `crewai_verify_tool.py` | 2 — a verify tool + a post-kickoff gate | `crewai` |
 | `autogen_termination.py` | 3 — a termination condition only git can satisfy | `autogen-agentchat` |
 | `openai_agents_guardrail.py` | 4 — an output guardrail with a git tripwire | `openai-agents` |
+| `crewai_task_guardrail.py` | 6 — the SHIPPED task guardrail: the retry loop fails on an absent deliverable (`dos.drivers.crewai_guardrail`, docs/305) | `dos` only |
+| `openai_agents_effect_gate.py` | 7 — the SHIPPED output guardrail: the tripwire fires on an absent deliverable (`dos.drivers.openai_agents_guardrail`, docs/305) | `openai-agents` |
 
 Recipe 5 (Claude Code / Claude Agent SDK) has no file here because it needs no
 adapter — use the shipped surfaces (`dos init --hooks claude-code`, `dos-mcp`,
-the [plugin](../../claude-plugin/README.md)). The swarm-runtime worked example
+the [plugin](../../claude-plugin/README.md)). Recipes 6 and 7 are the DRIVER
+form of 2 and 4: where the early recipes wire the oracle in by hand and key on
+a (plan, phase) the host names, the drivers ship in the package
+(`pip install dos-kernel`) and check DECLARED deliverables — a commit, a file,
+a shipped phase — against read-backs the agent did not author. The swarm-runtime worked example
 is [`../hermes_integration/`](../hermes_integration/).
 
 ```bash

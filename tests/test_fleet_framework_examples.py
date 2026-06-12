@@ -30,7 +30,8 @@ _EXAMPLE_DIR = Path(__file__).resolve().parents[1] / "examples" / "fleet_framewo
 
 _EXAMPLE_MODULES = ("_fixture", "universal", "langgraph_referee",
                     "crewai_verify_tool", "autogen_termination",
-                    "openai_agents_guardrail")
+                    "openai_agents_guardrail", "crewai_task_guardrail",
+                    "openai_agents_effect_gate")
 
 
 @pytest.fixture()
@@ -125,3 +126,31 @@ def test_openai_agents_guardrail_trips_on_unbacked_done(example_path, tmp_path):
     assert r["backed"].tripwire_triggered is False
     assert r["backed"].output_info["verdict"] == "SHIPPED"
     assert r["backed"].output_info["via"] == "grep-subject"
+
+
+# ===========================================================================
+# Recipe 6 — CrewAI, driver form: the shipped task guardrail (dos only;
+# always runs — the adapter imports nothing from crewai).
+# ===========================================================================
+def test_crewai_task_guardrail_fails_overclaim_then_passes(example_path, tmp_path):
+    r = _demo("crewai_task_guardrail", tmp_path)
+    ok1, reason = r["attempt1"]
+    assert ok1 is False                      # over-claim: the task FAILS...
+    assert "no commit beyond" in reason      # ...with the actionable feedback
+    ok2, value = r["attempt2"]
+    assert ok2 is True                       # work landed: the task passes...
+    assert value is r["attempt2_output"]     # ...output through unchanged
+
+
+# ===========================================================================
+# Recipe 7 — OpenAI Agents SDK, driver form: the shipped output guardrail.
+# ===========================================================================
+def test_openai_agents_effect_gate_trips_then_clears(example_path, tmp_path):
+    agents = pytest.importorskip("agents", reason="openai-agents not installed")
+    if not hasattr(agents, "output_guardrail"):
+        pytest.skip("an unrelated 'agents' package shadows openai-agents")
+    r = _demo("openai_agents_effect_gate", tmp_path)
+    assert r["unbacked"].tripwire_triggered is True
+    assert r["unbacked"].output_info["outcome"] == "TRIPPED"
+    assert r["backed"].tripwire_triggered is False
+    assert r["backed"].output_info["outcome"] == "CLEAR"

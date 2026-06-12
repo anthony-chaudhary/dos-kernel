@@ -1011,6 +1011,10 @@ back verbatim:
   CrewAI, AutoGen, the OpenAI/Claude Agents SDK — with every framework recipe also
   shipped as a runnable, suite-pinned file under
   [`examples/fleet_frameworks/`](https://github.com/anthony-chaudhary/dos-kernel/tree/master/examples/fleet_frameworks).
+  Two seats ship as drivers in the package itself ([docs/305](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/305_guardrail-seat-pair-openai-agents-and-crewai-plan.md)):
+  an OpenAI Agents SDK output guardrail that trips on a deliverable git can't
+  see, and a CrewAI task guardrail that turns the retry loop into a
+  do-the-work loop — one import line each.
 - [**Wire DOS into a Hermes / OpenClaw swarm**](https://github.com/anthony-chaudhary/dos-kernel/tree/master/examples/hermes_integration) —
   the offline, A/B-measured swarm-runtime example: the `exec-capability` gate
   refuses a prompt-injected command before it runs (real at a single agent), and
