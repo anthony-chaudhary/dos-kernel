@@ -41,6 +41,12 @@ on:
   push:
     branches: [master]
   pull_request:
+  # Merge queue: the queue builds a SPECULATIVE merge commit and runs the
+  # required checks on it before anything lands. Without this trigger a
+  # required dos-verify check would never report in the queue and every queued
+  # PR would stall; with it, the action audits the queue's base_sha..head_sha —
+  # the exact commits about to land.
+  merge_group:
   workflow_dispatch:
 
 permissions:
@@ -52,7 +58,11 @@ concurrency:
 
 jobs:
   self-gate:
-    name: the kernel adjudicates its own repo
+    # The job name IS the status-check name branch protection and merge-queue
+    # rules match on — keep it the stable product name, not a sentence: a
+    # repo requires "dos-verify", and renaming it would silently un-require
+    # the gate everywhere it is pinned.
+    name: dos-verify
     runs-on: ubuntu-latest
     # Two kernel verdicts over an already-fetched history: minutes, not tens of
     # them — bound it so a hung install can't sit on the 6-hour default.
@@ -93,3 +103,13 @@ jobs:
       # warning-class finding redden the badge too.
       - name: dos lint — dead policy in the repo's own dos.toml?
         run: dos lint --strict --workspace .
+
+  # The reusable workflow's day-one consumer (the same role dos-gate plays for
+  # the composite action): this repo calls its own `workflow_call` surface, so
+  # a consumer's one-line integration path is exercised on every push/PR, not
+  # just documented. `install-from: "."` gates with the tree being pushed.
+  reusable-surface:
+    name: dos-verify (reusable workflow)
+    uses: ./.github/workflows/dos-verify.yml
+    with:
+      install-from: "."

@@ -1,0 +1,114 @@
+# dos-verify — the reusable claim-vs-diff workflow (the one-line consumer surface).
+#
+# A `workflow_call` wrapper over the bundled composite action (./verify-action):
+# a consumer repo gets the named **dos-verify** status check — checkout with full
+# ancestry, install the kernel, run the verdict — with a single `uses:` line,
+# instead of copy-pasting the quick-start job. The verdict IS the exit code
+# (`dos commit-audit`: clean=0 / unwitnessed=1), so the check is the kernel's
+# answer, never a narration.
+#
+# Usage in a consumer repo (.github/workflows/dos-gate.yml):
+#
+#   name: dos-gate
+#   on:
+#     pull_request:
+#     merge_group:        # required-check parity: the queue's speculative
+#                         # commits get the same audit a PR gets
+#   jobs:
+#     dos-verify:
+#       uses: anthony-chaudhary/dos-kernel/.github/workflows/dos-verify.yml@master  # pin a release tag for reproducible CI
+#
+# The resulting check is "<your job name> / dos-verify" — make it a required
+# status check (branch protection / merge-queue rules) and GitHub becomes the
+# enforcement point for the kernel's verdict: DOS decides, your repo's settings
+# block. With no `range` input the action defaults correctly per event: a PR
+# audits base..head; a merge_group audits the queue's base_sha..head_sha (the
+# commits about to land — the speculative merge tip alone would abstain as a
+# merge subject); anything else audits HEAD.
+#
+# This is TOOLING that consumes the package (it shells the `dos` CLI through the
+# composite action); nothing under src/dos/ imports it. This repo is its first
+# consumer: .github/workflows/dos-gate.yml calls it with `install-from: "."`.
+
+name: dos-verify
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        description: "commit-audit (claim-vs-diff over a range/ref) | verify (a (plan, phase) shipped)"
+        required: false
+        type: string
+        default: "commit-audit"
+      range:
+        description: "For commit-audit: a commit ref or A..B range (default: the PR's base..head; on a merge_group event the queue's base_sha..head_sha; else HEAD)."
+        required: false
+        type: string
+        default: ""
+      plan:
+        description: "For verify: the plan/series id (e.g. AUTH)."
+        required: false
+        type: string
+        default: ""
+      phase:
+        description: "For verify: the phase id within the plan (e.g. AUTH2)."
+        required: false
+        type: string
+        default: ""
+      fail-on:
+        description: "unwitnessed (block a CLAIM_UNWITNESSED / NOT_SHIPPED — default) | none (observe-only: report, never block)."
+        required: false
+        type: string
+        default: "unwitnessed"
+      workspace:
+        description: "Repo root to verify against (default: the checkout)."
+        required: false
+        type: string
+        default: "."
+      dos-version:
+        description: "Version spec for the pip install (e.g. ==0.24.1). Default: latest."
+        required: false
+        type: string
+        default: ""
+      install-from:
+        description: "pip install source that OVERRIDES the PyPI name: a local path ('.' = the checked-out repo) or a VCS URL. Consumers normally omit this; the kernel's own repo passes '.'."
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  dos-verify:
+    name: dos-verify
+    runs-on: ubuntu-latest
+    # One pip install + one git-ancestry read: minutes, not tens of them.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # commit-audit reads git ancestry, not a shallow tip
+
+      # No `cache: pip`: setup-python's pip cache hard-fails when the CALLER's
+      # repo has no requirements.txt/pyproject.toml to key on — and a consumer
+      # need not be a Python repo at all (commit-audit reads git, not code).
+      # The install is one small wheel; correctness over seconds.
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      # The action ref is this repo by full path, NOT `./verify-action`: a
+      # reusable workflow runs against the CALLER's checkout, which does not
+      # contain this repo's action directory. @master tracks the workflow's
+      # own trunk; the release tags keep the two in lockstep.
+      - uses: anthony-chaudhary/dos-kernel/verify-action@master
+        with:
+          mode: ${{ inputs.mode }}
+          range: ${{ inputs.range }}
+          plan: ${{ inputs.plan }}
+          phase: ${{ inputs.phase }}
+          fail-on: ${{ inputs.fail-on }}
+          workspace: ${{ inputs.workspace }}
+          dos-version: ${{ inputs.dos-version }}
+          install-from: ${{ inputs.install-from }}

@@ -1,7 +1,8 @@
 # DOS verify-action — the claim-vs-diff / did-it-ship gate at the PR boundary (docs/225).
 #
 # A composite GitHub Action that runs a DOS truth verdict over a pull request's
-# commits and propagates the kernel's exit code to the check status. The verdict IS
+# commits — or a merge queue's speculative commits (`merge_group`) — and propagates
+# the kernel's exit code to the check status. The verdict IS
 # the exit code (`dos commit-audit`: clean=0 / unwitnessed=1 / contract_error=2), so
 # this wrapper is deliberately thin — the gate is the exit code, surfaced to GitHub.
 #
@@ -17,8 +18,11 @@
 # a subject with no checkable claim. (Wall 3, docs/204 §3.)
 #
 # Usage in a consumer repo (.github/workflows/dos-gate.yml):
+#   on:
+#     pull_request:
+#     merge_group:        # required-check parity: the queue's speculative commits
 #   jobs:
-#     claim-vs-diff:
+#     dos-verify:
 #       runs-on: ubuntu-latest
 #       steps:
 #         - uses: actions/checkout@v4
@@ -26,8 +30,11 @@
 #         - uses: anthony-chaudhary/dos-kernel/verify-action@master   # pin a release tag for reproducible CI
 #           with:
 #             mode: commit-audit
-#             range: ${{ github.event.pull_request.base.sha }}..${{ github.sha }}
 #             fail-on: unwitnessed
+# Leave `range` empty — the action defaults it per event (a PR audits base..head,
+# a merge_group audits the queue's base_sha..head_sha, anything else audits HEAD).
+# Or skip the copy-paste entirely: the reusable workflow
+# .github/workflows/dos-verify.yml is this same job as a single `uses:` line.
 
 name: "DOS verify gate"
 description: "Fail a PR when a commit's claim isn't backed by its diff (dos commit-audit) or a phase didn't ship (dos verify) — deterministic, author-neutral, abstains where it can't ground a verdict."
@@ -41,7 +48,7 @@ inputs:
     required: false
     default: "commit-audit"
   range:
-    description: "For commit-audit: a commit ref or A..B range (default: the PR's base..head, else HEAD)."
+    description: "For commit-audit: a commit ref or A..B range (default: the PR's base..head; on a merge_group event the queue's base_sha..head_sha; else HEAD)."
     required: false
     default: ""
   plan:
@@ -96,6 +103,13 @@ runs:
         # The PR base/head, used to default the range when `range` is empty.
         PR_BASE: ${{ github.event.pull_request.base.sha }}
         PR_HEAD: ${{ github.sha }}
+        # The merge-queue base/head (a `merge_group` event). The queue builds a
+        # SPECULATIVE merge commit; `github.sha` is that merge commit, so auditing
+        # HEAD alone would see only a merge subject (an abstain) and wave the
+        # queued work through unaudited. base_sha..head_sha is the set of commits
+        # the queue is actually about to land — audit those.
+        MG_BASE: ${{ github.event.merge_group.base_sha }}
+        MG_HEAD: ${{ github.event.merge_group.head_sha }}
       run: |
         set -uo pipefail
         warn_flag=""
@@ -123,8 +137,10 @@ runs:
         if [ -z "$range" ]; then
           if [ -n "${PR_BASE}" ] && [ -n "${PR_HEAD}" ]; then
             range="${PR_BASE}..${PR_HEAD}"
+          elif [ -n "${MG_BASE}" ] && [ -n "${MG_HEAD}" ]; then
+            range="${MG_BASE}..${MG_HEAD}"   # merge queue: the commits about to land.
           else
-            range="HEAD"   # not a PR event — audit the tip commit.
+            range="HEAD"   # not a PR or queue event — audit the tip commit.
           fi
         fi
         echo "## DOS commit-audit — claim vs diff over \`${range}\`" >> "$GITHUB_STEP_SUMMARY"

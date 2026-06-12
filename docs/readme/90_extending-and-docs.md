@@ -22,6 +22,11 @@ for a copy-me skeleton.
 - **[docs/HACKING.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/HACKING.md)** — extend DOS without forking it.
 - **[CLAUDE.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/CLAUDE.md)** / **[CONTRIBUTING.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/CONTRIBUTING.md)** — the
   architecture contract and how to send a change.
+- **[verify-action/](https://github.com/anthony-chaudhary/dos-kernel/blob/master/verify-action/README.md)** — the CI gate: a
+  composite Action and a reusable workflow that run `dos commit-audit` on every
+  PR and merge-queue group and post the verdict as the named **dos-verify**
+  status check; make it required and GitHub enforces what the kernel decides
+  (the *verified by DOS* badge above is this gate on the kernel's own repo).
 - **[docs/releases/](https://github.com/anthony-chaudhary/dos-kernel/tree/master/docs/releases)** — per-version release notes (the changelog).
 - **[The website](https://anthony-chaudhary.github.io/dos-kernel/)** — this page,
   condensed to one screen (good for sending to someone).
