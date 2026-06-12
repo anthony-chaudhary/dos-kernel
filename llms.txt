@@ -34,6 +34,7 @@ job or an agent loop can gate on it directly.
 - [Architecture contract](https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/CLAUDE.md): the layering rules (mechanism in the kernel, policy in drivers) and the litmus tests that enforce them
 - [Extending DOS](https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/docs/HACKING.md): the plugin seams — judges, dialects, notifiers, exporters, evidence sources
 - [Stability policy](https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/docs/STABILITY.md): the compatibility promise — what you may depend on, the deprecation window, and what will never break
+- [The .dos surface](https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/docs/DOT_DOS.md): the repo-resident state contract — policy in (dos.toml), fossils through (.dos/), verdicts out (git + verdict.json) — and why that makes every host adapter thin
 - [Security](https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/SECURITY.md): the threat model and the supply-chain notes (including the `dos` name squatter)
 
 ## Integrations

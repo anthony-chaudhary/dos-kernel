@@ -993,6 +993,10 @@ for a copy-me skeleton.
 - **[docs/README.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/README.md)** — the docs index (guides vs. design notes
   vs. the dated build-journal; the numbers are chronology, not a reading order).
 - **[docs/HACKING.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/HACKING.md)** — extend DOS without forking it.
+- **[docs/DOT_DOS.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/DOT_DOS.md)** — the `.dos`
+  surface: what that directory is, why it's safe to delete, and the
+  repo-resident state contract (policy in `dos.toml`, fossils under `.dos/`,
+  verdicts in git) that keeps every host adapter thin.
 - **[docs/STABILITY.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/STABILITY.md)** — the compatibility
   promise: what you may depend on, what SemVer means here, how deprecations
   are announced (`DosDeprecationWarning`, a two-minor-release window), and

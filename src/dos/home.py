@@ -62,7 +62,8 @@ _DOT_DOS_GITIGNORE = """\
 # DOS per-project state — re-derivable emissions (runs, leases, verdicts,
 # lane journal, soak index). DOS auto-created this directory and ignores its own
 # contents so they never enter your repo's history. Safe to delete; DOS rebuilds
-# with `dos reindex`. See dos/CLAUDE.md.
+# with `dos reindex`. What this directory is and why it isn't committed:
+# https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/DOT_DOS.md
 *
 !.gitignore
 """
