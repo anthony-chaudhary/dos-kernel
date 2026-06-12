@@ -128,4 +128,24 @@ agents; it adjudicates what they did: verify the claim, admit or refuse the
 lane, classify the run's liveness, and report each verdict as an exit code.
 That is why it composes with whatever already runs your agents — a shell loop,
 CI, LangGraph, CrewAI, or an agent runtime's hooks — instead of replacing it.
-The design doctrine is the OS one: mechanism in the kern
+The design doctrine is the OS one: mechanism in the kernel, policy in drivers.
+
+## How is DOS different from agent evals or observability platforms?
+
+Evals score a model offline; observability shows you a trace after the fact.
+DOS sits in the loop and **adjudicates at runtime**: it reads ground truth the
+agent could not have authored and returns a typed verdict with an exit code a
+gate can act on *now* — block the merge, refuse the lane, keep the loop
+running. It is also evidence-first by construction: a verdict states which
+witness answered (git ancestry, file tree, CI status), so "verified" is always
+traceable to bytes the agent didn't write. Verdicts can still be exported to
+your observability stack (`dos export` — file, StatsD, OTLP).
+
+## Can't the agent just game the verdict?
+
+Not by talking. Every verdict is computed from bytes the agent did not author
+— git ancestry, the file tree, the clock, a CI status, the test runner's exit
+code — and the agent's narration is parsed for nothing. An agent can of course
+make a real commit that genuinely ships the work; that is not gaming, that is
+the desired behavior. The threat model and its edges are written up in
+[SECURITY.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/SECURITY.md).
