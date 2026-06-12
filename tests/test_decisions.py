@@ -1213,3 +1213,185 @@ class TestBackpressureClassification:
         _seed_soak(cfg, soak_until="2099-01-01")
         rows = D.collect_decisions(cfg, resolver="HUMAN")
         assert [r.kind.value for r in rows] == ["SOAK_GATE"]
+
+
+# ---------------------------------------------------------------------------
+# Enforcement storms — repeated hook denies escalate to ONE decision (issue #14).
+# ---------------------------------------------------------------------------
+
+
+_SM_REASON = (
+    "lane 'Write' would edit the orchestrator's own running code "
+    "(src/dos/arbiter.py) — refusing to let a live loop rewrite the kernel "
+    "that is adjudicating it (SELF_MODIFY)."
+)
+
+
+def _seed_enforce(cfg, *, seq, ts="2026-06-01T10:00:00Z", holder="S1",
+                  tool="Write", reason=_SM_REASON, reason_class="SELF_MODIFY",
+                  decision="deny", lift_reason_class=True):
+    """Append one OP_ENFORCE record, in either writer's shape.
+
+    `lift_reason_class=True` is the Python `enforce_entry` shape (the token lifted
+    to the top level); `False` leaves it ONLY inside the nested `proposal` body —
+    the shape the Go fast-path writer left before the lift (the fold must read
+    both, or a Go-written storm is invisible).
+    """
+    lj = cfg.paths.lane_journal
+    lj.parent.mkdir(parents=True, exist_ok=True)
+    intervention = "BLOCK" if decision == "deny" else "WARN"
+    row = {
+        "op": "ENFORCE", "seq": seq, "ts": ts, "lane": tool, "tool": tool,
+        "holder": holder, "intervention": intervention,
+        "dispatch_call": decision != "deny", "withheld": decision == "deny",
+        "handler": "admission", "reason": reason,
+        "proposal": {"decision": decision, "intervention": intervention,
+                     "reason": reason, "reason_class": reason_class,
+                     "rung": "admission"},
+    }
+    if lift_reason_class:
+        row["reason_class"] = reason_class
+    with lj.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(row) + "\n")
+
+
+class TestEnforceStorms:
+    """Repeated SELF_MODIFY ENFORCE denies of the same (holder, target) fold —
+    through the shipped docs/223 breaker — into ONE pending HUMAN decision; an
+    isolated deny raises nothing (issue #14: 21 silent identical retries while
+    `dos decisions` said "(none pending)" all day).
+    """
+
+    def test_three_denies_raise_one_human_decision(self, tmp_path: Path):
+        cfg = default_config(tmp_path)
+        for i in range(3):
+            _seed_enforce(cfg, seq=i + 1, ts=f"2026-06-01T10:0{i}:00Z")
+        rows = D.collect_decisions(cfg)  # default resolver="HUMAN"
+        assert len(rows) == 1
+        d = rows[0]
+        assert d.kind.value == "ENFORCE_BREAKER"
+        assert d.resolver_kind.value == "HUMAN"
+        # The decision names the target and the count (the done-condition).
+        assert "src/dos/arbiter.py" in d.reason_text
+        assert "3x" in d.reason_text
+        assert "S1" in d.reason_text
+        assert d.reason_token == "SELF_MODIFY"
+        assert d.dup_count == 3
+
+    def test_single_deny_raises_nothing(self, tmp_path: Path):
+        cfg = default_config(tmp_path)
+        _seed_enforce(cfg, seq=1)
+        assert D.collect_decisions(cfg, resolver=None) == []
+
+    def test_two_denies_stay_under_threshold(self, tmp_path: Path):
+        cfg = default_config(tmp_path)
+        _seed_enforce(cfg, seq=1)
+        _seed_enforce(cfg, seq=2, ts="2026-06-01T10:05:00Z")
+        assert D.collect_decisions(cfg, resolver=None) == []
+
+    def test_go_written_shape_is_read_too(self, tmp_path: Path):
+        # The Go fast-path writer left reason_class only in the nested proposal;
+        # the fold must read that shape or a native-binary storm is invisible.
+        cfg = default_config(tmp_path)
+        for i in range(3):
+            _seed_enforce(cfg, seq=i + 1, lift_reason_class=False)
+        rows = D.collect_decisions(cfg)
+        assert [d.kind.value for d in rows] == ["ENFORCE_BREAKER"]
+
+    def test_different_holders_do_not_pool(self, tmp_path: Path):
+        # 2 denies each from two holders: neither group reaches the threshold —
+        # the storm is per-(holder, target), never a global tally.
+        cfg = default_config(tmp_path)
+        _seed_enforce(cfg, seq=1, holder="A")
+        _seed_enforce(cfg, seq=2, holder="A")
+        _seed_enforce(cfg, seq=3, holder="B")
+        _seed_enforce(cfg, seq=4, holder="B")
+        assert D.collect_decisions(cfg, resolver=None) == []
+
+    def test_different_targets_make_separate_decisions(self, tmp_path: Path):
+        cfg = default_config(tmp_path)
+        other = _SM_REASON.replace("arbiter.py", "lane_overlap.py")
+        for i in range(3):
+            _seed_enforce(cfg, seq=2 * i + 1)
+            _seed_enforce(cfg, seq=2 * i + 2, reason=other)
+        rows = D.collect_decisions(cfg)
+        assert len(rows) == 2
+        targets = {d.reason_text for d in rows}
+        assert any("arbiter.py" in t for t in targets)
+        assert any("lane_overlap.py" in t for t in targets)
+
+    def test_override_admit_resolves_the_storm(self, tmp_path: Path):
+        # The docs/296 armed window let the edit through — record_success resets
+        # the consecutive count, so the storm is RESOLVED, not pending.
+        cfg = default_config(tmp_path)
+        for i in range(3):
+            _seed_enforce(cfg, seq=i + 1)
+        _seed_enforce(cfg, seq=4, decision="override-admit")
+        assert D.collect_decisions(cfg, resolver=None) == []
+
+    def test_denies_after_resolution_count_anew(self, tmp_path: Path):
+        # After an override-admit, a FRESH run of 3 denies trips again (the
+        # consecutive counter, not the lifetime total, is the storm signal).
+        cfg = default_config(tmp_path)
+        for i in range(3):
+            _seed_enforce(cfg, seq=i + 1)
+        _seed_enforce(cfg, seq=4, decision="override-admit")
+        _seed_enforce(cfg, seq=5)
+        _seed_enforce(cfg, seq=6)
+        assert D.collect_decisions(cfg, resolver=None) == []
+        _seed_enforce(cfg, seq=7)
+        rows = D.collect_decisions(cfg)
+        assert [d.kind.value for d in rows] == ["ENFORCE_BREAKER"]
+        assert rows[0].dup_count == 3
+
+    def test_non_self_modify_enforce_never_rises(self, tmp_path: Path):
+        # A provenance WARN (or any other class) is not an operator-only deny —
+        # the fold under-matches by design.
+        cfg = default_config(tmp_path)
+        for i in range(5):
+            _seed_enforce(cfg, seq=i + 1, reason_class="", decision="warn",
+                          reason="suspicious provenance on arg 2")
+        assert D.collect_decisions(cfg, resolver=None) == []
+
+    def test_stale_storm_ages_out(self, tmp_path: Path):
+        # A storm whose LAST deny is past the retention cutoff is no longer
+        # pending — the operator resolved it long ago (or the loop died).
+        cfg = default_config(tmp_path)
+        for i in range(3):
+            _seed_enforce(cfg, seq=i + 1, ts="2026-04-01T10:00:00Z")  # ~60d old
+        assert D.collect_decisions(cfg, resolver=None) == []
+
+    def test_storm_outranks_wedge_and_is_now_urgency(self, tmp_path: Path):
+        cfg = default_config(tmp_path)
+        _seed_verdict_envelope(cfg)  # a WEDGE row
+        for i in range(3):
+            _seed_enforce(cfg, seq=i + 1)
+        rows = D.collect_decisions(cfg, resolver=None)
+        kinds = [d.kind.value for d in rows]
+        assert kinds.index("ENFORCE_BREAKER") < kinds.index("WEDGE")
+        storm = rows[kinds.index("ENFORCE_BREAKER")]
+        assert D.urgency_of(storm).value == "NOW"
+
+    def test_next_steps_name_hook_real_remedies_only(self, tmp_path: Path):
+        cfg = default_config(tmp_path)
+        for i in range(3):
+            _seed_enforce(cfg, seq=i + 1)
+        d = D.collect_decisions(cfg)[0]
+        steps = dict(D.next_steps(d, cfg))
+        assert steps.get("o") == "dos override status"
+        assert steps.get("m") == "dos man wedge SELF_MODIFY"
+        # No /replan (the lane is a tool name) and no arbitrate --force (the
+        # storm is at the hook surface, which has no force — issue #14's trap).
+        assert "r" not in steps
+        assert "f" not in steps
+
+    def test_arm_file_perimeter_denies_group_on_reason_text(self, tmp_path: Path):
+        # The docs/296 arm-file deny carries no "own running code (...)" target —
+        # the fold falls back to the reason text, so identical retries still trip.
+        cfg = default_config(tmp_path)
+        arm = ("this call would write the operator's SELF_MODIFY override arm "
+               "file (.dos/override/arm.json) — only the operator arms a window")
+        for i in range(3):
+            _seed_enforce(cfg, seq=i + 1, reason=arm)
+        rows = D.collect_decisions(cfg)
+        assert [d.kind.value for d in rows] == ["ENFORCE_BREAKER"]

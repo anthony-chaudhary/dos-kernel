@@ -48,6 +48,13 @@ func Decide(e *Event, in Inputs) Decision {
 		if reason == "" {
 			reason = "DOS admission refused this call (no lane available)."
 		}
+		// The hook surface names only the remedies it has (issue #14): swap the
+		// predicate's CLI-only `--force` tail before ANY downstream use — the
+		// emitted dialect AND the journaled OP_ENFORCE record carry the same
+		// hook-true guidance. Port of `pretool_sensor.hook_surface_reason`.
+		if av.reasonClass == selfModifyReason {
+			reason = hookSurfaceReason(reason)
+		}
 		// A non-admit is provable (→ deny) ONLY when we can SHOW a real collision:
 		//
 		//   (a) a typed `reason_class` (SELF_MODIFY) — request-absolute, proven; OR
@@ -153,6 +160,29 @@ func (d Decision) RenderAs(dialect string) string {
 		return ""
 	}
 	return pyJSONDumps(out)
+}
+
+// The hook-surface remedy swap (issue #14) — byte-twinned with
+// `dos.pretool_sensor._CLI_FORCE_TAIL` / `_HOOK_SURFACE_TAIL`. The SELF_MODIFY
+// predicate's refusal names `--force`, which is real ONLY at the `dos arbitrate`
+// CLI; the PreToolUse ABI deliberately gives the agent none, so the hook deny
+// swaps that sentence for the remedies that exist at this surface. The predicate
+// text itself (admission.go) is untouched — it stays the byte-faithful port of
+// the Python predicate, exactly as Python's own predicate keeps its CLI tail.
+const cliForceTail = "Pass --force only if you are deliberately editing the kernel between loop runs."
+const hookSurfaceTail = "Do not retry — there is no force override at this surface, and repeated " +
+	"denies raise an operator decision (dos decisions). Inspect with the " +
+	"read-only tools; the edit itself is the operator's, made between loop " +
+	"runs or under their armed override window (dos override status)."
+
+// hookSurfaceReason is the Go twin of `pretool_sensor.hook_surface_reason`,
+// already gated on SELF_MODIFY by the caller. ReplaceAll matches Python's
+// `str.replace` semantics exactly (byte-parity over the corpus).
+func hookSurfaceReason(reason string) string {
+	if strings.Contains(reason, cliForceTail) {
+		return strings.ReplaceAll(reason, cliForceTail, hookSurfaceTail)
+	}
+	return reason + " " + hookSurfaceTail
 }
 
 // trimmedReason is a small helper for diagnostics (never used in the gated path).

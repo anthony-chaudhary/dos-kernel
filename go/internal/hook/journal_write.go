@@ -126,7 +126,13 @@ func enforceEntry(ev *Event, d Decision, body map[string]any) map[string]any {
 		"withheld":      !dispatch,
 		"handler":       strOr(body["handler"], ""),
 		"reason":        strOr(body["reason"], ""),
-		"proposal":      body,
+		// Lifted to the top level exactly as Python's `enforce_entry` lifts it:
+		// the decisions queue's enforce-storm fold (issue #14) and the
+		// cause-resolution readers key on the TOP-LEVEL token, not the nested
+		// body. Without the lift a native-binary deny is less forensically
+		// recoverable than a Python-written one.
+		"reason_class": strOr(body["reason_class"], ""),
+		"proposal":     body,
 	}
 }
 

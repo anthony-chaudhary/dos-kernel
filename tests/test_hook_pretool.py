@@ -147,6 +147,43 @@ def test_self_modify_write_denies():
     assert "updatedInput" not in hso
 
 
+def test_self_modify_deny_text_names_hook_real_remedies_only():
+    """The hook-emitted SELF_MODIFY deny must not advertise `--force` (issue #14).
+
+    Only the `dos arbitrate` CLI has `--force`; the PreToolUse ABI deliberately
+    gives the agent none, so a deny text naming it points at a door that does not
+    exist — the documented fuel of the 21-attempt retry storm. The hook surface
+    swaps that tail for the remedies that DO exist (read-only inspection, the
+    operator's between-runs edit / armed override window, "stop retrying —
+    repeated denies raise an operator decision"). The PREDICATE text is
+    untouched: the CLI deny keeps `--force`, where it is real.
+    """
+    import tempfile
+    cfg = _kernel_cfg(Path(tempfile.mkdtemp()))
+    dialect, outcome = prt.decide(_event("Write", {"file_path": "src/dos/arbiter.py"}), cfg)
+    emitted = dialect["hookSpecificOutput"]["permissionDecisionReason"]
+    for text in (emitted, outcome["reason"]):
+        assert "Pass --force" not in text
+        assert "dos decisions" in text          # the raised-decision pointer
+        assert "dos override status" in text    # the operator's real window
+    # The CLI rung is unchanged: the predicate itself still names --force.
+    from dos import admission as _adm
+    from dos.self_modify import SelfModifyPredicate
+    req = _adm.AdmissionRequest(lane="src", kind="cluster",
+                                tree=["src/dos/arbiter.py"])
+    v = SelfModifyPredicate()(req, {}, cfg)
+    assert not v.admitted and "Pass --force" in v.reason
+
+
+def test_hook_surface_reason_is_classed_and_appends_when_tail_absent():
+    # Pure-function contract: other classes pass through; a SELF_MODIFY reason
+    # without the CLI tail gets the hook remedies APPENDED (never silently kept).
+    assert prt.hook_surface_reason("a collision", "") == "a collision"
+    out = prt.hook_surface_reason("custom refusal text", "SELF_MODIFY")
+    assert out.startswith("custom refusal text")
+    assert "dos decisions" in out and "Pass --force" not in out
+
+
 def test_non_runtime_write_passthrough_on_admission():
     """A write to a NON-runtime path does not trip SELF_MODIFY → admission admits."""
     import tempfile

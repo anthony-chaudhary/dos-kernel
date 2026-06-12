@@ -70,6 +70,11 @@ def _decide_with(event: dict, leases: list[dict], runtime_files: tuple[str, ...]
     averdict = _admission.run_predicates(predicates, request, leases, cfg)
     if not averdict.admitted:
         reason = averdict.reason or "DOS admission refused this call (no lane available)."
+        # MUST mirror `pretool_sensor.decide` (issue #14): the hook surface swaps
+        # the SELF_MODIFY predicate's CLI-only `--force` tail for the remedies
+        # that exist at this boundary. The Go decider applies the same swap
+        # (`hookSurfaceReason`), so the corpus pins it cross-engine.
+        reason = prt.hook_surface_reason(reason, averdict.reason_class or "")
         # MUST mirror `pretool_sensor.decide`'s gate exactly (FQ-532 Defect 3): a
         # refusal is provable (→ deny) only with a typed reason_class OR a real overlap
         # on a KNOWN **and non-empty** tree. A contention-only refusal — including a

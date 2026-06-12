@@ -335,8 +335,7 @@ func BenchmarkWaitMarkerBudget(b *testing.B) {
 var benchDenyDialect = denyPayload(
 	"DOS PRE-admission: lane 'Edit' would edit the orchestrator's own running code "+
 		"(src/dos/arbiter.py) — refusing to let a live loop rewrite the kernel that is "+
-		"adjudicating it (SELF_MODIFY). Pass --force only if you are deliberately editing "+
-		"the kernel between loop runs.", "")
+		"adjudicating it (SELF_MODIFY). "+hookSurfaceTail, "")
 
 func BenchmarkPyJSONDumps_DenyDialect(b *testing.B) {
 	b.ReportAllocs()

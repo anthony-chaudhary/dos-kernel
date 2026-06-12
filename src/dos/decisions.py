@@ -11,12 +11,15 @@ queue of live *instances* and the way into each one.)
 
 This module is a **read-only projection**, never a store (DOM Design-rules 1 & 4,
 and the `dos.reasons` thesis): it stores nothing of its own. `collect_decisions`
-joins four sources that already persist their decisions —
+joins five sources that already persist their decisions —
 
     arbiter refusals    <- lane_journal.jsonl `OP_REFUSE` entries (already journaled)
     WEDGE / gate surfaces <- output/next-up/.verdict-<tag>.json envelopes
     preflight refusals  <- a verdict envelope's refusal shape (FQ-410)
     soak / time gates   <- docs/_soaks/index.yaml open windows
+    enforcement storms  <- lane_journal.jsonl `OP_ENFORCE` denies, folded through
+                           the docs/223 breaker (issue #14 — a hook deny whose only
+                           remedy is a human, recurring, IS an operator decision)
 
 — normalizes each into one `Decision`, and renders. The detail/action text is a
 projection of the active `ReasonRegistry` (`config.reasons`), exactly as
@@ -62,6 +65,7 @@ if hasattr(sys.stdout, "reconfigure"):
 elif not isinstance(sys.stdout, io.TextIOWrapper):  # pragma: no cover
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
+from dos import breaker as _breaker
 from dos import config as _config
 from dos import lane_journal
 from dos import wedge_reason
@@ -83,6 +87,10 @@ class DecisionKind(str, enum.Enum):
     SOAK_GATE = "SOAK_GATE"                # an OPERATOR_GATE soak window (time-triggered)
     LIVENESS = "LIVENESS"                  # an OP_HALT: a watchdog proposed stopping a
                                            # SPINNING/hung run (docs/82 3b, docs/101 §4)
+    ENFORCE_BREAKER = "ENFORCE_BREAKER"    # repeated OP_ENFORCE denies of the SAME edit
+                                           # tripped the docs/223 breaker (issue #14): the
+                                           # refusal's only remedy is a human, so N
+                                           # identical denies fold to ONE HUMAN decision
 
     def __str__(self) -> str:  # pragma: no cover - trivial
         return self.value
@@ -507,6 +515,161 @@ def _superseded_refuse_seqs(entries: list[dict]) -> set[int]:
 
 
 # ---------------------------------------------------------------------------
+# Enforcement storms — the missing escalation half of a hook deny (issue #14).
+# ---------------------------------------------------------------------------
+#
+# The pretool hook journals every deny as an OP_ENFORCE record (docs/189 §C4) and
+# `dos helped` folds it — but a SELF_MODIFY deny never climbed the trust ladder.
+# Its own documented unblock is OPERATOR-ONLY (edit between loop runs / the armed
+# override window; the PreToolUse ABI deliberately gives the agent no force), so a
+# loop retrying the same refused edit burns turns silently: 21 identical refused
+# Writes on one runtime file, and `dos decisions` said "(none pending)" all day.
+# A refusal whose only remedy is a human, recurring N times from the same holder,
+# is the textbook HUMAN-rung decision — and the kernel already ships the "this
+# keeps tripping; stop and escalate the rung" primitive (`dos.breaker`, docs/223).
+# This fold wires the two together: same (holder, target) denies thread through
+# the breaker counters, and an OPEN circuit surfaces as ONE pending decision.
+#
+# Resolution is structural, twice over: a docs/296 override-admit for the same
+# (holder, target) is a SUCCESS (`record_success` resets the consecutive count —
+# the operator armed the window and the edit went through), and a storm that
+# simply stopped ages out via the same recency filter every point-in-time refusal
+# obeys. The deny itself stays unconditional — this adds only the escalation half
+# its own doctrine names. Advisory: surfacing takes no lease and stops no run.
+
+# The one reason class folded today: SELF_MODIFY is the deny whose remedy is
+# operator-only by design (the storm shape the issue documents). Other deny
+# classes self-resolve (a collision clears when the lease frees) — widening this
+# set is a deliberate decision, not a default (under-match, like `_clean_token`).
+_ENFORCE_STORM_TOKENS = frozenset({"SELF_MODIFY"})
+
+# Trip on 3 identical denies in a row — the docs/223 default consecutive
+# threshold, escalating HUMAN. `max_total` is OFF (0): the total counter never
+# resets, so a long-resolved storm would otherwise re-trip forever; "the same
+# holder was refused again much later" is a NEW consecutive run anyway.
+_ENFORCE_STORM_POLICY = _breaker.BreakerPolicy(
+    max_consecutive=3, max_total=0, on_trip=_breaker.Escalation.HUMAN)
+
+# The runtime files a SELF_MODIFY reason names, e.g. "… own running code
+# (src/dos/arbiter.py) — refusing …" (`self_modify.SelfModifyPredicate` and its
+# Go twin emit the same sentence). The parenthetical is the TARGET key the fold
+# groups on; a reason without it (the arm-file perimeter deny) falls back to the
+# whole reason text — identical retries still group together.
+_ENFORCE_TARGET_RE = re.compile(r"own running\s+code \(([^)]*)\)")
+
+
+def _enforce_reason_class(entry: dict) -> str:
+    """The closed reason token on an ENFORCE entry, top-level or nested. Pure.
+
+    Python's `enforce_entry` lifts `reason_class` to the top level; the Go
+    fast-path writer historically left it only inside the nested `proposal`
+    body. Read both so a Go-written deny is never invisible to the fold.
+    """
+    rc = entry.get("reason_class")
+    if not rc:
+        proposal = entry.get("proposal")
+        if isinstance(proposal, dict):
+            rc = proposal.get("reason_class")
+    return str(rc or "").strip().upper()
+
+
+def _enforce_target(entry: dict) -> str:
+    """The edit target an ENFORCE deny refused — the fold's grouping key. Pure."""
+    reason = str(entry.get("reason") or "")
+    m = _ENFORCE_TARGET_RE.search(reason)
+    if m:
+        return m.group(1).strip()
+    return reason
+
+
+def _enforce_decision_tag(entry: dict) -> str:
+    """deny / override-admit / "" for an ENFORCE entry, from its recorded shape. Pure.
+
+    Prefers the nested `proposal.decision` (both writers record it); falls back
+    to the lifted `intervention` (BLOCK = a deny) for a minimal/foreign record.
+    """
+    proposal = entry.get("proposal")
+    if isinstance(proposal, dict) and proposal.get("decision"):
+        return str(proposal.get("decision"))
+    if str(entry.get("intervention") or "").strip().upper() == "BLOCK":
+        return "deny"
+    return ""
+
+
+def _from_enforce_storms(config, *, now: dt.datetime | None = None) -> list[Decision]:
+    """Recurring hook denies of the SAME edit, escalated through the breaker.
+
+    Reads the same WAL as `_from_lane_journal` (the ENFORCE records are already
+    there; no new source, no new store). For each (holder, target) pair whose
+    reason class is in `_ENFORCE_STORM_TOKENS`, the records thread through the
+    docs/223 breaker IN JOURNAL ORDER — a deny is `record_failure`, a docs/296
+    override-admit is `record_success` — and a final OPEN circuit lifts ONE
+    Decision naming the target and the count. A single isolated deny (or two)
+    stays under the threshold and raises nothing.
+    """
+    path = config.paths.lane_journal
+    try:
+        entries = lane_journal.read_all(path)
+    except Exception:
+        return []
+    # (holder, target) -> the threaded breaker counts + the latest deny entry.
+    counts: dict[tuple[str, str], _breaker.BreakerCounts] = {}
+    last_deny: dict[tuple[str, str], dict] = {}
+    deny_total: dict[tuple[str, str], int] = {}
+    for e in entries:
+        if e.get("op") != lane_journal.OP_ENFORCE:
+            continue
+        if _enforce_reason_class(e) not in _ENFORCE_STORM_TOKENS:
+            continue
+        tag = _enforce_decision_tag(e)
+        key = (str(e.get("holder") or ""), _enforce_target(e))
+        state = counts.get(key, _breaker.BreakerCounts())
+        if tag == "deny":
+            counts[key] = _breaker.record_failure(state, _ENFORCE_STORM_POLICY).counts
+            last_deny[key] = e
+            deny_total[key] = deny_total.get(key, 0) + 1
+        elif tag == "override-admit":
+            # The operator's armed window let the edit through — the storm's
+            # sustained-failure signal cleared (the structural "resolving clears it").
+            counts[key] = _breaker.record_success(state, _ENFORCE_STORM_POLICY).counts
+    out: list[Decision] = []
+    for key, state in counts.items():
+        verdict = _breaker.classify(state, _ENFORCE_STORM_POLICY)
+        if not verdict.is_open:
+            continue
+        holder, target = key
+        e = last_deny.get(key, {})
+        n = state.consecutive
+        tool = str(e.get("tool") or e.get("lane") or "")
+        token = _enforce_reason_class(e) or "SELF_MODIFY"
+        reason_text = (
+            f"agent {holder or '?'} has been refused {n}x editing {target} "
+            f"({token}) — the edit needs you: make it between loop runs, arm the "
+            f"override window, or stop the loop"
+        )
+        out.append(Decision(
+            kind=DecisionKind.ENFORCE_BREAKER,
+            # The breaker's own trip names the rung (docs/223 Escalation.HUMAN).
+            resolver_kind=ResolverKind.HUMAN,
+            lane=tool,
+            reason_token=token,
+            reason_text=reason_text,
+            run_id=str(e.get("run_id") or ""),
+            # The decision's clock is the LATEST deny: a storm that stopped ages
+            # out via the recency filter like any other point-in-time refusal.
+            age_seconds=_age_seconds(e.get("ts"), now=now),
+            source_path=str(path),
+            evidence=(
+                f"journal seq #{e.get('seq', '?')} (latest deny)",
+                f"{deny_total.get(key, n)} denies for holder={holder or '?'}",
+                verdict.reason,
+            ),
+            dup_count=n,
+        ))
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Time helpers.
 # ---------------------------------------------------------------------------
 
@@ -842,6 +1005,10 @@ def _from_soaks(config) -> list[Decision]:
 _KIND_RANK = {
     DecisionKind.LIVENESS: 0,
     DecisionKind.ARBITER_REFUSE: 1,
+    # An enforcement storm shares the refusal tier: the retries are burning agent
+    # turns RIGHT NOW and the parked edit blocks work — a NOW decision, not a
+    # someday one. (Equal rank is fine; the within-rank sort is oldest-first.)
+    DecisionKind.ENFORCE_BREAKER: 1,
     DecisionKind.PREFLIGHT_REFUSE: 2,
     DecisionKind.WEDGE: 3,
     DecisionKind.SOAK_GATE: 4,
@@ -945,6 +1112,7 @@ def collect_decisions(
     clock = now if now is not None else _now()
     decisions: list[Decision] = []
     decisions.extend(_from_lane_journal(cfg, now=clock))
+    decisions.extend(_from_enforce_storms(cfg, now=clock))
     decisions.extend(_from_verdict_envelopes(cfg, now=clock))
     decisions.extend(_from_soaks(cfg))
 
@@ -991,8 +1159,10 @@ def next_steps(decision: Decision, config=None) -> list[tuple[str, str]]:
     read-only-router model — the TUI never mutates state itself). The commands
     are real, runnable invocations the operator pastes into their shell.
 
-    Always offered: `r` (/replan the lane) and `c` (copy). `f` (force the lane)
-    is offered for the lane-refusal kinds. `j` (adjudicate) is offered iff the
+    Always offered: `r` (/replan the lane) and `c` (copy) — except a LIVENESS
+    halt and an ENFORCE_BREAKER storm, which carry their own action sets (the
+    paste-to-stop; the override/man pair). `f` (force the lane) is offered for
+    the lane-refusal kinds. `j` (adjudicate) is offered iff the
     decision is JUDGE-resolvable — it routes to the DETERMINISTIC `dos judge`
     (picker_oracle) when a `run_ts` is known, which cross-checks the verdict
     against on-disk state; the LLM adjudicator that can rule on the rows the
@@ -1018,6 +1188,18 @@ def next_steps(decision: Decision, config=None) -> list[tuple[str, str]]:
             # the opaque handle the watchdog recorded.
             steps.append(("k", f"# stop the run with handle: {decision.handle}"))
         steps.append(("l", "# let it ride (take no action)"))
+        steps.append(("c", "<copy selected command>"))
+        return steps
+
+    # An enforcement storm's levers are the SELF_MODIFY doctrine's own: the
+    # operator's override window (docs/296) and the man page that documents the
+    # between-runs path. NOT /replan (the lane is a tool name, not a plan scope)
+    # and NOT `dos arbitrate --force` (the storm is at the hook surface, where
+    # no force exists — pointing at one is what fueled the retries, issue #14).
+    if decision.kind is DecisionKind.ENFORCE_BREAKER:
+        steps.append(("o", "dos override status"))
+        if decision.reason_token:
+            steps.append(("m", f"dos man wedge {decision.reason_token}"))
         steps.append(("c", "<copy selected command>"))
         return steps
 
@@ -1155,6 +1337,7 @@ _ACTION_LABEL = {
     "f": "force",
     "j": "judge",
     "m": "man",
+    "o": "override",
 }
 
 

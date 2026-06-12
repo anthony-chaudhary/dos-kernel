@@ -64,6 +64,13 @@ func TestEnforceRecordShape(t *testing.T) {
 			t.Fatalf("WAL line missing %q:\n%s", want, line)
 		}
 	}
+	// The typed token must be LIFTED to the top level (issue #14), not only nested
+	// in the proposal body: the decisions queue's enforce-storm fold and the
+	// cause-resolution readers key on the top-level `reason_class`. Two
+	// occurrences = nested body + the lift (Python `enforce_entry` parity).
+	if n := strings.Count(line, `"reason_class": "SELF_MODIFY"`); n < 2 {
+		t.Fatalf("reason_class not lifted to the top level (found %d occurrence(s)):\n%s", n, line)
+	}
 }
 
 // TestPassthroughWritesNoRecord pins that a passthrough writes NOTHING (a journal

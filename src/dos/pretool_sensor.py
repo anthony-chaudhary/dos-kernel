@@ -501,6 +501,44 @@ def toolcall_from_event(event: dict):
 
 
 # ---------------------------------------------------------------------------
+# The hook-surface remedy swap (issue #14, the amended half). The SELF_MODIFY
+# predicate's refusal ends with "Pass --force only if …" — real at the
+# `dos arbitrate` CLI, where the operator can pass it. The hook surface has NO
+# force (the PreToolUse ABI deliberately gives the agent none), so emitting that
+# sentence here points the agent at a door that does not exist — the fuel of the
+# observed 21-attempt retry storm. At THIS boundary the sentence is swapped for
+# the remedies that DO exist; the predicate text itself is untouched (the CLI
+# deny keeps --force). Byte-twinned with the Go fast-path (`hookSurfaceReason`
+# in go/internal/hook/decide.go) and the parity corpus generator.
+# ---------------------------------------------------------------------------
+_CLI_FORCE_TAIL = (
+    "Pass --force only if you are deliberately editing the kernel between "
+    "loop runs."
+)
+_HOOK_SURFACE_TAIL = (
+    "Do not retry — there is no force override at this surface, and repeated "
+    "denies raise an operator decision (dos decisions). Inspect with the "
+    "read-only tools; the edit itself is the operator's, made between loop "
+    "runs or under their armed override window (dos override status)."
+)
+
+
+def hook_surface_reason(reason: str, reason_class: str) -> str:
+    """Swap a SELF_MODIFY refusal's CLI-only remedy for the hook-surface ones.
+
+    Pure. Any other reason class passes through unchanged; a SELF_MODIFY reason
+    that does not carry the CLI tail (a host's custom predicate text) gets the
+    hook-surface remedies appended instead, so the agent-facing guidance is
+    never the missing `--force`.
+    """
+    if (reason_class or "") != "SELF_MODIFY":
+        return reason
+    if _CLI_FORCE_TAIL in reason:
+        return reason.replace(_CLI_FORCE_TAIL, _HOOK_SURFACE_TAIL)
+    return f"{reason} {_HOOK_SURFACE_TAIL}"
+
+
+# ---------------------------------------------------------------------------
 # The composed PRE decision — the two rungs, in order. Returns the CC dialect dict
 # to emit (or None for passthrough) PLUS the structured outcome for the journal.
 # ---------------------------------------------------------------------------
@@ -585,6 +623,11 @@ def decide(
         # and only a parseable footprint that really overlaps denies — the same "never invent a
         # collision we cannot prove" line `_tree_from_event` already draws for the empty-tree case.
         reason = averdict.reason or "DOS admission refused this call (no lane available)."
+        # The hook surface names only the remedies it has (issue #14): swap the
+        # predicate's CLI-only `--force` tail before ANY downstream use, so the
+        # emitted dialect, the journaled OP_ENFORCE record, and an override
+        # note's quoted verdict all carry the same hook-true guidance.
+        reason = hook_surface_reason(reason, averdict.reason_class or "")
         provable = bool(averdict.reason_class) or (tree_known and bool(tree))
         if provable:
             # docs/296 — the operator's armed override window, consulted at the
