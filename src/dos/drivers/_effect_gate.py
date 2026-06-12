@@ -358,6 +358,7 @@ class EffectGate:
             proc = subprocess.run(
                 ["git", *args],
                 cwd=self._root(),
+                stdin=subprocess.DEVNULL,  # a hung stdin must never wedge the seat (docs/295)
                 capture_output=True,
                 text=True,
                 encoding="utf-8",

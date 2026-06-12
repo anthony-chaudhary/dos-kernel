@@ -150,7 +150,7 @@ def test_shipped_claim_unshipped_trips(repo: Path) -> None:
 def test_shipped_claim_stamped_clears(repo: Path) -> None:
     (repo / "auth.txt").write_text("a\n", encoding="utf-8")
     _git(repo, "add", "auth.txt")
-    _git(repo, "commit", "-q", "-m", "AUTH1: ship the auth phase")
+    _git(repo, "commit", "-q", "-m", "AUTH1: ship the login endpoint")
     v = EffectGate(str(repo), expect=[ShippedClaim("AUTH", "AUTH1")]).adjudicate("done")
     assert v.outcome is GateOutcome.CLEAR
 
