@@ -48,6 +48,15 @@ dos init --hooks antigravity .   # .agents/hooks.json
 dos init --hooks claude-cowork . # the SAME .claude/settings.json Claude Code reads
 ```
 
+The list above is illustrative, not authoritative — the live matrix is a verb:
+`dos hosts` prints every host DOS can wire, sourced from the registries themselves
+(`dos hosts --json` for tooling), so the table never rots out of sync with what
+`dos init --hooks` actually installs. Each row carries the host's tier, the events
+it binds, its dialect, its config path, the exact wiring command, and the host's
+own caveat (Codex's partial tool coverage, Cowork's not-yet-firing hooks). A host
+with **no** row is itself the signal: it has no hook seam, so its DOS surface is
+the advisory one (MCP + skills).
+
 That binds three shipped hooks: `pretool` denies a structurally-refused call
 before it runs, `stop` refuses a stop on an unverified "done," `posttool`
 re-surfaces a stalled stream. This is the **enforcement** path (the *host*

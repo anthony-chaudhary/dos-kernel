@@ -219,6 +219,115 @@ def host_names() -> list[str]:
     return sorted(names)
 
 
+# ---------------------------------------------------------------------------
+# The host-support MATRIX — derived, never hand-kept (docs #93). Every fact a
+# `dos hosts` row prints is read out of the SAME registry `dos init --hooks`
+# consults: `host_names()` enumerates the hosts, `host_spec(name)` carries each
+# host's install facts as DATA. So the matrix can never rot the way a prose table
+# in the README does — a host moving (a new event, a changed config path, a fresh
+# caveat) is one edit to its `HostHookSpec` row in the driver, and the matrix
+# follows for free. This is the `man wedge`/`man lane` self-describing move, aimed
+# at the host registry. PURE: the entry-point I/O happens inside `host_names()` /
+# `host_spec()` at call time, never inside this projection's per-row work.
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True)
+class HostRow:
+    """One host's support facts, projected from its `HostHookSpec`. PURE data.
+
+    `host`     — the `--hooks` name.
+    `tier`     — the support tier word. Every host carried by the install registry
+                 is a `hooks`-tier host BY CONSTRUCTION: a row exists here iff
+                 `host_spec(name)` resolves, and that means DOS can wire that host's
+                 own hook-config file so its verdicts ENFORCE (the host denies). A
+                 host with no install spec (e.g. Trae, docs/294) has no row — its
+                 absence is the honest signal that it is advisory-only (MCP +
+                 skills), which the verb prints as a footer, not a fake `hooks` row.
+    `is_default` — the unshadowable baseline host (claude-code): no `--dialect`, its
+                 wired command is byte-identical to today's `--with-hooks`.
+    `config_path` — the host's hook-config file, workspace-relative (joined).
+    `events`   — the host event names DOS wires, in the spec's stable order
+                 (pre, then post, then stop) — possibly more than three when a
+                 moment maps to several host events (Cursor's PRE is shell+MCP).
+    `dialect`  — the renderer name this host's wired command targets: the explicit
+                 `--dialect …` value, or `claude-code` (the implicit default) for a
+                 host that rides the baseline envelope.
+    `wiring`   — the exact command an operator runs to wire this host.
+    `note`     — the host's own caveat, carried verbatim from the spec. This is
+                 where a host's MATURITY rides as data, not as a separate hand-kept
+                 flag: Codex's "fires PreToolUse only on its handlers" (partial),
+                 Cowork's "does not fire hooks yet" (dormant) — each is a sentence
+                 the spec already carries and the install path already prints, so a
+                 maturity change is a `note` edit, never a new column to keep in sync.
+    """
+
+    host: str
+    tier: str
+    is_default: bool
+    config_path: str
+    events: tuple[str, ...]
+    dialect: str
+    wiring: str
+    note: str
+
+    def to_dict(self) -> dict:
+        """The `--json` shape — a flat, tooling-friendly record."""
+        return {
+            "host": self.host,
+            "tier": self.tier,
+            "default": self.is_default,
+            "config_path": self.config_path,
+            "events": list(self.events),
+            "dialect": self.dialect,
+            "wiring": self.wiring,
+            "note": self.note,
+        }
+
+
+def _row_for(spec: HostHookSpec) -> HostRow:
+    """Project one install spec into a support-matrix row. PURE."""
+    is_default = spec.host == DEFAULT_HOST
+    # Event names in the spec's own stable order (pre, post, stop), de-duplicated
+    # while preserving first appearance — Cursor's two PRE events stay distinct,
+    # but a host sharing one event name across moments isn't double-listed.
+    events: list[str] = []
+    for ev, _cmd in spec.events_and_commands():
+        if ev not in events:
+            events.append(ev)
+    dialect = spec.host if spec.dialect_flag else DEFAULT_HOST
+    return HostRow(
+        host=spec.host,
+        tier="hooks",  # every install-registry host enforces — see HostRow.tier.
+        is_default=is_default,
+        config_path="/".join(spec.config_path),
+        events=tuple(events),
+        dialect=dialect,
+        wiring=f"dos init --hooks {spec.host} .",
+        note=spec.note,
+    )
+
+
+def host_matrix() -> list[HostRow]:
+    """The host-support matrix, one `HostRow` per registered host. PURE projection.
+
+    The roster is `host_names()` (the default + every `dos.hook_installs` driver),
+    so the set of rows is the registry's contents BY CONSTRUCTION — there is no
+    hand-kept host list in this function. The default host sorts first (it is the
+    baseline every other host is measured against); the rest stay alphabetical, as
+    `host_names()` returns them. A spec that fails to resolve is skipped, never
+    guessed (the fail-loud discipline lives in `host_spec`; a transiently-broken
+    plugin simply drops its row rather than crashing the matrix).
+    """
+    rows: list[HostRow] = []
+    for name in host_names():
+        try:
+            spec = host_spec(name)
+        except Exception:
+            continue
+        rows.append(_row_for(spec))
+    rows.sort(key=lambda r: (not r.is_default, r.host))
+    return rows
+
+
 def host_spec(name: Optional[str]) -> HostHookSpec:
     """Resolve a host spec by name. RAISES on an unknown name (fail-LOUD).
 

@@ -4541,6 +4541,76 @@ def cmd_man(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# hosts  (the self-describing host-support matrix — man wedge/lane, aimed at the
+#         dos.hook_installs + dos.hook_dialects registries; docs #93)
+# ---------------------------------------------------------------------------
+def cmd_hosts(args: argparse.Namespace) -> int:
+    """Print the host-support matrix FROM THE REGISTRIES, never hand-kept prose.
+
+    One row per host DOS can wire (`dos.hook_installs`): its tier, the host event
+    names DOS binds, the dialect its wired command targets, the config file it
+    writes, the exact wiring command, and the host's own caveat. The roster is the
+    registry's contents (`hook_install.host_matrix()` walks `host_names()`), so the
+    matrix can never drift from what `dos init --hooks` actually wires — the same
+    self-describing move as `dos man wedge` / `dos man lane`.
+
+    A host with NO install spec (Trae, docs/294) has no row: its absence IS the
+    information — it is advisory-only (MCP + skills), printed as a footer, not faked
+    into a `hooks` row. The renderer set (`dos.hook_dialects`) is reported alongside
+    so a host the installer doesn't cover yet but whose envelope DOES ship is visible.
+    """
+    from dos import hook_install
+    from dos import hook_dialect
+
+    rows = hook_install.host_matrix()
+    dialects = hook_dialect.available_dialects()
+    # Dialects with a renderer but NO install spec — a host whose envelope ships
+    # but whose hook-config wiring is not (yet) automated. Honest to surface: the
+    # operator can hand-wire the config and point the command at `--dialect <name>`.
+    # A name is "renderer-only" iff it is NEITHER an install host (it has a row, so
+    # it is wired regardless of which envelope it renders — e.g. claude-cowork rides
+    # the default `claude-code` dialect yet is fully wired) NOR a dialect some row
+    # already targets.
+    wired = {r.host for r in rows} | {r.dialect for r in rows}
+    renderer_only = [d for d in dialects if d not in wired]
+
+    if getattr(args, "json", False):
+        payload = {
+            "hosts": [r.to_dict() for r in rows],
+            "dialects": list(dialects),
+            "renderer_only_dialects": renderer_only,
+            "advisory_only_note": (
+                "A host with no row has no hook seam DOS can wire (e.g. Trae, "
+                "docs/294); its DOS surface is advisory — the MCP server + skills."
+            ),
+        }
+        print(json.dumps(payload, indent=2, default=str))
+        return 0
+
+    print("# DOS host-support matrix  (from the dos.hook_installs registry)\n")
+    for r in rows:
+        flag = "  [default]" if r.is_default else ""
+        print(f"{r.host}{flag}")
+        print(f"  tier      {r.tier} — the host enforces (denies on a DOS verdict)")
+        print(f"  config    {r.config_path}")
+        print(f"  events    {', '.join(r.events)}")
+        print(f"  dialect   {r.dialect}"
+              + ("  (the implicit default envelope)" if r.dialect == hook_dialect.DEFAULT_DIALECT
+                 and not r.is_default else ""))
+        print(f"  wire      {r.wiring}")
+        if r.note:
+            print(f"  note      {r.note}")
+        print()
+    print("Every other DOS surface is advisory — a host with no row here (e.g. Trae,")
+    print("docs/294) has no hook seam to wire; bind it through the MCP server + skills.")
+    if renderer_only:
+        print(f"\nRenderers shipped without an install spec: {', '.join(renderer_only)}")
+        print("(hand-wire the host's hook-config, then point each command at "
+              "--dialect <name>).")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # judge  (the deterministic adjudicator — picker_oracle as a verb)
 # ---------------------------------------------------------------------------
 def cmd_judge(args: argparse.Namespace) -> int:
@@ -9182,6 +9252,17 @@ def build_parser() -> argparse.ArgumentParser:
     _add_output_flag(pm)
     _add_explain_flag(pm)
     pm.set_defaults(func=cmd_man)
+
+    # hosts — the self-describing host-support matrix from the registries (docs #93).
+    # Read-only; no workspace needed (the registry is package-global), but accept the
+    # flags for uniformity with the other self-describing verbs.
+    ph = sub.add_parser(
+        "hosts",
+        help="the host-support matrix from the registries (which runtimes DOS wires)")
+    _add_workspace_flags(ph)
+    ph.add_argument("--json", action="store_true",
+                    help="machine-readable matrix (host rows + dialect set)")
+    ph.set_defaults(func=cmd_hosts)
 
     pju = sub.add_parser("judge",
                          help="adjudicate a no-pick verdict (deterministic; picker_oracle)")
