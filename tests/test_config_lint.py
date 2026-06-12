@@ -244,6 +244,39 @@ def test_exclusive_lanes_do_not_overlap_or_shadow():
     assert not _by_kind(fs, LintKind.CONCURRENT_LANES_OVERLAP)
 
 
+def test_root_meta_doc_lane_is_disjoint_and_clean():
+    """The `meta` lane (issue #8) — an EXPLICIT root-meta-doc file list — is disjoint
+    from the dir-prefixed lanes and lints clean (no shadow/overlap), even though its
+    region is a strict subset of the exclusive `global`.
+
+    The fix MUST use an explicit list, NOT a `*.md` glob: the tree algebra is
+    prefix-based, so a root glob normalizes to the whole tree and would collide with
+    every lane. This pins both halves — the explicit list is disjoint where a glob
+    would not be, and the resulting taxonomy is clean."""
+    from dos._tree import lane_trees_disjoint
+    meta = ["CLAUDE.md", "AGENTS.md", "CONTRIBUTING.md", "SECURITY.md", "README.md"]
+    # Disjoint from every dir-prefixed lane (so it runs concurrently with them).
+    for other in (["src/**"], ["docs/**"], ["tests/**"], [".github/**"]):
+        assert lane_trees_disjoint(meta, other), f"meta must be disjoint from {other}"
+    # A root `*.md` GLOB would NOT be disjoint — the prefix algebra treats it as root.
+    assert not lane_trees_disjoint(["*.md"], ["docs/**"]), (
+        "a root *.md glob normalizes to the whole tree — that is WHY the lane uses an "
+        "explicit file list, not a glob")
+    # The taxonomy with `meta` beside the dir lanes and the exclusive `global` lints
+    # clean: `meta` ⊂ `global`, but `global` is EXCLUSIVE so it never enters the
+    # shadow/overlap algebra (the same reason `src`/`docs` don't trip on it).
+    tx = LaneTaxonomy(
+        concurrent=("src", "docs", "meta"), exclusive=("global",),
+        autopick=("src", "docs", "meta"),
+        trees={"src": ["src/**"], "docs": ["docs/**"], "meta": meta,
+               "global": ["**/*"]},
+    )
+    fs = lint_lanes(tx)
+    assert not _by_kind(fs, LintKind.LANE_REGION_SHADOWED)
+    assert not _by_kind(fs, LintKind.CONCURRENT_LANES_OVERLAP)
+    assert not _by_kind(fs, LintKind.LANE_WITHOUT_TREE)
+
+
 def test_treeless_lane_not_double_reported_as_shadow():
     """A treeless concurrent lane is a LANE_WITHOUT_TREE error — it must NOT also
     surface as shadowed/overlapping (it has no tree to compare)."""

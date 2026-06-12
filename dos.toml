@@ -15,9 +15,9 @@ workspace = "."
 # top-level directories; curate them as your real concurrency topics emerge.
 # `dos arbitrate` reads this; `dos doctor --check` flags a lane with no tree.
 [lanes]
-concurrent = ["benchmark", "ci", "claude-plugin", "docs", "examples", "go", "paper", "scripts", "spikes", "src", "tests", "verify-action"]
+concurrent = ["benchmark", "ci", "claude-plugin", "docs", "examples", "go", "meta", "paper", "scripts", "spikes", "src", "tests", "verify-action"]
 exclusive = ["global"]
-autopick = ["benchmark", "ci", "claude-plugin", "docs", "examples", "go", "paper", "scripts", "spikes", "src", "tests", "verify-action"]
+autopick = ["benchmark", "ci", "claude-plugin", "docs", "examples", "go", "meta", "paper", "scripts", "spikes", "src", "tests", "verify-action"]
 
 [lanes.trees]
 benchmark = ["benchmark/**"]
@@ -29,6 +29,15 @@ claude-plugin = ["claude-plugin/**"]
 docs = ["docs/**"]
 examples = ["examples/**"]
 go = ["go/**"]
+# Curated (not dir-derived; issue #8): the root meta-docs live at the workspace
+# ROOT, so an edit to CLAUDE.md/AGENTS.md/… matched only the exclusive `global`
+# lane (`**/*`), where the SELF_MODIFY guard rightly refuses a live loop — the one
+# file class where the working ritual could take no lease. An EXPLICIT file list
+# (not a `*.md` glob: the tree algebra is prefix-based, so a root glob normalizes
+# to the whole tree and would collide with every lane) keeps `meta` disjoint from
+# the dir-prefixed lanes (proven by the disjointness algebra) while still a strict
+# subset of `global`. A new root meta-doc gets a line here.
+meta = ["CLAUDE.md", "AGENTS.md", "CONTRIBUTING.md", "SECURITY.md", "README.md"]
 paper = ["paper/**"]
 scripts = ["scripts/**"]
 spikes = ["spikes/**"]

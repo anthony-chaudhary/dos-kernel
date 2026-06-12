@@ -236,7 +236,7 @@ verdict.** The four moves below are the working ritual — they are the same
 # 1. doctor — what IS this workspace? (the seam, made visible)
 dos doctor --workspace .
 #   stamp convention   generic (any/no dir prefix)  [style=grep]
-#   concurrent lanes   benchmark, claude-plugin, docs, examples, go, paper, scripts, spikes, src, tests, verify-action
+#   concurrent lanes   benchmark, ci, claude-plugin, docs, examples, go, meta, paper, scripts, spikes, src, tests, verify-action
 #   exclusive lanes    global
 #   is git workspace   yes      (workspace_facts.is_kernel_repo: true)
 
@@ -258,7 +258,11 @@ dos arbitrate --workspace . --lane src
 # A lane actually HELD by a live lease in the WAL refuses same-lane instead
 # ("already held"). The lane taxonomy in dos.toml mirrors this repo's
 # top-level dirs, so a docs-only edit may run concurrently with a tests edit;
-# editing `**/*` is the exclusive `global` lane.
+# editing `**/*` is the exclusive `global` lane. Two curated lanes are NOT
+# dir-derived: `ci` (`.github/**`) and `meta` (the root meta-docs — CLAUDE.md /
+# AGENTS.md / CONTRIBUTING.md / SECURITY.md / README.md, an explicit file list,
+# issue #8); both used to fall through to `global` where SELF_MODIFY rightly
+# refuses a live loop, so a root-doc edit takes `--lane meta` and runs concurrently.
 
 # 3. verify — did a phase ACTUALLY ship? (the truth syscall, never self-report)
 dos verify --workspace . docs/292_readme-audience-gradient-plan P1
