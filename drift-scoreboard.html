@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>The drift-rate scoreboard — do AI agents' commit messages match their diffs?</title>
+  <meta name="description" content="Across 12 public repositories with machine-attributable AI-agent commits, 1.2% of concrete commit-subject claims are unwitnessed by the commit's own diff. Methodology-first, aggregate-only, every fire hand-adjudicated. Computed by dos-kernel's commit-audit.">
+  <link rel="canonical" href="https://anthony-chaudhary.github.io/dos-kernel/drift-scoreboard.html">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="The drift-rate scoreboard — do AI agents' commit messages match their diffs?">
+  <meta property="og:description" content="12 repos, 12,151 agent-attributed commits, 1,715 checkable claims: 1.2% unwitnessed, 0.17% the textbook empty over-claim. Methodology published first; no repo named.">
+  <meta property="og:url" content="https://anthony-chaudhary.github.io/dos-kernel/drift-scoreboard.html">
+  <style>
+    :root {
+      --bg: #0d1117; --panel: #161b22; --border: #30363d;
+      --fg: #e6edf3; --muted: #9198a1; --accent: #58a6ff; --green: #3fb950; --red: #f85149;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--fg);
+      font: 17px/1.6 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    main { max-width: 760px; margin: 0 auto; padding: 48px 20px 64px; }
+    h1 { font-size: 1.7rem; line-height: 1.25; margin: 0 0 8px; }
+    h2 { font-size: 1.3rem; margin: 40px 0 8px; }
+    p { margin: 12px 0; }
+    .tagline { color: var(--muted); font-size: 1.05rem; margin-top: 0; }
+    .big { font-size: 2.6rem; font-weight: 700; margin: 18px 0 2px; }
+    .big small { font-size: 1rem; font-weight: 400; color: var(--muted); display: block; }
+    pre {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+      padding: 14px 16px; overflow-x: auto; font-size: 14px; line-height: 1.5;
+    }
+    code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
+    p > code, li > code, td > code {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 4px; padding: 1px 5px; font-size: 0.9em;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .ok { color: var(--green); } .no { color: var(--red); } .dim { color: var(--muted); }
+    ul { padding-left: 22px; } li { margin: 6px 0; }
+    table { border-collapse: collapse; width: 100%; font-size: 0.95em; }
+    td, th { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+    th { background: var(--panel); }
+    .note { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; font-size: 0.95em; }
+    footer { margin-top: 56px; color: var(--muted); font-size: 0.85rem; border-top: 1px solid var(--border); padding-top: 16px; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>The drift-rate scoreboard</h1>
+  <p class="tagline">Do AI coding agents' commit messages match what their commits actually did?
+  Measured from evidence the message-writer couldn't fake: the commit's own diff.</p>
+
+  <p class="big">1.2% <small>of 1,715 concrete claims in agent-authored commits were unwitnessed
+  by the commit's own diff — across 12 public repositories, June 2026</small></p>
+
+  <p>A commit subject is a claim ("fix the race", "add tests"). The list of files the
+  commit touched is evidence the claimant did not author. <strong>Drift</strong> is a
+  concrete claim whose own diff contradicts its kind — an empty commit claiming a fix,
+  a "tests pass" subject touching no test file. It is a claim-vs-diff mismatch,
+  <em>never</em> a correctness or malice grade.</p>
+
+  <h2>Report #1 — June 2026</h2>
+  <table>
+    <tr><td>repositories in the corpus</td><td><strong>12</strong> <span class="dim">(≥500 stars, active, ≥20 machine-attributed agent commits; v1 names none)</span></td></tr>
+    <tr><td>default-branch commits scanned</td><td>90,500</td></tr>
+    <tr><td>machine-attributed agent commits</td><td>12,151 <span class="dim">(13 toolchains: Claude Code, aider, Codex, Copilot, Devin, Cursor, OpenHands, opencode, Roo, Qwen-Coder, OpenClaw, Jules, Crush)</span></td></tr>
+    <tr><td>audited (cap 300 newest per repo)</td><td>3,000</td></tr>
+    <tr><td>made a concrete, checkable claim</td><td><strong>1,715</strong> <span class="dim">(the denominator; 1,285 abstained)</span></td></tr>
+    <tr><td>witnessed by the commit's own diff</td><td class="ok">1,694</td></tr>
+    <tr><td>unwitnessed</td><td class="no">21</td></tr>
+    <tr><td><strong>pooled drift rate</strong></td><td><strong>1.2%</strong> <span class="dim">(median per-repo 0.75%, spread 0.0–5.1%, four repos at zero)</span></td></tr>
+  </table>
+
+  <h2>Every fire, hand-adjudicated</h2>
+  <p>The number is inspectable, never just a number. The 21 fires, de-identified, by class:</p>
+  <ul>
+    <li><strong>9</strong> — prose-scoped documentation edits (an effect verb over a doc-only
+        diff, where the subject names the doc target in prose: honest doc work, noisy subject style).</li>
+    <li><strong>5</strong> — test claims with net-deleted test lines (removals and migrations where
+        deleting tests plausibly <em>is</em> the claimed work; the delete-the-assertion guard is
+        deliberately strict).</li>
+    <li><strong>4</strong> — test-noun grammar artifacts ("test" as an adjective or in a command
+        name; a test-harness setup file outside the test-path grammar).</li>
+    <li><strong>3</strong> — <span class="no">concrete fix claims on commits that touched nothing</span>
+        — the textbook subject-only over-claim (<strong>0.17%</strong> of checkable claims).</li>
+  </ul>
+  <p class="note">The honest reading is <strong>not</strong> "agents lie 1.2% of the time."
+  In established, attribution-honest, human-reviewed repositories, agent-authored commit
+  subjects are overwhelmingly witnessed by their own diffs — and a deterministic witness
+  still finds a small real residue resting on message text alone, including three textbook
+  empty over-claims. Repos that strip agent attribution are invisible to this method;
+  unreviewed direct-push fleets are not in this corpus.</p>
+
+  <h2>Methodology first</h2>
+  <p>Published before any number, with the false-positive story leading:
+  the <a href="https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/scoreboard/methodology.md">full
+  methodology</a> covers what the witness reads and abstains on, the closed agent-attribution
+  marker set (under-matching by construction — review-suggestion bots excluded), the mechanical
+  corpus criteria, and the aggregate-only ethics floor: <strong>no repository is named without
+  opt-in</strong>, enforced structurally — the aggregation step never receives repo names, URLs,
+  or commit SHAs, and a test pins it.</p>
+  <p>We graded ourselves first (our own history: 2.5%, all three fires being a documented
+  empty-stamp convention), and running the witness at corpus scale forced three witness-grammar
+  fixes — <a href="https://github.com/anthony-chaudhary/dos-kernel/issues/79">#79</a>,
+  <a href="https://github.com/anthony-chaudhary/dos-kernel/issues/81">#81</a>,
+  <a href="https://github.com/anthony-chaudhary/dos-kernel/issues/94">#94</a> — each landed
+  <em>before</em> publishing. The raw rate before them read 5.1%; the adjudicated truth didn't
+  change, the grader did.</p>
+
+  <h2>Score your own repo</h2>
+  <pre><code>pip install dos-kernel
+dos commit-audit --sweep --workspace . BASE..HEAD</code></pre>
+  <p>Same witness, your history, one command. The corpus tool itself is
+  <a href="https://github.com/anthony-chaudhary/dos-kernel/blob/master/scripts/drift_scoreboard.py"><code>scripts/drift_scoreboard.py</code></a>
+  (corpus list in, identity-stripped aggregate out).</p>
+
+  <footer>
+    <p><a href="index.html">DOS — the Dispatch Operating System</a> · the kernel that doesn't
+    believe your AI agents. Report #1 generated 2026-06-12; recurring. Aggregate-only by
+    design — a repository is named only with opt-in.</p>
+  </footer>
+</main>
+</body>
+</html>
