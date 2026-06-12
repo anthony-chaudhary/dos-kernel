@@ -13,13 +13,19 @@
 > shape, repeated twice: the drivers speak THEIR contracts; nothing upstream
 > imports dos-kernel; layer-4, never kernel.
 
-*Status: SHIPPING — tracking issues
+*Status: SHIPPED 2026-06-12 — all four phases oracle-verified (P1 `51bfd9e`,
+P2 `4e1b881`, P3 `d536112`, P4 `44a7732`; `dos verify` answers SHIPPED via
+grep-subject for each). Closed issues
 [#56](https://github.com/anthony-chaudhary/dos-kernel/issues/56) (OpenAI
 Agents SDK) and [#57](https://github.com/anthony-chaudhary/dos-kernel/issues/57)
-(CrewAI). Sibling of docs/302 (AGT backend) and the docs/230/234 reward
-family; the `examples/fleet_frameworks/` recipes 2 and 4 are the copy-paste
-ancestors — context-keyed and oracle-only, where these drivers are shipped
-code with the full claim model.*
+(CrewAI); the deferred upstream-listing move is
+[#77](https://github.com/anthony-chaudhary/dos-kernel/issues/77), gated on the
+next release tag. The P2 integration slice was verified against the real
+published SDK in a scratch venv (32 tests + recipe 7, green). Sibling of
+docs/302 (AGT backend) and the docs/230/234 reward family; the
+`examples/fleet_frameworks/` recipes 2 and 4 are the copy-paste ancestors —
+context-keyed and oracle-only, where these drivers are shipped code with the
+full claim model.*
 
 ## 0. The two contracts, pinned
 
