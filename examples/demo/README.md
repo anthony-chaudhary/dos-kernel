@@ -1,6 +1,6 @@
 # DOS demos — runnable in a throwaway directory
 
-Two self-contained proofs. Each spins up a **fresh `mktemp` git repo**, runs the
+Three self-contained proofs. Each spins up a **fresh `mktemp` git repo**, runs the
 real thing, and cleans up after itself — no agents, no fleet, nothing left behind.
 
 > **The AUTH story is the canonical example.** The tokens (`AUTH`/`AUTH1`/`AUTH2`),
@@ -14,6 +14,7 @@ real thing, and cleans up after itself — no agents, no fleet, nothing left beh
 | Demo | What it proves | Run |
 |---|---|---|
 | [`verify_demo.sh`](verify_demo.sh) · [`.ps1`](verify_demo.ps1) | the **truth syscall** — an agent claims a phase shipped; DOS asks git, not the agent. | `bash examples/demo/verify_demo.sh` |
+| [`clobber_demo.sh`](clobber_demo.sh) · [`.ps1`](clobber_demo.ps1) | the **arbiter** — two agents, one file: the silent lost update with no referee, then the same moment replayed as a typed refusal (and a re-admission once the lane frees). | `bash examples/demo/clobber_demo.sh` |
 | [`plugin_smoke.sh`](plugin_smoke.sh) · [`.ps1`](plugin_smoke.ps1) | the **Claude Code plugin** works installed into an **isolated, non-DOS repo** — all three runtime surfaces (hooks · MCP server · skill pack). | `bash examples/demo/plugin_smoke.sh` |
 
 ## `plugin_smoke.sh` — the plugin works for a stranger
