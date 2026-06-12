@@ -2249,7 +2249,7 @@ def cmd_efficiency_trend(args: argparse.Namespace) -> int:
 
 # ---------------------------------------------------------------------------
 # work-account  (the work-kind account — what KINDS of work did this iteration land?)
-#   (docs/306 — the composition sibling: productivity reads a trend, efficiency a
+#   (docs/310 — the composition sibling: productivity reads a trend, efficiency a
 #   ratio, this reads a typed account by witnessed kind. The healthy kinds all
 #   exit 0; CAUGHT is the actionable 3 — a worker over-claimed and the oracle
 #   refused it; IDLE is the honest-nothing 4.)
@@ -2264,7 +2264,7 @@ _WORK_ACCOUNT_EXIT_CONTRACT_ERROR = _WORK_ACCOUNT_EXITS.contract_error
 
 
 def cmd_work_account(args: argparse.Namespace) -> int:
-    """Name the dominant KIND of work one iteration landed (docs/306, WKA).
+    """Name the dominant KIND of work one iteration landed (docs/310, WKA).
 
     Each count comes from the witness that owns it (the oracle's verified
     count, git's commit count, the decisions-queue delta) — gathered by the
@@ -7330,7 +7330,7 @@ pick ship?") and you want the honest composition instead. A 0-pick iteration tha
 landed commits, reconciled stamps, raised decisions, or CAUGHT a false "done"
 claim is not nothing — this names its dominant kind and renders the composed
 headline ("1 pick shipped · 4 commits advanced"). The composition sibling of
-`productivity` (a trend) and `efficiency` (a ratio) — docs/306.
+`productivity` (a trend) and `efficiency` (a ratio) — docs/310.
 
 Feed it the per-kind counts the WITNESSES recorded (never the worker's narration):
 the oracle's verified-ship count, git's lane-commit count, the oracle-REFUTED
@@ -8104,7 +8104,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_output_flag(ptrd)
     ptrd.set_defaults(func=cmd_efficiency_trend)
 
-    # work-account (docs/306) — the composition sibling: where productivity reads a
+    # work-account (docs/310) — the composition sibling: where productivity reads a
     # trend and efficiency a ratio, this reads a typed account of one iteration's
     # work BY KIND and names the dominant kind + the composed headline.
     pwka = sub.add_parser(

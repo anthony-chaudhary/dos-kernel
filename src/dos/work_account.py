@@ -1,6 +1,6 @@
 """WKA — the work-kind account: *what KINDS of work did this iteration land?*
 
-docs/306 — the **composition sibling** of the loop-economics family. `liveness`
+docs/310 — the **composition sibling** of the loop-economics family. `liveness`
 asks "did state move at all?" (a binary); `productivity` asks "is the
 work-per-step rate fading?" (a trend); `efficiency` asks "did the tokens buy
 work?" (a ratio). None of them asks what the work *was*. The dispatch loop's

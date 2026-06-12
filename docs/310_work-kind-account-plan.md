@@ -1,4 +1,4 @@
-# 306 — WKA: the work-kind account
+# 310 — WKA: the work-kind account
 
 > **Status:** P1–P3 shipped (2026-06-12, oracle-verified: P1 `67bae27` /
 > P2 `215c9f7` / P3 `2675847`; P4 future). The forcing question (operator

@@ -59,7 +59,7 @@ class TestClassifyDispatch:
 
 
 class TestClassifyDispatchWorkAccount:
-    """docs/306 — the optional work-kind account on a dispatch-family event.
+    """docs/310 — the optional work-kind account on a dispatch-family event.
 
     The account subdivides the iteration's work by witnessed KIND, so
     real-but-not-pick-shaped work stops reading as a non-event. account=None

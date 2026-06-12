@@ -1,4 +1,4 @@
-"""WKA — the work-kind account + the pure classifier (docs/306).
+"""WKA — the work-kind account + the pure classifier (docs/310).
 
 `work_account.classify_work` is the COMPOSITION sibling of the loop-economics
 family: where `productivity` reads a trend and `efficiency` a ratio, WKA reads

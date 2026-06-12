@@ -22,7 +22,7 @@ locally (audit kept) but never pushes.
                  this loop — actionable, may need a decision -> reaches peers
     NOTICE       state-changing but routine — a STALE-STAMP false-drain, >=1
                  finding/closure, a soft-claim, a --next-up-only packet, or
-                 (docs/306) real-but-not-pick-shaped work the iteration's
+                 (docs/310) real-but-not-pick-shaped work the iteration's
                  work-kind account witnessed (a caught false claim, advancing
                  commits, grooming, raised decisions)
     NOOP         a non-event — 0-pick DRAIN, a REPEATED blocker/rate-limit, a
@@ -111,7 +111,7 @@ class EventState:
     soft_claims: int = 0  # picks soft-claimed by the rendered packet
     # Did the staged pathspec actually differ from HEAD? False -> a no-op write.
     staged_changed: bool = True
-    # --- docs/306: the work-kind account (optional) ---------------------------
+    # --- docs/310: the work-kind account (optional) ---------------------------
     # When the write step gathered a per-iteration WorkAccount (each counter
     # env-witnessed at the I/O edge — the oracle's verified count, git's commit
     # count, the decisions-queue delta), the dispatch family consults it:
@@ -139,7 +139,7 @@ def classify_event(ev: EventState) -> Severity:
             # following /replan, not this stamp, carries the real signal to peers.
             return Severity.NOTICE
         if ev.account is not None and classify_work(ev.account).kind is not WorkKind.IDLE:
-            # docs/306 — the work-kind account says real-but-not-pick-shaped work
+            # docs/310 — the work-kind account says real-but-not-pick-shaped work
             # landed (a caught false claim, advancing commits, grooming, raised
             # decisions): state-changing but routine -> NOTICE, no longer a
             # non-event. The push sink's default threshold (BLOCKED-NEW) still
@@ -200,7 +200,7 @@ def subject_lead_token(ev: EventState) -> str:
     if fam in ("dispatch", "dispatch-loop"):
         if sev is Severity.SHIPPED:
             if ev.account is not None and ev.account.verified_ships > 0:
-                # docs/306 — the composed work-kind headline: every non-zero
+                # docs/310 — the composed work-kind headline: every non-zero
                 # kind in precedence order ("1 pick shipped · 4 commits
                 # advanced"), from the same phrase source as the classifier.
                 return account_lead_token(ev.account)
@@ -217,7 +217,7 @@ def subject_lead_token(ev: EventState) -> str:
         if v == "STALE-STAMP":
             return "stale-stamp false-drain (/replan recommended)"
         if sev is Severity.NOTICE and ev.account is not None:
-            # docs/306 — a NOTICE earned by the work-kind account (no pick
+            # docs/310 — a NOTICE earned by the work-kind account (no pick
             # shipped, but real work witnessed): lead with the account, e.g.
             # "1 false claim caught · 3 grooms". The backlog word ("drained")
             # stays the NOOP fallthrough's — work and backlog are two axes.
