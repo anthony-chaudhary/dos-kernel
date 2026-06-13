@@ -1755,16 +1755,29 @@ def cmd_model_health(args: argparse.Namespace) -> int:
     import glob as _glob
     from dos import model_health as _mh
 
+    session = getattr(args, "session", None)
     paths = list(getattr(args, "transcript", None) or [])
     g = getattr(args, "transcripts_glob", None)
     if g:
         paths.extend(sorted(_glob.glob(g)))
-    if not paths:
-        print("model-health: nothing to fold — pass --transcript PATH … / "
+
+    if session:
+        # Auto-discover the descendant agents from ONE session JSONL (the
+        # child/grandchild depth axis) — no need to know where the descendant
+        # transcripts live. Mutually exclusive with the explicit-path modes.
+        if paths:
+            print("model-health: --session is mutually exclusive with "
+                  "--transcript/--transcripts-glob (it discovers the descendants "
+                  "itself)", file=sys.stderr)
+            return _MODEL_HEALTH_EXIT_CODES["contract_error"]
+        health = _mh.model_health_from_session(session)
+    elif paths:
+        health = _mh.model_health_from_transcripts(paths)
+    else:
+        print("model-health: nothing to fold — pass --session SESSION.jsonl "
+              "(auto-discover descendants), or --transcript PATH … / "
               "--transcripts-glob GLOB", file=sys.stderr)
         return _MODEL_HEALTH_EXIT_CODES["contract_error"]
-
-    health = _mh.model_health_from_transcripts(paths)
 
     if getattr(args, "json", False):
         print(json.dumps(health.to_dict(), sort_keys=True))
@@ -5577,6 +5590,37 @@ def cmd_census(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# headline  (the quotable, receipt-linked one-liner over the hook observation
+#            log — share-shaped, honest zeros + coverage; issue #71)
+# ---------------------------------------------------------------------------
+def cmd_headline(args: argparse.Namespace) -> int:
+    """Emit a quotable, receipt-linked headline over the observation log (issue #71).
+
+    Folds ONLY the per-call observation log (docs/297) — never the lane journal,
+    the like-for-like discipline — into a one-liner an operator can paste, with
+    honest zeros + a coverage clause. `--receipts` expands each nonzero count to
+    its env-authored records + the command that regenerates the verdict. Read-only.
+    """
+    _apply_workspace(args)
+    cfg = _config.active()
+    from dos import hook_observation as _hobs
+
+    since = (getattr(args, "since", "") or "").strip()
+    with_receipts = bool(getattr(args, "receipts", False))
+    try:
+        records = list(_hobs.read_observations(cfg=cfg))
+    except Exception:  # noqa: BLE001 — a read fault degrades to "nothing", never a crash
+        records = []
+    summary = _hobs.headline_summary(records, since=since,
+                                     with_receipts=with_receipts or bool(args.json))
+    if args.json:
+        print(json.dumps(summary.to_dict(), indent=2, default=str))
+        return 0
+    print(_hobs.render_headline_text(summary, with_receipts=with_receipts))
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # helped  (the operator-facing "what did DOS catch for me?" rollup — the last
 #          observability rung, from the WAL out to the human; help_summary.py)
 # ---------------------------------------------------------------------------
@@ -8288,6 +8332,12 @@ def build_parser() -> argparse.ArgumentParser:
             "re-dispatches a worker (the live-model roster is host/driver policy)."),
         formatter_class=argparse.RawDescriptionHelpFormatter)
     _add_workspace_flags(pmh)
+    pmh.add_argument("--session", default=None, metavar="SESSION.jsonl",
+                     help="a session transcript JSONL — AUTO-DISCOVER its descendant "
+                          "agents (child→grandchild→…) by the parentUuid tree and fold "
+                          "each with its depth tag. No need to know where the descendant "
+                          "transcripts live (the 'down on a child or grandchild etc' "
+                          "axis). Mutually exclusive with --transcript/--transcripts-glob")
     pmh.add_argument("--transcript", action="append", default=None, metavar="PATH",
                      help="a descendant transcript JSONL to witness (repeatable)")
     pmh.add_argument("--transcripts-glob", default=None, metavar="GLOB",

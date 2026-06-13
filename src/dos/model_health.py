@@ -35,6 +35,21 @@ never guessed, never dropped (an unnamed model-down is still a model-down the
 operator must see). It names NO specific model in code (the provider-invariance
 floor — the kernel knows the SHAPE of the unavailability sentence, not the roster).
 
+Descendant discovery — the "child or grandchild ETC" depth axis
+===============================================================
+
+The flat fold above must be HANDED the descendant transcript paths. But a model
+down on a grandchild three hops deep is invisible precisely because nobody knows
+where to look. `build_agent_tree` closes that: it walks ONE session's JSONL,
+groups records by `agentId`, builds the `parentUuid` chain, and assigns each
+agent a DEPTH (the main thread is depth 0, a sub-agent it spawned is a child at
+depth 1, a sub-agent THAT spawned is a grandchild at depth 2, …). Each agent's
+TERMINAL assistant record is then folded with a depth-tagged source
+("child:<id>" / "grandchild:<id>" / "depth4:<id>"), so `model_health_from_session`
+auto-finds every descendant and a down model anywhere in the tree surfaces with
+its depth. The depth comes from the transcript's own `parentUuid` links — a fact
+the agents could not forge in their favor (the byte-author floor, one rung over).
+
 ⚓ Kernel discipline (the litmus): a PURE fold + a boundary reader. It imports only
 the sibling kernel module `result_state` (+ stdlib), names no host and no specific
 model, resolves nothing against `__file__`, takes no lease, mints ZERO new labels
@@ -318,3 +333,199 @@ def model_health_from_transcripts(
             sources[i] if sources is not None and i < len(sources) else str(p)
         )
     return fold_model_health(verdicts, sources=srcs, texts=texts)
+
+
+# ═══════════════════════════ descendant discovery ═════════════════════════════
+# The "child or grandchild ETC" depth axis: walk ONE session JSONL, group records
+# by agent, build the parentUuid tree, assign each agent a depth, fold the
+# descendants (depth >= 1) with a depth-tagged source. Closes the gap where the
+# flat fold above must be HANDED the descendant paths.
+
+# The main thread carries no agentId; this is the stand-in id for its node so the
+# tree has a single, named root the children's depth counts up from.
+MAIN_AGENT = "<main>"
+
+
+def depth_label(depth: int) -> str:
+    """A human depth tag for a source label. PURE.
+
+    0 → "main", 1 → "child", 2 → "grandchild", and 3+ → "depth<N>" (no English
+    word past grandchild — "great-grandchild" earns nothing over a number). The
+    label is legibility only; the fold groups by MODEL, never by this tag.
+    """
+    if depth <= 0:
+        return "main"
+    if depth == 1:
+        return "child"
+    if depth == 2:
+        return "grandchild"
+    return f"depth{depth}"
+
+
+@dataclass(frozen=True)
+class AgentNode:
+    """One discovered agent in a session's sub-agent tree. PURE-built.
+
+      * agent_id — the agentId (or :data:`MAIN_AGENT` for the main thread).
+      * depth    — sidechain-spawn hops from the main thread (main=0, child=1, …).
+      * parent_id — the agent that spawned this one ("" for the main thread).
+      * terminal — the agent's TERMINAL assistant record as a
+                   `result_state.TerminalEvidence` (None if the agent produced no
+                   assistant record at all — a structural EMPTY).
+    """
+
+    agent_id: str
+    depth: int
+    parent_id: str
+    terminal: object = None  # result_state.TerminalEvidence | None (avoid the import here)
+
+
+def _record_agent_id(record: dict) -> str:
+    """The agent a record belongs to: its `agentId`, or :data:`MAIN_AGENT` for a
+    non-sidechain (main-thread) record. PURE. A sidechain record missing an
+    agentId is attributed to MAIN (it cannot be placed in a child group)."""
+    if record.get("isSidechain") and isinstance(record.get("agentId"), str) and record["agentId"]:
+        return record["agentId"]
+    return MAIN_AGENT
+
+
+def build_agent_tree(records: Sequence[dict]) -> tuple[AgentNode, ...]:
+    """Build the per-agent tree from a session's records. PURE — records in, nodes out.
+
+    Walks the records once to (a) group them by agent, (b) learn each child agent's
+    PARENT by following the agent's first record's `parentUuid` to the record that
+    spawned it and reading THAT record's agent, and (c) capture each agent's TERMINAL
+    assistant record. Depth is then the parent-chain length from the main thread
+    (main=0). A cycle or an orphan parent ref degrades to depth 1 under MAIN (a child
+    with an unknown parent is still a child) — never an infinite loop.
+
+    Returns one `AgentNode` per agent, the main thread included (depth 0), ordered
+    by (depth, agent_id) so the caller sees the tree breadth-first.
+    """
+    from dos import result_state
+
+    # uuid -> the agent that authored that record (for the parent lookup).
+    uuid_to_agent: dict[str, str] = {}
+    # agent -> its records in file order (for terminal + first-record parent).
+    by_agent: dict[str, list[dict]] = {}
+    for rec in records:
+        if not isinstance(rec, dict):
+            continue
+        agent = _record_agent_id(rec)
+        u = rec.get("uuid")
+        if isinstance(u, str) and u:
+            uuid_to_agent[u] = agent
+        by_agent.setdefault(agent, []).append(rec)
+
+    # Each agent's parent = the agent of the record its FIRST record points at via
+    # parentUuid. MAIN has no parent. An unknown/missing parent ref → MAIN (a child
+    # whose spawn point we cannot resolve is still a top-level child).
+    parent_of: dict[str, str] = {MAIN_AGENT: ""}
+    for agent, recs in by_agent.items():
+        if agent == MAIN_AGENT:
+            continue
+        first = recs[0]
+        puid = first.get("parentUuid")
+        parent_agent = uuid_to_agent.get(puid) if isinstance(puid, str) else None
+        # A record whose parent is in the SAME agent means we did not find the real
+        # spawn boundary on the first record — fall back to MAIN (depth 1).
+        if not parent_agent or parent_agent == agent:
+            parent_agent = MAIN_AGENT
+        parent_of[agent] = parent_agent
+
+    def _depth(agent: str) -> int:
+        """Parent-chain length to MAIN, cycle-guarded (a cycle → treat as depth 1)."""
+        seen: set[str] = set()
+        d = 0
+        cur = agent
+        while cur and cur != MAIN_AGENT:
+            if cur in seen:
+                return 1  # cycle — a child with a broken chain is still a child
+            seen.add(cur)
+            cur = parent_of.get(cur, MAIN_AGENT)
+            d += 1
+        return d
+
+    nodes: list[AgentNode] = []
+    for agent, recs in by_agent.items():
+        # The agent's terminal = the LAST record that yields assistant evidence.
+        terminal = None
+        for rec in recs:
+            ev = result_state.terminal_evidence_from_record(rec)
+            if ev is not None:
+                terminal = ev
+        nodes.append(
+            AgentNode(
+                agent_id=agent,
+                depth=_depth(agent),
+                parent_id=parent_of.get(agent, ""),
+                terminal=terminal,
+            )
+        )
+    nodes.sort(key=lambda n: (n.depth, n.agent_id))
+    return tuple(nodes)
+
+
+def model_health_from_session(path: str) -> ModelHealth:
+    """Discover a session's descendant agents and fold their model-health. NOT pure.
+
+    Reads ONE session JSONL at the boundary, builds the agent tree, and folds every
+    DESCENDANT (depth >= 1 — the main thread is the operator's own turn, not a
+    descendant) with a depth-tagged source ("child:<id>" / "grandchild:<id>" /
+    "depth<N>:<id>"). A missing/garbled file yields an empty rollup (no descendants
+    discovered), never a crash — the read fault is the fail-safe floor, not a death.
+
+    This is the auto-discovery path the goal's "model is down on a child or
+    grandchild etc" wants: hand it the session transcript, and a down model ANYWHERE
+    in the sub-agent tree surfaces with its depth, without the caller knowing where
+    the descendant transcripts live.
+    """
+    from dos import result_state
+
+    records = _read_session_records(path)
+    nodes = build_agent_tree(records)
+
+    verdicts: list[ResultStateVerdict] = []
+    texts: list[str] = []
+    srcs: list[str] = []
+    for node in nodes:
+        if node.depth < 1:
+            continue  # the main thread is not a descendant
+        ev = node.terminal
+        if ev is None:
+            # No assistant record for this agent → a structural EMPTY death.
+            ev = result_state.TerminalEvidence(found=False, readable=True)
+        verdicts.append(result_state.classify_terminal(ev))
+        texts.append(getattr(ev, "text", "") or "")
+        srcs.append(f"{depth_label(node.depth)}:{node.agent_id}")
+    return fold_model_health(verdicts, sources=srcs, texts=texts)
+
+
+def _read_session_records(path: str) -> list[dict]:
+    """Read a session JSONL into a list of record dicts. NOT pure (reads a file).
+
+    Reuses `result_state`'s one transcript reader (`claim_extract._read_lines`, via
+    the same boundary) so the two cannot drift. A missing/garbled file yields [] (no
+    descendants discovered) — the fail-safe floor; a torn line is skipped, never
+    fatal.
+    """
+    import json
+
+    from dos import claim_extract
+
+    try:
+        lines = claim_extract._read_lines(path)
+    except OSError:
+        return []
+    out: list[dict] = []
+    for raw in lines:
+        s = raw.strip()
+        if not s:
+            continue
+        try:
+            obj = json.loads(s)
+        except (ValueError, TypeError):
+            continue
+        if isinstance(obj, dict):
+            out.append(obj)
+    return out

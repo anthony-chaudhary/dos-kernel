@@ -208,3 +208,119 @@ def test_from_transcripts_default_source_is_the_path(tmp_path):
     child = _write(tmp_path, [_synthetic_record("opus-x is currently unavailable")], "c.jsonl")
     health = mh.model_health_from_transcripts([str(child)])
     assert health.tallies[0].sources == (str(child),)
+
+
+# ── descendant discovery (the child/grandchild depth axis) ───────────────────
+
+def test_depth_label():
+    assert mh.depth_label(0) == "main"
+    assert mh.depth_label(1) == "child"
+    assert mh.depth_label(2) == "grandchild"
+    assert mh.depth_label(4) == "depth4"
+
+
+def _main_record(uuid, text="planning"):
+    """A main-thread (non-sidechain) assistant record."""
+    return {
+        "type": "assistant", "uuid": uuid, "parentUuid": None,
+        "message": {"model": "claude-opus-4-8", "role": "assistant",
+                    "stop_reason": "end_turn", "content": [{"type": "text", "text": text}]},
+    }
+
+
+def _sidechain_record(uuid, parent_uuid, agent_id, *, text, model="claude-opus-4-8",
+                      synthetic=False):
+    """A sub-agent (sidechain) record, linked to its spawn point by parentUuid."""
+    msg_model = "<synthetic>" if synthetic else model
+    rec = {
+        "type": "assistant", "uuid": uuid, "parentUuid": parent_uuid,
+        "isSidechain": True, "agentId": agent_id,
+        "message": {"model": msg_model, "role": "assistant",
+                    "stop_reason": "stop_sequence" if synthetic else "end_turn",
+                    "content": [{"type": "text", "text": text}]},
+    }
+    if synthetic:
+        rec["isApiErrorMessage"] = True
+    return rec
+
+
+def test_build_agent_tree_assigns_depths():
+    """A main thread spawns a child; the child spawns a grandchild. Depths must be
+    0/1/2, derived from the parentUuid chain (a fact the agents cannot forge)."""
+    records = [
+        _main_record("m1"),
+        _sidechain_record("c1", "m1", "child-agent", text="working"),
+        _sidechain_record("g1", "c1", "grandchild-agent", text="deep work"),
+    ]
+    nodes = {n.agent_id: n for n in mh.build_agent_tree(records)}
+    assert nodes[mh.MAIN_AGENT].depth == 0
+    assert nodes["child-agent"].depth == 1
+    assert nodes["child-agent"].parent_id == mh.MAIN_AGENT
+    assert nodes["grandchild-agent"].depth == 2
+    assert nodes["grandchild-agent"].parent_id == "child-agent"
+
+
+def test_from_session_finds_down_model_on_a_grandchild(tmp_path):
+    """The goal's headline case: a model is down on a GRANDCHILD three hops deep.
+    model_health_from_session must auto-discover it and tag it grandchild."""
+    records = [
+        _main_record("m1"),
+        _sidechain_record("c1", "m1", "child-agent", text="ok"),
+        _sidechain_record("g1", "c1", "grandchild-agent",
+                          text="Claude Fable 5 is currently unavailable", synthetic=True),
+    ]
+    p = _write(tmp_path, records, "session.jsonl")
+    health = mh.model_health_from_session(str(p))
+    assert health.any_model_down is True
+    assert health.reroute_targets == ("Claude Fable 5",)
+    # The death is attributed to the grandchild, not the child or main.
+    assert health.tallies[0].sources == ("grandchild:grandchild-agent",)
+    # Main thread is NOT counted as a descendant.
+    assert health.considered == 2  # child + grandchild, not main
+
+
+def test_from_session_excludes_the_main_thread():
+    """Depth-0 (main) is the operator's own turn, never a descendant — it must not
+    be folded (else a main-thread down-model would self-report)."""
+    records = [_main_record("m1", "the main plan")]
+    health = mh.fold_model_health([])  # sanity: empty fold is healthy
+    assert health.any_model_down is False
+    # Build a session with ONLY a main record → no descendants.
+    nodes = mh.build_agent_tree(records)
+    assert [n.agent_id for n in nodes] == [mh.MAIN_AGENT]
+    assert nodes[0].depth == 0
+
+
+def test_from_session_missing_file_is_empty_not_crash(tmp_path):
+    health = mh.model_health_from_session(str(tmp_path / "nope.jsonl"))
+    assert health.any_model_down is False
+    assert health.considered == 0
+
+
+def test_from_session_two_children_one_down(tmp_path):
+    """Two children, one healthy and one on a down model — only the down one is a
+    reroute target, tagged child."""
+    records = [
+        _main_record("m1"),
+        _sidechain_record("c1", "m1", "agent-a", text="fine"),
+        _sidechain_record("c2", "m1", "agent-b",
+                          text="opus-x is currently unavailable", synthetic=True),
+    ]
+    p = _write(tmp_path, records, "s.jsonl")
+    health = mh.model_health_from_session(str(p))
+    assert health.healthy == 1
+    assert health.model_unavailable == 1
+    assert health.reroute_targets == ("opus-x",)
+    assert health.tallies[0].sources == ("child:agent-b",)
+
+
+def test_orphan_parent_ref_degrades_to_child_not_crash():
+    """A sidechain whose parentUuid points at nothing known is still a child
+    (depth 1 under MAIN), never an infinite loop or a crash."""
+    records = [
+        _sidechain_record("x1", "nonexistent-uuid", "lonely-agent",
+                          text="opus-x is currently unavailable", synthetic=True),
+    ]
+    nodes = {n.agent_id: n for n in mh.build_agent_tree(records)}
+    assert nodes["lonely-agent"].depth == 1
+    assert nodes["lonely-agent"].parent_id == mh.MAIN_AGENT
