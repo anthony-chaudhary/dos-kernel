@@ -259,8 +259,13 @@ def test_read_vs_live_lease_passes_clean_no_advisory(monkeypatch, tool, tool_inp
 
 def test_known_tree_real_collision_still_denies(monkeypatch):
     """The split must NOT weaken a PROVABLE refusal: a KNOWN tree (a resolvable path) that
-    really overlaps the live `src/` lease still denies — the genuine region-collision gate."""
+    really overlaps the live `src/` lease still denies for a DISPATCH LOOP — the genuine
+    region-collision gate. (A loop is signalled by a loop-context env; the operator-session
+    softening below only fires when NONE of those envs are set.)"""
     import tempfile
+    # Mark this as a dispatch-loop call so the operator-session softening does NOT apply —
+    # a loop must still be hard-denied on a real collision.
+    monkeypatch.setenv("DOS_LOOP", "1")
     cfg = _kernel_cfg(Path(tempfile.mkdtemp()))
     monkeypatch.setattr(prt, "live_leases_for", lambda c: [_src_lease()])
     # A non-runtime path under the held src/ lease: not SELF_MODIFY (empty reason_class) but a
@@ -271,6 +276,42 @@ def test_known_tree_real_collision_still_denies(monkeypatch):
     assert outcome["decision"] == "deny", outcome
     assert outcome["tree_known"] is True
     assert dialect["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+def test_operator_session_collision_warns_not_denies(monkeypatch):
+    """The operator-session softening: the SAME known-tree collision a dispatch loop is
+    hard-DENIED on warns-and-passes for an INTERACTIVE operator (no loop-context env). A held
+    lane's declared region is a defensive claim, not proof the holder is writing this file;
+    the human-in-command owns their own blast radius (the `--force` principle)."""
+    import tempfile
+    # Interactive operator: clear every loop-context env so OperatorSession is true.
+    for var in ("DOS_LOOP", "CID_RUN_ID", "DISPATCH_LOOP_TS"):
+        monkeypatch.delenv(var, raising=False)
+    cfg = _kernel_cfg(Path(tempfile.mkdtemp()))
+    monkeypatch.setattr(prt, "live_leases_for", lambda c: [_src_lease()])
+    dialect, outcome = prt.decide(
+        _event("Edit", {"file_path": "src/dos/not_a_runtime_file.py",
+                        "old_string": "a", "new_string": "b"}, cwd="/repo"), cfg)
+    assert outcome["decision"] == "warn", outcome
+    # A WARN passes through — it omits permissionDecision (CC's normal permission flow runs).
+    assert "permissionDecision" not in (dialect or {}).get("hookSpecificOutput", {}), dialect
+
+
+def test_operator_session_does_not_soften_self_modify(monkeypatch):
+    """Safety invariant: the operator-session softening touches CONTENTION refusals only.
+    A SELF_MODIFY refusal (reason_class set) — editing the live kernel — stays a hard DENY
+    for an operator too."""
+    import tempfile
+    for var in ("DOS_LOOP", "CID_RUN_ID", "DISPATCH_LOOP_TS"):
+        monkeypatch.delenv(var, raising=False)
+    cfg = _kernel_cfg(Path(tempfile.mkdtemp()))
+    # A kernel runtime file (configured in _kernel_cfg) -> the SELF_MODIFY predicate fires
+    # (request-absolute, reason_class set) regardless of any live lease.
+    dialect, outcome = prt.decide(
+        _event("Edit", {"file_path": "src/dos/arbiter.py",
+                        "old_string": "a", "new_string": "b"}, cwd="/repo"), cfg)
+    assert outcome["decision"] == "deny", outcome
+    assert outcome["reason_class"] == "SELF_MODIFY", outcome
 
 
 def test_disjoint_known_tree_passes_through_under_live_lease(monkeypatch):

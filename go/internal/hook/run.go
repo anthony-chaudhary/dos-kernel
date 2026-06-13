@@ -75,6 +75,15 @@ func DecidePretool(stdinBytes []byte, workspaceFlag, dialect string, debug io.Wr
 	in := Inputs{
 		LiveLeases:   LiveLeasesFromWAL(journalPath),
 		RuntimeFiles: ExistingRuntimeFiles(workspace),
+		// An interactive operator turn carries NONE of the loop-context envs the
+		// dispatcher/cron set (DOS_LOOP / CID_RUN_ID / DISPATCH_LOOP_TS). Their
+		// absence is the same loop-vs-interactive signal the marker/stop verbs already
+		// use. When this is an operator session, Decide softens a contention-only
+		// disjointness DENY to a WARN (the human owns their blast radius); a loop keeps
+		// the hard deny.
+		OperatorSession: os.Getenv("DOS_LOOP") == "" &&
+			os.Getenv("CID_RUN_ID") == "" &&
+			os.Getenv("DISPATCH_LOOP_TS") == "",
 	}
 	d := Decide(ev, in)
 	dbg("rung=%s decision=%s reason_class=%s dialect=%s", d.Rung, d.DecisionTag, d.ReasonClass, dialect)

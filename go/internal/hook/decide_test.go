@@ -95,6 +95,64 @@ func TestDisjointnessCollisionDeny(t *testing.T) {
 	}
 }
 
+func TestOperatorSessionCollisionWarnsNotDenies(t *testing.T) {
+	// The operator-session softening: the SAME `src/**` lease + Edit to
+	// src/dos/cli.py that a dispatch loop is hard-DENIED on (TestDisjointnessCollisionDeny)
+	// must DOWNGRADE to an advisory WARN for an INTERACTIVE operator. A held lane's
+	// declared region is a defensive claim, not proof the holder is writing this
+	// exact file; the human-in-command owns their own blast radius (the `--force`
+	// principle). Contention-only refusal (no reason_class) + OperatorSession -> warn.
+	e := eventFor("Edit", "/work/workspace", map[string]any{"file_path": "src/dos/cli.py"})
+	in := Inputs{
+		LiveLeases:      []lease{{lane: "src", tree: []string{"src/**"}}},
+		RuntimeFiles:    dosRuntimeFiles,
+		OperatorSession: true,
+	}
+	d := Decide(e, in)
+	if d.DecisionTag != "warn" {
+		t.Fatalf("operator-session collision must WARN, got %q (%s)", d.DecisionTag, d.Render())
+	}
+	if strings.Contains(d.Render(), "permissionDecision") {
+		t.Fatalf("operator-session WARN must not carry permissionDecision (must pass through): %s", d.Render())
+	}
+}
+
+func TestLoopSessionCollisionStillDenies(t *testing.T) {
+	// The negative control: WITHOUT OperatorSession (a dispatch loop / cron / headless
+	// run — the field defaults false), the identical collision stays a hard DENY. The
+	// softening must NOT leak to automated lanes: sibling loops race and a declared
+	// collision is the only safe-to-arbitrate signal they have.
+	e := eventFor("Edit", "/work/workspace", map[string]any{"file_path": "src/dos/cli.py"})
+	in := Inputs{
+		LiveLeases:      []lease{{lane: "src", tree: []string{"src/**"}}},
+		RuntimeFiles:    dosRuntimeFiles,
+		OperatorSession: false,
+	}
+	d := Decide(e, in)
+	if d.DecisionTag != "deny" {
+		t.Fatalf("loop-session collision must still DENY, got %q (%s)", d.DecisionTag, d.Render())
+	}
+}
+
+func TestOperatorSessionDoesNotSoftenSelfModify(t *testing.T) {
+	// The safety invariant: OperatorSession softens CONTENTION refusals only. A
+	// SELF_MODIFY refusal carries a reason_class and is request-absolute — editing the
+	// live kernel that is adjudicating the fleet stays a hard DENY for EVERYONE,
+	// operator or not.
+	e := eventFor("Edit", "/work/workspace", map[string]any{"file_path": dosRuntimeFiles[0]})
+	in := Inputs{
+		RuntimeFiles:    dosRuntimeFiles,
+		OperatorSession: true,
+	}
+	d := Decide(e, in)
+	if d.DecisionTag != "deny" {
+		t.Fatalf("SELF_MODIFY must DENY even for an operator session, got %q (%s)", d.DecisionTag, d.Render())
+	}
+	if d.ReasonClass != selfModifyReason {
+		t.Fatalf("want SELF_MODIFY reason_class %q, got %q", selfModifyReason, d.ReasonClass)
+	}
+}
+
 func TestReadAgainstContendedLanePassesClean(t *testing.T) {
 	// A proven no-footprint READ passes CLEAN against a contended lane (issue #46).
 	// A read-only tool has a KNOWN but EMPTY tree — it provably touches nothing, so

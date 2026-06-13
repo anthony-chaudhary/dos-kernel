@@ -18,9 +18,21 @@ type Decision struct {
 // Inputs is the gathered evidence the boundary hands the pure decider: the live
 // leases (folded from the WAL) and the runtime files that EXIST under the served
 // workspace (stat-probed at the boundary). No I/O happens past this point.
+// OperatorSession is true when the calling session is an INTERACTIVE operator
+// turn, not a dispatch loop / cron / headless run — derived at the boundary from
+// the ABSENCE of any loop-context env (DOS_LOOP / CID_RUN_ID / DISPATCH_LOOP_TS).
+// It softens a CONTENTION-only disjointness refusal from a hard DENY to an
+// advisory WARN: the human-in-command owns the blast radius of their own
+// deliberate edit (the same principle the CLI `--force` flag carries), so a fleet
+// lane's broad defensive glob must not HARD-BLOCK an operator's narrow edit to a
+// file that lane is not actually writing. A dispatch loop (OperatorSession=false)
+// still gets the hard, arbitrated DENY — loop-vs-loop collisions are real and must
+// be refused. The SELF_MODIFY refusal (which carries a reason_class) is NEVER
+// softened by this flag: editing the running kernel stays a hard deny for everyone.
 type Inputs struct {
-	LiveLeases   []lease
-	RuntimeFiles []string
+	LiveLeases      []lease
+	RuntimeFiles    []string
+	OperatorSession bool
 }
 
 // Decide runs the PRE division on one event — port of `dos.pretool_sensor.decide`
@@ -73,6 +85,30 @@ func Decide(e *Event, in Inputs) Decision {
 		// footprint that really overlaps denies. The empty-tree refusal is contention,
 		// not collision: we cannot prove the call collides, so we WARN, never deny.
 		provable := av.reasonClass != "" || (treeKnown && len(tree) > 0)
+		// Operator-session softening (issue: a fleet lane's broad defensive glob
+		// hard-blocks an interactive operator's narrow edit). A refusal with NO
+		// reason_class is a CONTENTION refusal — the call overlaps a held lane's
+		// DECLARED region, but a declared region is a defensive claim, not proof the
+		// holder is actually writing this exact file. A dispatch loop must still be
+		// refused (sibling loops race and a declared collision is the only
+		// safe-to-arbitrate signal they have). But an INTERACTIVE operator is the
+		// human-in-command, not a competing automaton: they own the blast radius of
+		// their own deliberate edit (exactly the `--force` semantics), so a fleet
+		// lane's broad glob DOWNGRADES to an advisory WARN for them, never a hard
+		// block. The SELF_MODIFY refusal (reason_class != "") is request-absolute and
+		// is NOT softened — editing the live kernel stays a hard deny for everyone.
+		if provable && in.OperatorSession && av.reasonClass == "" {
+			warn := "DOS PRE-admission (advisory, operator session): " + reason +
+				" A held lane's DECLARED region overlaps this edit, but you are an interactive operator (not a dispatch loop) — you own the blast radius of your own change, so DOS warns instead of blocking. If a fleet loop is actively writing this exact file, coordinate before saving."
+			return Decision{
+				Dialect:     warnPayload(warn),
+				Rung:        "admission",
+				DecisionTag: "warn",
+				ReasonClass: av.reasonClass,
+				Reason:      reason,
+				TreeKnown:   treeKnown,
+			}
+		}
 		if provable {
 			return Decision{
 				Dialect:     denyPayload("DOS PRE-admission: "+reason, ""),

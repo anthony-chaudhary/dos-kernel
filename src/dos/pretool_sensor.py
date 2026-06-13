@@ -72,6 +72,7 @@ thresholds live in `ProvenancePolicy` / the `InterventionLadder` / `StreamPolicy
 from __future__ import annotations
 
 import json
+import os
 import sys
 from typing import Optional
 
@@ -629,6 +630,40 @@ def decide(
         # note's quoted verdict all carry the same hook-true guidance.
         reason = hook_surface_reason(reason, averdict.reason_class or "")
         provable = bool(averdict.reason_class) or (tree_known and bool(tree))
+        # Operator-session softening (mirrors the Go decider's OperatorSession path).
+        # A CONTENTION refusal (no `reason_class`) means the call overlaps a held
+        # lane's DECLARED region — a defensive claim, not proof the holder is writing
+        # this exact file. A dispatch loop must still be DENIED (sibling loops race and
+        # a declared collision is their only safe-to-arbitrate signal). But an
+        # INTERACTIVE operator (no loop-context env: DOS_LOOP / CID_RUN_ID /
+        # DISPATCH_LOOP_TS) is the human-in-command — they own the blast radius of
+        # their own deliberate edit (the `--force` principle), so a fleet lane's broad
+        # glob DOWNGRADES to an advisory WARN for them, never a hard block. The
+        # SELF_MODIFY refusal (reason_class set) is request-absolute and NEVER softened.
+        operator_session = (
+            not os.environ.get("DOS_LOOP")
+            and not os.environ.get("CID_RUN_ID")
+            and not os.environ.get("DISPATCH_LOOP_TS")
+        )
+        if provable and operator_session and not averdict.reason_class:
+            outcome = {
+                "rung": "admission",
+                "decision": "warn",
+                "reason_class": "",
+                "reason": reason,
+                "tree_known": tree_known,
+            }
+            return (
+                warn_payload(
+                    f"DOS PRE-admission (advisory, operator session): {reason} A held "
+                    f"lane's DECLARED region overlaps this edit, but you are an "
+                    f"interactive operator (not a dispatch loop) — you own the blast "
+                    f"radius of your own change, so DOS warns instead of blocking. If "
+                    f"a fleet loop is actively writing this exact file, coordinate "
+                    f"before saving."
+                ),
+                outcome,
+            )
         if provable:
             # docs/296 — the operator's armed override window, consulted at the
             # ENFORCEMENT boundary only (the verdict above is unchanged and still
