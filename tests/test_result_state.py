@@ -172,6 +172,53 @@ def test_synthetic_403_org_disabled_is_usage_limit():
     assert v.cls is rs.TerminalClass.USAGE_LIMIT
 
 
+def test_synthetic_model_unavailable_is_dead_and_named():
+    """The goal's case: a child launched on a down/retired model returns a shaped
+    non-result — "<model> is currently unavailable". It is DEAD (the worker never
+    ran) and classified MODEL_UNAVAILABLE (not OTHER) so the heal — reroute to a
+    sibling model — is routable. The real text carries no apiErrorStatus."""
+    ev = rs.terminal_evidence_from_record(
+        _synthetic_record("Claude Fable 5 is currently unavailable", api_status=None))
+    v = rs.classify_terminal(ev)
+    assert v.state is rs.TerminalState.SYNTHETIC
+    assert v.dead is True
+    assert v.cls is rs.TerminalClass.MODEL_UNAVAILABLE
+    assert v.api_status is None
+
+
+def test_model_unavailable_outranks_usage_cues():
+    """A model-down phrasing must win over the broad USAGE_LIMIT cues even if a
+    limit-ish word co-occurs — 'unavailable' anchored on 'model' is the more
+    specific class, and routes to a different heal."""
+    ev = rs.terminal_evidence_from_record(
+        _synthetic_record("The requested model is unavailable", api_status=None))
+    v = rs.classify_terminal(ev)
+    assert v.cls is rs.TerminalClass.MODEL_UNAVAILABLE
+
+
+def test_generic_service_unavailable_is_not_model_unavailable():
+    """A correlated infra outage ('service unavailable' / 503) is NOT a down model
+    — a SIBLING model cannot heal a whole-provider outage, so it must NOT be
+    mis-classed MODEL_UNAVAILABLE. It stays OTHER (no spurious reroute)."""
+    ev = rs.terminal_evidence_from_record(
+        _synthetic_record("API Error: 503 Service unavailable", api_status=503))
+    v = rs.classify_terminal(ev)
+    assert v.dead is True
+    assert v.cls is rs.TerminalClass.OTHER
+
+
+def test_model_unavailable_envelope_reason_class():
+    """The DEAD envelope carries a routable reason_class so the fold/loop sees a
+    MODEL_UNAVAILABLE death distinctly from a rate-limit death."""
+    from dos import wedge_reason
+    v = rs.classify_terminal(rs.terminal_evidence_from_record(
+        _synthetic_record("Claude Fable 5 is currently unavailable", api_status=None)))
+    env = rs.refusal_envelope(v)
+    refuse, _ = wedge_reason.envelope_is_refusal(env)
+    assert refuse is True
+    assert env["reason_class"] == "RESULT_DEAD_MODEL_UNAVAILABLE"
+
+
 def test_healthy_terminal_is_not_dead():
     v = rs.classify_terminal(rs.terminal_evidence_from_record(_healthy_record()))
     assert v.state is rs.TerminalState.HEALTHY

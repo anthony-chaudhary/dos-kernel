@@ -23,6 +23,7 @@ from dos.provider_limit import (
     from_apply_outcome_token,
     from_quota_error_class,
     from_rate_limit_kind,
+    from_terminal_class,
     policy_for,
 )
 
@@ -39,9 +40,16 @@ def test_policy_for_total_over_enum():
 
 
 def test_only_transient_overload_is_retryable():
-    """The load-bearing split: TRANSIENT_OVERLOAD retries; everything else stops."""
+    """The load-bearing split: TRANSIENT_OVERLOAD retries the SAME unit/model;
+    everything else (including MODEL_UNAVAILABLE, whose heal is a DIFFERENT model)
+    is not same-iter retryable."""
     assert policy_for(ProviderLimit.TRANSIENT_OVERLOAD).retryable_same_iter is True
-    for cat in (ProviderLimit.USAGE_WINDOW, ProviderLimit.HARD_QUOTA, ProviderLimit.NONE):
+    for cat in (
+        ProviderLimit.USAGE_WINDOW,
+        ProviderLimit.HARD_QUOTA,
+        ProviderLimit.MODEL_UNAVAILABLE,
+        ProviderLimit.NONE,
+    ):
         assert policy_for(cat).retryable_same_iter is False
 
 
@@ -55,22 +63,58 @@ def test_retryable_iff_has_backoff_ladder():
 
 
 def test_only_hard_quota_needs_operator_and_no_timer():
-    """HARD_QUOTA is the one category a timer cannot clear — it requires an
-    operator and does not reset on its own."""
+    """HARD_QUOTA is the one category that needs an operator AND no timer clears
+    it. MODEL_UNAVAILABLE also has no timer reset, but does NOT need an operator
+    (a sibling model heals it) — that is the load-bearing difference between
+    them."""
     hq = policy_for(ProviderLimit.HARD_QUOTA)
     assert hq.operator_action_required is True
     assert hq.resets_on_timer is False
     # The two timer-reset categories do reset on their own.
     assert policy_for(ProviderLimit.TRANSIENT_OVERLOAD).resets_on_timer is True
     assert policy_for(ProviderLimit.USAGE_WINDOW).resets_on_timer is True
-    # ...and none of the others demand operator action.
-    for cat in (ProviderLimit.TRANSIENT_OVERLOAD, ProviderLimit.USAGE_WINDOW, ProviderLimit.NONE):
+    # MODEL_UNAVAILABLE: no timer reset (a down model is not a window that
+    # reopens on a clock) — but NO operator action either (route to a sibling).
+    mu = policy_for(ProviderLimit.MODEL_UNAVAILABLE)
+    assert mu.resets_on_timer is False
+    assert mu.operator_action_required is False
+    # ...and none of the non-HARD_QUOTA categories demand operator action.
+    for cat in (
+        ProviderLimit.TRANSIENT_OVERLOAD,
+        ProviderLimit.USAGE_WINDOW,
+        ProviderLimit.MODEL_UNAVAILABLE,
+        ProviderLimit.NONE,
+    ):
         assert policy_for(cat).operator_action_required is False
+
+
+def test_only_model_unavailable_reroutes():
+    """MODEL_UNAVAILABLE is the one category whose heal is to change WHICH model
+    runs the unit. reroute_model is the auto-routing flag the 'model down on a
+    child/grandchild' case keys on — and it is orthogonal to retryable_same_iter
+    (re-running the same model would just re-hit the down model)."""
+    mu = policy_for(ProviderLimit.MODEL_UNAVAILABLE)
+    assert mu.reroute_model is True
+    assert mu.retryable_same_iter is False  # the same model is down; same-iter is futile
+    assert mu.backoff_seconds == ()         # no backoff ladder — route now, don't wait
+    # No other category reroutes — the heal axis is unique to MODEL_UNAVAILABLE.
+    for cat in (
+        ProviderLimit.TRANSIENT_OVERLOAD,
+        ProviderLimit.USAGE_WINDOW,
+        ProviderLimit.HARD_QUOTA,
+        ProviderLimit.NONE,
+    ):
+        assert policy_for(cat).reroute_model is False
 
 
 def test_overload_escalates_after_three_others_after_one():
     assert policy_for(ProviderLimit.TRANSIENT_OVERLOAD).escalate_after == 3
-    for cat in (ProviderLimit.USAGE_WINDOW, ProviderLimit.HARD_QUOTA, ProviderLimit.NONE):
+    for cat in (
+        ProviderLimit.USAGE_WINDOW,
+        ProviderLimit.HARD_QUOTA,
+        ProviderLimit.MODEL_UNAVAILABLE,
+        ProviderLimit.NONE,
+    ):
         assert policy_for(cat).escalate_after == 1
 
 
@@ -108,12 +152,41 @@ def test_from_quota_error_class(qec, expected):
 @pytest.mark.parametrize("token, expected", [
     ("LLM-QUOTA-EXHAUSTED", ProviderLimit.USAGE_WINDOW),
     ("LLM-QUOTA-EXHAUSTED-DURABLE", ProviderLimit.USAGE_WINDOW),
+    ("LLM-MODEL-UNAVAILABLE", ProviderLimit.MODEL_UNAVAILABLE),  # named model down
+    ("MODEL-UNAVAILABLE", ProviderLimit.MODEL_UNAVAILABLE),
     ("CORRELATED-OUTAGE", ProviderLimit.NONE),          # an outage, not a limit
     ("BROWSER-SERVICE-UNAVAILABLE", ProviderLimit.NONE),  # an outage, not a limit
     ("SHIPPED", ProviderLimit.NONE),                    # not a limit token at all
 ])
 def test_from_apply_outcome_token(token, expected):
     assert from_apply_outcome_token(token) is expected
+
+
+@pytest.mark.parametrize("cls, expected", [
+    # The result_state.TerminalClass → heal-category bridge.
+    ("MODEL_UNAVAILABLE", ProviderLimit.MODEL_UNAVAILABLE),
+    ("RATE_LIMIT", ProviderLimit.USAGE_WINDOW),
+    ("USAGE_LIMIT", ProviderLimit.USAGE_WINDOW),
+    ("AUTH", ProviderLimit.HARD_QUOTA),         # credential block — a human acts
+    ("SERVER", ProviderLimit.TRANSIENT_OVERLOAD),  # a 500 is a transient blip
+    ("OTHER", ProviderLimit.NONE),              # no actionable heal — don't fabricate one
+    ("NONE", ProviderLimit.NONE),
+    ("not-a-class", ProviderLimit.NONE),        # defensive
+])
+def test_from_terminal_class(cls, expected):
+    assert from_terminal_class(cls) is expected
+
+
+def test_from_terminal_class_bridges_real_result_state_class():
+    """The bridge accepts the REAL result_state.TerminalClass enum member (it is
+    str-valued), so a fold site can go straight from the death-witness to the
+    heal category without a manual token. The MODEL_UNAVAILABLE death → the
+    reroute_model heal is the goal's end-to-end path."""
+    from dos.result_state import TerminalClass
+
+    cat = from_terminal_class(TerminalClass.MODEL_UNAVAILABLE)
+    assert cat is ProviderLimit.MODEL_UNAVAILABLE
+    assert policy_for(cat).reroute_model is True
 
 
 # --- 3. cross-module backoff-ladder agreement --------------------------------

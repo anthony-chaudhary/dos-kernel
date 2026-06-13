@@ -1730,6 +1730,58 @@ def cmd_coverage(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# model-health  (the per-MODEL fleet death rollup — the auto-routing surface)
+#   EXIT: 0 = all models healthy, 5 = a model is DOWN (reroute), 2 = contract error.
+#   The non-zero "a model is down" code lets a shell conductor branch into a
+#   reroute without parsing JSON — the auto-healing trigger the goal keys on.
+# ---------------------------------------------------------------------------
+_MODEL_HEALTH_EXITS = ExitMap({
+    "healthy": 0,
+    "model_down": 5,
+    "contract_error": 2,
+})
+_MODEL_HEALTH_EXIT_CODES = _MODEL_HEALTH_EXITS.codes
+
+
+def cmd_model_health(args: argparse.Namespace) -> int:
+    """The per-MODEL fleet death rollup: WHICH model is down across the children
+    and grandchildren — and what to reroute (the '3x observability' projection).
+
+    Folds a set of descendant transcripts into a per-model tally of
+    MODEL_UNAVAILABLE deaths, so a down model on any descendant is visible at a
+    glance with the heal (reroute to a sibling model) attached. Read-only,
+    harness-grounded (runs result_state itself), mints zero new labels.
+    """
+    import glob as _glob
+    from dos import model_health as _mh
+
+    paths = list(getattr(args, "transcript", None) or [])
+    g = getattr(args, "transcripts_glob", None)
+    if g:
+        paths.extend(sorted(_glob.glob(g)))
+    if not paths:
+        print("model-health: nothing to fold — pass --transcript PATH … / "
+              "--transcripts-glob GLOB", file=sys.stderr)
+        return _MODEL_HEALTH_EXIT_CODES["contract_error"]
+
+    health = _mh.model_health_from_transcripts(paths)
+
+    if getattr(args, "json", False):
+        print(json.dumps(health.to_dict(), sort_keys=True))
+    else:
+        print(health.headline)
+        for t in health.tallies:
+            src = f" [{', '.join(t.sources[:3])}{'…' if len(t.sources) > 3 else ''}]" if t.sources else ""
+            print(f"  {t.model}: {t.deaths} death(s){src}")
+
+    return (
+        _MODEL_HEALTH_EXIT_CODES["model_down"]
+        if health.any_model_down
+        else _MODEL_HEALTH_EXIT_CODES["healthy"]
+    )
+
+
+# ---------------------------------------------------------------------------
 # arbitrate  (the admission kernel)
 # ---------------------------------------------------------------------------
 def _arbitrate_followup_note(decision, requested_lane: str, lanes) -> str | None:
@@ -8212,6 +8264,40 @@ def build_parser() -> argparse.ArgumentParser:
                            "dead, unreadable, unaccounted, fraction, prompt_line, "
                            "grounded, …} instead of the text line")
     pcov.set_defaults(func=cmd_coverage)
+
+    pmh = sub.add_parser(
+        "model-health",
+        help="the per-MODEL fleet death rollup: WHICH model is down across the "
+             "children and grandchildren — and what to reroute",
+        description=(
+            "Fold a set of descendant transcripts into a per-model tally of "
+            "MODEL_UNAVAILABLE deaths, so a model that is down on a child or "
+            "grandchild (\"<model> is currently unavailable\" — the worker never ran, "
+            "returning success+is_error+1-turn+$0) is visible at a glance instead of "
+            "buried in one transcript. The observability sibling of verify-result and "
+            "coverage: verify-result classifies ONE death, coverage folds N deaths "
+            "into a quorum count, this groups the model-down deaths by the MODEL each "
+            "died on and surfaces the reroute targets. HARNESS-GROUNDED (runs "
+            "result_state itself, so the counts cannot be forged by a self-reporting "
+            "fleet); an HONEST AGGREGATOR (0 new labels — every death was already "
+            "adjudicated by result_state). --json carries {any_model_down, "
+            "reroute_targets, tallies, headline, …}. EXIT: 0 = all models healthy, "
+            "5 = a model is DOWN (a shell conductor branches into a reroute on 5 "
+            "without parsing JSON — the auto-routing trigger), 2 = contract error. "
+            "ADVISORY: it REPORTS which models are down + the reroute heal; it never "
+            "re-dispatches a worker (the live-model roster is host/driver policy)."),
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    _add_workspace_flags(pmh)
+    pmh.add_argument("--transcript", action="append", default=None, metavar="PATH",
+                     help="a descendant transcript JSONL to witness (repeatable)")
+    pmh.add_argument("--transcripts-glob", default=None, metavar="GLOB",
+                     help="a glob of descendant transcript JSONLs to witness "
+                          "(combinable with --transcript)")
+    pmh.add_argument("--json", action="store_true",
+                     help="emit the full rollup object {any_model_down, "
+                          "reroute_targets, model_unavailable, tallies, headline, …} "
+                          "instead of the text lines")
+    pmh.set_defaults(func=cmd_model_health)
 
     pln = sub.add_parser(
         "liveness",

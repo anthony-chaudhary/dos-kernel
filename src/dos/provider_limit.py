@@ -56,18 +56,35 @@ class ProviderLimit(str, enum.Enum):
       HARD_QUOTA         — a billing block ("credit balance too low") or an
                            opaque subscription blackout. No timer fixes it — an
                            OPERATOR must act. Policy: stop + surface.
+      MODEL_UNAVAILABLE  — the NAMED model is down/retired/unknown ("Claude
+                           Fable 5 is currently unavailable") — NOT a usage or
+                           rate limit, and not the caller's account at all. A
+                           child/grandchild launched on this model returns a
+                           shaped non-result (``success`` + ``is_error`` + 1
+                           turn + $0): the worker never ran. No timer clears it
+                           and no operator credit fixes it, BUT — unlike
+                           HARD_QUOTA — a sibling model fixes it INSTANTLY.
+                           Policy: re-route the unit to an available model and
+                           re-dispatch (auto-heal); retrying the SAME model is
+                           futile. This is the model-roster axis the goal's
+                           "model is down on a child/grandchild" case lands on.
       NONE               — no provider-limit signal.
 
     The load-bearing split is TRANSIENT_OVERLOAD (retry) vs everything else
     (stop/defer). A real overload and a real quota window can BOTH arrive as a
     ``rejected`` rate-limit event — the disambiguator is the error TYPE
     (529/overloaded vs 429/quota) and the "(not your usage limit)" prose, NOT
-    the ``rejected`` status alone.
+    the ``rejected`` status alone. MODEL_UNAVAILABLE is a SECOND split: it is
+    the only category whose heal is to change WHICH model runs the unit rather
+    than to wait, stop, or escalate to a human — so it carries its own
+    ``reroute_model`` policy flag, orthogonal to ``retryable_same_iter``
+    (re-running the same model would just re-hit the down model).
     """
 
     TRANSIENT_OVERLOAD = "transient_overload"
     USAGE_WINDOW = "usage_window"
     HARD_QUOTA = "hard_quota"
+    MODEL_UNAVAILABLE = "model_unavailable"
     NONE = "none"
 
     def __str__(self) -> str:  # pragma: no cover - trivial
@@ -111,7 +128,17 @@ class LimitPolicy:
 
     resets_on_timer: bool
     """True when the limit clears on its own (TRANSIENT_OVERLOAD, USAGE_WINDOW);
-    False for HARD_QUOTA (operator-gated) and NONE."""
+    False for HARD_QUOTA (operator-gated), MODEL_UNAVAILABLE (a sibling model,
+    not a timer, fixes it) and NONE."""
+
+    reroute_model: bool = False
+    """True for MODEL_UNAVAILABLE only — the heal is to re-dispatch the unit on a
+    DIFFERENT (available) model, not to wait, stop, or escalate to a human. This
+    is the auto-routing flag the 'model down on a child/grandchild' case keys on:
+    a consumer reading ``reroute_model`` knows the fix is a sibling model, and
+    that retrying the SAME model (``retryable_same_iter``) would be futile. Which
+    models exist and which are up is host/driver policy — this flag only says
+    'route to another one', never names one (the provider-invariance Bulkhead)."""
 
 
 _POLICIES: dict[ProviderLimit, LimitPolicy] = {
@@ -138,6 +165,22 @@ _POLICIES: dict[ProviderLimit, LimitPolicy] = {
         escalate_after=1,
         operator_action_required=True,
         resets_on_timer=False,
+    ),
+    ProviderLimit.MODEL_UNAVAILABLE: LimitPolicy(
+        category=ProviderLimit.MODEL_UNAVAILABLE,
+        # The same model is down — retrying it (same-iter) is futile, so this is
+        # NOT retryable_same_iter and carries no backoff ladder. The heal is the
+        # orthogonal axis: reroute_model. escalate_after=1 — route on the first
+        # hit, do not wait. No operator action: a sibling model heals it without
+        # a human (the difference from HARD_QUOTA). No timer reset: a down model
+        # is not a window that reopens on a clock — only a different model fixes
+        # it (hence resets_on_timer=False, but operator_action_required=False).
+        retryable_same_iter=False,
+        backoff_seconds=(),
+        escalate_after=1,
+        operator_action_required=False,
+        resets_on_timer=False,
+        reroute_model=True,
     ),
     ProviderLimit.NONE: LimitPolicy(
         category=ProviderLimit.NONE,
@@ -212,9 +255,17 @@ def from_quota_error_class(qec: str) -> ProviderLimit:
 _APPLY_OUTCOME_TOKEN_TO_CATEGORY: dict[str, ProviderLimit] = {
     "LLM-QUOTA-EXHAUSTED": ProviderLimit.USAGE_WINDOW,
     "LLM-QUOTA-EXHAUSTED-DURABLE": ProviderLimit.USAGE_WINDOW,
+    # A NAMED model is down/retired ("…is currently unavailable") — the worker
+    # never ran. Distinct from a quota window (the account is fine) and from a
+    # correlated outage (the whole provider is down): a SIBLING model heals it,
+    # so it is a provider-limit category with a reroute_model policy, not NONE.
+    "LLM-MODEL-UNAVAILABLE": ProviderLimit.MODEL_UNAVAILABLE,
+    "MODEL-UNAVAILABLE": ProviderLimit.MODEL_UNAVAILABLE,
     # CORRELATED-OUTAGE / BROWSER-SERVICE-UNAVAILABLE are NOT provider limits —
     # they are infra outages with their own stop policy; they map to NONE so a
-    # caller asking "is this a provider limit?" gets a truthful no.
+    # caller asking "is this a provider limit?" gets a truthful no. (A correlated
+    # outage takes down EVERY model, so re-routing to a sibling cannot heal it —
+    # which is exactly why it is NOT MODEL_UNAVAILABLE.)
     "CORRELATED-OUTAGE": ProviderLimit.NONE,
     "BROWSER-SERVICE-UNAVAILABLE": ProviderLimit.NONE,
 }
@@ -232,6 +283,46 @@ def from_apply_outcome_token(token: str) -> ProviderLimit:
     return _APPLY_OUTCOME_TOKEN_TO_CATEGORY.get(str(token), ProviderLimit.NONE)
 
 
+# dos.result_state.TerminalClass values — the fold-site death-witness. This is
+# the in-kernel bridge: result_state CLASSIFIES why a child died from its
+# transcript; this maps that class INTO the canonical heal category so a fold
+# site can go straight from "the child died" to "and the heal is: reroute". As
+# with every other mapper it takes the str VALUE, never imports the class, so
+# the pure-stdlib floor of this module (and the no-cycle rule) holds — even
+# though result_state is itself a sibling kernel module.
+_TERMINAL_CLASS_TO_CATEGORY: dict[str, ProviderLimit] = {
+    "RATE_LIMIT": ProviderLimit.USAGE_WINDOW,
+    "USAGE_LIMIT": ProviderLimit.USAGE_WINDOW,
+    "AUTH": ProviderLimit.HARD_QUOTA,        # an auth/credential block needs a human
+    "SERVER": ProviderLimit.TRANSIENT_OVERLOAD,  # a 500 is a transient server-side blip
+    "MODEL_UNAVAILABLE": ProviderLimit.MODEL_UNAVAILABLE,
+    # OTHER / NONE carry no actionable heal category — a caller asking "what is
+    # the heal?" gets NONE (don't fabricate a reroute/backoff from an unknown).
+    "OTHER": ProviderLimit.NONE,
+    "NONE": ProviderLimit.NONE,
+}
+
+
+def from_terminal_class(cls: str) -> ProviderLimit:
+    """Map a ``result_state.TerminalClass`` value → canonical heal category.
+
+    The bridge from the fold-site death-witness (``result_state`` classifies a
+    dead child's transcript) to the heal policy (``policy_for`` says what to do).
+    A ``MODEL_UNAVAILABLE`` terminal class → the ``MODEL_UNAVAILABLE`` category,
+    whose policy's ``reroute_model`` is the auto-heal signal a dispatcher reads to
+    re-launch the unit on a sibling model. Accepts the enum member or its ``str``
+    value. Unknown / non-heal class → NONE.
+
+    ``TerminalClass`` is ``str``-valued but does NOT override ``__str__`` (so
+    ``str(member)`` is ``"TerminalClass.X"``, not the token) — so we read the
+    member's ``.value`` when present, falling back to ``str`` for a bare token.
+    This is the no-cycle floor: we touch only the duck-typed ``.value`` attribute,
+    never import the upstream class.
+    """
+    token = getattr(cls, "value", cls)
+    return _TERMINAL_CLASS_TO_CATEGORY.get(str(token), ProviderLimit.NONE)
+
+
 __all__ = [
     "ProviderLimit",
     "LimitPolicy",
@@ -239,4 +330,5 @@ __all__ = [
     "from_rate_limit_kind",
     "from_quota_error_class",
     "from_apply_outcome_token",
+    "from_terminal_class",
 ]

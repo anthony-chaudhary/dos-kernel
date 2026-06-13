@@ -141,12 +141,23 @@ class TerminalClass(str, enum.Enum):
     an operator/log can see WHY the worker died without the classifier ever keying
     its gate on the HTTP code (which would miss the 50/2935 limit-text deaths that
     carry no `apiErrorStatus`). NONE for a non-synthetic terminal.
+
+    `MODEL_UNAVAILABLE` is the class for a death where the NAMED model is down /
+    retired / unknown ("Claude Fable 5 is currently unavailable") — the worker
+    never ran because the model it was launched on does not exist or is offline.
+    It is reported separately from USAGE_LIMIT because the HEAL is different: a
+    usage limit waits for a window or a human; a down model is healed by
+    re-dispatching the unit on a SIBLING model (the `provider_limit.from_terminal_class`
+    bridge maps this class → the `reroute_model` heal policy). This is the class
+    the "model is down on a child/grandchild" cascade lands on — naming it instead
+    of folding it into OTHER is what makes the failure routable.
     """
 
     RATE_LIMIT = "RATE_LIMIT"      # 429 / "Rate limited"
     USAGE_LIMIT = "USAGE_LIMIT"    # 403 / weekly|session limit / "out of extra usage" / org-disabled
     AUTH = "AUTH"                  # 401 / authentication_error
     SERVER = "SERVER"             # 500 / server-side
+    MODEL_UNAVAILABLE = "MODEL_UNAVAILABLE"  # the NAMED model is down/retired ("…is currently unavailable")
     OTHER = "OTHER"               # synthetic but an unrecognized class
     NONE = "NONE"                 # not a synthetic terminal
 
@@ -226,6 +237,16 @@ def _infer_class(api_status: Optional[int], text: str) -> TerminalClass:
         return TerminalClass.RATE_LIMIT
     if api_status == 401 or "authentication" in t:
         return TerminalClass.AUTH
+    # A NAMED model being down — "<model> is currently unavailable" / "model …
+    # unavailable". Checked BEFORE the broad USAGE_LIMIT cues so "unavailable" is
+    # not swallowed, and anchored on MODEL-shaped phrasing so a generic infra
+    # "service unavailable" / 503 (a correlated outage, which a sibling model
+    # CANNOT heal) is NOT mis-classed here — that stays OTHER. The heal for this
+    # class is reroute-to-a-sibling-model (provider_limit.from_terminal_class).
+    if "is currently unavailable" in t or (
+        "unavailable" in t and "model" in t and "service unavailable" not in t
+    ):
+        return TerminalClass.MODEL_UNAVAILABLE
     if api_status == 500 or "internal server error" in t or "server-side" in t:
         return TerminalClass.SERVER
     if api_status == 403 or any(
