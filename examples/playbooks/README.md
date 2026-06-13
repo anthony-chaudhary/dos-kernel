@@ -33,6 +33,7 @@ names, realistic layout. Find the one whose directory tree looks most like yours
 | **OSS library + docs** | a published library: `src/` + `docs/` + `tests/`, a strict release convention | **`verify()` + the stamp grammar** — "did this actually ship?" from git history, no plan doc needed | [`03_oss-library-release.md`](03_oss-library-release.md) |
 | **Data / ML pipeline** | `ingest/` + `train/` + `serve/`, long jobs, one shared GPU box | **`liveness()`** — is that 40-minute training run *advancing*, or wedged in a retry loop? | [`04_data-ml-pipeline.md`](04_data-ml-pipeline.md) |
 | **Infra / platform monorepo** | Terraform + k8s + pipelines, blast-radius is real | **exclusive lanes, the self-modify guard, operator-gated `BLOCKED`** — the refusals that keep a fleet from detonating shared state | [`05_infra-monorepo.md`](05_infra-monorepo.md) |
+| **Driver / ring-0 bring-up** | a PCI-driver repo + one emulated rig (QEMU's `edu` device — no physical hardware) | **equipment lanes + the effect-witness join + ring-0 exec capability** — "the interrupt fires" adjudicated from `/proc/interrupts`, never from narration | [`08_driver-bringup-qemu-edu.md`](08_driver-bringup-qemu-edu.md) |
 
 Start with the onboarding quickstart, then jump to your archetype:
 
@@ -48,6 +49,11 @@ Start with the onboarding quickstart, then jump to your archetype:
 4. **[`07_verify-subagent-results.md`](07_verify-subagent-results.md)** — running a
    *fan-out*? `dos verify-result` catches the ~32% of subagent returns that are a
    harness-synthesized death folded as a finding (exit 3 = DEAD).
+5. **[`08_driver-bringup-qemu-edu.md`](08_driver-bringup-qemu-edu.md)** — agent
+   fleets on *ring-0 code*: the rig as an equipment lane, a false "the interrupt
+   fires" claim REFUTED from the `/proc/interrupts` delta, and `insmod` declared
+   as an arbitrary-exec entry point. Runs entirely against QEMU's `edu` device
+   and static fixtures — no physical hardware.
 
 ## Three cookbooks (recipes, not walkthroughs)
 
@@ -78,6 +84,7 @@ The playbooks reference workspaces under
 | [`libkv/`](../workspaces/libkv/) | OSS library + docs |
 | [`riverflow/`](../workspaces/riverflow/) | data / ML pipeline |
 | [`gravel/`](../workspaces/gravel/) | infra / platform monorepo |
+| [`edu-rig/`](../workspaces/edu-rig/) | driver / ring-0 bring-up (QEMU `edu`) |
 
 ```bash
 cd examples/workspaces/acme-store

@@ -1,0 +1,5 @@
+[    0.412233] pci 0000:00:02.0: [1234:11e8] type 00 class 0x00ff00
+[    0.412901] pci 0000:00:02.0: reg 0x10: [mem 0xfea00000-0xfeafffff]
+[    2.103441] edu 0000:00:02.0: enabling device (0000 -> 0002)
+[    2.103992] edu 0000:00:02.0: edu: ident 0x010000ed
+[    2.104410] edu 0000:00:02.0: edu: probe ok, irq 11

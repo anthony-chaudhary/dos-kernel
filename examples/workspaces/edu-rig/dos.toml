@@ -1,0 +1,48 @@
+# edu-rig — agent-fleet driver bring-up on QEMU's `edu` device (ring-0 archetype).
+#
+# Shape: a tiny PCI-driver repo (driver C source, tests, docs) plus ONE emulated
+# rig — a QEMU instance with the documented `edu` teaching device (PCI 1234:11e8:
+# MMIO registers, an interrupt line, a DMA engine). The rig is physically
+# unshareable: one QEMU process, one serial console. The point of this fixture:
+# an EQUIPMENT lane — exclusive of itself (one taker at a time), concurrent with
+# disjoint source lanes — plus the ring-0 capability set declared as data.
+#
+# See ../../playbooks/08_driver-bringup-qemu-edu.md for the walkthrough.
+workspace = "."
+
+# The rig is a lane like any other — its tree is the rig's on-disk footprint
+# (serial capture, dmesg snapshot, /proc/interrupts snapshots, the QEMU pidfile).
+# It is exclusive OF ITSELF via the arbiter's same-lane refusal (one holder at a
+# time), NOT in the `exclusive` set — that set means "run ALONE, block the whole
+# portfolio" (a terraform-apply, the global lane), and a held rig must not stop
+# a disjoint driver/** edit from running concurrently.
+#
+# autopick deliberately omits qemu-rig: there is no "equivalent free rig" — an
+# agent that needs the rig waits for the rig; it is never silently handed a
+# source lane instead (and a source-lane request is never handed the rig).
+[lanes]
+concurrent = ["qemu-rig", "driver", "tests", "docs"]
+exclusive  = []
+autopick   = ["driver", "tests"]
+
+[lanes.trees]
+qemu-rig = ["rig/**"]
+driver   = ["driver/**"]
+tests    = ["tests/**"]
+docs     = ["docs/**"]
+
+# The ring-0 capability set as config DATA (docs/224): module-load and
+# device-write tokens are this workspace's own arbitrary-exec entry points —
+# `insmod edu_drv.ko` runs arbitrary code at ring 0, escaping every narrower
+# per-command gate, exactly like `python -c` at ring 3.
+#
+# NOTE: this table is the documented convention, but today the CLI reads only
+# the `--extra` flag (issue #117) — the playbook transcripts pass the same set
+# via `--extra` until that lands.
+[exec_capability]
+extra = ["insmod", "modprobe", "dd", "flashrom", "setpci"]
+
+# Ship commits scope under their area: "driver: EDU2 — irq handler reads status".
+[stamp]
+style        = "grep"
+subject_dirs = ["driver", "tests", "rig", "docs"]

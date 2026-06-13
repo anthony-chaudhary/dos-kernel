@@ -1,7 +1,7 @@
 # Runnable example workspaces
 
 Each subdirectory is a **self-contained DOS workspace** — a `dos.toml` plus a
-tiny file tree — modeling one of the four archetypes from the
+tiny file tree — modeling one of the archetypes from the
 [playbooks](../playbooks/README.md). They exist so you can run real `dos`
 commands against a realistic lane taxonomy and stamp grammar without inventing
 one.
@@ -12,6 +12,7 @@ one.
 | [`libkv/`](libkv/) | OSS library + docs (`src/` + `docs/` + `tests/`) | [03](../playbooks/03_oss-library-release.md) |
 | [`riverflow/`](riverflow/) | data / ML pipeline (`ingest/` + `train/` + `serve/`) | [04](../playbooks/04_data-ml-pipeline.md) |
 | [`gravel/`](gravel/) | infra / platform monorepo (`terraform/` + `k8s/`) | [05](../playbooks/05_infra-monorepo.md) |
+| [`edu-rig/`](edu-rig/) | driver / ring-0 bring-up (`driver/` + `tests/` + one QEMU `edu` rig) | [08](../playbooks/08_driver-bringup-qemu-edu.md) |
 
 ## How to use one
 
