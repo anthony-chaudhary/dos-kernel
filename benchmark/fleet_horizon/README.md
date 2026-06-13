@@ -179,6 +179,50 @@ PYTHONPATH=src python -m benchmark.fleet_horizon.harness --host-sweep
 PYTHONPATH=src python -m benchmark.fleet_horizon.harness --host-sweep --json
 ```
 
+## The picker axis (docs/91): scheduling around contention
+
+Holds trust + orchestrator + host fixed (closed loop, in-process leases,
+enforcement) and varies only **how the next phase to admit is chosen** — the
+value-aware auto-pick the kernel's `rank_key` seam enables (docs/91 §3). Three
+arms on the same seeded workload + cap, so `real_ships` and every claim are
+identical per phase; only the pick **policy** differs:
+
+- **fixed-lane** — today's loop: the seeded `interleave` order, and a write that
+  collides with a live in-flight lease is REFUSED then retried on a split footprint
+  (a wasted action). The baseline.
+- **first-fit** — bare-pick: the arbiter's auto-pick walk advances some ready
+  effort whose footprint is disjoint from the live leases, SCHEDULING AROUND
+  contention instead of refuse+retry. No ranker (ladder order).
+- **value-aware** — bare-pick PLUS a reference yield estimator
+  (`yield_estimator.make_yield_rank_key`, a benchmark driver, never the kernel).
+
+The win only shows **under a budget cap**: with no cap both arms drain the same
+work and tie; with a cap, a policy that wastes fewer actions banks more verified
+work before the cap (so `real_ships` becomes the dependent variable). The honest,
+measured finding (it sharpens docs/90 §3) is that the win **splits**:
+
+- **The infrastructure win is large and robust** — scheduling around contention
+  banks **~1.6–1.7× more verified-velocity-per-$** at a tight budget (~1.37× even
+  at drain). Measured (8×20, shared_ratio 0.35, 8 seeds): fixed-lane ≈ 0.37,
+  bare-pick ≈ 0.64.
+- **The ranker refinement is ≈ neutral here** — once contention is already
+  scheduled around, ranking the disjoint set is near-flat (even an *oracle* ranker
+  barely beats first-fit). The online-scheduling optimum stays open (docs/90 §3) —
+  **reported, not tuned to win.**
+
+Two falsifiers, both on the infra win: at a **drain budget** both arms reach every
+phase and the gap relaxes (pick order stops mattering); with **no in-flight window**
+(`window_override=0`) nothing contends and the gap → 1.0 (the win WAS
+refuse-avoidance). The picker is **sound by construction** — it ranks only among
+lanes the disjointness gate already admitted, so a bad estimate picks a
+suboptimal-but-safe order, never an unsafe one.
+
+```bash
+# the picker A/B: does scheduling around contention bank more per dollar under a budget?
+PYTHONPATH=src python -m benchmark.fleet_horizon.harness --picker-sweep
+PYTHONPATH=src python -m benchmark.fleet_horizon.harness --picker-sweep --json
+```
+
 ## Layout
 
 ```
@@ -193,9 +237,11 @@ benchmark/fleet_horizon/
                    #   InProcessLeaseBook / JournalLeaseBook + the shared GitGround helper
   harness_loop.py  # the harness/ultracode arm — cross-process leases via the WAL, writeback knob
   metrics.py       # integrity + velocity + orchestrator metrics (+ detected-collision/prevention_rate)
-  harness.py       # run both arms over sweeps → the A/B tables (+ run_quad / --orchestrator-sweep / --host-sweep)
+  yield_estimator.py # the reference rank_key for the picker axis (docs/91 P4) — benchmark driver, names no kernel
+  harness.py       # run both arms over sweeps → the A/B tables (+ run_quad / --orchestrator-sweep / --host-sweep / --picker-sweep)
   plot.py          # graph the sweeps: CSV (always) + ASCII (always) + PNG (if matplotlib)
   test_fleet_horizon.py  # proves the harness is honest (gap→0 at horizon 1, etc.)
+  test_value_aware_picker.py  # proves the picker axis is honest (docs/91): default byte-identical, soundness oracle, falsifiers
   test_orchestrator.py   # proves the orchestrator axis is honest (docs/98)
   live_orchestrator_demo.py  # OPT-IN live A/B: real processes + dos lease-lane vs a naive flow
   vendors.py       # per-effort vendor profiles (Claude/Gemini/Codex-flavored) — a
