@@ -109,20 +109,27 @@ def _emit_generation(run_dir: Path, state: Dict) -> List[str]:
 # ---------------------------------------------------------------------------
 
 def init_run(run_dir: Path, *, gens: int = 4, k_train: int = 2, k_eval: int = 2,
-             m_exemplars: int = 4, seed: int = 7) -> Dict:
+             m_exemplars: int = 4, seed: int = 7,
+             policy: Optional[Dict] = None) -> Dict:
     run_dir.mkdir(parents=True, exist_ok=True)
     if _state_path(run_dir).exists():
         raise SystemExit(f"refusing to clobber existing state in {run_dir}")
+    config: Dict = {
+        "gens": gens, "k_train": k_train, "k_eval": k_eval,
+        "m_exemplars": m_exemplars, "seed": seed,
+        "train_tasks": [t.task_id for t in train_tasks()],
+        "heldout_tasks": [t.task_id for t in heldout_tasks()],
+    }
+    # `policy` records the DRIVER, not a belief rule — purely provenance so the
+    # evidence file can name what answered the prompts (a live session leaves it
+    # absent; the synthetic probe records its name + knobs).
+    if policy is not None:
+        config["policy"] = policy
     state: Dict = {
         "bench": "poisoned_pool",
         "plan": "docs/322",
         "issue": 36,
-        "config": {
-            "gens": gens, "k_train": k_train, "k_eval": k_eval,
-            "m_exemplars": m_exemplars, "seed": seed,
-            "train_tasks": [t.task_id for t in train_tasks()],
-            "heldout_tasks": [t.task_id for t in heldout_tasks()],
-        },
+        "config": config,
         "current_gen": 0,
         "phase": "sampling",
         "pools": {"S": [], "W": []},
@@ -240,6 +247,36 @@ def ingest_run(run_dir: Path, *, allow_missing: bool = False) -> Dict:
 
 
 # ---------------------------------------------------------------------------
+# drive — answer the pending generation's prompts with a synthetic policy.
+# Provider-free: this is a SCRIPTED test driver (the harness contract allows
+# any driver that turns prompt files into completion files), not a model. It
+# exists so the P2-prep sensitivity probe runs reproducibly as one command;
+# a live model session driving the prompt files by hand is the other path.
+# ---------------------------------------------------------------------------
+
+def drive_run(run_dir: Path, *, policy_name: str = "noisy", **overrides) -> int:
+    from . import policies
+    state = _load_state(run_dir)
+    if state["phase"] != "sampling":
+        raise SystemExit(f"nothing to drive: phase is {state['phase']!r}")
+    gen = state["current_gen"]
+    seed = state["config"]["seed"]
+    policy = policies.build_policy(policy_name, seed=seed, **overrides)
+    cap = state["config"]["m_exemplars"]
+    prompt_dir = run_dir / "prompts" / f"gen{gen}"
+    comp_dir = run_dir / "completions" / f"gen{gen}"
+    comp_dir.mkdir(parents=True, exist_ok=True)
+    written = 0
+    for tid_s in state["pending"]:
+        tid = harness.TrajId.parse(tid_s)
+        prompt_text = (prompt_dir / f"{tid_s}.md").read_text(encoding="utf-8")
+        body = policy.answer(tid_s, task_by_id(tid.task_id), prompt_text, cap)
+        (comp_dir / f"{tid_s}.md").write_text(body, encoding="utf-8")
+        written += 1
+    return written
+
+
+# ---------------------------------------------------------------------------
 # report
 # ---------------------------------------------------------------------------
 
@@ -297,10 +334,13 @@ def _fmt_rates(values: List[float]) -> str:
     return " -> ".join(f"{v:.2f}" for v in values)
 
 
-def render_results_md(results: Dict, rows: Optional[List[Dict]] = None) -> str:
+def render_results_md(results: Dict, rows: Optional[List[Dict]] = None,
+                      title: str = "poisoned_pool — run results (docs/322 P1, issue #36)",
+                      preamble: Optional[List[str]] = None,
+                      json_name: str = "results.json") -> str:
     c = results["curves"]
     lines = [
-        "# poisoned_pool — run results (docs/322 P1, issue #36)",
+        f"# {title}",
         "",
         _stamp_line(),
         "",
@@ -309,6 +349,10 @@ def render_results_md(results: Dict, rows: Optional[List[Dict]] = None) -> str:
         f"Generations completed: {results['generations_completed']} "
         f"(config: {json.dumps(results['config'], sort_keys=True)})",
         "",
+    ]
+    if preamble:
+        lines += preamble + [""]
+    lines += [
         "## The curves (per generation, generation 0 first)",
         "",
         "| metric | Arm S (self-judged) | Arm W (dos.reward.admit) |",
@@ -339,13 +383,15 @@ def render_results_md(results: Dict, rows: Optional[List[Dict]] = None) -> str:
     ]
     if rows is not None:
         lines += [
-            f"Per-trajectory verdict rows: {len(rows)} (in `results.json`).",
+            f"Per-trajectory verdict rows: {len(rows)} (in `{json_name}`).",
             "",
         ]
     return "\n".join(lines)
 
 
-def report_run(run_dir: Path, *, write_beside: bool = False) -> Dict:
+def report_run(run_dir: Path, *, write_beside: bool = False,
+               basename: str = "results", title: Optional[str] = None,
+               preamble: Optional[List[str]] = None) -> Dict:
     state = _load_state(run_dir)
     results = build_results(state)
     traj_path = run_dir / "trajectories.jsonl"
@@ -355,14 +401,25 @@ def report_run(run_dir: Path, *, write_beside: bool = False) -> Dict:
             if line.strip():
                 rows.append(json.loads(line))
     results["rows"] = rows
-    out_json = run_dir / "results.json"
+    # Markdown file mirrors the canonical RESULTS.md casing; the json keeps the
+    # lowercase basename (results.json / results_run2.json).
+    md_name = ("RESULTS.md" if basename == "results"
+               else "RESULTS" + basename[len("results"):] + ".md"
+               if basename.startswith("results") else f"{basename}.md")
+    json_name = f"{basename}.json"
+    kw = {"json_name": json_name}
+    if title is not None:
+        kw["title"] = title
+    if preamble is not None:
+        kw["preamble"] = preamble
+    out_json = run_dir / json_name
     out_json.write_text(json.dumps(results, indent=2), encoding="utf-8")
-    md = render_results_md(results, rows)
-    (run_dir / "RESULTS.md").write_text(md, encoding="utf-8")
+    md = render_results_md(results, rows, **kw)
+    (run_dir / md_name).write_text(md, encoding="utf-8")
     if write_beside:
-        (BESIDE / "results.json").write_text(
+        (BESIDE / json_name).write_text(
             json.dumps(results, indent=2), encoding="utf-8")
-        (BESIDE / "RESULTS.md").write_text(md, encoding="utf-8")
+        (BESIDE / md_name).write_text(md, encoding="utf-8")
     return results
 
 
@@ -400,6 +457,18 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_init.add_argument("--k-eval", type=int, default=2)
     p_init.add_argument("--exemplars", type=int, default=4)
     p_init.add_argument("--seed", type=int, default=7)
+    # Optional synthetic-policy provenance (recorded in config; the live-session
+    # path leaves these unset). Knobs describe a weaker/noisier driver.
+    p_init.add_argument("--policy", default=None,
+                        help="name a synthetic driver to record (e.g. 'noisy')")
+    p_init.add_argument("--p-solve-easy", type=float, default=None)
+    p_init.add_argument("--p-solve-hard", type=float, default=None)
+    p_init.add_argument("--base-bluff", type=float, default=None)
+    p_init.add_argument("--contagion", type=float, default=None)
+
+    p_drv = sub.add_parser("drive", help="answer the pending generation with the "
+                                         "recorded synthetic policy (provider-free)")
+    p_drv.add_argument("--run-dir", required=True, type=Path)
 
     p_ing = sub.add_parser("ingest", help="adjudicate the pending generation")
     p_ing.add_argument("--run-dir", required=True, type=Path)
@@ -417,10 +486,29 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     a = p.parse_args(argv)
     if a.cmd == "init":
+        policy = None
+        if a.policy is not None:
+            policy = {"name": a.policy}
+            for flag, key in (("p_solve_easy", "p_solve_easy"),
+                              ("p_solve_hard", "p_solve_hard"),
+                              ("base_bluff", "base_bluff"),
+                              ("contagion", "contagion")):
+                v = getattr(a, flag)
+                if v is not None:
+                    policy[key] = v
         st = init_run(a.run_dir, gens=a.gens, k_train=a.k_train,
-                      k_eval=a.k_eval, m_exemplars=a.exemplars, seed=a.seed)
+                      k_eval=a.k_eval, m_exemplars=a.exemplars, seed=a.seed,
+                      policy=policy)
         print(f"gen0: {len(st['pending'])} prompts emitted -> "
               f"{a.run_dir / 'prompts' / 'gen0'}")
+        return 0
+    if a.cmd == "drive":
+        st = _load_state(a.run_dir)
+        pol = dict(st["config"].get("policy") or {"name": "noisy"})
+        name = pol.pop("name", "noisy")
+        n = drive_run(a.run_dir, policy_name=name, **pol)
+        print(json.dumps({"driven_gen": st["current_gen"], "answered": n,
+                          "policy": name}, indent=2))
         return 0
     if a.cmd == "ingest":
         st = ingest_run(a.run_dir, allow_missing=a.allow_missing)
