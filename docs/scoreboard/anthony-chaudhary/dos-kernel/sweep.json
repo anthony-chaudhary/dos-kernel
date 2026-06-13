@@ -1,0 +1,35 @@
+{
+  "commits": 203,
+  "checkable": 129,
+  "abstained": 74,
+  "witnessed": 126,
+  "unwitnessed": 3,
+  "drift_rate": 0.023255813953488372,
+  "by_kind": {
+    "doc": {
+      "unwitnessed": 3,
+      "witnessed": 96,
+      "abstain": 0
+    },
+    "none": {
+      "unwitnessed": 0,
+      "witnessed": 0,
+      "abstain": 74
+    },
+    "code_effect": {
+      "unwitnessed": 0,
+      "witnessed": 25,
+      "abstain": 0
+    },
+    "test": {
+      "unwitnessed": 0,
+      "witnessed": 5,
+      "abstain": 0
+    }
+  },
+  "unwitnessed_shas": [
+    "0843842",
+    "cc00bf1",
+    "bf05e27"
+  ]
+}

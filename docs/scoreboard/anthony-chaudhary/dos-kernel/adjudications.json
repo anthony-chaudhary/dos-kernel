@@ -1,0 +1,45 @@
+{
+  "schema": "dos-scoreboard-page/v1",
+  "repo": "anthony-chaudhary/dos-kernel",
+  "tier": "self",
+  "rendered": "2026-06-12",
+  "attribution": "all commits, author-neutral (the self page audits everything; foreign pages audit agent-attributed commits only)",
+  "auditor": "dos-kernel 0.25.0 at `4ea6a2a` — the range's own end commit, so the auditor and the audited history pin together; includes the [#79](https://github.com/anthony-chaudhary/dos-kernel/issues/79)/[#81](https://github.com/anthony-chaudhary/dos-kernel/issues/81) fire-narrowing fixes",
+  "range": {
+    "base_sha": "abe74e880309c98cdb38f3ac295218745ab9efeb",
+    "head_sha": "4ea6a2aa7d8707b7f6345de08e66d8ceb6719410",
+    "commits_note": "the full visible history since the 2026-06-10 public seed"
+  },
+  "notes": {
+    "headline": "All three are convention-driven empty re-stamp commits; the receipts are below. This is **page #1 of the index, the self-grade**: the scoreboard names no other repository before publishing its own verdict, and ours is deliberately not airbrushed to zero.",
+    "verdict": "Raw and adjudicated agree here: zero of the three flags is an auditor artifact, so adjudication removed nothing. (Before the #79/#81 fire-narrowing landed in the auditor — `86f437f`, in this same range — the sweep carried additional artifact fires; that history, hand-adjudicated, is in the [methodology's false-positive section](../methodology.md).)",
+    "receipts": "All three flags come from one renumber event (the docs/310 plan-number collision). The convention itself is under design review — [#80](https://github.com/anthony-chaudhary/dos-kernel/issues/80) proposes making re-stamps carry a plan-doc line so they witness themselves — and if that lands, this page's adjudicated count drops to zero the honest way: by changing the commits, never the auditor.",
+    "reproduce": "The auditor version is pinned to the same commit the range ends on, so one checkout gives you both the tool and the history it graded:"
+  },
+  "records": [
+    {
+      "sha": "08438426ebe3eed4e09e78ab34ba4c606fec92eb",
+      "subject": "docs(plans): re-stamp the work-account CLI verb post-renumber (docs/310 P3)",
+      "ruling": "CONFIRMED",
+      "class": "convention",
+      "rung": "human",
+      "rationale": "A deliberate empty commit: this workspace's re-stamp convention re-anchors a plan phase's ship-stamp after a plan-number collision, so the claim rests on subject text alone **by design**. The auditor is right to count it."
+    },
+    {
+      "sha": "cc00bf10ac0adfef6dda6b9f088a1b4e66be91f6",
+      "subject": "docs(plans): re-stamp the severity-gate wiring post-renumber (docs/310 P2)",
+      "ruling": "CONFIRMED",
+      "class": "convention",
+      "rung": "human",
+      "rationale": "Same convention, same renumber event."
+    },
+    {
+      "sha": "bf05e276e0d757bc4dd2442713fab8a61dd6ae5e",
+      "subject": "docs(plans): re-stamp the work-kind account leaf post-renumber (docs/310 P1)",
+      "ruling": "CONFIRMED",
+      "class": "convention",
+      "rung": "human",
+      "rationale": "Same convention, same renumber event."
+    }
+  ]
+}
