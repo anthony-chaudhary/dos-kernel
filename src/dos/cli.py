@@ -5932,8 +5932,11 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             gating = True
         # The config-integrity linter (docs/227, G1 from docs/189): one pure kernel
         #   (full prose: docs/CLI.md § "The config-integrity linter (docs/227, G1 from docs/189): on")
+        # The plan-namespace rail (docs/317 P2) rides the same call: the duplicate-
+        # number map is gathered from the workspace's plans glob at this boundary.
         from dos import config_lint as _cl
-        for _f in _cl.lint(cfg.lanes, cfg.reasons):
+        from dos.phase_shipped import _gather_ambiguous_plan_heads as _dup_plans
+        for _f in _cl.lint(cfg.lanes, cfg.reasons, duplicate_plans=_dup_plans(cfg)):
             findings.append(_f.line())
             if _f.severity is not _cl.Severity.INFO:
                 gating = True
@@ -6176,8 +6179,9 @@ def cmd_lint(args: argparse.Namespace) -> int:
     _apply_workspace(args)
     cfg = _config.active()
     from dos import config_lint as _cl
+    from dos.phase_shipped import _gather_ambiguous_plan_heads as _dup_plans
 
-    findings = _cl.lint(cfg.lanes, cfg.reasons)
+    findings = _cl.lint(cfg.lanes, cfg.reasons, duplicate_plans=_dup_plans(cfg))
     strict = bool(getattr(args, "strict", False))
 
     if getattr(args, "json", False):

@@ -159,3 +159,80 @@ def test_unique_number_keeps_short_trailer_byte_identical(tmp_path: Path):
     v = oracle.is_shipped("docs/410_solo-plan", "P1", cfg=cfg)
     assert v.shipped is True, v
     assert v.rung == "trailer"
+
+
+# ---------------------------------------------------------------------------
+# docs/317 P2 — the PLAN_NUMBER_DUPLICATE lint finding.
+# ---------------------------------------------------------------------------
+
+
+def test_lint_plans_pure():
+    from dos import config_lint as cl
+
+    dupes = {"306": ("306_alpha-widget-plan", "306_beta-gadget-plan")}
+    findings = cl.lint_plans(dupes)
+    assert len(findings) == 1
+    f = findings[0]
+    assert f.kind is cl.LintKind.PLAN_NUMBER_DUPLICATE
+    assert f.severity is cl.Severity.WARN
+    assert f.subject == "306"
+    # The disjoin move is a rename — the finding must name BOTH files.
+    assert "306_alpha-widget-plan" in f.detail
+    assert "306_beta-gadget-plan" in f.detail
+
+    assert cl.lint_plans({}) == ()
+    assert cl.lint_plans(None) == ()
+
+
+def test_lint_threads_duplicate_plans(tmp_path: Path):
+    """`lint()` carries the plan rail; omitted, the call is byte-identical."""
+    from dos import config_lint as cl
+
+    taxonomy = default_config(tmp_path).lanes
+    base = cl.lint(taxonomy)
+    with_dupes = cl.lint(
+        taxonomy,
+        duplicate_plans={"306": ("306_alpha-widget-plan", "306_beta-gadget-plan")},
+    )
+    new = [f for f in with_dupes if f.kind is cl.LintKind.PLAN_NUMBER_DUPLICATE]
+    assert len(new) == 1
+    assert set(with_dupes) - set(new) == set(base)
+    assert not any(f.kind is cl.LintKind.PLAN_NUMBER_DUPLICATE for f in base)
+
+
+def test_cli_lint_surfaces_duplicate_number(two_306: Path):
+    """`dos lint --json` on a two-same-number workspace emits the finding
+    (and gates: warn fails the default lint exit)."""
+    import json as _json
+    import sys
+
+    proc = subprocess.run(
+        [sys.executable, "-m", "dos.cli", "lint",
+         "--workspace", str(two_306), "--json"],
+        capture_output=True, text=True,
+    )
+    payload = _json.loads(proc.stdout)
+    kinds = {f["kind"] for f in payload["findings"]}
+    assert "PLAN_NUMBER_DUPLICATE" in kinds, payload
+    dup = next(f for f in payload["findings"] if f["kind"] == "PLAN_NUMBER_DUPLICATE")
+    assert dup["subject"] == "306"
+    assert "306_alpha-widget-plan" in dup["detail"]
+    assert "306_beta-gadget-plan" in dup["detail"]
+    assert proc.returncode == 1  # warn gates the default lint verdict
+
+
+def test_cli_lint_clean_without_duplicates(tmp_path: Path):
+    """A unique-number workspace emits no plan-namespace finding."""
+    import json as _json
+    import sys
+
+    repo = _repo_with_plans(tmp_path, ["410_solo-plan.md"])
+    proc = subprocess.run(
+        [sys.executable, "-m", "dos.cli", "lint",
+         "--workspace", str(repo), "--json"],
+        capture_output=True, text=True,
+    )
+    payload = _json.loads(proc.stdout)
+    assert not any(
+        f["kind"] == "PLAN_NUMBER_DUPLICATE" for f in payload["findings"]
+    ), payload

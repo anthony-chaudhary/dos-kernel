@@ -74,6 +74,8 @@ class LintKind(str, enum.Enum):
     CONCURRENT_LANES_OVERLAP = "CONCURRENT_LANES_OVERLAP"
     # -- reason registry ------------------------------------------------------
     REASON_SEE_ALSO_DANGLES = "REASON_SEE_ALSO_DANGLES"
+    # -- plan namespace (docs/317 P2) -----------------------------------------
+    PLAN_NUMBER_DUPLICATE = "PLAN_NUMBER_DUPLICATE"
 
     def __str__(self) -> str:  # pragma: no cover - trivial
         return self.value
@@ -431,6 +433,48 @@ def lint_reasons(registry, *, known_lanes: Iterable[str]) -> tuple[Finding, ...]
 
 
 # ---------------------------------------------------------------------------
+# The plan-namespace lint (docs/317 P2). Two declared plans sharing a docs/NN
+# number share one STAMP HANDLE: until the slug-or-nothing oracle rule
+# (docs/317 P1) refuses it, a bare `(docs/NN Pk)` stamp witnesses either plan —
+# and under the rule, it witnesses neither, so the duplicate is dead-policy
+# shaped either way: a number that can no longer do its job. The fold that
+# DETECTS the duplicates lives with its consumer (`phase_shipped.
+# duplicate_plan_heads`, the one implementation both the oracle and this lint
+# read); this leaf stays pure by taking the already-folded map as data —
+# gathered at the CLI boundary like every other workspace fact.
+# ---------------------------------------------------------------------------
+
+
+def lint_plans(duplicate_plans) -> tuple[Finding, ...]:
+    """The plan-namespace integrity findings, unsorted (the caller sorts).
+
+    `duplicate_plans` is the `{number-head: (basenames…)}` map of heads shared
+    by ≥ 2 declared plan docs (the `phase_shipped.duplicate_plan_heads` fold,
+    fed from the workspace's own `plans_glob` at the boundary). One WARN per
+    shared head, naming EVERY colliding basename — the disjoin move is a
+    rename, so the finding must say which files collide. Severity warn, not
+    error: under the docs/317 P1 oracle rule the verdicts stay truthful per
+    plan (bare-head stamps refuse); the duplicate is suspect policy, not
+    corruption. Pure: no I/O; `None`/empty → no findings.
+    """
+    findings: list[Finding] = []
+    for head in sorted(duplicate_plans or {}):
+        names = tuple((duplicate_plans or {})[head])
+        findings.append(Finding(
+            kind=LintKind.PLAN_NUMBER_DUPLICATE,
+            severity=Severity.WARN,
+            subject=str(head),
+            detail=(f"{len(names)} declared plan docs share number {head!r} "
+                    f"({', '.join(names)}) — a bare number-head ship-stamp on "
+                    f"that number is ambiguous, so the oracle refuses it for "
+                    f"every one of them (docs/317 slug-or-nothing)"),
+            fix=("renumber all but the first-committed plan (git mv + re-stamp, "
+                 "the docs/317 playbook), or stamp with the full plan slug"),
+        ))
+    return tuple(findings)
+
+
+# ---------------------------------------------------------------------------
 # The top-level lint — both registries, sorted.
 # ---------------------------------------------------------------------------
 
@@ -441,19 +485,23 @@ def _sort_key(f: Finding) -> tuple[int, str, str]:
     return (_SEVERITY_RANK[f.severity], f.kind.value, f.subject)
 
 
-def lint(taxonomy, registry=None) -> tuple[Finding, ...]:
+def lint(taxonomy, registry=None, *, duplicate_plans=None) -> tuple[Finding, ...]:
     """Every config-integrity finding across the lane taxonomy and (optionally) the
     reason registry, sorted error → warn → info.
 
     `registry` is optional: a caller that only has a taxonomy (or wants only the
     lane rail) passes `None` and gets the lane findings alone. When a registry is
     given, its `see_also` pointers are checked against the taxonomy's declared lanes
-    (so the cross-reference check sees both halves). Pure: no I/O.
+    (so the cross-reference check sees both halves). `duplicate_plans` is optional
+    (docs/317 P2): the `{number-head: (basenames…)}` map of shared plan numbers the
+    boundary gathered from the workspace's plans glob — omitted/empty, the plan
+    rail emits nothing and the call is byte-identical to before. Pure: no I/O.
     """
     findings: list[Finding] = list(lint_lanes(taxonomy))
     if registry is not None:
         known = set(taxonomy.concurrent) | set(taxonomy.exclusive)
         findings.extend(lint_reasons(registry, known_lanes=known))
+    findings.extend(lint_plans(duplicate_plans))
     return tuple(sorted(findings, key=_sort_key))
 
 
