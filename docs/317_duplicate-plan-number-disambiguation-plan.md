@@ -1,8 +1,7 @@
 # docs/317 — duplicate plan numbers must not cross-witness: slug-or-nothing stamps + the duplicate-number lint
 
-> **Status:** P1 executed 2026-06-12 (`de45c1d`, re-stamped under the full
-> slug in `c956d2a`); P2 executed 2026-06-12 (`8aea2c6`, carries `Fixes #80`
-> — P1+P2 together meet the issue's done-condition). P3 not started.
+> **Status:** all three phases executed 2026-06-12 — P1 `de45c1d` (slug
+> re-stamp `c956d2a`), P2 `8aea2c6` (carries `Fixes #80`), P3 `b762bc6`.
 > Tracking handle: issue
 > [#80](https://github.com/anthony-chaudhary/dos-kernel/issues/80). The
 > adjudicator for each phase is
