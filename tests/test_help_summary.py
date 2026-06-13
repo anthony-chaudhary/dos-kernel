@@ -172,28 +172,80 @@ def test_should_nudge_custom_interval():
 # ---------------------------------------------------------------------------
 
 
-def test_nudge_line_singular_and_plural():
-    one = hs.summarize([_enforce(intervention="BLOCK")])
-    assert "caught 1 thing this session" in hs.nudge_line(one)
-    assert "(1 blocked)" in hs.nudge_line(one)
-    many = hs.summarize([_enforce(intervention="BLOCK"),
+def test_nudge_line_refused_first_singular_and_plural():
+    """The nudge leads with the REFUSED count (what DOS did), advisories in a tail."""
+    one = hs.summarize([_enforce(intervention="BLOCK", withheld=True)])
+    assert "refused 1 call this session" in hs.nudge_line(one)
+    # One refusal, one advisory warn — refused leads, advisory is the parenthetical.
+    many = hs.summarize([_enforce(intervention="BLOCK", withheld=True),
                          _enforce(intervention="WARN", withheld=False)])
     line = hs.nudge_line(many)
-    assert "caught 2 things this session" in line
-    assert "1 blocked" in line and "1 warned" in line
+    assert "refused 1 call this session" in line
+    assert "+1 advisory" in line
+
+
+def test_nudge_line_advisory_only_never_implies_a_refusal():
+    """A session that only WARNed says so — never "refused N" when nothing was withheld."""
+    adv = hs.summarize([_enforce(intervention="WARN", withheld=False),
+                        _enforce(intervention="WARN", withheld=False)])
+    line = hs.nudge_line(adv)
+    assert "surfaced 2 advisory cautions" in line
+    assert "no calls refused" in line
+    assert "refused 2" not in line
 
 
 def test_render_summary_headline_and_breakdowns():
     recs = [
-        _enforce(reason_class="SELF_MODIFY", tool="Write"),
-        _enforce(reason_class="SELF_MODIFY", tool="Edit"),
+        _enforce(reason_class="SELF_MODIFY", tool="Write", withheld=True),
+        _enforce(reason_class="SELF_MODIFY", tool="Edit", withheld=True),
         _enforce(reason_class="COLLISION", tool="Edit", withheld=True),
     ]
     text = hs.render_summary_text(hs.summarize(recs))
-    assert "DOS has caught 3 things" in text
-    assert "by reason" in text and "SELF_MODIFY" in text and "COLLISION" in text
-    assert "by tool" in text and "Edit" in text and "Write" in text
-    assert "3 calls actually refused" in text
+    # Refused-first headline + the derived sub-line (by reason class of the refusals).
+    assert "DOS has refused 3 calls for you" in text
+    assert "2 SELF_MODIFY" in text and "1 COLLISION" in text
+    assert "by reason (refused + advisory)" in text and "SELF_MODIFY" in text
+    assert "by tool (refused + advisory)" in text and "Edit" in text and "Write" in text
+
+
+def test_render_summary_headline_advisory_below_refused():
+    """The advisory cautions appear on their own labeled line under the refused count,
+    never lumped into one inflated total (the core 'make helped honest' change)."""
+    recs = [
+        _enforce(reason_class="SELF_MODIFY", tool="Write", withheld=True),
+        # 4 advisory warns — the noise that used to dominate the headline.
+        *[_enforce(intervention="WARN", reason_class="", handler="admission",
+                   tool="Read", withheld=False) for _ in range(4)],
+    ]
+    text = hs.render_summary_text(hs.summarize(recs))
+    assert "DOS has refused 1 call for you" in text
+    assert "+ 4 advisory cautions surfaced" in text
+    # The inflated "caught 5" total never appears as the headline.
+    assert "caught 5" not in text and "refused 5" not in text
+
+
+def test_render_summary_advisory_only_leads_with_advisory_not_refusal():
+    """When nothing was withheld, the headline is honest that DOS only advised."""
+    recs = [_enforce(intervention="WARN", reason_class="", handler="admission",
+                     tool="Read", withheld=False) for _ in range(3)]
+    text = hs.render_summary_text(hs.summarize(recs))
+    assert "DOS surfaced 3 advisory cautions" in text
+    assert "no calls were refused" in text
+    assert "refused 3" not in text
+
+
+def test_render_summary_headline_is_data_derived_for_any_reason_class():
+    """The refused sub-line is DERIVED from by_refused_reason — it renders a class
+    this repo never shows (provenance/UNKNOWN_LANE), not a hardcoded two-category
+    sentence. Guards the docs/285-Phase-3 generalization."""
+    recs = [
+        _enforce(reason_class="UNKNOWN_LANE", tool="Bash", withheld=True),
+        _enforce(reason_class="", handler="provenance", tool="Write", withheld=True),
+    ]
+    text = hs.render_summary_text(hs.summarize(recs))
+    assert "DOS has refused 2 calls for you" in text
+    assert "1 UNKNOWN_LANE (undeclared lane)" in text
+    assert "1 provenance (unwitnessed effect)" in text
 
 
 def test_render_summary_observe_only_is_honest():
@@ -229,8 +281,9 @@ def test_cli_helped_reads_lane_journal(tmp_path, monkeypatch, capsys):
     rc = cli.main(["helped", "--workspace", str(ws)])
     assert rc == 0
     out = capsys.readouterr().out
-    assert "DOS has caught 2 things" in out  # BLOCK + WARN, not OBSERVE
-    assert "1 blocked" in out and "1 warned" in out
+    # The BLOCK was withheld → 1 refused; the WARN was advisory → on its own line.
+    assert "DOS has refused 1 call for you" in out
+    assert "advisory caution" in out  # the warn, surfaced not lumped
 
 
 def test_cli_helped_json(tmp_path, capsys):
@@ -260,7 +313,8 @@ def test_cli_helped_empty_journal_is_clean(tmp_path, capsys):
     rc = cli.main(["helped", "--workspace", str(tmp_path)])
     assert rc == 0
     out = capsys.readouterr().out
-    assert "DOS has caught 0 things" in out
+    assert "DOS has refused 0 calls" in out
+    assert "DOS has been observing, not blocking" in out
 
 
 # ---------------------------------------------------------------------------
@@ -464,3 +518,139 @@ def test_cli_helped_explain_renders_examples(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "means:" in out
     assert "src/dos/arbiter.py" in out
+
+
+# ---------------------------------------------------------------------------
+# The refused-vs-advisory split (docs/285 Phase 3) — the honest-headline change.
+# A help DOS actually STOPPED (withheld) vs one it only WARNed on (advisory).
+# ---------------------------------------------------------------------------
+
+
+def test_advisory_property_is_total_minus_withheld():
+    """`advisory` is the complement of `withheld` within `total` — the cautions."""
+    recs = [
+        _enforce(intervention="BLOCK", withheld=True),
+        _enforce(intervention="BLOCK", withheld=True),
+        _enforce(intervention="WARN", withheld=False),
+        _enforce(intervention="WARN", withheld=False),
+        _enforce(intervention="WARN", withheld=False),
+    ]
+    s = hs.summarize(recs)
+    assert s.total == 5 and s.withheld == 2
+    assert s.advisory == 3                       # 5 total − 2 withheld
+    assert s.withheld + s.advisory == s.total    # the partition invariant
+
+
+def test_by_refused_reason_counts_only_withheld_helps():
+    """`by_refused_reason` is the withheld subset — never an advisory warn."""
+    recs = [
+        _enforce(reason_class="SELF_MODIFY", withheld=True),
+        _enforce(reason_class="SELF_MODIFY", withheld=True),
+        # An advisory warn in the SAME reason class must NOT enter by_refused_reason.
+        _enforce(reason_class="SELF_MODIFY", intervention="WARN", withheld=False),
+        _enforce(reason_class="COLLISION", withheld=True),
+    ]
+    s = hs.summarize(recs)
+    assert s.by_refused_reason == {"SELF_MODIFY": 2, "COLLISION": 1}
+    # by_reason (the full breakdown) still counts the advisory warn.
+    assert s.by_reason["SELF_MODIFY"] == 3
+
+
+def test_by_advisory_tool_counts_only_advisory_helps():
+    """`by_advisory_tool` is the non-withheld subset, keyed by tool."""
+    recs = [
+        _enforce(intervention="WARN", tool="Read", withheld=False),
+        _enforce(intervention="WARN", tool="Read", withheld=False),
+        _enforce(intervention="WARN", tool="Grep", withheld=False),
+        # A withheld BLOCK on a tool must NOT enter by_advisory_tool.
+        _enforce(intervention="BLOCK", tool="Write", withheld=True),
+    ]
+    s = hs.summarize(recs)
+    assert s.by_advisory_tool == {"Read": 2, "Grep": 1}
+    assert "Write" not in s.by_advisory_tool
+
+
+def test_to_dict_carries_advisory_and_split_breakdowns():
+    recs = [
+        _enforce(reason_class="SELF_MODIFY", tool="Write", withheld=True),
+        _enforce(intervention="WARN", tool="Read", withheld=False),
+    ]
+    d = hs.summarize(recs).to_dict()
+    assert d["withheld"] == 1 and d["advisory"] == 1
+    assert d["by_refused_reason"] == {"SELF_MODIFY": 1}
+    assert d["by_advisory_tool"] == {"Read": 1}
+
+
+def test_short_label_known_and_unknown_never_invents():
+    assert hs.short_label("SELF_MODIFY") == "kernel-self-edit"
+    assert hs.short_label("self_modify") == "kernel-self-edit"   # case-insensitive
+    assert hs.short_label("TOTALLY_MADE_UP") == ""               # never invented
+    assert hs.short_label("") == ""
+
+
+def test_render_advisory_text_lists_cautions_by_tool():
+    recs = [
+        _enforce(reason_class="SELF_MODIFY", tool="Write", withheld=True),
+        _enforce(intervention="WARN", handler="admission", tool="Read",
+                 withheld=False, reason="lane 'Read' has an EMPTY tree — refusing"),
+        _enforce(intervention="WARN", handler="admission", tool="Grep",
+                 withheld=False, reason="lane 'Grep' has an EMPTY tree — refusing"),
+    ]
+    text = hs.render_advisory_text(hs.summarize(recs, with_examples=True))
+    assert "DOS surfaced 2 advisory cautions" in text
+    assert "by tool" in text and "Read" in text and "Grep" in text
+    assert "changed nothing" in text
+    # The withheld SELF_MODIFY (a real refusal) is NOT in the advisory view.
+    assert "Write" not in text
+
+
+def test_render_advisory_text_zero_is_clean():
+    """No advisory cautions → an honest message, not a fake table."""
+    text = hs.render_advisory_text(hs.summarize([_enforce(withheld=True)]))
+    assert "DOS surfaced 0 advisory cautions" in text
+    assert "see `dos helped`" in text
+
+
+def test_cli_helped_advisory_flag(tmp_path, capsys):
+    import json
+    from dos import cli
+
+    ws = tmp_path
+    (ws / ".dos").mkdir()
+    recs = [
+        _enforce(intervention="BLOCK", reason_class="SELF_MODIFY", tool="Write",
+                 withheld=True),
+        _enforce(intervention="WARN", handler="admission", tool="Read",
+                 withheld=False, reason="lane 'Read' has an EMPTY tree — refusing"),
+    ]
+    (ws / ".dos" / "lane-journal.jsonl").write_text(
+        "\n".join(json.dumps(r) for r in recs) + "\n", encoding="utf-8")
+
+    rc = cli.main(["helped", "--workspace", str(ws), "--advisory"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "advisory" in out and "Read" in out
+    assert "Write" not in out          # the refusal is not in the advisory view
+
+
+def test_cli_helped_json_carries_split(tmp_path, capsys):
+    import json
+    from dos import cli
+
+    ws = tmp_path
+    (ws / ".dos").mkdir()
+    recs = [
+        _enforce(intervention="BLOCK", reason_class="SELF_MODIFY", tool="Write",
+                 withheld=True),
+        _enforce(intervention="WARN", handler="admission", tool="Read",
+                 withheld=False),
+    ]
+    (ws / ".dos" / "lane-journal.jsonl").write_text(
+        "\n".join(json.dumps(r) for r in recs) + "\n", encoding="utf-8")
+
+    rc = cli.main(["helped", "--workspace", str(ws), "--json"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["withheld"] == 1 and payload["advisory"] == 1
+    assert payload["by_refused_reason"] == {"SELF_MODIFY": 1}
+    assert payload["by_advisory_tool"] == {"Read": 1}

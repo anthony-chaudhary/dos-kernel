@@ -4518,7 +4518,7 @@ def _append_additional_context(dialect: dict, text: str) -> dict:
 
 
 def _operator_help_nudge(event: dict, outcome: dict, cfg) -> str:
-    """The one-line "DOS has caught N things this session" nudge, or "" (pure-ish).
+    """The one-line "DOS has refused N calls this session" nudge, or "" (pure-ish).
 
     Detail: docs/CLI.md § _operator_help_nudge.
     """
@@ -5721,13 +5721,16 @@ def cmd_helped(args: argparse.Namespace) -> int:
     holder = (getattr(args, "session", "") or "").strip()
     since = (getattr(args, "since", "") or "").strip()
     explain = bool(getattr(args, "explain", False))
+    advisory = bool(getattr(args, "advisory", False))
     try:
         records = _lane_journal.read_all(path=_lane_lease._journal_path(cfg))
     except Exception:  # noqa: BLE001 — a read fault degrades to "nothing", never a crash
         records = []
-    # `--explain` (and `--json`) bank the per-reason examples; the bare rollup doesn't.
+    # `--explain` / `--advisory` (and `--json`) bank the example sets; the bare
+    # rollup doesn't, so the hot default path stays cheap.
     summary = _help.summarize(records, holder=holder, since=since,
-                              with_examples=explain or bool(getattr(args, "json", False)))
+                              with_examples=explain or advisory
+                              or bool(getattr(args, "json", False)))
 
     # The denominator (docs/297 P2, issue #24): the per-call hook-observation log,
     # read ONCE at this boundary. Like-for-like only — BOTH sides of the rate come
@@ -5759,7 +5762,9 @@ def cmd_helped(args: argparse.Namespace) -> int:
         scope = f"session {holder}"
     if since:
         scope = (scope + " · " if scope else "") + f"since {since}"
-    if explain:
+    if advisory:
+        print(_help.render_advisory_text(summary, scope=scope))
+    elif explain:
         print(_help.render_explain_text(summary, scope=scope))
     else:
         print(_help.render_summary_text(summary, scope=scope, rate=rate))
@@ -9832,7 +9837,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     # helped — the operator-facing "what did DOS catch for me?" rollup (help_summary):
     # fold the BLOCK/WARN/DEFER enforcement records the lane WAL already carries into a
-    # "DOS has caught N things" summary, by reason class + tool. The last observability
+    # "DOS has refused N calls for you" summary (the refusals headline the count; the
+    # advisory cautions are a labeled line below, via --advisory). The last observability
     # rung — from the journal out to the human. Read-only (the observe/decisions posture).
     phlp = sub.add_parser(
         "helped",
@@ -9845,9 +9851,12 @@ def build_parser() -> argparse.ArgumentParser:
     phlp.add_argument("--explain", action="store_true",
                       help="drill down: per reason class, its plain-English meaning + "
                            "concrete examples (which file, why)")
+    phlp.add_argument("--advisory", action="store_true",
+                      help="show the advisory cautions DOS surfaced but did NOT act on "
+                           "(warned-and-passed calls), broken down by tool")
     phlp.add_argument("--json", action="store_true",
-                      help="machine-readable {total, blocked, warned, by_reason, by_tool, "
-                           "examples, glossary, …}")
+                      help="machine-readable {refused/withheld, advisory, by_refused_reason, "
+                           "by_advisory_tool, by_reason, by_tool, examples, glossary, …}")
     phlp.set_defaults(func=cmd_helped)
 
     # export — the verdict-journal DRAIN (docs/266): ship the stream outward to an

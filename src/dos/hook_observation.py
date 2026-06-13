@@ -4,8 +4,9 @@ Every hook invocation can append ONE schema-tagged JSONL line to the workspace's
 observation log (`.dos/metrics/observations.jsonl`): which verb fired, what it
 decided, how long it took. That log is the only surface that knows the
 **denominator** — how many tool calls the substrate adjudicated at all — so it is
-what turns the absolute "DOS caught N things" count into the rate an operator
-actually wants ("light touch or nanny?", issue #24).
+what turns the absolute "DOS refused N calls" count into the rate an operator
+actually wants ("light touch or nanny?", issue #24), split refused-vs-advised so
+the rate tells the same story as the `help_summary` headline (docs/285 Phase 3).
 
 The family was born on the plugin's Go binary (docs/276 Part 2). THIS module is
 the docs/297 Option-B move: the kernel takes ownership of the contract — the
@@ -62,6 +63,13 @@ SCHEMA_VERSION = 1
 
 # Every record's `op` — the observation log records, it never decides.
 OP_OBSERVE = "OBSERVE"
+
+# The pretool `outcome` tokens that mean the call was REFUSED (the kernel stopped
+# it), as opposed to `warn` (advised, but let proceed) or `passthrough` (clean).
+# `deny` is what the admission rung writes today; `block` is the alias the
+# `observation_entry` docstring lists, included so a conforming writer that emits
+# the rung name instead of the decision verb still counts as a refusal.
+_REFUSED_OUTCOMES = frozenset({"deny", "block"})
 
 # The log location under the workspace's `.dos/` home: a sibling of `streams/`
 # and `runs/` (`.dos/metrics/observations.jsonl`).
@@ -260,17 +268,29 @@ def read_observations(path: Optional[Path] = None,
 class InterventionRate:
     """The folded "what share of tool calls did the kernel touch?" value.
 
-    All five counts come from ONE observation log — never the lane journal (the
+    All counts come from ONE observation log — never the lane journal (the
     like-for-like rule). `pretool_records` is every pretool record seen;
     `adjudicated` excludes the `delegate` handoffs (the docs/297 denominator
     rule); `passed` + `intervened` partition `adjudicated`. The percents are
     properties so a renderer never recomputes the arithmetic differently.
+
+    `intervened` itself splits the two ways the operator cares about (the same
+    refused-vs-advisory line `help_summary` draws on the lane journal): `refused`
+    is a call the kernel actually STOPPED (`deny`/`block` outcome — DOS did
+    something for you), `advised` is a call the kernel warned about but LET
+    PROCEED (`warn` outcome — a caution that changed nothing). On every outcome
+    the kernel emits today `intervened == refused + advised`; a future outcome
+    token outside {deny, block, warn} would count in `intervened` but in neither
+    sub-bucket (`intervened >= refused + advised` always), the safe direction —
+    so a lumped "5% intervened" can no longer hide that most of it was advisory.
     """
 
     pretool_records: int = 0
     adjudicated: int = 0
     passed: int = 0
     intervened: int = 0
+    refused: int = 0
+    advised: int = 0
     delegated: int = 0
 
     @property
@@ -285,14 +305,30 @@ class InterventionRate:
             return 0.0
         return self.intervened * 100.0 / self.adjudicated
 
+    @property
+    def refused_pct(self) -> float:
+        if self.adjudicated <= 0:
+            return 0.0
+        return self.refused * 100.0 / self.adjudicated
+
+    @property
+    def advised_pct(self) -> float:
+        if self.adjudicated <= 0:
+            return 0.0
+        return self.advised * 100.0 / self.adjudicated
+
     def to_dict(self) -> dict:
         return {
             "adjudicated": self.adjudicated,
             "passed": self.passed,
             "intervened": self.intervened,
+            "refused": self.refused,
+            "advised": self.advised,
             "delegated": self.delegated,
             "passed_pct": round(self.passed_pct, 1),
             "intervened_pct": round(self.intervened_pct, 1),
+            "refused_pct": round(self.refused_pct, 1),
+            "advised_pct": round(self.advised_pct, 1),
         }
 
 
@@ -304,7 +340,11 @@ def intervention_rate(records: Iterable[dict], *, since: str = "") -> Interventi
     `delegate` outcome leaves the denominator: it is a handoff whose real
     verdict is another record (docs/297) — counting both would count the call
     twice. Everything adjudicated that did not pass through untouched was
-    intervened on (deny / warn — the rungs that touched the call).
+    intervened on, and that intervention splits two ways: a `deny`/`block`
+    outcome REFUSED the call (the kernel stopped it), a `warn` outcome ADVISED
+    on it but let it proceed. On the outcomes the kernel emits today
+    `intervened == refused + advised`; an unknown future token counts in
+    `intervened` but neither sub-bucket (`intervened >= refused + advised`).
 
     `since` keeps only records with `ts >= since` (ISO-8601 sorts lexically);
     when a window is set, a record with no `ts` is skipped — a windowed fold
@@ -314,7 +354,7 @@ def intervention_rate(records: Iterable[dict], *, since: str = "") -> Interventi
     observation records ONLY; there is deliberately no parameter through which
     a lane-journal count could enter either side of the ratio.
     """
-    pretool_records = adjudicated = passed = delegated = 0
+    pretool_records = adjudicated = passed = refused = advised = delegated = 0
     for rec in records:
         if rec.get("verb") != "pretool":
             continue
@@ -329,11 +369,21 @@ def intervention_rate(records: Iterable[dict], *, since: str = "") -> Interventi
         adjudicated += 1
         if outcome == "passthrough":
             passed += 1
+        elif outcome in _REFUSED_OUTCOMES:
+            refused += 1
+        elif outcome == "warn":
+            advised += 1
+        # An adjudicated outcome outside these tokens (none today) still counts in
+        # `adjudicated` and so in `intervened = adjudicated - passed`, but lands in
+        # neither `refused` nor `advised` — the safe direction: we never label an
+        # unknown outcome a refusal it might not be.
     return InterventionRate(
         pretool_records=pretool_records,
         adjudicated=adjudicated,
         passed=passed,
         intervened=adjudicated - passed,
+        refused=refused,
+        advised=advised,
         delegated=delegated,
     )
 

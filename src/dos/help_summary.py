@@ -71,8 +71,9 @@ REASON_GLOSSARY: dict[str, str] = {
                               "already full",
     # The env-authored handler-name fallbacks (written when a record predates the
     # typed-token lift) — explained as the rung that proposed the block.
-    "admission": "the lane-admission rung refused the call (usually a SELF_MODIFY "
-                 "edit or a held-lane collision)",
+    "admission": "the lane-admission rung acted on the call — a held-lane collision "
+                 "(refused) or a contention caution on an unknown/empty footprint "
+                 "(advised, the call proceeded)",
     "provenance": "the provenance rung refused the call (the claimed effect could "
                   "not be witnessed)",
     "UNCLASSIFIED": "the kernel refused the call but recorded no typed reason "
@@ -89,6 +90,43 @@ def explain_reason(reason_class: str) -> str:
     if not reason_class:
         return ""
     return REASON_GLOSSARY.get(reason_class, REASON_GLOSSARY.get(reason_class.upper(), ""))
+
+
+# A SHORT (2-3 word) label per reason class for the refused-headline sub-line —
+# the long `REASON_GLOSSARY` sentence is too wide to inline next to a count. Keyed
+# by the same tokens. An unknown class falls back to no parenthetical (just the
+# token + count), never an invented label — the same never-guess rule as the gloss.
+REASON_SHORT_LABEL: dict[str, str] = {
+    "SELF_MODIFY": "kernel-self-edit",
+    "UNKNOWN_LANE": "undeclared lane",
+    "SCHEMA_UNREADABLE": "unreadable schema",
+    "CLASS_BUDGET_EXHAUSTED": "class budget full",
+    "admission": "lane collision",
+    "provenance": "unwitnessed effect",
+    "UNCLASSIFIED": "untyped refusal",
+}
+
+
+def short_label(reason_class: str) -> str:
+    """A 2-3 word label for a reason class, or "" if unknown. Pure. Never invents."""
+    if not reason_class:
+        return ""
+    return REASON_SHORT_LABEL.get(
+        reason_class, REASON_SHORT_LABEL.get(reason_class.upper(), ""))
+
+
+def _refused_breakdown(summary: "HelpSummary") -> str:
+    """The headline sub-line: "168 SELF_MODIFY (kernel-self-edit), 8 admission …".
+
+    DERIVED from `by_refused_reason` (the withheld-only reason counts), so it is
+    correct for ANY reason class the kernel emits — never a hardcoded two-category
+    sentence. Each part is `<n> <class> (<short label>)`, the label dropped when
+    unknown (we never invent one). Empty string when nothing was refused."""
+    parts: list[str] = []
+    for reason, n in summary.by_refused_reason.items():
+        label = short_label(reason)
+        parts.append(f"{n} {reason} ({label})" if label else f"{n} {reason}")
+    return ", ".join(parts)
 
 # The in-flow nudge cadence: surface once on the FIRST help of a session (so the
 # operator learns the substrate is working), then every 5th after. `1` and every
@@ -145,7 +183,20 @@ class HelpSummary:
     # a bucket honestly — `by_reason` alone cannot say whether its 25 records were
     # denies or advisory warns (issue #9: a mostly-WARN bucket rendered as "25 blocks").
     by_reason_rung: dict[str, dict[str, int]] = field(default_factory=dict)
+    # The WITHHELD subset, split out so the headline sub-line is DERIVED from the
+    # data, never a hardcoded two-category sentence. `by_refused_reason` answers
+    # "of the calls actually stopped, what KIND were they?" (SELF_MODIFY, admission,
+    # provenance, …) — correct for any reason class, not just the two this repo
+    # happens to show. `by_advisory_tool` is the advisory complement keyed by tool
+    # (the `dos helped --advisory` breakdown — advisory cautions cluster by tool).
+    by_refused_reason: dict[str, int] = field(default_factory=dict)
+    by_advisory_tool: dict[str, int] = field(default_factory=dict)
     examples: dict[str, tuple[Example, ...]] = field(default_factory=dict)
+    # A few concrete ADVISORY examples (non-withheld helps), distinct by their
+    # first-clause reason — for the `dos helped --advisory` view. A flat tuple (the
+    # advisory cautions are one conceptual bucket, unlike the per-reason `examples`).
+    # Populated only when `with_examples=True`, like `examples`.
+    advisory_examples: tuple[Example, ...] = ()
     since: str = ""
     latest: str = ""
 
@@ -161,11 +212,20 @@ class HelpSummary:
     def deferred(self) -> int:
         return self.by_rung.get("DEFER", 0)
 
+    @property
+    def advisory(self) -> int:
+        """Helps that were NOT withheld — DOS surfaced a caution but let the call
+        proceed. The complement of `withheld` within `total`: a `withheld` help
+        actually stopped the call (the headline number), an `advisory` one only
+        warned (the secondary line). Derived, not stored — `total - withheld`."""
+        return self.total - self.withheld
+
     def to_dict(self) -> dict:
         out = {
             "total": self.total,
             "enforced": self.enforced,
             "withheld": self.withheld,
+            "advisory": self.advisory,
             "blocked": self.blocked,
             "warned": self.warned,
             "deferred": self.deferred,
@@ -174,6 +234,8 @@ class HelpSummary:
             "by_reason_rung": {cls: dict(rungs)
                                for cls, rungs in self.by_reason_rung.items()},
             "by_tool": dict(self.by_tool),
+            "by_refused_reason": dict(self.by_refused_reason),
+            "by_advisory_tool": dict(self.by_advisory_tool),
             "since": self.since,
             "latest": self.latest,
         }
@@ -186,6 +248,8 @@ class HelpSummary:
                 cls: explain_reason(cls) for cls in self.by_reason
                 if explain_reason(cls)
             }
+        if self.advisory_examples:
+            out["advisory_examples"] = [e.to_dict() for e in self.advisory_examples]
         return out
 
 
@@ -296,8 +360,12 @@ def summarize(
     by_reason: dict[str, int] = {}
     by_reason_rung: dict[str, dict[str, int]] = {}
     by_tool: dict[str, int] = {}
+    by_refused_reason: dict[str, int] = {}
+    by_advisory_tool: dict[str, int] = {}
     examples: dict[str, list[Example]] = {}
     seen_targets: dict[str, set[str]] = {}
+    advisory_examples: list[Example] = []
+    seen_advisory: set[str] = set()
     first_ts = ""
     last_ts = ""
 
@@ -320,7 +388,8 @@ def summarize(
             continue  # recorded (counted in `enforced`) but not a help
         total += 1
         by_rung[rung] = by_rung.get(rung, 0) + 1
-        if rec.get("withheld") is True:
+        is_withheld = rec.get("withheld") is True
+        if is_withheld:
             withheld += 1
         # The TYPED reason class, recovered as far as the env allows (top-level →
         # the same token nested in the proposal body → the env-authored handler name
@@ -333,8 +402,21 @@ def summarize(
         rungs[rung] = rungs.get(rung, 0) + 1
         tool = str(rec.get("tool") or "").strip() or "-"
         by_tool[tool] = by_tool.get(tool, 0) + 1
+        # The refused-vs-advisory split, keyed off the env-authored `withheld` flag
+        # ONLY (no prose mined). A withheld help is one DOS actually stopped — break
+        # it down by reason class for the headline. A non-withheld help is advisory —
+        # break it down by tool for `--advisory` (cautions cluster by tool).
+        if is_withheld:
+            by_refused_reason[reason_class] = by_refused_reason.get(reason_class, 0) + 1
+        else:
+            by_advisory_tool[tool] = by_advisory_tool.get(tool, 0) + 1
 
         if with_examples:
+            reason_text = str(rec.get("reason") or "").strip()
+            body = rec.get("proposal")
+            if not reason_text and isinstance(body, dict):
+                reason_text = str(body.get("reason") or "").strip()
+            first_clause = _first_sentence(reason_text)
             bank = examples.setdefault(reason_class, [])
             if len(bank) < _EXAMPLES_PER_REASON:
                 target = _target_of(rec)
@@ -344,13 +426,17 @@ def summarize(
                 if not target or target not in seen:
                     if target:
                         seen.add(target)
-                    reason_text = str(rec.get("reason") or "").strip()
-                    body = rec.get("proposal")
-                    if not reason_text and isinstance(body, dict):
-                        reason_text = str(body.get("reason") or "").strip()
                     bank.append(Example(
-                        target=target, tool=tool, ts=ts,
-                        reason=_first_sentence(reason_text)))
+                        target=target, tool=tool, ts=ts, reason=first_clause))
+            # Advisory examples (non-withheld helps) — distinct by first-clause, so
+            # the `--advisory` view shows the SHAPE of the cautions (e.g. the
+            # empty-tree warn) rather than the same sentence repeated per tool.
+            if not is_withheld and len(advisory_examples) < _EXAMPLES_PER_REASON:
+                key = first_clause or f"<{tool}>"
+                if key not in seen_advisory:
+                    seen_advisory.add(key)
+                    advisory_examples.append(Example(
+                        target=_target_of(rec), tool=tool, ts=ts, reason=first_clause))
 
     return HelpSummary(
         total=total,
@@ -363,7 +449,12 @@ def summarize(
             for cls, rungs in by_reason_rung.items()
         },
         by_tool=dict(sorted(by_tool.items(), key=lambda kv: (-kv[1], kv[0]))),
+        by_refused_reason=dict(sorted(by_refused_reason.items(),
+                                      key=lambda kv: (-kv[1], kv[0]))),
+        by_advisory_tool=dict(sorted(by_advisory_tool.items(),
+                                     key=lambda kv: (-kv[1], kv[0]))),
         examples={cls: tuple(exs) for cls, exs in examples.items()},
+        advisory_examples=tuple(advisory_examples),
         since=first_ts,
         latest=last_ts,
     )
@@ -413,22 +504,25 @@ def should_nudge(help_index: int, *, every: int = _NUDGE_EVERY) -> bool:
 def nudge_line(summary: HelpSummary) -> str:
     """The one-line in-flow nudge appended to the hook's additionalContext.
 
-    Operator-facing, single sentence, no narration: "DOS has caught N things this
-    session (X blocked, Y warned)." Surfaced on the 1st + every 5th help so the
-    operator learns, in their normal flow, that the substrate is working — without
-    a separate command and without nagging.
+    Operator-facing, single sentence, no narration. Leads with what DOS actually
+    DID — the refused count — with the advisory cautions in a parenthetical, so
+    the one-liner matches the refused-first rollup headline rather than the old
+    lumped "caught N" total. Surfaced on the 1st + every 5th help so the operator
+    learns, in their normal flow, that the substrate is working — without a
+    separate command and without nagging.
     """
-    parts: list[str] = []
-    if summary.blocked:
-        parts.append(f"{summary.blocked} blocked")
-    if summary.warned:
-        parts.append(f"{summary.warned} warned")
-    if summary.deferred:
-        parts.append(f"{summary.deferred} deferred")
-    detail = f" ({', '.join(parts)})" if parts else ""
-    noun = "thing" if summary.total == 1 else "things"
+    advisory = summary.advisory
+    if summary.withheld:
+        call_noun = "call" if summary.withheld == 1 else "calls"
+        detail = f" (+{advisory} advisory)" if advisory else ""
+        return (
+            f"DOS has refused {summary.withheld} {call_noun} this session{detail}. "
+            f"Run `dos helped` for the breakdown."
+        )
+    # Nothing refused — be honest it was advisory-only, never imply a refusal.
+    cau = "caution" if advisory == 1 else "cautions"
     return (
-        f"DOS has caught {summary.total} {noun} this session{detail}. "
+        f"DOS surfaced {advisory} advisory {cau} this session (no calls refused). "
         f"Run `dos helped` for the breakdown."
     )
 
@@ -446,14 +540,27 @@ def _rate_lines(rate) -> list[str]:
     """
     if rate is None or rate.adjudicated <= 0:
         return []
-    return [
+    # The intervened share splits the same way the headline does: refused (a call
+    # actually stopped) vs advised (warned, but let proceed). Render both so the rate
+    # tells the SAME story as the headline — never a lumped "5% intervened" that hides
+    # how little of it was a real refusal. Duck-typed: an older InterventionRate
+    # without the split degrades to the lumped line (getattr fallback).
+    refused = getattr(rate, "refused", None)
+    advised = getattr(rate, "advised", None)
+    lines = [
         "",
         (f"  of {rate.adjudicated} tool calls adjudicated by the hooks, "
          f"{rate.passed} passed untouched ({rate.passed_pct:.1f}%) and "
          f"{rate.intervened} were intervened on ({rate.intervened_pct:.1f}%)"),
-        ("    (from the per-call hook observation log — its window and scope "
-         "differ from the catch counts above)"),
     ]
+    if refused is not None and advised is not None and rate.intervened:
+        lines.append(
+            f"    of those, {refused} were refused ({rate.refused_pct:.1f}%) and "
+            f"{advised} were advised-but-allowed ({rate.advised_pct:.1f}%)")
+    lines.append(
+        "    (from the per-call hook observation log — its window and scope "
+        "differ from the catch counts above)")
+    return lines
 
 
 def render_summary_text(summary: HelpSummary, *, scope: str = "",
@@ -472,21 +579,9 @@ def render_summary_text(summary: HelpSummary, *, scope: str = "",
     if scope:
         title += f" · {scope}"
     out.append(title)
-    noun = "thing" if summary.total == 1 else "things"
-    out.append(f"  DOS has caught {summary.total} {noun}"
-               + (f" since {summary.since}" if summary.since else ""))
-    if summary.total:
-        rung_parts = []
-        if summary.blocked:
-            rung_parts.append(f"{summary.blocked} blocked")
-        if summary.warned:
-            rung_parts.append(f"{summary.warned} warned")
-        if summary.deferred:
-            rung_parts.append(f"{summary.deferred} deferred")
-        out.append(f"    {', '.join(rung_parts)}"
-                   + (f"  ·  {summary.withheld} calls actually refused"
-                      if summary.withheld else ""))
+    since_tail = f" since {summary.since}" if summary.since else ""
     if not summary.total:
+        out.append(f"  DOS has refused 0 calls{since_tail}")
         out.append("  (no behavior-changing interventions recorded yet — "
                    "DOS has been observing, not blocking)")
         if summary.enforced:
@@ -494,10 +589,32 @@ def render_summary_text(summary: HelpSummary, *, scope: str = "",
                        f"all observe-only)")
         out.extend(_rate_lines(rate))
         return "\n".join(out)
+    # The honest headline: lead with what DOS ACTUALLY DID (the withheld refusals),
+    # with the advisories on their own clearly-labeled line — never lumped into one
+    # inflated "caught N" total. The refused sub-line is derived from the data.
+    advisory = summary.advisory
+    if summary.withheld:
+        call_noun = "call" if summary.withheld == 1 else "calls"
+        out.append(f"  DOS has refused {summary.withheld} {call_noun} for you{since_tail}")
+        breakdown = _refused_breakdown(summary)
+        if breakdown:
+            out.append(f"    {breakdown}")
+        if advisory:
+            cau = "caution" if advisory == 1 else "cautions"
+            out.append(f"    + {advisory} advisory {cau} surfaced "
+                       f"(the call was allowed to proceed)")
+    else:
+        # Nothing was withheld — be honest that DOS only advised, never refused.
+        cau = "caution" if advisory == 1 else "cautions"
+        out.append(f"  DOS surfaced {advisory} advisory {cau}{since_tail}")
+        out.append("    (no calls were refused — every help here was advisory, "
+                   "the call was allowed to proceed)")
     out.extend(_rate_lines(rate))
     if summary.by_reason:
         out.append("")
-        out.append("  by reason")
+        # "refused + advisory" so the table can't be misread as all-refusals — the
+        # headline already broke out the refused-only counts by reason class.
+        out.append("  by reason (refused + advisory)")
         for reason, n in summary.by_reason.items():
             gloss = explain_reason(reason)
             line = f"    {reason:<22} {n:>4}"
@@ -506,7 +623,7 @@ def render_summary_text(summary: HelpSummary, *, scope: str = "",
             out.append(line)
     if summary.by_tool:
         out.append("")
-        out.append("  by tool")
+        out.append("  by tool (refused + advisory)")
         for tool, n in summary.by_tool.items():
             out.append(f"    {tool:<22} {n:>4}")
     observe_only = summary.enforced - summary.total
@@ -514,9 +631,11 @@ def render_summary_text(summary: HelpSummary, *, scope: str = "",
         out.append("")
         out.append(f"  ({observe_only} further firing(s) were observe-only — "
                    f"recorded, but changed nothing)")
-    # Point the operator at the drill-down — the answer to "but WHICH ones?"
+    # Point the operator at the two drill-downs — the refusals and the cautions.
     out.append("")
-    out.append("  Run `dos helped --explain` for concrete examples (which files, why).")
+    out.append("  Run `dos helped --explain` for concrete examples (which files, why)"
+               + (", `dos helped --advisory` for the cautions."
+                  if summary.advisory else "."))
     return "\n".join(out)
 
 
@@ -559,9 +678,13 @@ def render_explain_text(summary: HelpSummary, *, scope: str = "") -> str:
     if scope:
         title += f" · {scope}"
     out.append(title)
-    noun = "thing" if summary.total == 1 else "things"
-    out.append(f"  DOS has caught {summary.total} {noun}"
-               + (f" since {summary.since}" if summary.since else ""))
+    since_tail = f" since {summary.since}" if summary.since else ""
+    # Refused-first headline, matching the rollup. The per-bucket tables below
+    # already split each reason class by rung (`_bucket_label`), so the drill-down
+    # stays honest about which of a bucket's records were refused vs advised.
+    call_noun = "call" if summary.withheld == 1 else "calls"
+    out.append(f"  DOS has refused {summary.withheld} {call_noun}{since_tail}"
+               + (f"  ·  +{summary.advisory} advisory" if summary.advisory else ""))
     if not summary.total:
         out.append("")
         out.append("  (no behavior-changing interventions recorded yet — "
@@ -583,4 +706,51 @@ def render_explain_text(summary: HelpSummary, *, scope: str = "") -> str:
                 out.append(f"      · {where}{tool}")
                 if e.reason:
                     out.append(f"        {e.reason}")
+    return "\n".join(out)
+
+
+def render_advisory_text(summary: HelpSummary, *, scope: str = "") -> str:
+    """The `dos helped --advisory` view — the cautions DOS surfaced but did NOT act on.
+
+    The advisory complement of the refused-first headline: these helps WARNed and
+    let the call proceed (`withheld=false`). They are off the default rollup so the
+    headline stays about what DOS actually did — but one keystroke away here, broken
+    down by tool (advisory cautions cluster by tool: a read-only Grep/Read/Bash got
+    flagged against a held lease and ran anyway) with a few concrete example reasons.
+    Every shown field is env-authored (docs/138). Pure."""
+    out: list[str] = []
+    title = "# dos helped --advisory"
+    if scope:
+        title += f" · {scope}"
+    out.append(title)
+    advisory = summary.advisory
+    if not advisory:
+        out.append("  DOS surfaced 0 advisory cautions"
+                   + (f" since {summary.since}" if summary.since else ""))
+        out.append("")
+        out.append("  (every help recorded was a call DOS actually refused — "
+                   "see `dos helped`)")
+        return "\n".join(out)
+    cau = "caution" if advisory == 1 else "cautions"
+    out.append(f"  DOS surfaced {advisory} advisory {cau} "
+               f"(the call was allowed to proceed)"
+               + (f" since {summary.since}" if summary.since else ""))
+    if summary.by_advisory_tool:
+        out.append("")
+        out.append("  by tool")
+        for tool, n in summary.by_advisory_tool.items():
+            out.append(f"    {tool:<22} {n:>4}")
+    # A few concrete example cautions — the advisory-only bank (non-withheld helps),
+    # distinct by first-clause. Shown only when the summary was built with examples
+    # (`--advisory` implies it, like `--explain`).
+    adv_exs = [e for e in summary.advisory_examples if e.reason]
+    if adv_exs:
+        out.append("")
+        out.append("  e.g.")
+        for e in adv_exs:
+            tool = f" via {e.tool}" if e.tool and e.tool != "-" else ""
+            out.append(f"    · {e.reason}{tool}")
+    out.append("")
+    out.append("  These changed nothing — DOS warned and let the call run. "
+               "The refusals are in `dos helped`.")
     return "\n".join(out)

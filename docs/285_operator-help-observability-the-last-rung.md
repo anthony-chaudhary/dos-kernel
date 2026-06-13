@@ -1,11 +1,15 @@
 # docs/285 — Operator help observability: the last rung, from the WAL out to the human
 
 > **Status:** SHIPPED. `dos helped` + the in-flow hook nudge + the session-stop
-> digest land together; pinned by `tests/test_help_summary.py` (29 tests). Built on
+> digest land together; pinned by `tests/test_help_summary.py` (47 tests). Built on
 > the OP_ENFORCE stream the lane WAL already carries (docs/189 §C4) — no new store.
 > **Phase 2 (2026-06-10):** clarity — recover the typed reason class so the phantom
 > `admission`/`SELF_MODIFY` split collapses, gloss every class in plain English, and
-> add `dos helped --explain` for concrete examples (which file, why). See below.
+> add `dos helped --explain` for concrete examples (which file, why).
+> **Phase 3 (2026-06-13):** honesty — the headline now leads with what DOS *did*
+> (the calls it actually REFUSED), not a total inflated by advisory warns; the rate
+> denominator splits the same way; `dos helped --advisory` keeps the cautions one
+> keystroke away. See "Phase 3" below.
 
 ## The gap
 
@@ -137,3 +141,79 @@ Pinned by 11 added tests in `tests/test_help_summary.py` (29 total): the
 proposal-body recovery, the handler fallback when no token exists anywhere, the
 case-insensitive gloss + the never-invent rule, the env-authored path extraction,
 the distinct-and-capped example banking, and the two renderer/CLI smokes.
+
+## Phase 3 — honesty: headline what DOS DID, not what it merely warned about (2026-06-13)
+
+Phase 2 made the count *legible*. Phase 3 makes it *honest*. On this repo the
+rollup had grown to **"DOS has caught 802 things"** — and that number was wrong in
+the way that matters. Folded by structure (no prose mined), the 802 split:
+
+| Category | Count | `withheld` |
+|---|---|---|
+| BLOCK — a call DOS actually STOPPED (SELF_MODIFY edit / lane collision) | 176 | `true` |
+| WARN — a contention caution; the call **ran anyway** | 629 | `false` |
+
+So **DOS refused 176 calls** — but the headline credited it with 802, **~4.6×
+inflated** by 629 advisory warns that changed no behavior. Nearly all 629 were the
+single pattern `lane 'Read'/'Grep'/'PowerShell' has an EMPTY tree (unknown blast
+radius) and cannot share live lane …` — read-only / unknown-footprint tools warned
+but passed. This *directly violated the module's own rule* ("'Helped' is the rungs
+that changed behavior … the number stays honest and is never inflated"): a
+`withheld=false` advisory on a read-only tool changed nothing. And the rest of the
+kernel already draws this line — `decisions.py` classes "unknown blast radius" as
+*backpressure* (transient, not a decision), and `pretool_sensor.py` (issue #46) now
+passes proven no-footprint reads CLEAN. The 629 are historical, pre-#46 warns;
+`helped` was the one surface still counting them as headline "helps."
+
+The fix keys off **one already-present, env-authored field — `withheld`** (no new
+data, no text mining, byte-clean):
+
+* **refused** = `withheld=true` — DOS actually stopped the call.
+* **advisory** = a help that was not withheld — DOS surfaced a caution, the call
+  proceeded.
+
+Four changes, all structural:
+
+1. **Refused-first headline** (`render_summary_text`). The count an operator reads
+   first is the refused total: *"DOS has refused 176 calls for you."* The sub-line
+   is **derived from `by_refused_reason`** (the withheld-only reason counts) — *"169
+   SELF_MODIFY (kernel-self-edit), 8 admission (lane collision)"* — NOT a hardcoded
+   two-category sentence, so it renders correctly for any of the 10+ reason classes
+   the kernel emits (`UNKNOWN_LANE`, `provenance`, …), not just the two this journal
+   happens to show. The 629 move to their own labeled line: *"+ 629 advisory cautions
+   surfaced (the call was allowed to proceed)."* When nothing was withheld, the
+   headline honestly leads with the advisory line instead.
+2. **The rate denominator splits the same way** (`hook_observation.InterventionRate`).
+   The old rate line — *"782 intervened (5.3%)"* — lumped refused with advised, the
+   SAME conflation. From the already-recorded `outcome` field (`deny`/`block` vs
+   `warn`), the rate now adds `refused`/`advised`: *"of those, 153 were refused (1.0%)
+   and 629 were advised-but-allowed (4.2%)."* The headline and the rate finally tell
+   one story. `intervened == refused + advised` on every outcome the kernel emits
+   today; an unknown future token counts in `intervened` but neither sub-bucket (the
+   safe direction).
+3. **`dos helped --advisory`** keeps the 629 one keystroke away — broken down by
+   tool (cautions cluster by tool) with a few concrete example reasons — so nothing
+   is deleted or hidden, just off the default headline. `--json` carries `advisory`,
+   `by_refused_reason`, `by_advisory_tool`, and the split rate.
+4. **The nudge + stop digest** inherit the refused-first wording via `nudge_line`:
+   *"DOS has refused N calls this session (+M advisory)."*
+
+**Still byte-clean.** The refused/advisory split reads only the env-authored
+`withheld` boolean and the env-authored `outcome` token; no `reason` prose is mined
+for any count. `is_help` / `HELP_RUNGS` are unchanged — WARN/DEFER are still folded;
+only the *presentation* separates withheld from advisory. No record is deleted or
+rewritten; this is a read-time projection change.
+
+**One gap surfaced, not papered over.** OP_ENFORCE and observation records carry
+`holder`/`host_id`/`run_id`/`tool` but **no `model`** — DOS cannot say *which model*
+made a caught call, so `helped` does not pretend to. The right home for that
+dimension is the sensor (stamp the model from the PreToolUse event), tracked as a
+separate `design` issue — not invented into this read-only projection.
+
+Pinned by added tests in `tests/test_help_summary.py` (47 total) and
+`tests/test_hook_observation.py`: the `advisory` property partition, the
+withheld-only `by_refused_reason` / advisory-only `by_advisory_tool` folds, the
+data-derived headline (incl. a multi-reason-class case that would catch a
+hardcoded-two-category regression), the advisory-only headline, the `--advisory`
+view + JSON split, the short-label never-invent rule, and the rate's
+`refused`/`advised` split with its `intervened >= refused + advised` invariant.

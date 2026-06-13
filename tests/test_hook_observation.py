@@ -86,9 +86,35 @@ def test_rate_counts_pretool_only_and_excludes_delegates():
     assert rate.adjudicated == 4           # 5 pretool − 1 delegate
     assert rate.passed == 2
     assert rate.intervened == 2            # deny + warn
+    assert rate.refused == 1               # the deny — a call actually stopped
+    assert rate.advised == 1               # the warn — advised, but let proceed
+    assert rate.intervened == rate.refused + rate.advised  # the load-bearing invariant
     assert rate.delegated == 1
     assert rate.passed_pct == pytest.approx(50.0)
     assert rate.intervened_pct == pytest.approx(50.0)
+    assert rate.refused_pct == pytest.approx(25.0)
+    assert rate.advised_pct == pytest.approx(25.0)
+
+
+def test_rate_refused_advised_split_block_alias_and_unknown_outcome():
+    """`block` counts as a refusal (the rung-name alias); an unknown adjudicated
+    outcome lands in neither refused nor advised, but still in intervened — the
+    safe direction (never label an unknown a refusal)."""
+    recs = [
+        _obs(outcome="deny"),
+        _obs(outcome="block"),     # the alias the observation schema lists
+        _obs(outcome="warn"),
+        _obs(outcome="quarantine"),  # a hypothetical future outcome — unknown today
+    ]
+    rate = hobs.intervention_rate(recs)
+    assert rate.adjudicated == 4
+    assert rate.passed == 0
+    assert rate.refused == 2               # deny + block
+    assert rate.advised == 1               # warn
+    assert rate.intervened == 4            # all four non-passthrough (incl. the unknown)
+    # The unknown `quarantine` is intervened-on but is neither refused nor advised —
+    # so intervened EXCEEDS the split here (the safe direction).
+    assert rate.intervened > rate.refused + rate.advised
 
 
 def test_rate_fold_ignores_lane_journal_shaped_records():
@@ -268,10 +294,12 @@ def test_cli_helped_renders_rate_from_observation_log_only(tmp_path, capsys):
     rc = cli.main(["helped", "--workspace", str(tmp_path)])
     assert rc == 0
     out = capsys.readouterr().out
-    assert "DOS has caught 1 thing" in out                 # the journal headline
+    assert "DOS has refused 1 call for you" in out         # the journal headline
     assert "of 9 tool calls adjudicated by the hooks" in out
     assert "7 passed untouched (77.8%)" in out
     assert "2 were intervened on (22.2%)" in out
+    # Both observations were `deny` → the split line shows 2 refused, 0 advised.
+    assert "2 were refused (22.2%)" in out and "0 were advised-but-allowed (0.0%)" in out
     # The journal's count never enters the rate line.
     assert "1 were intervened" not in out
     assert "of 10 tool calls" not in out                   # delegate left the denominator
@@ -288,9 +316,14 @@ def test_cli_helped_json_rate_object(tmp_path, capsys):
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["tool_calls"] == {
-        "adjudicated": 2, "passed": 1, "intervened": 1, "delegated": 1,
+        "adjudicated": 2, "passed": 1, "intervened": 1,
+        "refused": 1, "advised": 0, "delegated": 1,
         "passed_pct": 50.0, "intervened_pct": 50.0,
+        "refused_pct": 50.0, "advised_pct": 0.0,
     }
+    # The one intervention was a `deny` → it lands in `refused`, not `advised`.
+    assert payload["tool_calls"]["intervened"] == (
+        payload["tool_calls"]["refused"] + payload["tool_calls"]["advised"])
     # The journal-side counts are untouched by the rate's presence.
     assert payload["total"] == 1 and payload["blocked"] == 1
 
