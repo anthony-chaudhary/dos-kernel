@@ -82,8 +82,11 @@ arbiter hard-codes a notion of "valuable," it has stopped being a substrate
 > ranker is "no opinion," not a silent 0/1). 7 new tests in
 > `tests/test_arbiter.py::TestValueAwarePicker` — incl. the soundness pin (a ranker
 > scoring a colliding lane highest still cannot get it admitted) — and the full
-> kernel suite stays green (483 passed). Phases 2–4 (benchmark wiring, budget cap,
-> reference estimator) remain.
+> kernel suite stays green (483 passed). **Phases 2–4 (benchmark wiring, budget
+> cap, reference estimator) shipped 2026-06-13** — see each phase's callout below;
+> the budget cap revealed that the robust win is *scheduling around contention*
+> (the bare-pick infrastructure, ~1.6×), while the *ranker* refinement is ≈ neutral
+> here and left open at §90.3.
 
 The design, as built:
 
@@ -114,7 +117,19 @@ ranker that raises ⇒ falls back to ladder order, never crashes (fail-soft, the
 `pick_oracle` rule); the soundness pin — a ranker that *prefers* a conflicting lane
 still cannot get it admitted (the disjointness gate wins).
 
-### Phase 2 — exercise the picker in the closed loop (benchmark precondition)
+### Phase 2 — exercise the picker in the closed loop (benchmark precondition) — ✅ SHIPPED
+
+> **Shipped 2026-06-13.** `closed_loop.run` gained an opt-in `bare_pick` (+
+> `rank_key` / `rank_key_factory`), all default-off so the fixed-lane A/B is
+> byte-identical (the per-phase Step-2/3 body is now a shared `_commit_verify_emit`
+> closure both paths call). In bare mode the loop is driven from per-effort cursors
+> and issues ONE bare `arbitrate(...)` per step over an `auto_pick_order` built from
+> the **ready efforts' own lanes** — the unit of pick is the EFFORT, not the lane,
+> so every candidate's tree IS the phase's real footprint and the picker only
+> chooses ORDER (the soundness floor held in the harness too). Tests in
+> `benchmark/fleet_horizon/test_value_aware_picker.py` pin: default-path identity,
+> same-ground-truth uncapped, the kernel auto-pick walk is actually driven, a ranker
+> changes the pick order, and a raising ranker is fail-soft.
 
 The benchmark must actually *use* auto-pick or the kernel work is unmeasured. Add a
 **bare-request mode** to `closed_loop.py`:
@@ -131,16 +146,43 @@ ships unchanged (the honesty invariant — DOS does not get a different worker);
 picker's choices appear in the lane journal (so a replay shows *which* lane the
 arbiter chose and why), reusing the existing ACQUIRE/REFUSE WAL.
 
-### Phase 3 — make throughput measurable: a budget/deadline cap (benchmark)
+### Phase 3 — make throughput measurable: a budget/deadline cap (benchmark) — ✅ SHIPPED
 
-This is the subtle, load-bearing slice. **Today the harness drains the entire
-workload** (`for step, phase in enumerate(interleave(workload))`,
-`closed_loop.py:227`) and **holds `real_ships` identical across arms by
-construction** (`metrics.py:121`, `:197` — "Same real ships in both arms; the arms
-differ only in the loaded cost"). Under a drain-everything model **a better picker
-cannot change `real_ships`** — so its win can ONLY show up as lower *loaded cost*
-(fewer refused-write retries → fewer `action`s; fewer conflict detonations). That
-is a real but *second-order* effect and undersells the point.
+> **Shipped 2026-06-13.** `closed_loop.run` gained arm-independent `budget` /
+> `max_steps` caps (default-off ⇒ drain), checked at the top of each step (and the
+> budget binds the deferred drain too, so it is a real ceiling). Under a cap
+> `real_ships` becomes a dependent variable, freeing the numerator. The harness
+> gained `run_capped_pair` (THREE arms — fixed-lane, bare-pick first-fit, bare-pick
+> value-aware), `_aggregate_vv_per_dollar` (pooled Σships ÷ Σloaded over a seed
+> ensemble — the win is an aggregate, not a per-seed promise), and
+> `_picker_sweep` / `_picker_sweep_data` / `--picker-sweep` (a curve over the budget
+> axis + two falsifiers), mirroring the host-sweep pattern.
+>
+> **The measured finding, stated honestly (and it sharpens §90.3).** The budget cap
+> revealed that the win splits into two very different effects:
+>
+> * **The infrastructure win is large and robust (~1.6× verified-velocity-per-$ at
+>   a tight budget, ~1.4× even at drain):** *scheduling around contention* — the
+>   kernel's auto-pick walk advances a different ready effort instead of refusing a
+>   colliding write and paying a retry. This is the headline, and its two falsifiers
+>   hold (it relaxes at a drain budget where order matters less; it collapses to
+>   ≈1.0 at `shared_ratio=0` where there is no contention to schedule around).
+> * **The ranker refinement has almost no headroom in this workload:** ranking the
+>   already-disjoint candidates by a yield estimate is ≈ neutral vs first-fit — and
+>   *even an oracle ranker that peeks at which phases ship barely beats first-fit*.
+>   Once bare-pick has scheduled around contention, first-fit over the disjoint set
+>   is already near-optimal here. This is exactly the open online-scheduling optimum
+>   §90.3 names; the benchmark now *measures* that the greedy point is near the
+>   ceiling for this workload rather than asserting a clever ranker wins. Reported,
+>   not tuned-until-it-wins.
+
+This is the subtle, load-bearing slice. **Before this, the harness drained the
+entire workload** and **held `real_ships` identical across arms by construction**
+(`metrics.py` — "Same real ships in both arms; the arms differ only in the loaded
+cost"). Under a drain-everything model **a better picker cannot change `real_ships`**
+— so its win can ONLY show up as lower *loaded cost* (fewer refused-write retries →
+fewer `action`s; fewer conflict detonations). That is a real but *second-order*
+effect and undersells the point.
 
 The auto-pick win actually lives in **throughput under a constraint**: with a fixed
 budget or deadline, a smarter pick *order* completes more *verified* work before the
@@ -162,7 +204,19 @@ own falsifier** (the gap → 0 as the budget → enough-to-drain-everything, whe
 order stops mattering — the same honesty move as the fleet/horizon → 1 falsifier in
 `_sweep`).
 
-### Phase 4 — a reference yield estimator (driver/benchmark, NOT kernel)
+### Phase 4 — a reference yield estimator (driver/benchmark, NOT kernel) — ✅ SHIPPED
+
+> **Shipped 2026-06-13.** `benchmark/fleet_horizon/yield_estimator.py` ships
+> `make_yield_rank_key(workload, cursors)` — a `rank_key` factory that closes over
+> the live cursors and ranks a ready effort by remaining horizon, demoting one whose
+> next phase would reach shared state under live concurrency (the would-refuse pick).
+> It is pure, total, fail-soft, and BLIND to the lie/flake rolls (it reads intent to
+> touch shared, never realized success — `verify` catches lies, the picker does not).
+> The litmus holds: it imports nothing from `src/dos/`, and `src/dos/` references
+> nothing from it (`test_estimator_imports_nothing_from_the_kernel`). As §3's finding
+> records, this reference estimator is ≈ neutral vs first-fit in this workload — the
+> seam is *demonstrated and measurable*, and the question of an estimator that
+> reliably beats first-fit is left open at §90.3 where it belongs.
 
 Provide one concrete `rank_key` so the seam is demonstrated, kept firmly outside the
 kernel:
