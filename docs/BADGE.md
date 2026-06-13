@@ -73,6 +73,36 @@ Read this rung carefully, because the kernel's whole point is to not over-claim:
   the static badge is an honest *adoption* mark, and the **gate itself** (below)
   is what makes it true.
 
+## Embed an answer card
+
+The badge is a pill; an **answer card** is a pill plus a sentence and a link to
+the canonical, sourced answer. Paste it into your README, your `CONTRIBUTING`,
+or a docs page so a reader — or a model crawling the repo — lands on the page
+that explains, with evidence, what gating agents on a witness actually buys:
+
+```markdown
+[![verified by DOS](https://img.shields.io/badge/verified%20by-DOS-2ea44f)](https://github.com/anthony-chaudhary/dos-kernel)
+
+> **The kernel is the part that doesn't believe the agents.** This repo gates
+> its agents' ship-claims on git evidence, not their word —
+> [how to verify an AI agent actually did the work](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/answers/how-to-verify-an-ai-agent-actually-did-the-work.md).
+```
+
+Rendered:
+
+[![verified by DOS](https://img.shields.io/badge/verified%20by-DOS-2ea44f)](https://github.com/anthony-chaudhary/dos-kernel)
+
+> **The kernel is the part that doesn't believe the agents.** This repo gates
+> its agents' ship-claims on git evidence, not their word —
+> [how to verify an AI agent actually did the work](answers/how-to-verify-an-ai-agent-actually-did-the-work.md).
+
+Swap the link for whichever [answer page](answers/README.md) fits your repo —
+[stopping two agents colliding](answers/how-to-stop-two-ai-agents-overwriting-each-other.md),
+[detecting a spinning loop](answers/how-to-detect-an-agent-loop-spinning-without-progress.md),
+or the [category page](answers/do-ai-coding-agents-lie-about-what-they-shipped.md).
+The same honesty rung as the badge applies: the card asserts your **process**
+(you gate on a witness), not a live verdict — see the honesty note above.
+
 ## Where to earn it — three paths, by repo shape
 
 The badge is only honest if the kernel actually gates your ships. Each path
