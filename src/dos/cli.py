@@ -2514,6 +2514,48 @@ def cmd_improve(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# merge-gate  (the worktree-merge admission floor — may this branch MERGE?)
+#   (full prose: docs/327 — the COMMIT half of a worktree transaction)
+_MERGE_GATE_EXITS = ExitMap(
+    {"CLEAN": 0, "REFUSE": 3},
+    unknown=5,  # a future verdict the CLI hasn't caught up to — non-zero, distinct.
+    syscall="merge_gate",  # docs/262 P2 — auto-record when observing
+)
+_MERGE_GATE_EXIT_CODES = _MERGE_GATE_EXITS.codes
+_MERGE_GATE_EXIT_UNKNOWN = _MERGE_GATE_EXITS.unknown
+_MERGE_GATE_EXIT_CONTRACT_ERROR = _MERGE_GATE_EXITS.contract_error
+
+
+def cmd_merge_gate(args: argparse.Namespace) -> int:
+    """Decide whether a worktree branch may MERGE: CLEAN / REFUSE (docs/327, MG).
+
+    The COMMIT half of a worktree transaction — the floor-only sibling of `improve`
+    (no metric requirement, so a correct no-op merges). The four boolean witnesses
+    are gathered by the CALLER on the candidate worktree; a missing witness is a
+    FAILING witness (fail-safe). Detail: docs/CLI.md § cmd_merge_gate.
+    """
+    _apply_workspace(args)
+    from dos import mergegate
+
+    policy = mergegate.MergePolicy(
+        require_test_witness=bool(getattr(args, "require_test_witness", False)),
+    )
+    # The optional test-witness rung is read ONLY when armed; when armed but the
+    # flag was not passed it stays None, which `classify` treats fail-safe as failing.
+    test_witnesses = True if getattr(args, "test_witnesses", False) else None
+    evidence = mergegate.MergeEvidence(
+        suite_passed=bool(args.suite_passed),
+        truth_clean=bool(args.truth_clean),
+        audit_ok=bool(args.audit_ok),
+        test_witnesses=test_witnesses,
+        narrated=args.narrated or "",
+    )
+    verdict = mergegate.classify(evidence, policy)
+
+    return _MERGE_GATE_EXITS.emit(args, verdict, verdict.verdict.value)
+
+
+# ---------------------------------------------------------------------------
 # breaker  (the circuit breaker — this keeps failing; stop, escalate the rung)
 #   (full prose: docs/CLI.md § "breaker  (the circuit breaker — this keeps failing; stop, es")
 _BREAKER_EXITS = ExitMap(
@@ -7850,6 +7892,42 @@ Needs nothing else — no git, no plan, no journal, no clock (the verdict is pur
 driver does the I/O). Advisory: it reports KEEP/REVERT/ESCALATE, it executes no merge or
 checkout. The verdict IS the exit code: 0 KEEP, 3 REVERT, 4 ESCALATE, 2 contract error."""
 
+_HELP_MERGE_GATE = """may this worktree branch MERGE? the worktree-merge admission floor (docs/327).
+
+USE THIS WHEN: an agent finished work in an ISOLATED worktree and you must decide whether
+its branch may merge. A worktree is a TRANSACTION — isolation is BEGIN, the merge is
+COMMIT — and this is the gate at COMMIT: the kernel does not believe "it's ready to
+merge", it reads witnesses the branch's author did not write. It is the floor-only
+sibling of `improve` (docs/280): same suite-green + truth-clean floor, PLUS commit-audit
+(the subject matches its diff) and an OPTIONAL two-tree test-witness — but NO improvement
+metric, so a CORRECT NO-OP (a docs fix, a comment fix, a metric-flat refactor) MERGES,
+where `improve` would revert it as a no-op.
+
+Feed it the witnesses the driver gathered on the candidate worktree — each authored by
+the ENVIRONMENT, none by the branch (the docs/138 invariant that makes the merge-bit
+non-forgeable):
+  dos merge-gate --suite-passed --truth-clean --audit-ok                    →  CLEAN, exit 0
+  dos merge-gate --truth-clean --audit-ok                                   →  REFUSE (suite red), exit 3
+  dos merge-gate --suite-passed --truth-clean --audit-ok --require-test-witness
+                                                                            →  REFUSE (no test witness), exit 3
+  dos merge-gate --suite-passed --truth-clean --audit-ok --require-test-witness \\
+                 --test-witnesses                                           →  CLEAN, exit 0
+
+CLEAN requires every ARMED witness clean: the suite GREEN and the truth syscall CLEAN and
+the commit subject WITNESSED by its diff — and, when --require-test-witness is armed, the
+new test DISCRIMINATES across the two trees (only a worktree materializes both). The three
+always-on witnesses default to FALSE and the armed test-witness defaults to ABSENT — a
+missing witness is a FAILING one (fail-safe), never a merge on absent evidence.
+
+NON-FORGEABILITY (docs/234): --narrated is carried for the operator and parsed for
+NOTHING — a branch cannot write its way into the merged set. The only path to CLEAN is to
+make the suite green, the truth clean, the diff match its claim. There is deliberately no
+author/identity input: the kernel is vendor-blind, admission reasons over witnesses.
+
+Needs nothing else — no git, no plan, no clock (the verdict is pure; the driver
+`dos.drivers.merge_gate` does the gather + the merge). Advisory: it reports CLEAN/REFUSE,
+it executes no `git merge`. The verdict IS the exit code: 0 CLEAN, 3 REFUSE, 2 contract error."""
+
 _HELP_BREAKER = """the circuit breaker — this keeps failing; stop, escalate the rung.
 
 USE THIS WHEN: some class of thing has failed repeatedly and you must decide whether
@@ -8759,6 +8837,44 @@ def build_parser() -> argparse.ArgumentParser:
                            "next_consecutive_reverts, reason, evidence}")
     _add_output_flag(pimp)
     pimp.set_defaults(func=cmd_improve)
+
+    # merge-gate (docs/327) — the worktree-merge admission floor; the COMMIT half of
+    # a worktree transaction, the floor-only sibling of `improve` (no metric, so a
+    # correct no-op merges).
+    pmg = sub.add_parser(
+        "merge-gate",
+        help="the worktree-merge admission floor: may this branch MERGE "
+             "(CLEAN/REFUSE)?",
+        description=_HELP_MERGE_GATE,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    _add_workspace_flags(pmg)
+    # The boolean WITNESSES — env-authored, gathered by the caller on the candidate
+    # worktree. Default False (a missing witness is a failing witness — fail-safe).
+    pmg.add_argument("--suite-passed", dest="suite_passed", action="store_true",
+                     help="the test suite passed on the candidate worktree (the runner's "
+                          "exit 0). MISSING ⇒ treated as red (fail-safe)")
+    pmg.add_argument("--truth-clean", dest="truth_clean", action="store_true",
+                     help="the truth syscall is clean (dos verify for any claimed phase). "
+                          "MISSING ⇒ treated as dirty (fail-safe)")
+    pmg.add_argument("--audit-ok", dest="audit_ok", action="store_true",
+                     help="commit-audit returned OK — the commit subject matches its diff. "
+                          "MISSING ⇒ treated as unwitnessed (fail-safe)")
+    pmg.add_argument("--require-test-witness", dest="require_test_witness",
+                     action="store_true",
+                     help="ARM the optional two-tree test-witness rung: CLEAN then also "
+                          "requires the new test to DISCRIMINATE (fail on baseline, pass on "
+                          "candidate). When armed, an absent --test-witnesses is failing")
+    pmg.add_argument("--test-witnesses", dest="test_witnesses", action="store_true",
+                     help="the new test DISCRIMINATES across the two trees (only consulted "
+                          "under --require-test-witness). MISSING-while-armed ⇒ failing (fail-safe)")
+    pmg.add_argument("--narrated", type=str, default=None, metavar="TEXT",
+                     help="the branch's own description — carried for the operator surface "
+                          "and parsed for NOTHING (it cannot move REFUSE→CLEAN; docs/234)")
+    pmg.add_argument("--json", action="store_true",
+                     help="machine-readable verdict {verdict, refuse_cause, refuse_causes, "
+                          "reason, evidence}")
+    _add_output_flag(pmg)
+    pmg.set_defaults(func=cmd_merge_gate)
 
     # breaker (docs/223) — the generic circuit-breaker extracted from loop_decide's
     #   (full prose: docs/CLI.md § "breaker (docs/223) — the generic circuit-breaker extracted f")

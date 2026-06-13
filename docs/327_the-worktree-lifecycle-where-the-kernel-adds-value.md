@@ -1,10 +1,14 @@
 # 327 — the worktree lifecycle: where the kernel adds value past "isolation"
 
-> **Status:** design plan. Unbuilt. This doc is the position, the four-moment
-> map, the mechanism-vs-metaphor line per moment (re-grounded against `src/dos/`
-> at HEAD, 2026-06-13), the buildables ranked, and the one cheap spike that
-> settles real-vs-metaphor in ~30 lines with no I/O. It proposes one real new
-> verb (`dos merge-gate`) and two re-aims of shipped machinery.
+> **Status:** Phase 1 (`dos merge-gate`, the §5 build #1) SHIPPED. The rest is
+> design plan. This doc is the position, the four-moment map, the
+> mechanism-vs-metaphor line per moment (re-grounded against `src/dos/` at HEAD,
+> 2026-06-13), the buildables ranked, and the one cheap spike that settles
+> real-vs-metaphor in ~30 lines with no I/O. It proposes one real new verb (`dos
+> merge-gate`) and two re-aims of shipped machinery; the verb is now built (the
+> pure leaf `dos.mergegate`, the driver `dos.drivers.merge_gate`, the `dos
+> merge-gate` CLI verb, and 24 tests). Builds #2–#3 (worktree-lease GC, lease the
+> future merge target at spawn) remain open.
 >
 > **One line:** A worktree is not a *point* that closes one contention surface —
 > it is a *transaction* (BEGIN at spawn, COMMIT at merge), and the kernel already
@@ -123,7 +127,7 @@ the existing WAL + TTL + `OP_HEARTBEAT`/`OP_SCAVENGE` path, not on a guess.
 docs/211 Cut 2 ceiling) — this reclaims *cooperating* agents' dead worktrees, not
 a determined adversary's.
 
-## 4. JUDGMENT — the merge is an admission gate, and only a worktree gives the kernel *both trees* *(engine shipped; the gate is the build)*
+## 4. JUDGMENT — the merge is an admission gate, and only a worktree gives the kernel *both trees* *(engine shipped; the gate is now SHIPPED — Phase 1)*
 
 The payoff, and the hardest-to-refute claim in the doc. At merge time a worktree
 hands the kernel something a shared checkout structurally cannot: **the
@@ -161,12 +165,19 @@ proposes "clean / refuse," the host actuates the merge.
 
 ## 5. What to build (ranked by honesty-of-payoff)
 
-1. **`dos merge-gate` — the COMMIT half the docs never wired.** Generalize
-   `run_cycle`'s witness→classify→keep from "self-improvement metric" to "any
-   worktree branch": suite-green + truth-clean + `commit-audit` + (optional)
-   `test-witness` against the baseline tree → emit a clean/refuse verdict; the
-   host merges only on clean. The engine is shipped (`self_improve.py`); this is
-   the host-agnostic exposure + a CLI verb. **Highest payoff.**
+1. **`dos merge-gate` — the COMMIT half the docs never wired. SHIPPED (Phase 1).**
+   Generalize `run_cycle`'s witness→classify→keep from "self-improvement metric"
+   to "any worktree branch": suite-green + truth-clean + `commit-audit` +
+   (optional) `test-witness` against the baseline tree → emit a clean/refuse
+   verdict; the host merges only on clean. The engine is shipped
+   (`self_improve.py`); this is the host-agnostic exposure + a CLI verb. **Highest
+   payoff.** *Built as: the pure floor leaf `dos.mergegate` (`classify` →
+   CLEAN/REFUSE, admits a correct no-op where `improve` would revert it — the
+   one decisive divergence), the driver `dos.drivers.merge_gate` (gather → classify
+   → actuate on injected callbacks, deterministic on fakes), the `dos merge-gate`
+   CLI verb (exit 0 CLEAN / 3 REFUSE, `--json` receipt, `--narrated` parsed for
+   nothing), and 24 tests pinning the floor conjunction, the no-op divergence, and
+   non-forgeability.*
 2. **Worktree-lease GC (§3).** `dos` scavenge over worktree-path leases →
    `{worktree, lease_health}` so "which are safe to `git worktree remove`?" is a
    read. Rides shipped `lease_health` + WAL/TTL/scavenge. `ORPHANED_WORKING` is
