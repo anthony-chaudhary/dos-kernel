@@ -390,3 +390,120 @@ def test_hook_posttool_python_path_writes_stream_observation(tmp_path, monkeypat
     assert len(recs) == 1
     assert recs[0]["verb"] == "posttool" and recs[0]["outcome"] == "passthrough"
     assert recs[0]["stream_state"]
+
+
+# ---------------------------------------------------------------------------
+# The quotable headline (issue #71) — the share-shaped fold + receipts + zeros.
+# ---------------------------------------------------------------------------
+
+
+def test_headline_counts_each_class_from_its_verb_outcome():
+    """Each share-shaped count comes from its (verb, outcome) tuple; adjudicated
+    is the intervention_rate denominator (pretool minus delegates)."""
+    recs = [
+        _obs(verb="pretool", outcome="passthrough"),
+        _obs(verb="pretool", outcome="passthrough"),
+        _obs(verb="pretool", outcome="deny", reason_class="SELF_MODIFY"),
+        _obs(verb="pretool", outcome="delegate"),  # leaves the denominator
+        _obs(verb="stop", outcome="block", blocked_plan="AUTH", blocked_phase="AUTH2"),
+        _obs(verb="posttool", outcome="warn"),
+    ]
+    s = hobs.headline_summary(recs)
+    assert s.adjudicated == 3            # 3 pretool, minus the 1 delegate
+    assert s.false_done_refused == 1     # the stop/block
+    assert s.edits_blocked == 1          # the pretool/deny
+    assert s.warned == 1                 # the posttool/warn
+    # collisions are NOT witnessed by this log — a structural 0, labelled.
+    assert s.collisions_admitted == 0
+    assert s.collisions_witnessed is False
+
+
+def test_headline_all_zeros_renders_honest_coverage():
+    """A quiet (empty) log renders zeros + the coverage clause, never suppressed
+    (the issue's honest-zeros requirement)."""
+    s = hobs.headline_summary([])
+    assert s.adjudicated == 0 and s.false_done_refused == 0
+    txt = hobs.render_headline_text(s)
+    assert "0 tool call(s) adjudicated" in txt
+    assert "0 false \"done\"(s) refused at stop" in txt
+    assert "on the surfaces the hooks gate" in txt
+    assert "not witnessed here" in txt   # the collisions coverage note
+
+
+def test_headline_since_windows_out_older_and_undatable():
+    """`since` keeps ts >= since; an undatable record is skipped under a window."""
+    recs = [
+        _obs(verb="stop", outcome="block", ts="2026-06-09T10:00:00Z"),  # before
+        _obs(verb="stop", outcome="block", ts="2026-06-10T12:00:00Z"),  # inside
+        _obs(verb="stop", outcome="block", ts=""),                      # undatable
+    ]
+    s = hobs.headline_summary(recs, since="2026-06-10T00:00:00Z")
+    assert s.false_done_refused == 1
+    # No window → all datable + undatable counted.
+    assert hobs.headline_summary(recs).false_done_refused == 3
+
+
+def test_headline_receipts_link_to_the_regenerating_command():
+    """--receipts banks env-authored records + the command that re-derives the
+    verdict: a stop-block → dos verify <plan> <phase>; a typed deny → dos man wedge."""
+    recs = [
+        _obs(verb="stop", outcome="block", blocked_plan="RS", blocked_phase="RS1"),
+        _obs(verb="pretool", outcome="deny", reason_class="SELF_MODIFY"),
+    ]
+    s = hobs.headline_summary(recs, with_receipts=True)
+    fd = s.receipts["false_done_refused"][0]
+    assert fd.regen_command == "dos verify RS RS1"
+    eb = s.receipts["edits_blocked"][0]
+    assert eb.regen_command == "dos man wedge SELF_MODIFY"
+    txt = hobs.render_headline_text(s, with_receipts=True)
+    assert "dos verify RS RS1" in txt
+    assert "dos man wedge SELF_MODIFY" in txt
+
+
+def test_headline_no_receipts_when_not_requested():
+    """The cheap path banks nothing — receipts is empty without with_receipts."""
+    recs = [_obs(verb="stop", outcome="block", blocked_plan="A", blocked_phase="A1")]
+    assert hobs.headline_summary(recs).receipts == {}
+
+
+def test_headline_json_round_trips(tmp_path, capsys):
+    from dos import cli
+
+    _seed_observations(tmp_path, [
+        _obs(verb="pretool", outcome="passthrough"),
+        _obs(verb="stop", outcome="block", blocked_plan="AUTH", blocked_phase="AUTH2"),
+    ])
+    rc = cli.main(["headline", "--workspace", str(tmp_path), "--json"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["adjudicated"] == 1
+    assert payload["false_done_refused"] == 1
+    assert payload["collisions_witnessed"] is False
+    # --json banks receipts so the regen command is machine-readable.
+    assert payload["receipts"]["false_done_refused"][0]["regen_command"] == \
+        "dos verify AUTH AUTH2"
+
+
+def test_cli_headline_renders_the_quotable_line(tmp_path, capsys):
+    from dos import cli
+
+    _seed_observations(tmp_path, [
+        _obs(verb="pretool", outcome="passthrough"),
+        _obs(verb="pretool", outcome="deny", reason_class="SELF_MODIFY"),
+    ])
+    rc = cli.main(["headline", "--workspace", str(tmp_path)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "2 tool call(s) adjudicated" in out
+    assert "1 edit(s) blocked at the kernel boundary" in out
+
+
+def test_cli_headline_empty_log_is_honest_zeros(tmp_path, capsys):
+    from dos import cli
+
+    _seed_observations(tmp_path, [])
+    rc = cli.main(["headline", "--workspace", str(tmp_path)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "0 tool call(s) adjudicated" in out
+    assert "on the surfaces the hooks gate" in out

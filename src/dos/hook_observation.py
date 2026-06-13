@@ -41,7 +41,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Iterable, Optional
@@ -336,3 +336,229 @@ def intervention_rate(records: Iterable[dict], *, since: str = "") -> Interventi
         intervened=adjudicated - passed,
         delegated=delegated,
     )
+
+
+# ---------------------------------------------------------------------------
+# The quotable headline (issue #71) — a share-shaped, receipt-linked one-liner
+# over the observation log. PURE folds + a renderer; the unit-test surface.
+#
+# The honesty floor (the issue's two requirements):
+#   * Receipt-linked: every nonzero count expands to the env-authored records
+#     behind it + the command that REGENERATES the verdict — a count that cannot
+#     show its receipts is narration, the thing the kernel exists to refuse.
+#   * Honest zeros + honest COVERAGE: a quiet window renders zeros, never
+#     suppressed; and a class the observation log structurally cannot witness
+#     (an arbitrate-admitted collision lives in the lane journal, not here) is
+#     labelled as such instead of implying a real zero it cannot prove.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Receipt:
+    """One env-authored record behind a headline count — never narrated (docs/138).
+
+    Every field is bytes the hook sensor wrote downstream of an already-decided
+    verdict: `verb`/`outcome`/`ts` plus the verb-specific evidence (`plan`/
+    `phase`/`verify_source` for a stop-block, `reason_class` for a pretool deny).
+    `regen_command` is the runnable verb that re-derives the verdict from ground
+    truth — `dos verify <plan> <phase>` for a stop-block, `dos man wedge <class>`
+    for a typed deny — built from those fields, so the count can prove itself.
+    """
+
+    verb: str = ""
+    outcome: str = ""
+    ts: str = ""
+    plan: str = ""
+    phase: str = ""
+    reason_class: str = ""
+    target: str = ""
+    regen_command: str = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "verb": self.verb,
+            "outcome": self.outcome,
+            "ts": self.ts,
+            "plan": self.plan,
+            "phase": self.phase,
+            "reason_class": self.reason_class,
+            "target": self.target,
+            "regen_command": self.regen_command,
+        }
+
+
+@dataclass(frozen=True)
+class HeadlineSummary:
+    """The share-shaped rollup over the observation log — counts the log CAN witness.
+
+    `adjudicated` is the denominator (pretool minus delegates, from the SAME fold
+    as `intervention_rate` so the two never disagree). The per-class counts are
+    each keyed to a concrete (verb, outcome) the sensors write:
+      * `false_done_refused` — (stop, block): a claimed "done" that didn't verify.
+      * `edits_blocked`      — (pretool, deny): a tool call refused at the boundary.
+      * `warned`             — (pretool|posttool, warn): advisory touches.
+    `collisions_admitted` is ALWAYS 0 and `collisions_witnessed=False`: the
+    observation log does not record arbitrate-admits (those are lane-journal
+    facts), so the headline says so rather than claiming a zero it cannot prove.
+    `since`/`latest` echo the window. `receipts` (per class) is populated only
+    when `with_receipts=True`. Every count is env-authored; none is narration.
+    """
+
+    adjudicated: int = 0
+    false_done_refused: int = 0
+    edits_blocked: int = 0
+    warned: int = 0
+    collisions_admitted: int = 0
+    collisions_witnessed: bool = False
+    since: str = ""
+    latest: str = ""
+    receipts: dict[str, tuple[Receipt, ...]] = field(default_factory=dict)
+
+    def to_dict(self) -> dict:
+        return {
+            "adjudicated": self.adjudicated,
+            "false_done_refused": self.false_done_refused,
+            "edits_blocked": self.edits_blocked,
+            "warned": self.warned,
+            "collisions_admitted": self.collisions_admitted,
+            "collisions_witnessed": self.collisions_witnessed,
+            "since": self.since,
+            "latest": self.latest,
+            "receipts": {
+                cls: [r.to_dict() for r in recs]
+                for cls, recs in self.receipts.items()
+            },
+        }
+
+
+# How many receipts to keep per class (the `dos helped --explain` cap — a
+# drill-down shows a few concrete examples, not the whole log).
+_RECEIPTS_PER_CLASS = 3
+
+
+def _receipt_for(rec: dict) -> Receipt:
+    """Build the env-authored `Receipt` (+ regen command) for one record. PURE.
+
+    The regen command is derived from the fields the sensor wrote, never the
+    agent's narration: a stop-block names a `dos verify <plan> <phase>` when it
+    carries the plan/phase that failed; a typed pretool deny names
+    `dos man wedge <reason_class>`. The observation log carries no commit SHA, so
+    `dos commit-audit` is deliberately NOT offered here — the receipt only claims
+    what its own fields can regenerate (honest about its reach)."""
+    verb = str(rec.get("verb") or "")
+    outcome = str(rec.get("outcome") or "")
+    plan = str(rec.get("blocked_plan") or "")
+    phase = str(rec.get("blocked_phase") or "")
+    reason_class = str(rec.get("reason_class") or "")
+    regen = ""
+    if verb == "stop" and outcome == "block" and plan and phase:
+        regen = f"dos verify {plan} {phase}"
+    elif verb == "pretool" and outcome == "deny" and reason_class:
+        regen = f"dos man wedge {reason_class}"
+    return Receipt(
+        verb=verb, outcome=outcome, ts=str(rec.get("ts") or ""),
+        plan=plan, phase=phase, reason_class=reason_class,
+        target=str(rec.get("verify_source") or ""), regen_command=regen,
+    )
+
+
+def headline_summary(records: Iterable[dict], *, since: str = "",
+                     with_receipts: bool = False) -> HeadlineSummary:
+    """Fold observation records into the quotable headline summary. PURE — no disk.
+
+    Counts each share-shaped class from its (verb, outcome) tuple, reusing the
+    `intervention_rate` denominator for `adjudicated`. `since` keeps records with
+    `ts >= since` (ISO-8601 lexical compare; an undatable record is skipped under
+    a window — the conservative direction `intervention_rate` already takes).
+    `with_receipts` banks up to `_RECEIPTS_PER_CLASS` env-authored receipts per
+    nonzero class. `collisions_admitted` is structurally 0 (not witnessed here).
+    """
+    rate = intervention_rate(records if isinstance(records, (list, tuple))
+                             else list(records), since=since)
+    # Re-list so a one-shot iterator survives both the rate fold above and the
+    # class pass below (intervention_rate consumed the first view).
+    recs = list(records) if not isinstance(records, (list, tuple)) else list(records)
+
+    false_done = edits_blocked = warned = 0
+    receipts: dict[str, list[Receipt]] = {
+        "false_done_refused": [], "edits_blocked": [], "warned": [],
+    }
+    latest = ""
+    for rec in recs:
+        ts = str(rec.get("ts") or "")
+        if since and (not ts or ts < since):
+            continue
+        if ts > latest:
+            latest = ts
+        verb = str(rec.get("verb") or "")
+        outcome = str(rec.get("outcome") or "")
+        cls = ""
+        if verb == "stop" and outcome == "block":
+            false_done += 1
+            cls = "false_done_refused"
+        elif verb == "pretool" and outcome == "deny":
+            edits_blocked += 1
+            cls = "edits_blocked"
+        elif verb in ("pretool", "posttool") and outcome == "warn":
+            warned += 1
+            cls = "warned"
+        if with_receipts and cls and len(receipts[cls]) < _RECEIPTS_PER_CLASS:
+            receipts[cls].append(_receipt_for(rec))
+
+    frozen_receipts = {
+        cls: tuple(rs) for cls, rs in receipts.items() if rs
+    } if with_receipts else {}
+    return HeadlineSummary(
+        adjudicated=rate.adjudicated,
+        false_done_refused=false_done,
+        edits_blocked=edits_blocked,
+        warned=warned,
+        collisions_admitted=0,
+        collisions_witnessed=False,
+        since=since,
+        latest=latest,
+        receipts=frozen_receipts,
+    )
+
+
+def render_headline_text(summary: HeadlineSummary, *,
+                         with_receipts: bool = False) -> str:
+    """The quotable one-liner + honest per-class breakdown. PURE.
+
+    Leads with the pasteable headline (the `dos helped` posture), then the
+    per-class lines with HONEST ZEROS and the coverage clause. `with_receipts`
+    appends each nonzero class's env-authored receipts + regen commands.
+    """
+    out: list[str] = []
+    window = f" since {summary.since}" if summary.since else ""
+    # The pasteable one-liner — the artifact the issue is about.
+    out.append(
+        f"dos: {summary.adjudicated} tool call(s) adjudicated{window} — "
+        f"{summary.false_done_refused} false \"done\"(s) refused at stop, "
+        f"{summary.edits_blocked} edit(s) blocked at the kernel boundary, "
+        f"{summary.collisions_admitted} collisions admitted"
+    )
+    # The coverage clause — honest about WHAT this number covers (the observation
+    # log = the surfaces the hooks gate), and about the one class it cannot
+    # witness (arbitrate-admits live in the lane journal, so collisions here is a
+    # structural 0, not a measured one).
+    out.append("  on the surfaces the hooks gate (the per-call observation log)")
+    if not summary.collisions_witnessed:
+        out.append("  · collisions admitted is not witnessed here — "
+                   "arbitrate-admits live in the lane journal (`dos helped`)")
+    if summary.warned:
+        out.append(f"  · {summary.warned} advisory warn(s) (recorded, not refused)")
+    if with_receipts:
+        labels = {
+            "false_done_refused": "false \"done\" refused at stop",
+            "edits_blocked": "edit blocked at the kernel boundary",
+            "warned": "advisory warn",
+        }
+        for cls, recs in summary.receipts.items():
+            if not recs:
+                continue
+            out.append(f"  receipts — {labels.get(cls, cls)}:")
+            for r in recs:
+                regen = f"  →  {r.regen_command}" if r.regen_command else ""
+                out.append(f"    {r.ts or '-'}  {r.verb}/{r.outcome}{regen}")
+    return "\n".join(out)

@@ -9813,6 +9813,23 @@ def build_parser() -> argparse.ArgumentParser:
                       help="machine-readable {rows, never_fired, orphans}")
     pcen.set_defaults(func=cmd_census)
 
+    # headline — the quotable, receipt-linked one-liner over the per-call hook
+    # observation log (issue #71): "N tool calls adjudicated — M false done's
+    # refused at stop, …", honest zeros + a coverage clause, --receipts expands
+    # each count to its regenerating command. A read-only projection (the observe
+    # posture) over docs/297, NOT the lane journal (the like-for-like rule).
+    phl = sub.add_parser(
+        "headline",
+        help="a quotable, receipt-linked one-liner over the hook observation log")
+    _add_workspace_flags(phl)
+    phl.add_argument("--since", metavar="TS", default="",
+                     help="keep only observations at/after this ISO-8601 stamp (the window)")
+    phl.add_argument("--receipts", action="store_true",
+                     help="expand each nonzero count to its records + the regenerating command")
+    phl.add_argument("--json", action="store_true",
+                     help="machine-readable {adjudicated, per-class counts, receipts}")
+    phl.set_defaults(func=cmd_headline)
+
     # helped — the operator-facing "what did DOS catch for me?" rollup (help_summary):
     # fold the BLOCK/WARN/DEFER enforcement records the lane WAL already carries into a
     # "DOS has caught N things" summary, by reason class + tool. The last observability
