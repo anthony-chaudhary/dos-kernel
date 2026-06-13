@@ -65,7 +65,7 @@ from the long README:
 
 ```bash
 pip install -e ".[dev,mcp]"       # editable + the test/lint toolchain (exactly what CI installs)
-python -m pytest -q               # the full kernel suite — must stay green (~4,100 tests, ~3–4 min)
+python -m pytest -q               # the full kernel suite — must stay green (~4,900 tests, ~4–5 min)
 dos doctor --workspace .          # what IS this workspace? (the config seam, made visible)
 ruff check src/dos src/dos_mcp    # lint exactly as CI does (the wider tree is NOT lint-clean — don't "fix" it)
 ```
