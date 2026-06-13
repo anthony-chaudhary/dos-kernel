@@ -16,6 +16,7 @@ story, start at the [README](../../README.md) or the
 | How do I detect an agent loop spinning without progress? | `dos liveness` / `productivity` / `efficiency` | [how-to-detect-an-agent-loop-spinning-without-progress](how-to-detect-an-agent-loop-spinning-without-progress.md) |
 | Where do I get process-reward training data that can't be gamed? | `dos reward` | [process-reward-model-training-data-that-cant-be-gamed](process-reward-model-training-data-that-cant-be-gamed.md) |
 | Do AI coding agents lie about what they shipped? | `dos verify` / `dos commit-audit` | [do-ai-coding-agents-lie-about-what-they-shipped](do-ai-coding-agents-lie-about-what-they-shipped.md) |
+| How do I add a guardrail to a coding agent with no plugin/hook system? | `dos commit-audit` (exit code) | [how-to-add-a-guardrail-to-a-coding-agent-with-no-plugin-system](how-to-add-a-guardrail-to-a-coding-agent-with-no-plugin-system.md) |
 
 ## How to read the numbers on these pages
 
