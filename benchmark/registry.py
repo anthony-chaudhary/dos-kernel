@@ -334,6 +334,46 @@ BENCHMARKS: Dict[str, BenchSpec] = {
                        prereqs=()),
         ),
     ),
+    # ---------------------------------------------------------------- poisoned_pool
+    "poisoned_pool": BenchSpec(
+        name="poisoned_pool",
+        question="Across expert-iteration generations whose admitted pool conditions the "
+                 "next batch, does a self-judged admission gate accumulate over-claim "
+                 "poison while the witness-gated kernel verdict (dos.reward.admit) does "
+                 "not — the docs/234 theorem measured, not argued (docs/322, issue #36)?",
+        results_summary="benchmark/poisoned_pool/RESULTS.md",
+        entrypoints=(
+            Entrypoint("selfcheck", ["benchmark.poisoned_pool.run", "selfcheck"],
+                       cost="free",
+                       does="$0 witness the corpus ground truth: every planted bug fails "
+                            "its acceptance test, every reference fix passes; no model",
+                       prereqs=()),
+            Entrypoint("init", ["benchmark.poisoned_pool.run", "init",
+                                "--run-dir", "{run_dir}"],
+                       cost="free",
+                       does="start a run: write state + generation-0 prompts (the policy "
+                            "is OUTSIDE — any driver answers prompt files with completion "
+                            "files; the harness itself never calls a model)",
+                       defaults={"run_dir": "benchmark/poisoned_pool/_run"},
+                       prereqs=()),
+            Entrypoint("ingest", ["benchmark.poisoned_pool.run", "ingest",
+                                  "--run-dir", "{run_dir}"],
+                       cost="free",
+                       does="adjudicate the pending generation: subprocess witness per "
+                            "trajectory, Arm S self-admission vs Arm W dos.reward.admit, "
+                            "pool update, next generation's prompts",
+                       defaults={"run_dir": "benchmark/poisoned_pool/_run"},
+                       prereqs=()),
+            Entrypoint("report", ["benchmark.poisoned_pool.run", "report",
+                                  "--run-dir", "{run_dir}", "--write-beside"],
+                       cost="free",
+                       does="fold the run into results.json + RESULTS.md (the committed "
+                            "evidence: per-generation over-claim/true-success curves, "
+                            "both arms)",
+                       defaults={"run_dir": "benchmark/poisoned_pool/_run"},
+                       prereqs=()),
+        ),
+    ),
     # ------------------------------------------------------------------- legalcite
     "legalcite": BenchSpec(
         name="legalcite",
