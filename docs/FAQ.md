@@ -50,7 +50,10 @@ agents claim subtasks and write back compact verified updates — gaining up to
 10.5 points on SWE-bench Verified at roughly half the cost per task.
 `dos arbitrate` is the same shape applied to the file tree: agents share one
 workspace, and a collision is refused at admission time — before the edit
-exists — instead of being discovered at merge time.
+exists — instead of being discovered at merge time. The full design-review
+checklist — the four places concurrent agents contend, which worktrees cover,
+and the one command for each of the rest — is
+[Running parallel AI agents safely](PARALLEL_AGENTS_SAFELY.md).
 
 ## How do I detect that an agent loop is spinning — running but not progressing?
 

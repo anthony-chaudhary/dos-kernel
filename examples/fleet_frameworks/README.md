@@ -10,6 +10,10 @@ worker's "done" is folded into control flow as a fact — and route it through a
 kernel verdict instead. Read the cookbook for the full argument; run these for
 the proof.
 
+> New to the problem? [Running parallel AI agents safely](../../docs/PARALLEL_AGENTS_SAFELY.md)
+> is the framework-agnostic version — the four places concurrent agents contend
+> and the one runnable command for each — before you pick a framework recipe.
+
 | File | Recipe | Needs |
 |---|---|---|
 | `universal.py` | 0 — the two-function adapter (`verify` at the "done" seam, `arbitrate` at the dispatch seam) | `dos` only |
