@@ -30,6 +30,7 @@ from .agent import FailureModel
 from .metrics import Metrics
 from .workload import generate, generate_disjoint
 from . import open_loop, closed_loop, harness_loop, metrics
+from .yield_estimator import make_yield_rank_key
 
 
 def run_cell(
@@ -115,6 +116,87 @@ def run_host_pair(
     advisory, _ = harness_loop.run(workload, model, run_seed=seed, kappa=kappa,
                                    review_mu=review_mu, lease_writeback=False)
     return {"enforcement": enforcement, "advisory": advisory}
+
+
+def run_capped_pair(
+    *, efforts: int, phases: int, budget: float | None = None,
+    max_steps: int | None = None, seed: int = 1729,
+    shared_ratio: float = 0.35, lie_rate: float = 0.12,
+    window_override: int | None = None,
+    kappa: float = metrics.DEFAULT_KAPPA, review_mu: float = metrics.DEFAULT_REVIEW_MU,
+) -> dict[str, Metrics]:
+    """The PICKER axis (docs/91 §3) over one workload — THREE arms, two questions.
+
+    All three run the closed loop on the SAME seeded workload + failure model +
+    cap, so `real_ships` and every claim are identical per phase; the ONLY thing
+    that varies is HOW the next phase to admit is chosen. Under a budget/deadline
+    the loop stops early, so a choice that wastes fewer actions banks more verified
+    work before the cap — the regime that makes pick quality measurable at all.
+
+      * `fixed_lane`  — today's loop: the seeded `interleave` order, and a write
+        that collides with a live in-flight lease is REFUSED then retried later on
+        a split footprint (a wasted action). The baseline.
+      * `first_fit`   — bare-pick: the arbiter's auto-pick walk advances some ready
+        effort whose footprint is disjoint from the live leases, SCHEDULING AROUND
+        contention instead of refusing+retrying. No ranker (ladder order).
+      * `value_aware` — bare-pick PLUS the reference yield estimator
+        (`make_yield_rank_key`, a benchmark driver, never the kernel) ranking the
+        already-disjoint candidates.
+
+    The two questions this answers, separately, because the data says they have
+    very different answers (the honest finding behind docs/90 §3):
+
+      1. fixed_lane → first_fit: the INFRASTRUCTURE win. Scheduling around
+         contention (the kernel's auto-pick walk) instead of refuse+retry is a
+         large, robust gain (~1.6× verified-velocity-per-$ at a budget here).
+      2. first_fit → value_aware: the RANKER refinement. Ranking the disjoint
+         candidates by a yield estimate is an OPEN research problem (docs/90 §3 —
+         the online-scheduling optimum). In this workload, once contention is
+         already scheduled around, the headroom is tiny: even an oracle ranker
+         barely moves the number. A naive greedy estimator is roughly neutral. We
+         report it honestly rather than tune the workload until it wins.
+
+    Honesty: the cap is arm-independent and the estimator is blind to the lie/flake
+    rolls (it ranks by remaining horizon + contention, never realized success), so
+    any delta is purely pick policy — the honesty invariant lifted to the picker.
+    """
+    # The win is avoiding refuse+retry. Two sources contend: cross-effort sharing
+    # AND same-lane window serialization (effort-k's next phase arriving while its
+    # OWN prior lease is still in its in-flight window). `window_override=0` removes
+    # the SECOND source entirely — no lease is ever live — which (with no shared
+    # pool) is the only true "nothing contends" regime, where bare-pick and
+    # fixed-lane tie. (A `generate(shared_ratio=0)` workload does NOT tie: its
+    # private files still birthday-collide AND the window still serializes.)
+    workload = generate(seed=seed, efforts=efforts, phases=phases,
+                        shared_ratio=shared_ratio)
+    model = FailureModel(seed=seed, lie_rate=lie_rate)
+    fixed_lane, _ = closed_loop.run(
+        workload, model, run_seed=seed, kappa=kappa, review_mu=review_mu,
+        budget=budget, max_steps=max_steps, window_override=window_override)
+    first_fit, _ = closed_loop.run(
+        workload, model, run_seed=seed, kappa=kappa, review_mu=review_mu,
+        bare_pick=True, budget=budget, max_steps=max_steps,
+        window_override=window_override)
+    value_aware, _ = closed_loop.run(
+        workload, model, run_seed=seed, kappa=kappa, review_mu=review_mu,
+        bare_pick=True, budget=budget, max_steps=max_steps,
+        rank_key_factory=make_yield_rank_key, window_override=window_override)
+    return {"fixed_lane": fixed_lane, "first_fit": first_fit,
+            "value_aware": value_aware}
+
+
+def _aggregate_vv_per_dollar(arms: list[Metrics]) -> float:
+    """Pooled verified-velocity-per-$ over a seed ensemble: Σ real_ships ÷ Σ loaded.
+
+    The picker's win is an AGGREGATE property at a fixed budget, not a per-seed
+    guarantee — single-seed pick-order effects are noisy (a given seed can go
+    either way). Pooling the numerator and denominator across seeds is the honest
+    headline: it answers "across many runs at this budget, does value-aware bank
+    more verified work per loaded dollar?" without cherry-picking a seed. Returns
+    0.0 when the pooled cost is 0 (vacuous)."""
+    ships = sum(m.real_ships for m in arms)
+    cost = sum(m.loaded_cost for m in arms)
+    return ships / cost if cost else 0.0
 
 
 def _host_split(m: Metrics) -> dict:
@@ -530,6 +612,160 @@ def _host_sweep() -> None:
     print("    undo the overwrite. Catching ≠ preventing once the write has landed.")
 
 
+def _picker_sweep_data(
+    budgets: tuple[float, ...] = (20.0, 30.0, 45.0, 70.0, 110.0),
+    seeds: tuple[int, ...] = (1, 2, 3, 4, 5, 6, 7, 8),
+    efforts: int = 8, phases: int = 20, shared_ratio: float = 0.35,
+) -> dict:
+    """The picker-axis data the sweep renders, as JSON. A pure data function so the
+    text renderer and `--json` share one computation (mirrors `_host_sweep_data`).
+
+    Reports BOTH ratios per budget, pooled over the seed ensemble
+    (`_aggregate_vv_per_dollar`) — because the honest finding (docs/90 §3) is that
+    they differ sharply:
+
+      * `infra_ratio`  = first_fit ÷ fixed_lane — the INFRASTRUCTURE win
+        (scheduling around contention vs refuse+retry). Large and robust.
+      * `ranker_ratio` = value_aware ÷ first_fit — the RANKER refinement (a yield
+        estimate over the already-disjoint candidates). Tiny headroom here; an
+        open optimum (docs/90 §3). Reported, never tuned-until-it-wins.
+
+    Plus the two falsifiers (both on the INFRA win, where there is a real effect to
+    falsify):
+      * drain — at a budget large enough to drain everything both bare-pick and
+        fixed-lane reach every phase and ship the same total; the infra ratio
+        relaxes toward its uncapped value (pick ORDER stops mattering, though
+        avoiding refuse+retry still helps a little — the honest non-1.0 floor).
+      * disjoint — with no in-flight window (`window_override=0`) no lease is ever
+        live, so nothing contends (neither cross-effort sharing nor same-lane
+        serialization) and the infra ratio ≈ 1.0 (the win was refuse-avoidance,
+        exactly as claimed). `shared_ratio=0` does NOT collapse it — its private
+        files still birthday-collide and the window still serializes — so the
+        falsifier removes the window itself."""
+    def _arms(b, sr, window_override=None):
+        return [run_capped_pair(efforts=efforts, phases=phases, budget=b, seed=s,
+                                shared_ratio=sr, window_override=window_override)
+                for s in seeds]
+
+    def _vv(arms, key):
+        return _aggregate_vv_per_dollar([a[key] for a in arms])
+
+    curve = []
+    for b in budgets:
+        a = _arms(b, shared_ratio)
+        fx, ff, va = _vv(a, "fixed_lane"), _vv(a, "first_fit"), _vv(a, "value_aware")
+        curve.append({
+            "budget": b,
+            "fixed_lane_vv_per_dollar": round(fx, 4),
+            "first_fit_vv_per_dollar": round(ff, 4),
+            "value_aware_vv_per_dollar": round(va, 4),
+            "infra_ratio": round(ff / fx, 4) if fx else None,
+            "ranker_ratio": round(va / ff, 4) if ff else None,
+        })
+
+    # falsifier 1 — a drain budget (large enough that both reach everything).
+    drain_budget = float(efforts * phases * 4)
+    ad = _arms(drain_budget, shared_ratio)
+    fx_d, ff_d = _vv(ad, "fixed_lane"), _vv(ad, "first_fit")
+    drain = {
+        "budget": drain_budget,
+        "fixed_lane_vv_per_dollar": round(fx_d, 4),
+        "first_fit_vv_per_dollar": round(ff_d, 4),
+        "infra_ratio": round(ff_d / fx_d, 4) if fx_d else None,
+        "same_total_ships": (
+            sum(a["fixed_lane"].real_ships for a in ad)
+            == sum(a["first_fit"].real_ships for a in ad)),
+    }
+
+    # falsifier 2 — no in-flight window (window_override=0) at a tight budget. With
+    # no lease ever live, nothing contends — neither cross-effort sharing nor
+    # same-lane serialization — so fixed-lane never refuses and bare-pick has
+    # nothing to schedule around: the infra ratio collapses to ≈ 1.0.
+    tight = budgets[1] if len(budgets) > 1 else budgets[0]
+    aj = _arms(tight, shared_ratio, window_override=0)
+    fx_j, ff_j = _vv(aj, "fixed_lane"), _vv(aj, "first_fit")
+    disjoint = {
+        "budget": tight,
+        "fixed_lane_vv_per_dollar": round(fx_j, 4),
+        "first_fit_vv_per_dollar": round(ff_j, 4),
+        "infra_ratio": round(ff_j / fx_j, 4) if fx_j else None,
+    }
+
+    return {
+        "axis": "picker",
+        "efforts": efforts,
+        "phases": phases,
+        "shared_ratio": shared_ratio,
+        "seeds": list(seeds),
+        "curve": curve,
+        "falsifier_drain": drain,
+        "falsifier_disjoint": disjoint,
+    }
+
+
+def _picker_sweep() -> None:
+    """The PICKER axis (docs/91 §3) — two questions, two very different answers.
+
+    Holds trust + orchestrator + host fixed (closed loop, in-process leases,
+    enforcement) and varies only HOW the next phase to admit is chosen. The honest
+    headline is that the win is the INFRASTRUCTURE (scheduling around contention via
+    the kernel's auto-pick walk vs refuse+retry), large and robust; the RANKER on
+    top is an open optimum with little headroom in this workload (docs/90 §3).
+    """
+    data = _picker_sweep_data()
+    print("=" * 78)
+    print("FleetHorizon — the PICKER axis (docs/91): scheduling-around-contention")
+    print("=" * 78)
+    print("\n'The arbiter admits only disjoint lanes; the PICKER chooses which of the")
+    print("admissible ones to take next.' Same workload, same agents, same cap — the")
+    print("only difference is the pick POLICY. The win lives UNDER A BUDGET: with a")
+    print("cap, a policy that wastes fewer actions banks more verified work before")
+    print("the cap.\n")
+
+    print(f"[P-A] Aggregate verified-velocity-per-$ over {len(data['seeds'])} seeds "
+          f"as the budget grows (fleet={data['efforts']}, horizon={data['phases']}, "
+          f"shared_ratio={data['shared_ratio']}):")
+    print("      Pooled Σ real_ships ÷ Σ loaded_cost. Two ratios: INFRA = bare-pick")
+    print("      (schedule around contention) ÷ fixed-lane (refuse+retry); RANKER =")
+    print("      value-aware ÷ first-fit (a yield estimate over the disjoint set).")
+    print(f"    {'budget':>7} {'fixed vv/$':>11} {'bare vv/$':>10} {'value vv/$':>11} "
+          f"{'INFRA':>7} {'RANKER':>7}")
+    for row in data["curve"]:
+        ir = f"{row['infra_ratio']:.2f}x" if row["infra_ratio"] is not None else " —"
+        rr = f"{row['ranker_ratio']:.2f}x" if row["ranker_ratio"] is not None else " —"
+        print(f"    {row['budget']:>7.0f} {row['fixed_lane_vv_per_dollar']:>11.4f} "
+              f"{row['first_fit_vv_per_dollar']:>10.4f} "
+              f"{row['value_aware_vv_per_dollar']:>11.4f} {ir:>7} {rr:>7}")
+    print("\n  → INFRA is the headline: scheduling around contention (the kernel's")
+    print("    auto-pick walk) banks far more verified work per dollar than pinning a")
+    print("    lane and paying refuse+retry. RANKER ≈ 1.0: once contention is already")
+    print("    scheduled around, ranking the disjoint set is near-flat HERE — the")
+    print("    online-scheduling optimum is open (docs/90 §3), reported, not tuned.")
+
+    d = data["falsifier_drain"]
+    print("\n[P-B] FALSIFIER 1 — a DRAIN budget (both reach every phase, same total).")
+    print("      Pick ORDER stops mattering; the infra ratio relaxes toward its")
+    print("      uncapped floor (avoiding refuse+retry still helps a little — the")
+    print("      honest non-1.0 floor, not a contradiction).")
+    print(f"    budget={d['budget']:.0f}: fixed vv/$={d['fixed_lane_vv_per_dollar']:.4f} "
+          f"bare vv/$={d['first_fit_vv_per_dollar']:.4f} "
+          f"INFRA={d['infra_ratio']:.3f}x  same_total_ships={d['same_total_ships']}")
+
+    j = data["falsifier_disjoint"]
+    print("\n[P-C] FALSIFIER 2 — no in-flight window (window=0) at a tight budget.")
+    print("      With no lease ever live, NOTHING contends — not cross-effort sharing,")
+    print("      not same-lane serialization — so fixed-lane never refuses and the")
+    print("      infra ratio → 1.0, pinning that the win WAS refuse-avoidance. (A")
+    print("      shared_ratio=0 workload does NOT tie: its private files still")
+    print("      birthday-collide and the window still serializes.)")
+    print(f"    budget={j['budget']:.0f}: fixed vv/$={j['fixed_lane_vv_per_dollar']:.4f} "
+          f"bare vv/$={j['first_fit_vv_per_dollar']:.4f} "
+          f"INFRA={j['infra_ratio']:.3f}x")
+    print("\n  → The picker is sound by construction: it ranks ONLY among lanes the")
+    print("    disjointness gate already admitted, so the worst a bad estimate does")
+    print("    is pick a suboptimal-but-safe order — never an unsafe admission.")
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="FleetHorizon open-loop vs closed-loop A/B")
     ap.add_argument("--efforts", type=int, default=6, help="fleet size (concurrent efforts)")
@@ -550,6 +786,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="run the orchestrator sweep (DOS-dispatch vs ultracode/harness; docs/98)")
     ap.add_argument("--host-sweep", action="store_true",
                     help="run the host sweep (advisory/RECORD vs enforcement/PREVENT; the catch-vs-prevent curve)")
+    ap.add_argument("--picker-sweep", action="store_true",
+                    help="run the picker sweep (value-aware vs first-fit under a budget; docs/91 §3)")
     ap.add_argument("--json", action="store_true", help="emit the cell as JSON")
     args = ap.parse_args(argv)
 
@@ -567,6 +805,12 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(_host_sweep_data(), indent=2))
         else:
             _host_sweep()
+        return 0
+    if args.picker_sweep:
+        if args.json:
+            print(json.dumps(_picker_sweep_data(), indent=2))
+        else:
+            _picker_sweep()
         return 0
 
     o, c = run_cell(efforts=args.efforts, phases=args.phases, seed=args.seed,

@@ -166,6 +166,12 @@ def run(workload: Workload, model: FailureModel, *, run_seed: int,
         kappa: float = metrics.DEFAULT_KAPPA,
         review_mu: float = metrics.DEFAULT_REVIEW_MU,
         sink: Callable[[TrajectoryStep], None] | None = None,
+        bare_pick: bool = False,
+        rank_key: Callable[[str, str, list[str]], float | None] | None = None,
+        rank_key_factory: Callable[..., Callable[[str, str, list[str]], float | None]] | None = None,
+        budget: float | None = None,
+        max_steps: int | None = None,
+        window_override: int | None = None,
         ) -> tuple[Metrics, list[Event]]:
     """Run the closed-loop arm.
 
@@ -175,6 +181,34 @@ def run(workload: Workload, model: FailureModel, *, run_seed: int,
     computes: passing a sink changes NOTHING about scoring or kernel calls, it
     only observes them. The A/B return shape is unchanged so existing callers
     (harness, tests) are unaffected.
+
+    Value-aware picker (docs/91 Phases 2-3), all opt-in and default-off so the
+    fixed-lane A/B is byte-identical to today:
+
+    * `bare_pick` — drive the loop from per-effort cursors and let the ARBITER
+      pick which ready effort to advance next (via `auto_pick_order` + `rank_key`)
+      instead of the fixed `interleave` order. The unit of pick is the EFFORT
+      (each keeps its own canonical lane), so the picker chooses ORDER among ready
+      efforts and never re-homes a footprint — the soundness floor, held here too.
+    * `rank_key` — `(name, kind, tree) -> float | None`, the value estimator the
+      arbiter ranks ready candidates by (descending). `None` ⇒ ladder order ⇒
+      first-fit (the regression baseline). Only consulted when `bare_pick=True`.
+    * `rank_key_factory` — `(workload, cursors) -> rank_key`, an alternative to a
+      bare `rank_key` for estimators that must close over the LIVE cursors (the
+      reference yield estimator does — it scores by remaining horizon). When given
+      it is built once per run against the bare-pick loop's own cursors and wins
+      over `rank_key`. (docs/91 Phase 4 — the estimator lives in the benchmark,
+      never the kernel.)
+    * `budget` / `max_steps` — a hard cost ceiling / step deadline (docs/91 §3).
+      With neither set the loop drains the whole workload (today's behavior) and
+      `real_ships` is fixed across arms. Under a cap the loop stops early, so
+      `real_ships` becomes a dependent variable and a smarter pick ORDER can bank
+      more verified work before the cap — the only regime where the picker's
+      throughput win is visible. The cap is arm-independent: both arms share it.
+    * `window_override` — override the in-flight lease window (default scales with
+      the fleet). `window_override=0` means no lease is ever live, so nothing
+      contends and bare-pick has nothing to schedule around — the picker-axis
+      falsifier where the infra win vanishes (docs/91 §3).
     """
     events: list[Event] = []
     emit = sink if sink is not None else (lambda _s: None)
@@ -224,14 +258,163 @@ def run(workload: Workload, model: FailureModel, *, run_seed: int,
         # shared-touching phase arrives while effort-A's is still in flight. Scaled
         # to the fleet so a wider fleet has more simultaneously-in-flight efforts —
         # the regime where contention bites (the monotonicity-in-fanout claim).
-        window = max(1, workload.n_efforts - 1)
+        # `window=0` (an override) means NO lease is ever in flight, so nothing
+        # contends — the picker-axis falsifier: with no contention to schedule
+        # around, bare-pick and fixed-lane tie (docs/91 §3).
+        window = (window_override if window_override is not None
+                  else max(1, workload.n_efforts - 1))
         lane_of = {e.name: e.lane for e in workload.efforts}
 
         def _expire(now_step: int) -> None:
             nonlocal live_leases
             live_leases = [l for l in live_leases if l["_expires_at"] > now_step]
 
+        # Phase-3 budget/deadline cap (docs/91 §3). Both are arm-INDEPENDENT and
+        # default-off; with neither set the loop drains, identical to today. The
+        # check is at the TOP of each step so the cap is a hard ceiling never
+        # overspent. `_actions_spent` counts the SAME costed `action` events the
+        # cost model prices (metrics.COST_PER_ACTION each), so "budget" is in the
+        # same unit as `total_cost`.
+        def _actions_spent() -> int:
+            return sum(1 for e in events if e.kind == "action")
+
+        def _cap_hit(next_step: int) -> bool:
+            if max_steps is not None and next_step >= max_steps:
+                return True
+            if budget is not None and (
+                    (_actions_spent() + 1) * metrics.COST_PER_ACTION > budget):
+                return True
+            return False
+
+        def _commit_verify_emit(step: int, phase, claim, lane: str) -> None:
+            """Steps 2-3 + the trajectory record for an ADMITTED phase.
+
+            Factored out so the fixed-lane `interleave` path and the bare-pick
+            path share one body — the ONLY thing that differs between them is how
+            a phase is selected and arbitrated (Step 1). Keeping this identical is
+            what makes the default path byte-for-byte unchanged.
+            """
+            key = (phase.effort, phase.phase_id)
+            # ---- STEP 2: do the work; commit FOR REAL only if it really shipped ----
+            if claim.really_committed:
+                sha = _real_commit(repo, phase, claim.wrote_files)
+                events.append(Event("real-ship", phase.effort, phase.phase_id))
+                really_shipped.add(key)
+                registry["recently_completed"].insert(0, {
+                    "plan": phase.effort, "phase": phase.phase_id,
+                    "status": "done", "commit_sha": sha,
+                })
+            if claim.is_rework:
+                events.append(Event("rework", phase.effort, phase.phase_id))
+
+            # ---- STEP 3: VERIFY the claim against ground truth (don't believe) ----
+            verdict = oracle.is_shipped(
+                phase.effort, phase.phase_id,
+                state=registry, grep_fallback=grep_fb,
+            )
+            if verdict.shipped:
+                events.append(Event("banked-shipped", phase.effort, phase.phase_id))
+            elif claim.claimed_shipped:
+                events.append(Event("caught-lie", phase.effort, phase.phase_id))
+                events.append(Event("human-review", phase.effort, phase.phase_id))
+
+            # ---- trajectory record for this ADMITTED, adjudicated phase ----
+            sc_v, live_v = _step_verdicts(claim, lane, cfg)
+            emit(step_from_claim(
+                step=step, claim=claim,
+                run_id=effort_rids[phase.effort].run_id,
+                root_id=root_rid.run_id,
+                verdict_shipped=verdict.shipped, verdict_source=verdict.source,
+                arbiter_outcome="acquire",
+                verdict_in_scope=sc_v, verdict_advancing=live_v,
+            ))
+
+        # ── BARE-PICK PATH (docs/91 Phase 2) ───────────────────────────────────
+        # Drive the loop from per-effort cursors and let the ARBITER pick which
+        # ready effort to advance next (ranked by `rank_key`), instead of the fixed
+        # `interleave` order. The unit of pick is the EFFORT, not the lane: each
+        # effort keeps its own canonical lane (its private subtree), so every
+        # candidate's tree IS the phase's real footprint — the picker only chooses
+        # the ORDER among ready efforts, never re-homes a footprint (the soundness
+        # floor, held in the harness too). `rank_key=None` ⇒ ladder order ⇒ first-fit.
+        if bare_pick:
+            cursors = {e.name: 0 for e in workload.efforts}
+            # A factory (docs/91 Phase 4) lets a yield estimator close over THESE
+            # live cursors so it always scores against the current remaining
+            # horizon; it wins over a bare `rank_key` when both are passed.
+            active_rank_key = (rank_key_factory(workload, cursors)
+                               if rank_key_factory is not None else rank_key)
+            step = 0
+            while True:
+                if _cap_hit(step):
+                    break
+                # ready candidates: each effort whose horizon isn't exhausted, on
+                # its OWN lane, footprinted by its NEXT phase.
+                order: list[tuple[str, str, list[str]]] = []
+                lookup: dict[str, tuple] = {}
+                for e in workload.efforts:
+                    idx = cursors[e.name]
+                    if idx >= len(e.phases):
+                        continue
+                    ph = e.phases[idx]
+                    ln = lane_of[e.name]
+                    order.append((ln, "keyword", list(ph.touches)))
+                    lookup[ln] = (e.name, ph)
+                if not order:
+                    break  # every effort drained
+
+                _expire(step)
+                decision = arbiter.arbitrate(
+                    requested_lane="", requested_kind="", requested_tree=[],
+                    live_leases=live_leases, config=cfg,
+                    auto_pick_order=order, rank_key=active_rank_key,
+                )
+
+                if decision.outcome != "acquire" or decision.lane not in lookup:
+                    # Every ready effort's next phase collides with a live in-flight
+                    # lease (same-lane window serialization) — nothing admissible
+                    # this tick. Advance the clock so a lease window expires, and
+                    # retry. Guard against a no-progress spin: if no lease will ever
+                    # expire (none live), stop.
+                    if not live_leases:
+                        break
+                    step += 1
+                    continue
+
+                eff, phase = lookup[decision.lane]
+                lane = decision.lane
+                w = workers[eff]
+                key = (eff, phase.phase_id)
+                cursors[eff] += 1
+
+                claim = w.attempt(phase, already_shipped=(key in really_shipped))
+                events.append(Event("action", eff, phase.phase_id))
+                if w.will_thrash():
+                    events.append(Event("action", eff, phase.phase_id))
+                    events.append(Event("thrash", eff, phase.phase_id))
+
+                candidate_lease = {
+                    "lane": lane, "lane_kind": "keyword",
+                    "tree": list(phase.touches), "effort": eff,
+                    "run_id": effort_rids[eff].run_id,
+                    "_expires_at": step + window,
+                }
+                lane_journal.append(
+                    lane_journal.acquire_entry(candidate_lease, reason=decision.reason),
+                    path=bench_journal)
+                live_leases.append(candidate_lease)
+                _commit_verify_emit(step, phase, claim, lane)
+                step += 1
+
+        # ── FIXED-LANE PATH (default) ──────────────────────────────────────────
+        # The original interleave-driven loop, unchanged in behavior: each phase is
+        # arbitrated on its own effort's lane in the seeded interleave order. Guarded
+        # by `not bare_pick` so the two paths are mutually exclusive.
         for step, phase in enumerate(interleave(workload, seed=run_seed)):
+            if bare_pick:
+                break  # the bare-pick walk above already drove the loop
+            if _cap_hit(step):
+                break
             w = workers[phase.effort]
             key = (phase.effort, phase.phase_id)
             lane = lane_of[phase.effort]
@@ -299,64 +482,33 @@ def run(workload: Workload, model: FailureModel, *, run_seed: int,
                 # MINUS the shared file (the real-world "split the change" move).
                 continue
 
-            # admitted — take the lease
+            # admitted — take the lease, then run Steps 2-3 + the trajectory record
+            # (shared with the bare-pick path so the adjudication body is identical).
             live_leases.append(candidate_lease)
-
-            # ---- STEP 2: do the work; commit FOR REAL only if it really shipped ----
-            if claim.really_committed:
-                sha = _real_commit(repo, phase, claim.wrote_files)
-                events.append(Event("real-ship", phase.effort, phase.phase_id))
-                really_shipped.add(key)
-                # reconstruct the registry FROM git ground truth (newest first)
-                registry["recently_completed"].insert(0, {
-                    "plan": phase.effort, "phase": phase.phase_id,
-                    "status": "done", "commit_sha": sha,
-                })
-            if claim.is_rework:
-                events.append(Event("rework", phase.effort, phase.phase_id))
-
-            # ---- STEP 3: VERIFY the claim against ground truth (don't believe) ----
-            verdict = oracle.is_shipped(
-                phase.effort, phase.phase_id,
-                state=registry, grep_fallback=grep_fb,
-            )
-            if verdict.shipped:
-                # the oracle CONFIRMS a real commit closes this phase → bank it.
-                # docs/81 §4.3: a verify-confirmed clean ship reaches NO human — the
-                # kernel adjudicated completeness, so it never enters the review
-                # queue. This is what shrinks the human-review fraction.
-                events.append(Event("banked-shipped", phase.effort, phase.phase_id))
-            else:
-                # claimed shipped, but git shows no commit → a caught lie. The
-                # closed loop refuses to bank it (the defect the open loop banked).
-                if claim.claimed_shipped:
-                    events.append(Event("caught-lie", phase.effort, phase.phase_id))
-                    # docs/81 §4.3: a caught lie is a genuine EXCEPTION — it reaches
-                    # a human via the `dos decisions` queue. This is the ONLY thing
-                    # that puts the closed loop on the human queue, so its review
-                    # fraction ≈ the lie rate, not 100%.
-                    events.append(Event("human-review", phase.effort, phase.phase_id))
-
-            # ---- trajectory record for this ADMITTED, adjudicated phase ----
-            # One record per phase at its terminal verdict (docs/84). Deferred
-            # phases are recorded at the drain below instead, so no double-emit.
-            sc_v, live_v = _step_verdicts(claim, lane, cfg)
-            emit(step_from_claim(
-                step=step, claim=claim,
-                run_id=effort_rids[phase.effort].run_id,
-                root_id=root_rid.run_id,
-                verdict_shipped=verdict.shipped, verdict_source=verdict.source,
-                arbiter_outcome="acquire",
-                verdict_in_scope=sc_v, verdict_advancing=live_v,
-            ))
+            _commit_verify_emit(step, phase, claim, lane)
 
         # drain deferred (collision-rescheduled) phases on a split footprint that
         # no longer touches shared/ — they now admit and, if they really shipped,
         # bank. This is the cost of safety: extra actions, but no lost work. By the
         # time we drain, the main loop is done and all in-flight leases have expired.
         live_leases = []
+        _drained = False
         for effort, items in deferred.items():
+            if _drained:
+                break
             for phase, claim, refusal_reason in items:
+                # The Phase-3 BUDGET cap binds the drain too, or it would not be a
+                # real ceiling: a phase whose retry action would exceed the budget is
+                # left stranded (a dependent outcome — a smarter picker strands fewer
+                # high-value phases). With no budget this never trips and the drain is
+                # exactly today's. (A `max_steps` deadline has no step counter in the
+                # drain; it already bounded the main loop, so the drain runs to
+                # completion under a pure deadline — the drain is the cost of safety
+                # the deadline arm still pays.)
+                if budget is not None and (
+                        (_actions_spent() + 1) * metrics.COST_PER_ACTION > budget):
+                    _drained = True
+                    break
                 events.append(Event("action", effort, phase.phase_id))  # retry costs
                 # Reuse the ORIGINAL claim (no re-roll) — same ground truth as the
                 # open loop saw. Footprint is split to private-only, so it admits
