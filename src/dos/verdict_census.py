@@ -50,8 +50,8 @@ from __future__ import annotations
 
 import io
 import sys
-from dataclasses import dataclass, field
-from typing import Iterable, Mapping, Optional
+from dataclasses import dataclass
+from typing import Iterable, Mapping
 
 if hasattr(sys.stdout, "reconfigure"):
     try:
