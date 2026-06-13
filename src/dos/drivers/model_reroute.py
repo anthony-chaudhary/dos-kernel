@@ -154,6 +154,27 @@ def propose_reroutes(
     proposals: list[RerouteProposal] = []
     for tally in health.tallies:
         units = tally.sources
+        # A SUSPENDED model escalates BEFORE any sibling pick (issue #140): a
+        # policy pull must surface to the operator, never silently reroute — a
+        # sibling in the same capability class may also be pulled, draining budget
+        # rerouting to another down model. This is the load-bearing #140 case.
+        if getattr(tally, "suspended", False):
+            proposals.append(
+                RerouteProposal(
+                    action=RerouteAction.ESCALATE,
+                    down_model=tally.model,
+                    sibling="",
+                    units=units,
+                    reason=(
+                        f"model {tally.model!r} was SUSPENDED by policy on {tally.deaths} "
+                        f"unit(s) — escalate, do NOT silently reroute: a sibling may also "
+                        f"be pulled, and the operator must see the suspension. Wait for "
+                        f"the policy to lift or re-dispatch by hand on a model you have "
+                        f"confirmed is available"
+                    ),
+                )
+            )
+            continue
         if tally.model == UNNAMED_MODEL:
             proposals.append(
                 RerouteProposal(

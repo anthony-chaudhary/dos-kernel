@@ -24,6 +24,7 @@ from dos.provider_limit import (
     from_quota_error_class,
     from_rate_limit_kind,
     from_terminal_class,
+    heal_for_model_death,
     policy_for,
 )
 
@@ -48,6 +49,7 @@ def test_only_transient_overload_is_retryable():
         ProviderLimit.USAGE_WINDOW,
         ProviderLimit.HARD_QUOTA,
         ProviderLimit.MODEL_UNAVAILABLE,
+        ProviderLimit.MODEL_SUSPENDED,
         ProviderLimit.NONE,
     ):
         assert policy_for(cat).retryable_same_iter is False
@@ -63,10 +65,10 @@ def test_retryable_iff_has_backoff_ladder():
 
 
 def test_only_hard_quota_needs_operator_and_no_timer():
-    """HARD_QUOTA is the one category that needs an operator AND no timer clears
-    it. MODEL_UNAVAILABLE also has no timer reset, but does NOT need an operator
-    (a sibling model heals it) — that is the load-bearing difference between
-    them."""
+    """HARD_QUOTA and MODEL_SUSPENDED both need an operator AND no timer clears
+    them. MODEL_UNAVAILABLE has no timer reset either, but does NOT need an
+    operator (a sibling model heals it) — that reroute-vs-escalate split is the
+    load-bearing difference between MODEL_UNAVAILABLE and MODEL_SUSPENDED."""
     hq = policy_for(ProviderLimit.HARD_QUOTA)
     assert hq.operator_action_required is True
     assert hq.resets_on_timer is False
@@ -78,7 +80,11 @@ def test_only_hard_quota_needs_operator_and_no_timer():
     mu = policy_for(ProviderLimit.MODEL_UNAVAILABLE)
     assert mu.resets_on_timer is False
     assert mu.operator_action_required is False
-    # ...and none of the non-HARD_QUOTA categories demand operator action.
+    # MODEL_SUSPENDED: a policy pull — needs an operator (no sibling, no timer).
+    ms = policy_for(ProviderLimit.MODEL_SUSPENDED)
+    assert ms.operator_action_required is True
+    assert ms.resets_on_timer is False
+    # ...and none of the reroute/timer categories demand operator action.
     for cat in (
         ProviderLimit.TRANSIENT_OVERLOAD,
         ProviderLimit.USAGE_WINDOW,
@@ -92,7 +98,8 @@ def test_only_model_unavailable_reroutes():
     """MODEL_UNAVAILABLE is the one category whose heal is to change WHICH model
     runs the unit. reroute_model is the auto-routing flag the 'model down on a
     child/grandchild' case keys on — and it is orthogonal to retryable_same_iter
-    (re-running the same model would just re-hit the down model)."""
+    (re-running the same model would just re-hit the down model). MODEL_SUSPENDED
+    deliberately does NOT reroute (#140: a sibling may also be pulled)."""
     mu = policy_for(ProviderLimit.MODEL_UNAVAILABLE)
     assert mu.reroute_model is True
     assert mu.retryable_same_iter is False  # the same model is down; same-iter is futile
@@ -102,6 +109,7 @@ def test_only_model_unavailable_reroutes():
         ProviderLimit.TRANSIENT_OVERLOAD,
         ProviderLimit.USAGE_WINDOW,
         ProviderLimit.HARD_QUOTA,
+        ProviderLimit.MODEL_SUSPENDED,
         ProviderLimit.NONE,
     ):
         assert policy_for(cat).reroute_model is False
@@ -113,6 +121,7 @@ def test_overload_escalates_after_three_others_after_one():
         ProviderLimit.USAGE_WINDOW,
         ProviderLimit.HARD_QUOTA,
         ProviderLimit.MODEL_UNAVAILABLE,
+        ProviderLimit.MODEL_SUSPENDED,
         ProviderLimit.NONE,
     ):
         assert policy_for(cat).escalate_after == 1
@@ -175,6 +184,54 @@ def test_from_apply_outcome_token(token, expected):
 ])
 def test_from_terminal_class(cls, expected):
     assert from_terminal_class(cls) is expected
+
+
+# --- issue #140: suspension escalates, transient reroutes (text-aware heal) -----
+
+def test_heal_140_transient_still_reroutes():
+    """#140 done-condition (1): a transient '<model> is currently unavailable'
+    death still routes to reroute_model=True — no regression."""
+    cat = heal_for_model_death("Claude Fable 5 is currently unavailable")
+    assert cat is ProviderLimit.MODEL_UNAVAILABLE
+    assert policy_for(cat).reroute_model is True
+
+
+@pytest.mark.parametrize("text", [
+    "Claude Fable 5 is suspended",
+    "The model has been disabled by policy",
+    "This model is not available in your region",
+    "claude-fable-5 unavailable in your region",
+    "model withdrawn by export control directive",
+])
+def test_heal_140_suspension_escalates_not_reroutes(text):
+    """#140 done-condition (2): a suspension/policy death routes to escalate —
+    reroute_model=False, escalate_after=1, operator_action_required — so a
+    pulled model surfaces to the operator instead of silently draining budget
+    rerouting to a sibling that may also be pulled."""
+    cat = heal_for_model_death(text)
+    assert cat is ProviderLimit.MODEL_SUSPENDED
+    pol = policy_for(cat)
+    assert pol.reroute_model is False
+    assert pol.escalate_after == 1
+    assert pol.operator_action_required is True
+
+
+def test_heal_140_no_new_terminal_class():
+    """#140 done-condition (3): NO new result_state terminal class — the split is
+    in the HEAL (provider_limit), keyed on text. result_state still has the one
+    MODEL_UNAVAILABLE class; there is no MODEL_SUSPENDED terminal class."""
+    from dos.result_state import TerminalClass
+
+    assert "MODEL_UNAVAILABLE" in TerminalClass.__members__
+    assert "MODEL_SUSPENDED" not in TerminalClass.__members__
+
+
+def test_heal_140_cue_is_shape_not_a_model_name():
+    """Provider-invariance floor (#140): the suspension cue is the SHAPE of the
+    sentence, never a hardcoded model name. A suspension sentence about ANY model
+    name escalates; the bare-outage sentence about the SAME name reroutes."""
+    assert heal_for_model_death("totally-made-up-model-xyz is suspended") is ProviderLimit.MODEL_SUSPENDED
+    assert heal_for_model_death("totally-made-up-model-xyz is currently unavailable") is ProviderLimit.MODEL_UNAVAILABLE
 
 
 def test_from_terminal_class_bridges_real_result_state_class():

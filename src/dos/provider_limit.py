@@ -68,6 +68,17 @@ class ProviderLimit(str, enum.Enum):
                            re-dispatch (auto-heal); retrying the SAME model is
                            futile. This is the model-roster axis the goal's
                            "model is down on a child/grandchild" case lands on.
+      MODEL_SUSPENDED    — the named model was PULLED by policy ("suspended",
+                           "disabled by policy", "not available in your region")
+                           — the suspension shape of a model-down, distinct from
+                           a transient outage. A silent reroute is the WRONG heal
+                           here: a sibling in the same capability class may also
+                           be suspended (draining budget rerouting to another
+                           down model), and the operator must SEE that a model
+                           was pulled. Policy: ESCALATE (surface, do not silently
+                           reroute) — ``reroute_model=False``, ``escalate_after``
+                           1. The cue is the SHAPE of a suspension sentence,
+                           never a hardcoded model name (issue #140).
       NONE               — no provider-limit signal.
 
     The load-bearing split is TRANSIENT_OVERLOAD (retry) vs everything else
@@ -85,6 +96,7 @@ class ProviderLimit(str, enum.Enum):
     USAGE_WINDOW = "usage_window"
     HARD_QUOTA = "hard_quota"
     MODEL_UNAVAILABLE = "model_unavailable"
+    MODEL_SUSPENDED = "model_suspended"
     NONE = "none"
 
     def __str__(self) -> str:  # pragma: no cover - trivial
@@ -181,6 +193,21 @@ _POLICIES: dict[ProviderLimit, LimitPolicy] = {
         operator_action_required=False,
         resets_on_timer=False,
         reroute_model=True,
+    ),
+    ProviderLimit.MODEL_SUSPENDED: LimitPolicy(
+        category=ProviderLimit.MODEL_SUSPENDED,
+        # A policy/suspension pull — escalate, do NOT silently reroute. The
+        # load-bearing difference from MODEL_UNAVAILABLE is reroute_model=False:
+        # a sibling may also be suspended, and the operator must SEE the pull.
+        # escalate_after=1 (surface on the first hit); operator_action_required
+        # (a human must acknowledge / wait for the policy to lift — no sibling
+        # and no timer heals a suspension). No backoff, no reroute.
+        retryable_same_iter=False,
+        backoff_seconds=(),
+        escalate_after=1,
+        operator_action_required=True,
+        resets_on_timer=False,
+        reroute_model=False,
     ),
     ProviderLimit.NONE: LimitPolicy(
         category=ProviderLimit.NONE,
@@ -323,6 +350,51 @@ def from_terminal_class(cls: str) -> ProviderLimit:
     return _TERMINAL_CLASS_TO_CATEGORY.get(str(token), ProviderLimit.NONE)
 
 
+# Suspension cues — the SHAPE of a policy-pull sentence, never a model name (the
+# provider-invariance floor, issue #140). A model-down death whose text carries
+# one of these is a SUSPENSION (escalate, do not silently reroute), not a
+# transient outage (reroute). "region" is included because a region block is a
+# policy pull a sibling in the same region cannot heal — same escalate posture.
+_SUSPENSION_CUES: tuple[str, ...] = (
+    "suspended",
+    "disabled by policy",
+    "disabled by your administrator",
+    "blocked by policy",
+    "not available in your region",
+    "unavailable in your region",
+    "export control",
+    "policy restriction",
+    "has been withdrawn",
+    "withdrawn by",
+)
+
+
+def heal_for_model_death(text: str) -> ProviderLimit:
+    """Route a MODEL_UNAVAILABLE death to its HEAL category from the death text. PURE.
+
+    The text-aware refinement issue #140 asks for: ONE terminal class
+    (``result_state.TerminalClass.MODEL_UNAVAILABLE``), but TWO heals —
+
+      * a SUSPENSION shape ("suspended" / "disabled by policy" / "not available
+        in your region" / …) → :attr:`ProviderLimit.MODEL_SUSPENDED`, whose policy
+        ESCALATES (``reroute_model=False``): a sibling may also be pulled, and the
+        operator must SEE the suspension.
+      * any other model-down text (the bare "<model> is currently unavailable"
+        transient/retired case) → :attr:`ProviderLimit.MODEL_UNAVAILABLE`, whose
+        policy REROUTES to a sibling.
+
+    The cue is the SHAPE of the sentence, never a hardcoded model name (the
+    provider-invariance floor). A caller that already KNOWS the terminal class is
+    MODEL_UNAVAILABLE passes the death text here to pick the right heal; a
+    non-model-down text still yields MODEL_UNAVAILABLE (this function presumes the
+    class was already adjudicated — it refines the heal, it does not re-classify).
+    """
+    t = (text or "").lower()
+    if any(cue in t for cue in _SUSPENSION_CUES):
+        return ProviderLimit.MODEL_SUSPENDED
+    return ProviderLimit.MODEL_UNAVAILABLE
+
+
 __all__ = [
     "ProviderLimit",
     "LimitPolicy",
@@ -331,4 +403,5 @@ __all__ = [
     "from_quota_error_class",
     "from_apply_outcome_token",
     "from_terminal_class",
+    "heal_for_model_death",
 ]

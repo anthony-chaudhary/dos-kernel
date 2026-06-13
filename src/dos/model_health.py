@@ -83,14 +83,21 @@ UNNAMED_MODEL = "<unnamed>"
 #   "The model claude-fable-5 is currently unavailable"
 #   "The requested model 'opus-x' is unavailable"
 #   "`claude-fable-5` is currently unavailable"
-# The NAME is the phrase just before the unavailability clause. We capture it
-# permissively (quotes/backticks allowed inside the capture, stripped afterward),
-# then strip a leading "the (requested) model" lead-in. The capture is anchored on
-# the clause; the lazy `+?` makes it start as late as possible so a long sentence
-# does not swallow leading prose into the name.
+#   "Claude Fable 5 is suspended"           (the #140 suspension shape)
+#   "The model opus-x is disabled by policy"
+#   "opus-x is not available in your region"
+# The NAME is the phrase just before the down clause. We capture it permissively
+# (quotes/backticks allowed inside the capture, stripped afterward), then strip a
+# leading "the (requested) model" lead-in. The capture is anchored on the clause;
+# the lazy `+?` makes it start as late as possible so a long sentence does not
+# swallow leading prose into the name. The trailing clause covers BOTH the
+# transient ("unavailable") and the suspension ("suspended"/"disabled"/"withdrawn"/
+# "not available …") shapes so the NAME is extracted either way (the heal split
+# between them lives in provider_limit, not here).
 _UNAVAIL_CLAUSE = re.compile(
     r"(?P<name>[A-Za-z0-9'\"`“”‘’][\w '\"`./\-\[\]“”‘’]*?)"
-    r"\s+is\s+(?:currently\s+)?unavailable",
+    r"\s+(?:is|was|has\s+been)\s+(?:currently\s+)?"
+    r"(?:unavailable|suspended|disabled|withdrawn|not\s+available|blocked)",
     re.IGNORECASE,
 )
 # Lead-ins to strip off the front of a captured name — "The model claude-x" →
@@ -147,14 +154,22 @@ class ModelTally:
       * model  — the model name (or :data:`UNNAMED_MODEL`).
       * deaths — how many witnessed MODEL_UNAVAILABLE deaths named this model.
       * sources — the (bounded) list of source labels, for the drill-down.
+      * suspended — True iff ANY death for this model carried a policy/SUSPENSION
+                    cue ("suspended" / "disabled by policy" / "not available in
+                    your region"), as opposed to a bare transient outage. A
+                    suspended model must ESCALATE, never silently reroute — a
+                    sibling may also be pulled (issue #140). The cue is the SHAPE
+                    of a suspension sentence, never a model name.
     """
 
     model: str
     deaths: int
     sources: tuple[str, ...] = ()
+    suspended: bool = False
 
     def to_dict(self) -> dict:
-        return {"model": self.model, "deaths": self.deaths, "sources": list(self.sources)}
+        return {"model": self.model, "deaths": self.deaths,
+                "sources": list(self.sources), "suspended": self.suspended}
 
 
 @dataclass(frozen=True)
@@ -263,9 +278,16 @@ def fold_model_health(
     `sources`/`texts`, when given, must be index-aligned with `verdicts`. Either may
     be shorter/omitted — a missing entry degrades to "" / unnamed, never an error.
     """
+    # The suspension cue lives in one place (provider_limit, the heal policy) —
+    # reuse it here so model_health and the heal never drift on what "suspended"
+    # means (issue #140). Imported lazily to keep the module's pure-core import
+    # list minimal; provider_limit is a sibling kernel leaf (stdlib-only).
+    from dos.provider_limit import ProviderLimit, heal_for_model_death
+
     model_unavailable = other_dead = healthy = unreadable = 0
     by_model: dict[str, int] = {}
     model_sources: dict[str, list[str]] = {}
+    model_suspended: set[str] = set()
 
     for i, v in enumerate(verdicts):
         src = sources[i] if sources is not None and i < len(sources) else ""
@@ -281,6 +303,12 @@ def fold_model_health(
             bucket = model_sources.setdefault(model, [])
             if src and len(bucket) < _MAX_SOURCES_PER_MODEL:
                 bucket.append(src)
+            # A SUSPENSION cue on ANY death for this model marks the model
+            # suspended (escalate, never silently reroute — a sibling may also be
+            # pulled). One suspended death is enough: a policy pull does not
+            # un-pull because another death read as a transient outage.
+            if heal_for_model_death(txt) is ProviderLimit.MODEL_SUSPENDED:
+                model_suspended.add(model)
         else:  # SYNTHETIC (other class) or EMPTY — a death, but not a model-down.
             other_dead += 1
 
@@ -288,7 +316,8 @@ def fold_model_health(
     # UNNAMED_MODEL bucket sorts by its count like any other — an unnamed cluster of
     # deaths is as visible as a named one.
     tallies = tuple(
-        ModelTally(model=m, deaths=n, sources=tuple(model_sources.get(m, ())))
+        ModelTally(model=m, deaths=n, sources=tuple(model_sources.get(m, ())),
+                   suspended=m in model_suspended)
         for m, n in sorted(by_model.items(), key=lambda kv: (-kv[1], kv[0]))
     )
     return ModelHealth(

@@ -314,6 +314,41 @@ def test_from_session_two_children_one_down(tmp_path):
     assert health.tallies[0].sources == ("child:agent-b",)
 
 
+def test_suspension_cue_marks_tally_suspended():
+    """A death whose text carries a SUSPENSION cue marks the model's tally
+    suspended, so the actuator escalates instead of silently rerouting (#140)."""
+    health = mh.fold_model_health(
+        [_v(rs.TerminalState.SYNTHETIC, rs.TerminalClass.MODEL_UNAVAILABLE)],
+        texts=["Claude Fable 5 is suspended"],
+    )
+    assert health.tallies[0].model == "Claude Fable 5"
+    assert health.tallies[0].suspended is True
+    assert health.to_dict()["tallies"][0]["suspended"] is True
+
+
+def test_transient_cue_is_not_suspended():
+    """A bare transient outage is NOT suspended — it reroutes (no regression)."""
+    health = mh.fold_model_health(
+        [_v(rs.TerminalState.SYNTHETIC, rs.TerminalClass.MODEL_UNAVAILABLE)],
+        texts=["Claude Fable 5 is currently unavailable"],
+    )
+    assert health.tallies[0].suspended is False
+
+
+def test_one_suspension_death_marks_the_model_suspended():
+    """If a model has several deaths and ANY one carried a suspension cue, the
+    model is suspended — a policy pull does not un-pull because another death read
+    as a transient outage."""
+    health = mh.fold_model_health(
+        [_v(rs.TerminalState.SYNTHETIC, rs.TerminalClass.MODEL_UNAVAILABLE),
+         _v(rs.TerminalState.SYNTHETIC, rs.TerminalClass.MODEL_UNAVAILABLE)],
+        texts=["opus-x is currently unavailable", "opus-x is disabled by policy"],
+    )
+    assert health.tallies[0].model == "opus-x"
+    assert health.tallies[0].deaths == 2
+    assert health.tallies[0].suspended is True
+
+
 def test_orphan_parent_ref_degrades_to_child_not_crash():
     """A sidechain whose parentUuid points at nothing known is still a child
     (depth 1 under MAIN), never an infinite loop or a crash."""

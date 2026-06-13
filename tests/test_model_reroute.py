@@ -18,10 +18,12 @@ from dos.drivers import model_reroute as mr
 
 
 def _health_with(*models_and_counts, healthy=0):
-    """Build a ModelHealth whose tallies are the given (model, deaths, sources)."""
+    """Build a ModelHealth whose tallies are the given rows. Each row is
+    (model, deaths, sources) or (model, deaths, sources, suspended)."""
     tallies = tuple(
-        mh.ModelTally(model=m, deaths=n, sources=tuple(s))
-        for (m, n, s) in models_and_counts
+        mh.ModelTally(model=row[0], deaths=row[1], sources=tuple(row[2]),
+                      suspended=(row[3] if len(row) > 3 else False))
+        for row in models_and_counts
     )
     total = sum(t.deaths for t in tallies)
     return mh.ModelHealth(
@@ -91,6 +93,26 @@ def test_unnamed_down_model_escalates():
 def test_empty_roster_escalates():
     health = _health_with(("Claude Fable 5", 1, ["child:a"]))
     props = mr.propose_reroutes(health, [])
+    assert props[0].action is mr.RerouteAction.ESCALATE
+
+
+def test_suspended_model_escalates_even_with_a_sibling_available():
+    """#140 in the actuator: a SUSPENDED model escalates even when a healthy
+    sibling IS in the roster — a silent reroute is the wrong heal (the sibling may
+    also be pulled, and the operator must see the suspension)."""
+    health = _health_with(("Claude Fable 5", 2, ["child:a", "grandchild:b"], True))
+    # claude-opus-4-8 is available, but a suspension must NOT silently reroute.
+    props = mr.propose_reroutes(health, ["Claude Fable 5", "claude-opus-4-8"])
+    assert props[0].action is mr.RerouteAction.ESCALATE
+    assert props[0].sibling == ""
+    assert "suspend" in props[0].reason.lower()
+
+
+def test_suspended_escalate_outranks_sibling_pick():
+    """The suspension escalate is checked BEFORE the sibling pick — a roster with
+    a perfectly good sibling cannot turn a suspension into a reroute."""
+    health = _health_with(("opus-x", 1, ["child:a"], True))
+    props = mr.propose_reroutes(health, ["sonnet", "haiku"])  # both available
     assert props[0].action is mr.RerouteAction.ESCALATE
 
 

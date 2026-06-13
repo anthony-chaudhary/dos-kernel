@@ -237,15 +237,33 @@ def _infer_class(api_status: Optional[int], text: str) -> TerminalClass:
         return TerminalClass.RATE_LIMIT
     if api_status == 401 or "authentication" in t:
         return TerminalClass.AUTH
-    # A NAMED model being down — "<model> is currently unavailable" / "model …
-    # unavailable". Checked BEFORE the broad USAGE_LIMIT cues so "unavailable" is
+    # A NAMED model being down — either the transient shape ("<model> is currently
+    # unavailable") or the SUSPENSION shape ("<model> is suspended" / "disabled by
+    # policy" / "not available in your region" — a model PULLED by policy). Both are
+    # the ONE MODEL_UNAVAILABLE terminal class; the heal split between reroute (a
+    # transient) and escalate (a suspension) lives downstream in
+    # provider_limit.heal_for_model_death, keyed on the SAME text (issue #140 keeps
+    # one class, two heals). Checked BEFORE the broad USAGE_LIMIT cues so the cue is
     # not swallowed, and anchored on MODEL-shaped phrasing so a generic infra
-    # "service unavailable" / 503 (a correlated outage, which a sibling model
-    # CANNOT heal) is NOT mis-classed here — that stays OTHER. The heal for this
-    # class is reroute-to-a-sibling-model (provider_limit.from_terminal_class).
-    if "is currently unavailable" in t or (
-        "unavailable" in t and "model" in t and "service unavailable" not in t
-    ):
+    # "service unavailable" / 503 (a correlated outage a sibling CANNOT heal) is NOT
+    # mis-classed — that stays OTHER. "model" OR a model-down sentence shape gates.
+    _is_model_down = (
+        "is currently unavailable" in t
+        or ("unavailable" in t and "model" in t and "service unavailable" not in t)
+        # Suspension shapes — a model pulled by policy. Require a model-context word
+        # ("model"/"claude"/"the requested") so a generic "account suspended" or
+        # "service disabled" does not false-match; "not available in your region" is
+        # itself model/region-specific enough to gate alone.
+        or (
+            any(c in t for c in ("suspended", "disabled by policy", "withdrawn",
+                                 "blocked by policy", "export control"))
+            and ("model" in t or "claude" in t or "requested" in t)
+            and "service" not in t
+        )
+        or "not available in your region" in t
+        or "unavailable in your region" in t
+    )
+    if _is_model_down:
         return TerminalClass.MODEL_UNAVAILABLE
     if api_status == 500 or "internal server error" in t or "server-side" in t:
         return TerminalClass.SERVER
