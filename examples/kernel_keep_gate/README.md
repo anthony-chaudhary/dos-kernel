@@ -83,6 +83,15 @@ The asymmetry the #35 sketch names holds: *widening* the witness tree
   shape onto real KernelBench material — which tasks admit CPU-only correctness
   adjudication vs which need GPU timing, and the GPU-burst run plan — is tracked
   on [#107](https://github.com/anthony-chaudhary/dos-kernel/issues/107).
+- The path-scoped tamper floor models the **fleet-search** setting: a proposer
+  that edits files in an isolated worktree (the docs/280 `dos improve` shape,
+  which is diff-confined). KernelBench's single-shot evaluator instead `exec`s
+  an opaque kernel **source string** in-process, so there is no diff to scope —
+  there the same "the candidate may not author its own measurement" principle
+  has to move to the **exec/sandbox boundary** (the timer the candidate can't
+  rebind), which the timing-channel exploits (monkey-patching `elapsed_time`,
+  stream injection) need and a tree-diff alone does not close. That variant is
+  the open design surface on [#107](https://github.com/anthony-chaudhary/dos-kernel/issues/107).
 
 ## Layout
 
