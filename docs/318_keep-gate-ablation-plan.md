@@ -1,8 +1,8 @@
 # docs/318 — the keep-gate ablation: measure what the verdicts buy (the ratchet curve)
 
-> **Status:** P1 executed 2026-06-12 — the adjudicator is
-> `dos verify docs/318_keep-gate-ablation-plan P1`, never this sentence.
-> P2–P4 are designed, not started. Tracking handle: issue
+> **Status:** P1–P2 executed 2026-06-12 — the adjudicator is
+> `dos verify docs/318_keep-gate-ablation-plan P2`, never this sentence.
+> P3–P4 are designed, not started. Tracking handle: issue
 > [#21](https://github.com/anthony-chaudhary/dos-kernel/issues/21).
 
 ## The problem — the kernel has not met its own bar
