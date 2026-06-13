@@ -87,8 +87,33 @@ lease, carries no policy of its own. The transcript I/O is the caller's boundary
 from __future__ import annotations
 
 import enum
+import re
 from dataclasses import dataclass
 from typing import Optional
+
+
+# A model-SUSPENSION sentence shape: a named subject followed by a "(is/was/has
+# been) (currently) suspended|disabled by|withdrawn|blocked by" clause. This gates
+# the SUSPENSION case of MODEL_UNAVAILABLE STRUCTURALLY — by the shape of the
+# sentence, NOT by any vendor model name (the "kernel names no vendor in code"
+# litmus: no model literal appears in a branch). The auxiliary verb is optional so a
+# bare-participle headline ("model withdrawn by export control") also matches.
+_MODEL_SUSPEND_SHAPE = re.compile(
+    r"[A-Za-z0-9][\w '\"`./\-\[\]]{0,60}?"
+    r"\s+(?:(?:is|was|has\s+been)\s+(?:currently\s+)?)?"
+    r"(?:suspended|disabled\s+by|withdrawn|blocked\s+by)",
+    re.IGNORECASE,
+)
+
+# Non-model subjects whose suspension is NOT a model-down — an account/billing/org
+# pull is a USAGE/HARD-QUOTA shape (an operator-credit problem), not a model-roster
+# one, and a sibling model cannot heal it. If one of these words appears in the text
+# the suspension shape is NOT treated as a model-down (it falls through to the
+# usage/other branches). Generic subject words, never a vendor name (the litmus).
+_NON_MODEL_SUBJECTS = (
+    "account", "service", "organization", "subscription", "billing", "workspace",
+    "session", "team", "plan",
+)
 
 
 # The literal harness-authorship marker. A terminal `message.model` of this exact
@@ -246,19 +271,19 @@ def _infer_class(api_status: Optional[int], text: str) -> TerminalClass:
     # one class, two heals). Checked BEFORE the broad USAGE_LIMIT cues so the cue is
     # not swallowed, and anchored on MODEL-shaped phrasing so a generic infra
     # "service unavailable" / 503 (a correlated outage a sibling CANNOT heal) is NOT
-    # mis-classed — that stays OTHER. "model" OR a model-down sentence shape gates.
+    # mis-classed — that stays OTHER. The gate is the SHAPE of a model-down sentence
+    # (a named subject + a down/suspension verb), never a vendor model name — the
+    # "kernel names no vendor in code" litmus.
     _is_model_down = (
         "is currently unavailable" in t
         or ("unavailable" in t and "model" in t and "service unavailable" not in t)
-        # Suspension shapes — a model pulled by policy. Require a model-context word
-        # ("model"/"claude"/"the requested") so a generic "account suspended" or
-        # "service disabled" does not false-match; "not available in your region" is
-        # itself model/region-specific enough to gate alone.
+        # Suspension shape: a "<name> (is/was) suspended|disabled|withdrawn|blocked"
+        # sentence — but NOT when the subject is a non-model thing (account/service/
+        # org/…), whose suspension is a billing/usage pull a sibling model cannot
+        # heal. Structural + a generic negative guard, no vendor literal (the litmus).
         or (
-            any(c in t for c in ("suspended", "disabled by policy", "withdrawn",
-                                 "blocked by policy", "export control"))
-            and ("model" in t or "claude" in t or "requested" in t)
-            and "service" not in t
+            _MODEL_SUSPEND_SHAPE.search(text or "") is not None
+            and not any(s in t for s in _NON_MODEL_SUBJECTS)
         )
         or "not available in your region" in t
         or "unavailable in your region" in t
