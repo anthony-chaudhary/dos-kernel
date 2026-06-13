@@ -1,0 +1,98 @@
+# DOS verify — the claim-vs-diff / did-it-ship gate as a GitLab CI/CD COMPONENT.
+#
+# This is the catalog-grade twin of the raw include one directory up
+# (gitlab-ci/dos-verify.gitlab-ci.yml). A *component* differs from a `remote:`
+# include in the ways that matter for discovery and reproducibility:
+#   * it is searchable in the GitLab CI/CD Catalog UI (gitlab.com/explore/catalog),
+#     where the raw include is invisible;
+#   * it is semver-resolvable (`@1`, `@~latest`, `@1.2.3`) instead of pinned to a
+#     branch ref;
+#   * it exposes a TYPED interface via `spec:inputs` (below) instead of bare
+#     CI/CD variables a consumer has to know to set.
+#
+# It does the SAME thing the raw template and verify-action do: run a DOS truth
+# verdict over a merge request's commits and let the kernel's exit code BE the
+# job status (`dos commit-audit`: clean=0 / unwitnessed=1 / contract_error=2).
+# Deterministic, author-neutral, no LLM, no network beyond the pip install. It
+# witnesses whether a commit's DIFF did the KIND of thing its message CLAIMED —
+# NOT correctness; run your test job for that, this sits beside it.
+#
+# Usage in a consumer repo (.gitlab-ci.yml) — one include block:
+#
+#   include:
+#     - component: $CI_SERVER_FQDN/<your-mirror-path>/dos-verify@1.0.0
+#       inputs:
+#         fail_on: unwitnessed      # or "none" to observe-only
+#
+# (The component lives in a GitLab project that mirrors this repo; the version is
+# the git tag that project published to the catalog. Pin a released version, not
+# a branch.) Make the `dos-verify` job required (Settings → Merge requests →
+# pipeline must succeed) and GitLab becomes the enforcement point for the
+# kernel's verdict: DOS decides, your project settings block.
+#
+# ⚠ GIT_DEPTH: the audit reads git ANCESTRY, not a shallow tip. The component
+# forces a full clone (GIT_DEPTH "0"); GitLab's default shallow clone amputates
+# the evidence and an MR with more commits than the depth would audit against a
+# hole. Do not "optimize" it away — the same reason verify-action checks out with
+# fetch-depth: 0.
+
+spec:
+  inputs:
+    # The pip version spec for the install, e.g. "==0.25.0". Empty = latest.
+    # Pin a release for reproducible CI.
+    dos_version:
+      default: ""
+    # "unwitnessed" (default) blocks a CLAIM_UNWITNESSED / NOT_SHIPPED;
+    # "none" observes only (reports, never blocks).
+    fail_on:
+      default: "unwitnessed"
+    # Repo root to audit.
+    workspace:
+      default: "."
+    # Set BOTH to also run the did-it-ship verdict (`dos verify`) — for repos
+    # that stamp phases. Left empty, only the commit-audit rung runs.
+    plan:
+      default: ""
+    phase:
+      default: ""
+    # The job stage, so a consumer can slot it into their own pipeline graph.
+    stage:
+      default: "test"
+    # The image — the full python image carries git; -slim does not.
+    image:
+      default: "python:3.12"
+---
+"dos-verify":
+  stage: $[[ inputs.stage ]]
+  image: $[[ inputs.image ]]
+  variables:
+    GIT_DEPTH: "0" # full history — the verdict reads ancestry (see header)
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  before_script:
+    - pip install --quiet "dos-kernel$[[ inputs.dos_version ]]"
+  script:
+    # An MR audits its base..head (the commits about to land); a branch
+    # pipeline audits the tip commit. The exit code is the verdict.
+    - |
+      if [ -n "${CI_MERGE_REQUEST_DIFF_BASE_SHA:-}" ]; then
+        range="${CI_MERGE_REQUEST_DIFF_BASE_SHA}..HEAD"
+      else
+        range="HEAD"
+      fi
+      echo "dos commit-audit — claim vs diff over ${range}"
+      if [ "$[[ inputs.fail_on ]]" = "none" ]; then
+        dos commit-audit --sweep --warn-only --workspace "$[[ inputs.workspace ]]" "${range}"
+      else
+        dos commit-audit --sweep --workspace "$[[ inputs.workspace ]]" "${range}"
+      fi
+    # The optional did-it-ship rung: set the plan + phase inputs and the job also
+    # requires the phase to be stamped in git ancestry.
+    - |
+      plan="$[[ inputs.plan ]]"
+      phase="$[[ inputs.phase ]]"
+      if [ -n "${plan}" ] && [ -n "${phase}" ]; then
+        echo "dos verify — did (${plan}, ${phase}) actually ship?"
+        dos verify --workspace "$[[ inputs.workspace ]]" "${plan}" "${phase}"
+      fi

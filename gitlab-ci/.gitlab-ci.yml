@@ -1,0 +1,47 @@
+# The pipeline a GitLab mirror of this repo runs to PUBLISH the dos-verify
+# component to the CI/CD Catalog. It is NOT used on GitHub — GitHub Actions runs
+# the kernel's own gates; this file exists so the component has a release path the
+# day someone mirrors gitlab-ci/ into a GitLab project and flips on "CI/CD Catalog
+# project" in its settings.
+#
+# Two jobs:
+#   * component-smoke — sanity that the component template parses and carries the
+#     named job, on every push (the cheap guard against shipping a broken template).
+#   * create-release — on a semver tag, cut a GitLab release, which is what
+#     registers the new version in the catalog. Versions MUST be semver (1.0.0).
+#
+# Publishing requires the project owner to have ticked "CI/CD Catalog project"
+# once; that is the only owner-gated step. Everything here is automatable.
+
+stages:
+  - test
+  - release
+
+component-smoke:
+  stage: test
+  image: python:3.12
+  script:
+    # The template is a two-document YAML stream (spec --- job). Prove it parses
+    # and the consumer-facing job name is present — the same contract the kernel
+    # repo's tests/test_gitlab_component.py pins.
+    - pip install --quiet pyyaml
+    - |
+      python - <<'PY'
+      import yaml, sys
+      docs = list(yaml.safe_load_all(open("templates/dos-verify.yml", encoding="utf-8")))
+      assert len(docs) == 2, f"expected spec + job, got {len(docs)} docs"
+      assert "spec" in docs[0] and "inputs" in docs[0]["spec"], "missing spec:inputs"
+      assert "dos-verify" in docs[1], "the named job IS the consumer contract"
+      print("component-smoke OK:", sorted(docs[0]["spec"]["inputs"]))
+      PY
+
+create-release:
+  stage: release
+  image: registry.gitlab.com/gitlab-org/cli:latest
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^\d+\.\d+\.\d+$/   # semver tags only — the catalog requires it
+  script:
+    - echo "Releasing dos-verify component $CI_COMMIT_TAG to the CI/CD Catalog"
+  release:
+    tag_name: $CI_COMMIT_TAG
+    description: "DOS verify component $CI_COMMIT_TAG — the claim-vs-diff gate for GitLab CI"

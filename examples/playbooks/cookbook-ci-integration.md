@@ -80,6 +80,14 @@ Make the `dos-verify` job required (pipeline must succeed) and GitLab enforces
 what the kernel decides. Knobs are CI variables: `DOS_VERSION` (pip pin),
 `DOS_FAIL_ON: none` (observe-only), `DOS_WORKSPACE`.
 
+**Prefer a searchable, semver-pinned form?** The same gate ships as a GitLab
+[CI/CD Catalog component](../../gitlab-ci/templates/dos-verify.yml) —
+discoverable in the catalog UI and pinned by version (`@1.0.0`) with a typed
+`inputs:` interface instead of bare CI variables. See
+[`gitlab-ci/README.md`](../../gitlab-ci/README.md) for both forms; the component
+is published from a GitLab mirror project (the catalog lives on GitLab; this
+source-of-truth repo is on GitHub).
+
 **The one pitfall is `GIT_DEPTH`.** The audit reads git *ancestry*; GitLab's
 default shallow clone (20–50 commits) amputates the evidence base, and an MR
 with more commits than the depth audits against a hole. The template forces
