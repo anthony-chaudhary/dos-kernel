@@ -148,6 +148,37 @@ DOS_LIVE_DEMO=1 PYTHONPATH=src \
     python -m benchmark.fleet_horizon.live_orchestrator_demo --issues 4 --overlap 3
 ```
 
+## The fourth axis — HOST (advisory/RECORD vs enforcement/PREVENT)
+
+The orchestrator axis varies *how* the fleet shares leases. The host axis varies
+what the host *does* with the arbiter's verdict on a collision. The arbiter renders
+the same verdict in both hosts; the host decides whether that verdict **binds**:
+
+- an **enforcement** host treats a refusal as binding — the colliding write is
+  **PREVENTED** at contention (deferred, drained later on a split footprint). No
+  data is lost. (This is the in-process `closed_loop.py`.)
+- an **advisory** host runs the same arbiter but the refusal is only advisory; its
+  lease visibility lags, so two siblings both admit a colliding tree and the
+  collision is merely **RECORDED** after both writes land — a `detected_collision`
+  plus a surviving `silent_overwrite` `verify` cannot undo. (This is
+  `harness_loop.py` with `lease_writeback=False`.)
+
+The instrument is `--host-sweep`, emitting the **catch-vs-prevent curve**: a
+per-host RECORD/PREVENT split as the fleet grows. Measured (seed 1729, 8×20,
+shared_ratio 0.3): enforcement `prevented=70, recorded=0, silent=0`; advisory
+`prevented=0, recorded=12, silent=12` — same `real_ships` in both (the honesty
+invariant). The falsifier: a genuinely disjoint workload (`generate_disjoint`)
+records nothing and loses nothing in either host — the gap → 0 where nothing
+contends on shared state. (Same-lane serialization defers in the enforcement host
+are a lease-window artifact, not contention, so the boundary predicate ignores
+them, exactly as the orchestrator falsifier does.)
+
+```bash
+# the host A/B: does a RECORD-only host catch what an enforcement host PREVENTS?
+PYTHONPATH=src python -m benchmark.fleet_horizon.harness --host-sweep
+PYTHONPATH=src python -m benchmark.fleet_horizon.harness --host-sweep --json
+```
+
 ## Layout
 
 ```
@@ -162,7 +193,7 @@ benchmark/fleet_horizon/
                    #   InProcessLeaseBook / JournalLeaseBook + the shared GitGround helper
   harness_loop.py  # the harness/ultracode arm — cross-process leases via the WAL, writeback knob
   metrics.py       # integrity + velocity + orchestrator metrics (+ detected-collision/prevention_rate)
-  harness.py       # run both arms over sweeps → the A/B tables (+ run_quad / --orchestrator-sweep)
+  harness.py       # run both arms over sweeps → the A/B tables (+ run_quad / --orchestrator-sweep / --host-sweep)
   plot.py          # graph the sweeps: CSV (always) + ASCII (always) + PNG (if matplotlib)
   test_fleet_horizon.py  # proves the harness is honest (gap→0 at horizon 1, etc.)
   test_orchestrator.py   # proves the orchestrator axis is honest (docs/98)

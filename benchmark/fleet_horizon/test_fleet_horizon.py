@@ -223,5 +223,73 @@ def test_review_wait_saturates_open_loop():
     assert c.mean_review_wait() != float("inf")
 
 
+# --- host axis honesty tests (advisory/RECORD vs enforcement/PREVENT) ---
+
+def test_host_sweep_emits_per_host_record_prevent_split():
+    """The witness contract: `--host-sweep --json` produces a per-host RECORD/PREVENT
+    split for every fleet row plus a falsifier. The enforcement host's posture is
+    PREVENT where it has collisions; the advisory host's is RECORD."""
+    from .harness import _host_sweep_data
+    data = _host_sweep_data(fleets=(1, 4, 8), phases=12)
+    assert data["axis"] == "host"
+    assert {"curve", "falsifier"} <= set(data)
+    for row in data["curve"]:
+        for host in ("enforcement", "advisory"):
+            split = row[host]
+            # the RECORD/PREVENT split fields the witness names
+            assert {"prevented", "recorded_after", "silent_overwrites",
+                    "posture", "prevention_rate"} <= set(split)
+            assert split["posture"] in {"PREVENT", "RECORD", "NONE"}
+    # at a contended fleet the two hosts take OPPOSITE postures: enforcement PREVENTs,
+    # advisory only RECORDs (the whole point of the axis).
+    contended = next(r for r in data["curve"] if r["fleet"] == 8)
+    assert contended["enforcement"]["posture"] == "PREVENT"
+    assert contended["advisory"]["posture"] == "RECORD"
+
+
+def test_enforcement_prevents_what_advisory_only_records():
+    """The catch-vs-prevent claim, made falsifiable: on the SAME contended workload
+    the enforcement host's prevented count is positive and its silent overwrites are
+    zero; the advisory host prevents NOTHING and pays surviving silent overwrites for
+    the collisions it merely recorded after the fact."""
+    from .harness import run_host_pair
+    hosts = run_host_pair(efforts=8, phases=20, shared_ratio=0.4)
+    enf, adv = hosts["enforcement"], hosts["advisory"]
+    assert enf.real_ships == adv.real_ships          # same ground truth (honesty)
+    assert enf.refused_writes > 0                     # enforcement PREVENTS
+    assert enf.silent_overwrites == 0                 # nothing slips past
+    assert adv.refused_writes == 0                    # advisory prevents nothing
+    assert adv.detected_collisions > 0                # it only RECORDS, after the fact
+    assert adv.silent_overwrites > 0                  # and pays the surviving overwrite
+
+
+def test_host_gap_vanishes_when_disjoint():
+    """The host-axis falsifier: on a genuinely disjoint workload nothing contends on
+    shared state, so neither host RECORDS a collision after the fact and no silent
+    overwrite survives — both ship the same ground truth. (Same-lane serialization
+    defers in the enforcement host are a lease-window artifact, not contention, so
+    the boundary predicate ignores them — exactly as the orchestrator falsifier does.)"""
+    from .harness import _host_sweep_data
+    data = _host_sweep_data(fleets=(6,), phases=12)
+    f = data["falsifier"]
+    assert f["boundary_holds"], f
+    assert f["enforcement"]["recorded_after"] == 0
+    assert f["advisory"]["recorded_after"] == 0
+    assert f["enforcement"]["silent_overwrites"] == 0
+    assert f["advisory"]["silent_overwrites"] == 0
+
+
+def test_host_collision_value_is_zero_at_fleet_of_one():
+    """The benchmark's own falsifier on the host axis: with a single effort there is
+    no concurrent writer, so neither host prevents OR records a cross-effort collision
+    — the host posture is moot. Value is strictly a fleet phenomenon."""
+    from .harness import run_host_pair
+    hosts = run_host_pair(efforts=1, phases=20, shared_ratio=0.4)
+    enf, adv = hosts["enforcement"], hosts["advisory"]
+    assert enf.refused_writes == 0
+    assert adv.detected_collisions == 0
+    assert adv.silent_overwrites == 0
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))

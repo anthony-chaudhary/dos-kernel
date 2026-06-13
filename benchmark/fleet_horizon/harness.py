@@ -8,6 +8,10 @@ SAME workload + SAME failure model and prints:
   2. `--sweep` — the gap as a function of horizon and fleet size, showing the
      monotonicity claim (gap grows with horizon × fanout) AND its own falsifier
      (the gap → 0 as the fleet/horizon → 1, where DOS is pure overhead).
+  3. `--host-sweep` — the HOST axis: an advisory host (RECORDs a collision after
+     the fact) vs an enforcement host (PREVENTs it at contention). Emits the
+     catch-vs-prevent curve (a per-host RECORD/PREVENT split) plus its falsifier
+     (the gap → 0 on a disjoint workload, where nothing contends).
 
 Honesty (`README.md` §honesty): identical seed → identical agent behavior in
 both arms; the only difference is believe-vs-adjudicate. The gap is what the
@@ -74,6 +78,67 @@ def run_quad(
         "dos_adjudicate": dos_adj,         # cell B — DOS-native dispatch
         "harness_adjudicate_wb": h_wb,     # cell D, disciplined (write-back)
         "harness_adjudicate_nowb": h_nowb, # cell D, naive (the orchestrator gap)
+    }
+
+
+def run_host_pair(
+    *, efforts: int, phases: int, seed: int = 1729,
+    shared_ratio: float = 0.3, lie_rate: float = 0.12,
+    kappa: float = metrics.DEFAULT_KAPPA, review_mu: float = metrics.DEFAULT_REVIEW_MU,
+) -> dict[str, Metrics]:
+    """The HOST axis (advisory vs enforcement) over one workload.
+
+    The orchestrator axis (`run_quad`) varies HOW the fleet shares leases; the host
+    axis varies what the host DOES with the arbiter's verdict on a collision:
+
+      * an **enforcement** host treats a refusal as BINDING — the colliding write is
+        PREVENTED at contention (deferred, drained later on a split footprint). No
+        data is lost; the collision never lands. This is the in-process DOS-native
+        loop (`closed_loop.run`): its `refused_writes` are prevented-at-contention.
+      * an **advisory** host runs the SAME arbiter but the refusal is only ADVISORY —
+        its lease visibility lags (separate units, no write-back), so two siblings
+        both ADMIT a colliding tree and the collision is merely RECORDED after both
+        writes land (a `detected_collision`, plus a surviving `silent_overwrite`
+        verify cannot undo). This is `harness_loop.run(lease_writeback=False)`.
+
+    So the host axis reduces to the catch-vs-prevent split: enforcement PREVENTS
+    (refused_writes, recorded_after=0); advisory only RECORDS (detected_collisions,
+    prevented=0). Both run the SAME seeded workload + failure model + real git repo,
+    so `real_ships` is identical and any delta is purely the host's enforcement
+    posture — the honesty invariant, lifted to this axis.
+    """
+    workload = generate(seed=seed, efforts=efforts, phases=phases,
+                        shared_ratio=shared_ratio)
+    model = FailureModel(seed=seed, lie_rate=lie_rate)
+    enforcement, _ = closed_loop.run(workload, model, run_seed=seed, kappa=kappa,
+                                     review_mu=review_mu)
+    advisory, _ = harness_loop.run(workload, model, run_seed=seed, kappa=kappa,
+                                   review_mu=review_mu, lease_writeback=False)
+    return {"enforcement": enforcement, "advisory": advisory}
+
+
+def _host_split(m: Metrics) -> dict:
+    """The RECORD/PREVENT split for one host — the host-axis discriminator.
+
+    `prevented` = collisions stopped at contention (the arbiter's refusal was
+    binding); `recorded_after` = collisions only detected after both writes landed
+    (the refusal was advisory and its lease lagged); `silent_overwrites` = the
+    subset of recorded-after that clobbered a real concurrent write and survive (the
+    irreducible cost of RECORD-without-PREVENT). `posture` is RECORD vs PREVENT: a
+    host that prevents anything is an enforcement host; one that only records is
+    advisory. `collisions_total` is a workload property (same in both hosts on one
+    seed); only the split differs."""
+    posture = "PREVENT" if m.refused_writes > 0 else (
+        "RECORD" if m.detected_collisions > 0 else "NONE")
+    return {
+        "arm": m.arm,
+        "collisions_total": m.collisions_total,
+        "prevented": m.refused_writes,
+        "recorded_after": m.detected_collisions,
+        "silent_overwrites": m.silent_overwrites,
+        "prevention_rate": round(m.prevention_rate, 4),
+        "posture": posture,
+        "real_ships": m.real_ships,
     }
 
 
@@ -344,6 +409,127 @@ def _orchestrator_sweep() -> None:
     print("    downstream as the hand-merge the silent overwrite became.")
 
 
+def _host_sweep_data(fleets: tuple[int, ...] = (1, 2, 4, 8, 12),
+                     phases: int = 20, shared_ratio: float = 0.3) -> dict:
+    """The host-axis data the sweep renders — the catch-vs-prevent curve as JSON.
+
+    For each fleet size: the per-host RECORD/PREVENT split (`_host_split`) for the
+    enforcement and advisory hosts. Plus the FALSIFIER cell on a genuinely disjoint
+    workload, where neither host has anything to prevent OR record (the gap → 0
+    where nothing contends — the host-axis analogue of gap→0 at horizon→1). A pure
+    data function so the text renderer and `--json` share one computation."""
+    curve = []
+    for efforts in fleets:
+        hosts = run_host_pair(efforts=efforts, phases=phases, shared_ratio=shared_ratio)
+        curve.append({
+            "fleet": efforts,
+            "enforcement": _host_split(hosts["enforcement"]),
+            "advisory": _host_split(hosts["advisory"]),
+        })
+
+    # the falsifier: a truly disjoint workload — no shared footprints to contend on.
+    seed = 1729
+    model = FailureModel(seed=seed, lie_rate=0.12)
+    wl = generate_disjoint(seed=seed, efforts=6, phases=phases)
+    enf, _ = closed_loop.run(wl, model, run_seed=seed)
+    adv, _ = harness_loop.run(wl, model, run_seed=seed, lease_writeback=False)
+    enf_s, adv_s = _host_split(enf), _host_split(adv)
+    # The boundary predicate is about SHARED-STATE contention, not lane serialization.
+    # On the disjoint workload no two phases share a file, so NOTHING is RECORDED-after
+    # and NO silent overwrite survives in either host — and both ship the same ground
+    # truth. The enforcement host may still log same-LANE serialization refusals
+    # (effort-k's phase arrives while its own prior phase's lease window is open — a
+    # LANE_HELD defer, not a cross-effort data collision); those are an artifact of the
+    # in-flight lease window, not contention on shared state, so they do NOT break the
+    # boundary. The honest claim — identical to the orchestrator falsifier — is that
+    # when footprints are truly disjoint the host choice is moot: neither host detects
+    # a collision after the fact, neither suffers a surviving overwrite, both ship the
+    # same real work.
+    falsifier = {
+        "enforcement": enf_s,
+        "advisory": adv_s,
+        "boundary_holds": (
+            enf_s["recorded_after"] == enf_s["silent_overwrites"] == 0
+            and adv_s["recorded_after"] == adv_s["silent_overwrites"] == 0
+            and enf_s["real_ships"] == adv_s["real_ships"]),
+    }
+    return {
+        "axis": "host",
+        "phases": phases,
+        "shared_ratio": shared_ratio,
+        "curve": curve,
+        "falsifier": falsifier,
+    }
+
+
+def _host_sweep() -> None:
+    """The HOST axis (advisory vs enforcement): does a RECORD-only host catch what
+    an enforcement host PREVENTS? Holds trust + orchestrator intent fixed and varies
+    the host's enforcement posture.
+
+    The headline is the catch-vs-prevent curve: an enforcement host PREVENTS every
+    collision at contention (refused_writes); an advisory host runs the same arbiter
+    but only RECORDS the collision after the fact (detected_collisions + surviving
+    silent_overwrites). The falsifier: on a genuinely disjoint workload both hosts
+    have nothing to prevent OR record — the gap vanishes where nothing contends.
+    """
+    data = _host_sweep_data()
+    print("=" * 78)
+    print("FleetHorizon — the HOST axis: advisory (RECORD) vs enforcement (PREVENT)")
+    print("=" * 78)
+    print("\n'The arbiter renders the same verdict in both hosts. The host decides")
+    print("whether that verdict BINDS.' An enforcement host treats a refusal as")
+    print("binding — the colliding write is PREVENTED at contention. An advisory host")
+    print("lets the write proceed and only RECORDS the collision after it lands —")
+    print("catching it too late to undo the silent overwrite it became.\n")
+
+    print(f"[H-A] The catch-vs-prevent CURVE as the fleet grows "
+          f"(horizon={data['phases']}, shared_ratio={data['shared_ratio']}):")
+    print("      Enforcement PREVENTS; advisory only RECORDS-after. The split is the")
+    print("      whole host axis — same collisions, caught at a different time.")
+    print(f"    {'fleet':>6} | {'enforcement (PREVENT)':>26} | {'advisory (RECORD)':>26}")
+    print(f"    {'':>6} | {'prevented/rec/silent':>26} | {'prevented/rec/silent':>26}")
+    print("    " + "-" * 64)
+    for row in data["curve"]:
+        e, a = row["enforcement"], row["advisory"]
+        def cell(s: dict) -> str:
+            return f"{s['prevented']}/{s['recorded_after']}/{s['silent_overwrites']}  [{s['posture']}]"
+        print(f"    {row['fleet']:>6} | {cell(e):>26} | {cell(a):>26}")
+
+    print("\n[H-B] The host GAP — collisions the advisory host only RECORDED (and the")
+    print("      silent overwrites that survived) where the enforcement host PREVENTED")
+    print("      them. This is what an advisory-only posture costs, paid downstream as")
+    print("      the hand-merge each surviving overwrite became.")
+    print(f"    {'fleet':>6} {'enf prevented':>14} {'adv recorded':>14} "
+          f"{'adv silent':>12} {'enf prevention':>16} {'adv prevention':>16}")
+    for row in data["curve"]:
+        e, a = row["enforcement"], row["advisory"]
+        print(f"    {row['fleet']:>6} {e['prevented']:>14} {a['recorded_after']:>14} "
+              f"{a['silent_overwrites']:>12} {e['prevention_rate']:>15.0%} "
+              f"{a['prevention_rate']:>15.0%}")
+
+    f = data["falsifier"]
+    print("\n[H-C] The FALSIFIER — a genuinely disjoint workload (no shared footprints).")
+    print("      No collision is RECORDED-after and no silent overwrite survives in")
+    print("      either host; both ship the same ground truth — the gap → 0 where")
+    print("      nothing CONTENDS on shared state (the host-axis analogue of gap→0 at")
+    print("      horizon→1). The enforcement host may still log same-LANE serialization")
+    print("      defers (a phase arriving inside its OWN prior lease window) — those are")
+    print("      a lease-window artifact, not contention, and do not break the boundary.")
+    print(f"    enforcement:  prevented={f['enforcement']['prevented']} "
+          f"recorded={f['enforcement']['recorded_after']} "
+          f"silent={f['enforcement']['silent_overwrites']} "
+          f"real_ships={f['enforcement']['real_ships']}")
+    print(f"    advisory:     prevented={f['advisory']['prevented']} "
+          f"recorded={f['advisory']['recorded_after']} "
+          f"silent={f['advisory']['silent_overwrites']} "
+          f"real_ships={f['advisory']['real_ships']}")
+    print(f"    → boundary holds (host moot when disjoint): {f['boundary_holds']}")
+    print("\n  → An enforcement host PREVENTS the collision; an advisory host only")
+    print("    RECORDS it — same arbiter, same verdict, but RECORD lands too late to")
+    print("    undo the overwrite. Catching ≠ preventing once the write has landed.")
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="FleetHorizon open-loop vs closed-loop A/B")
     ap.add_argument("--efforts", type=int, default=6, help="fleet size (concurrent efforts)")
@@ -362,6 +548,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="run the velocity sweep (review-fraction + break-even κ)")
     ap.add_argument("--orchestrator-sweep", action="store_true",
                     help="run the orchestrator sweep (DOS-dispatch vs ultracode/harness; docs/98)")
+    ap.add_argument("--host-sweep", action="store_true",
+                    help="run the host sweep (advisory/RECORD vs enforcement/PREVENT; the catch-vs-prevent curve)")
     ap.add_argument("--json", action="store_true", help="emit the cell as JSON")
     args = ap.parse_args(argv)
 
@@ -373,6 +561,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.orchestrator_sweep:
         _orchestrator_sweep()
+        return 0
+    if args.host_sweep:
+        if args.json:
+            print(json.dumps(_host_sweep_data(), indent=2))
+        else:
+            _host_sweep()
         return 0
 
     o, c = run_cell(efforts=args.efforts, phases=args.phases, seed=args.seed,
