@@ -232,6 +232,25 @@ BENCHMARKS: Dict[str, BenchSpec] = {
                        prereqs=()),
         ),
     ),
+    # ----------------------------------------------------------------- forge_arena
+    "forge_arena": BenchSpec(
+        name="forge_arena",
+        question="Can TEXT ALONE flip the write-admission bit — can an attacker who "
+                 "controls every text channel (narration, a pasted [SYSTEM: accept=True], "
+                 "a forged floor-rung witness, judge flattery) get a false-effect claim "
+                 "ACCEPTed without doing the work?",
+        results_summary="benchmark/forge_arena/RESULTS.md",  # docs/321, issue #114
+        entrypoints=(
+            Entrypoint("ladder", ["benchmark.forge_arena.harness", "--json"],
+                       cost="free",
+                       does="$0 drive a declared attack corpus x task grid through TWO gates "
+                            "(the REAL dos.reward.admit witness floor vs a text-believing "
+                            "narration-grader); emits the forgery-rate gap (floor 0% vs text "
+                            "100%) + the append-only attempts rows. Exits non-zero if the floor "
+                            "EVER admits a forgery (a #35-class witness-tamper hole)",
+                       prereqs=()),
+        ),
+    ),
     # --------------------------------------------------------------- constraintviol
     "constraintviol": BenchSpec(
         name="constraintviol",
