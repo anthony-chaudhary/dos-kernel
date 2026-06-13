@@ -107,10 +107,20 @@ def _renderable(cfg):
         + ("" if frame.initialized else "   (no dos.toml — generic main/global)"),
         style="bold cyan",
     )
-    return Group(
-        header,
+    # The SELF_MODIFY banner rides above the lanes — but ONLY when there is a
+    # fresh block (issue #145), so a quiet screen is unchanged. Reuse the pure
+    # plain-text renderer; an armed window reads green (allowed), a block red.
+    sections: list = [header]
+    banner = _top.render_self_modify_banner(frame.self_modify_block)
+    if banner:
+        armed = bool(frame.self_modify_block and frame.self_modify_block.armed)
+        sections.append(_panel(
+            "self-modify override" if armed else "kernel edit blocked",
+            banner, "green" if armed else "red"))
+    sections.extend([
         _panel("lanes", _body(_top.render_lanes_text(frame.lanes)), "cyan"),
         _panel("recent verdicts", _body(_top.render_verdicts_text(frame.verdicts)), "magenta"),
         _panel("recent commits", _body(_top.render_activity_text(frame.activity)), "green"),
         Text("read-only · Ctrl-C to quit · this screen mutates nothing", style="dim"),
-    )
+    ])
+    return Group(*sections)

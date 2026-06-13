@@ -613,3 +613,150 @@ class TestSpendColumnSnapshot:
         cfg = default_config(repo)
         frame = T.snapshot(cfg, verify=lambda p, ph: False, now=NOW)
         assert all(s.spend_chip == "" for s in frame.lanes)
+
+
+# ---------------------------------------------------------------------------
+# The SELF_MODIFY-blocked-edit banner (issue #145): surface a recent kernel-edit
+# deny + the override-window state, with the one-step unblock — and NOTHING when
+# there is no fresh block (the byte-identical pre-#145 frame).
+# ---------------------------------------------------------------------------
+
+
+def _deny_rec(*, minutes_ago: float, target: str = "") -> dict:
+    from dos import hook_observation as hobs
+    rec = hobs.observation_entry(
+        "pretool", "deny", reason_class="SELF_MODIFY", ts=_iso(minutes_ago))
+    if target:
+        rec["target"] = target
+    return rec
+
+
+def _write_observations(cfg, recs: list[dict]) -> None:
+    from dos import hook_observation as hobs
+    p = hobs.observations_path(cfg)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("".join(json.dumps(r) + "\n" for r in recs), encoding="utf-8")
+
+
+class TestSelfModifyBanner:
+    # ---- the PURE fold (latest_self_modify_block) — no disk -----------------
+    def test_fold_none_when_no_deny(self):
+        assert T.latest_self_modify_block([], now=NOW) is None
+
+    def test_fold_ignores_non_self_modify_and_non_deny(self):
+        recs = [
+            {"verb": "pretool", "outcome": "deny", "reason_class": "OVERLAP",
+             "ts": _iso(1)},
+            {"verb": "pretool", "outcome": "passthrough",
+             "reason_class": "SELF_MODIFY", "ts": _iso(1)},
+            {"verb": "stop", "outcome": "block", "ts": _iso(1)},
+        ]
+        assert T.latest_self_modify_block(recs, now=NOW) is None
+
+    def test_fold_picks_newest_self_modify_deny(self):
+        recs = [
+            _deny_rec(minutes_ago=30, target="a.py"),
+            _deny_rec(minutes_ago=2, target="b.py"),
+            _deny_rec(minutes_ago=10, target="c.py"),
+        ]
+        block = T.latest_self_modify_block(recs, now=NOW)
+        assert block is not None and block.target == "b.py"  # the 2-min-ago one
+        assert block.armed is False
+
+    def test_fold_ages_off_stale_deny_when_unarmed(self):
+        # Older than the 2h TTL → no banner when no window is armed.
+        recs = [_deny_rec(minutes_ago=3 * 60, target="old.py")]
+        assert T.latest_self_modify_block(recs, now=NOW) is None
+
+    def test_fold_keeps_stale_deny_when_armed(self):
+        # An open window is always worth showing, regardless of the deny's age.
+        recs = [_deny_rec(minutes_ago=3 * 60, target="old.py")]
+        block = T.latest_self_modify_block(
+            recs, now=NOW, armed=True, armed_until="2099-01-01T00:00:00+00:00")
+        assert block is not None and block.armed is True
+
+    # ---- the renderer -------------------------------------------------------
+    def test_render_banner_none_is_empty(self):
+        assert T.render_self_modify_banner(None) == ""
+
+    def test_render_banner_unarmed_offers_suggest_prescoped(self):
+        block = T.SelfModifyBlock(ts=_iso(5), age_ms=5 * 60 * 1000,
+                                  target="pkg/widget.py", armed=False)
+        txt = T.render_self_modify_banner(block)
+        assert "⛔" in txt and "SELF_MODIFY" in txt
+        assert "dos override suggest pkg/widget.py" in txt  # pre-scoped to the block
+        assert "never arms" in txt
+
+    def test_render_banner_armed_shows_allowed_and_disarm(self):
+        block = T.SelfModifyBlock(ts=_iso(5), age_ms=5 * 60 * 1000, target="x.py",
+                                  armed=True, armed_until="2026-06-01T12:30:00+00:00")
+        txt = T.render_self_modify_banner(block)
+        assert "ARMED" in txt and "dos override disarm" in txt
+
+    # ---- snapshot integration + the byte-identical litmus -------------------
+    def test_snapshot_surfaces_a_recent_deny(self, tmp_path: Path):
+        repo = _git_repo(tmp_path, commits=("seed",))
+        cfg = default_config(repo)
+        _write_observations(cfg, [_deny_rec(minutes_ago=5, target="pkg/widget.py")])
+        frame = T.snapshot(cfg, verify=lambda p, ph: False, now=NOW)
+        assert frame.self_modify_block is not None
+        text = T.render_frame_text(frame)
+        assert "⛔ kernel edit blocked (SELF_MODIFY)" in text
+        assert "dos override suggest pkg/widget.py" in text
+
+    def test_snapshot_no_deny_renders_byte_identical_frame(self, tmp_path: Path):
+        """LITMUS 3: with no fresh SELF_MODIFY deny, the frame and its render are
+        exactly the pre-#145 output — the banner is reachable only via a block."""
+        repo = _git_repo(tmp_path, commits=("seed",))
+        cfg = default_config(repo)
+        # No observation log at all.
+        frame = T.snapshot(cfg, verify=lambda p, ph: False, now=NOW)
+        assert frame.self_modify_block is None
+        text = T.render_frame_text(frame)
+        assert "⛔" not in text
+        assert "override" not in text.lower()
+        # An empty observation log (present but no SELF_MODIFY deny) is also silent.
+        _write_observations(cfg, [
+            {"verb": "pretool", "outcome": "passthrough", "ts": _iso(1)}])
+        frame2 = T.snapshot(cfg, verify=lambda p, ph: False, now=NOW)
+        assert frame2.self_modify_block is None
+        assert T.render_frame_text(frame2) == text  # byte-identical
+
+    def test_snapshot_armed_window_flips_banner(self, tmp_path: Path):
+        from dos import override_facts as ovr
+        repo = _git_repo(tmp_path, commits=("seed",))
+        cfg = default_config(repo)
+        _write_observations(cfg, [_deny_rec(minutes_ago=5, target="pkg/widget.py")])
+        armp = ovr.arm_path(cfg.root)
+        armp.parent.mkdir(parents=True, exist_ok=True)
+        armp.write_text(
+            ovr.render_arm_toml("issue #145 supervised",
+                                until=NOW + dt.timedelta(minutes=30)),
+            encoding="utf-8")
+        frame = T.snapshot(cfg, verify=lambda p, ph: False, now=NOW)
+        assert frame.self_modify_block is not None and frame.self_modify_block.armed
+        text = T.render_frame_text(frame)
+        assert "ARMED" in text and "dos override disarm" in text
+
+    def test_snapshot_torn_observation_log_never_crashes(self, tmp_path: Path):
+        repo = _git_repo(tmp_path, commits=("seed",))
+        cfg = default_config(repo)
+        from dos import hook_observation as hobs
+        p = hobs.observations_path(cfg)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("not json\n{partial\n", encoding="utf-8")
+        # Fail-soft: a torn log yields no banner, never an error.
+        frame = T.snapshot(cfg, verify=lambda p, ph: False, now=NOW)
+        assert frame.self_modify_block is None
+
+    def test_frame_to_dict_carries_block(self, tmp_path: Path):
+        repo = _git_repo(tmp_path, commits=("seed",))
+        cfg = default_config(repo)
+        _write_observations(cfg, [_deny_rec(minutes_ago=5, target="z.py")])
+        frame = T.snapshot(cfg, verify=lambda p, ph: False, now=NOW)
+        d = frame.to_dict()
+        assert d["self_modify_block"]["target"] == "z.py"
+        # And None serializes as null, not a missing key.
+        empty = T.snapshot(default_config(_git_repo(tmp_path / "e", commits=("s",))),
+                           verify=lambda p, ph: False, now=NOW)
+        assert empty.to_dict()["self_modify_block"] is None

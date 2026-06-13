@@ -109,6 +109,15 @@ _SPEND_CHIP = {
 # clearing a dead launch within a couple of `dos top` polls.
 SPAWN_TTL_MS = 120_000
 
+# How long a SELF_MODIFY deny stays worth surfacing on `dos top` (issue #145). A
+# blocked kernel edit is a momentary, actionable event — the operator wants to see
+# it while it is fresh and decide whether to arm a window, not be nagged by a deny
+# from days ago. 2h is long enough to span a coffee break and a context reload,
+# short enough that a stale deny ages off the screen on its own (no mutation — the
+# log keeps the record; the BANNER just stops drawing it). An ARMED window has no
+# TTL: while a window is open the banner shows it regardless of the deny's age.
+SELF_MODIFY_BLOCK_TTL_MS = 2 * 60 * 60 * 1000
+
 
 # ---------------------------------------------------------------------------
 # Time helpers (mirrors decisions.py — same tolerant ISO parse + compact age).
@@ -462,6 +471,10 @@ class Frame:
     verdicts: tuple[VerdictRow, ...] = ()
     activity: tuple[dict, ...] = ()       # recent commits [{sha, subject}, …]
     initialized: bool = True              # did a dos.toml exist (vs. bare repo)?
+    # A recent SELF_MODIFY-blocked kernel edit + the override-window state, or None
+    # (issue #145). None ⇒ the banner draws nothing — the byte-identical pre-#145
+    # frame for a workspace with no fresh kernel-edit deny.
+    self_modify_block: "SelfModifyBlock | None" = None
 
     def to_dict(self) -> dict:
         return {
@@ -471,6 +484,9 @@ class Frame:
             "lanes": [s.to_dict() for s in self.lanes],
             "verdicts": [v.to_dict() for v in self.verdicts],
             "activity": [dict(c) for c in self.activity],
+            "self_modify_block": (
+                self.self_modify_block.to_dict() if self.self_modify_block else None
+            ),
         }
 
 
@@ -616,6 +632,92 @@ def _spawning_lanes(
     return out
 
 
+# ---------------------------------------------------------------------------
+# The SELF_MODIFY-blocked-edit banner (issue #145) — surface a recent kernel-edit
+# deny + the operator's armed-window state, so an invisible deny becomes a visible,
+# actionable item with a one-step unblock. PURE folds over the observation log +
+# the parsed arm file; the reads are snapshot()'s boundary I/O.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SelfModifyBlock:
+    """A recent SELF_MODIFY-blocked edit + the override window state (pure data).
+
+    Built from the most-recent SELF_MODIFY pretool deny in the observation log
+    (`hook_observation`) plus the parsed arm file (`override_facts`). `armed`
+    /`armed_until` describe the operator's window: when armed, the banner says the
+    supervised edit is ALLOWED; when not, it offers the one-step unblock (`dos
+    override suggest`). Every field is env-authored — the deny was recorded by the
+    hook downstream of the verdict, the window by the operator's hand on the file;
+    none is agent narration (the docs/138 posture every `dos top` panel keeps)."""
+
+    ts: str = ""                      # the deny's stamp (ISO); "" if absent
+    age_ms: int | None = None         # age of the deny as of `now`
+    target: str = ""                  # the blocked path, when the record carried one
+    armed: bool = False               # is an override window currently open?
+    armed_until: str = ""             # the window's deadline (ISO), when armed
+
+    def to_dict(self) -> dict:
+        return {
+            "ts": self.ts,
+            "age_ms": self.age_ms,
+            "target": self.target,
+            "armed": self.armed,
+            "armed_until": self.armed_until,
+        }
+
+
+def latest_self_modify_block(
+    records: Iterable[dict],
+    *,
+    now: dt.datetime,
+    armed: bool = False,
+    armed_until: str = "",
+    ttl_ms: int = SELF_MODIFY_BLOCK_TTL_MS,
+) -> SelfModifyBlock | None:
+    """The most-recent fresh SELF_MODIFY deny → a `SelfModifyBlock`, or None. PURE.
+
+    Walks observation records for a `pretool` deny whose `reason_class` is
+    `SELF_MODIFY` (the record the hook writes for a blocked kernel edit) and keeps
+    the newest by stamp. Returns None when there is no such deny — the banner then
+    draws NOTHING (the byte-identical unarmed frame). A deny older than `ttl_ms`
+    is aged off UNLESS a window is currently `armed` (an open window is always
+    worth showing, regardless of when the triggering deny landed). The `armed`
+    /`armed_until` window state is computed by the caller (snapshot reads the arm
+    file at the boundary); a deny with an unparseable/absent `ts` is kept only when
+    armed (it has no age to gate on — the conservative direction, mirroring
+    `_spawning_lanes`' age-None handling but the other way: here we don't nag).
+    """
+    newest: dict | None = None
+    newest_ts = ""
+    for rec in records or ():
+        if rec.get("verb") != "pretool" or rec.get("outcome") != "deny":
+            continue
+        if str(rec.get("reason_class") or "") != "SELF_MODIFY":
+            continue
+        ts = str(rec.get("ts") or "")
+        # Append order is oldest-first, but compare lexically so an out-of-order
+        # log still picks the latest stamp (ISO-8601 sorts lexically).
+        if newest is None or ts > newest_ts:
+            newest, newest_ts = rec, ts
+    if newest is None:
+        return None
+    age = _age_ms(newest_ts, now=now)
+    # Freshness gate: a stale deny ages off the screen on its own — but never when
+    # a window is open (the operator armed it; show it until it expires/disarms).
+    if not armed:
+        if age is None or age > ttl_ms:
+            return None
+    return SelfModifyBlock(
+        ts=newest_ts,
+        age_ms=age,
+        target=str(newest.get("target") or newest.get("file_path") or ""),
+        armed=bool(armed),
+        armed_until=str(armed_until or ""),
+    )
+
+
 def snapshot(
     config=None, *, verify=None, verdict_limit: int = 12, activity_limit: int = 10,
     now: dt.datetime | None = None,
@@ -676,6 +778,29 @@ def snapshot(
     except Exception:
         activity = []
 
+    # --- the SELF_MODIFY-blocked-edit banner (issue #145) ---------------------
+    # The sixth read, fail-soft like the rest: a missing/torn observation log or
+    # arm file yields NO banner, never an error. Two boundary reads folded by the
+    # PURE `latest_self_modify_block`: the most-recent kernel-edit deny + whether
+    # an override window is currently armed (so the banner can show ALLOWED vs the
+    # one-step unblock). Read-only — no lease, no mutation (the row-3 discipline).
+    self_modify_block = None
+    try:
+        from dos import hook_observation as _hobs
+        from dos import override_facts as _ovr
+        armed, armed_until = False, ""
+        facts = _ovr.read_override(cfg.root)
+        if facts is not None:
+            armed = now <= (facts.until if facts.until.tzinfo else
+                            facts.until.replace(tzinfo=dt.timezone.utc))
+            armed_until = facts.until.isoformat()
+        self_modify_block = latest_self_modify_block(
+            _hobs.read_observations(cfg=cfg), now=now,
+            armed=armed, armed_until=armed_until,
+        )
+    except Exception:
+        self_modify_block = None
+
     return Frame(
         workspace=str(cfg.root),
         now_iso=now.replace(microsecond=0).isoformat(),
@@ -683,6 +808,7 @@ def snapshot(
         verdicts=tuple(verdicts),
         activity=tuple(activity),
         initialized=(cfg.root / "dos.toml").exists(),
+        self_modify_block=self_modify_block,
     )
 
 
@@ -810,6 +936,38 @@ def render_activity_text(commits: tuple[dict, ...], *, limit: int = 10) -> str:
     return "\n".join(out)
 
 
+def render_self_modify_banner(block: "SelfModifyBlock | None") -> str:
+    """The SELF_MODIFY-blocked-edit banner, or "" when there is nothing to show (issue #145).
+
+    PURE: a `SelfModifyBlock` (or None) in, the banner lines out. None ⇒ "" ⇒ the
+    byte-identical pre-#145 frame. When a window is ARMED, the banner confirms the
+    supervised edit is allowed and how to close the window. When NOT armed, it
+    surfaces the deny (an otherwise-invisible event) and the ONE ergonomic step
+    that unblocks it — `dos override suggest`, which prints the arm line for the
+    operator to paste (it never arms; docs/296). The suggest line carries the
+    blocked target as the scope when the record named one, so the printed window
+    is pre-scoped to exactly the edit that was refused."""
+    if block is None:
+        return ""
+    if block.armed:
+        until = f" until {block.armed_until}" if block.armed_until else ""
+        return (
+            f"✓ self-mod override ARMED{until} — a supervised kernel edit is "
+            f"admitted in this window.\n"
+            f"  Close it any time: dos override disarm"
+        )
+    where = f": {block.target}" if block.target else ""
+    age = f" {_fmt_age(block.age_ms)} ago" if block.age_ms is not None else ""
+    scope = f" {block.target}" if block.target else ""
+    return (
+        f"⛔ kernel edit blocked (SELF_MODIFY){age}{where}. Override disarmed.\n"
+        f"  To allow a supervised edit, arm a window by hand (docs/296). Print the "
+        f"arm line:\n"
+        f'    dos override suggest{scope} --reason "<why>"   '
+        f"# prints the TOML to paste — it never arms"
+    )
+
+
 def render_frame_text(frame: Frame) -> str:
     """The whole `dos top --once` screen as plain text — the always-available floor."""
     # A long workspace path can exceed the rule width; print the header in full
@@ -819,6 +977,13 @@ def render_frame_text(frame: Frame) -> str:
     out = [head + "─" * max(0, _WIDTH - len(head))]
     if not frame.initialized:
         out.append("  (no dos.toml — showing generic main/global; `dos init` to declare lanes)")
+    # The SELF_MODIFY banner rides ABOVE the lanes — the first thing the operator
+    # sees — but ONLY when there is a fresh block (issue #145); otherwise nothing
+    # is emitted and the frame is byte-identical to the pre-#145 render.
+    banner = render_self_modify_banner(frame.self_modify_block)
+    if banner:
+        out.append("")
+        out.append(banner)
     out.append("")
     out.append(render_lanes_text(frame.lanes))
     out.append("")

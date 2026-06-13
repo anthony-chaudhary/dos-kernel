@@ -213,3 +213,76 @@ def dispose(
         f"is unchanged; this is the operator's window (docs/296). "
         f"Disarm any time: dos override disarm"
     )
+
+
+# ---------------------------------------------------------------------------
+# The arm-line emitter — PURE text rendering, NEVER a write (issue #145).
+#
+# Arming stays a human hand on a guarded file; what makes the human's action
+# high-friction is recalling the schema and hand-computing a UTC `until`. This
+# renderer kills that friction WITHOUT opening an arm path: it returns the exact
+# TOML the operator pastes into the arm file. It writes nothing, takes no clock
+# (the boundary caller injects `until`), names no host — so an agent that calls
+# the surface above it produces text, never an armed window (the docs/296
+# asymmetry: anyone may produce the line; only the human writes the file).
+# ---------------------------------------------------------------------------
+
+
+def _render_until(until: dt.datetime) -> str:
+    """The `until` value as TOML: a bare, second-resolution, UTC offset-datetime.
+
+    `read_override`/`_coerce_until` accept either a bare TOML datetime or a
+    quoted ISO string; we emit the bare form the schema docs show
+    (``until = 2026-…+00:00``). Normalize to UTC and drop microseconds so the
+    hand-readable line carries no spurious precision; a naive input is read as
+    the local wall clock and made aware (the same friendly reading
+    `_coerce_until` applies)."""
+    if until.tzinfo is None:
+        until = until.astimezone()
+    return until.astimezone(dt.timezone.utc).replace(microsecond=0).isoformat()
+
+
+def render_arm_toml(
+    reason: str,
+    *,
+    until: dt.datetime,
+    scope: tuple[str, ...] = (),
+) -> str:
+    """The exact arm-file TOML the operator pastes — PURE (text in, text out).
+
+    Produces a file that ``read_override`` round-trips: a bare ``until``
+    offset-datetime, a quoted ``reason``, and — when scoped — a ``scope`` list
+    of the requested paths (normalized to the one spelling the reader compares
+    on). The leading comment names the destination so a pasted blob is
+    self-documenting. No I/O, no clock, no write: this is the friction-killer
+    that does NOT become an arm verb — the caller prints the result and the
+    human writes the guarded file by hand (issue #145; docs/296)."""
+    lines = [
+        f"# {ARM_RELPATH} — paste this into the arm file BY HAND (docs/296).",
+        "# Arming stays the operator's act; `dos override suggest` only prints.",
+        f"until  = {_render_until(until)}",
+        f"reason = {_toml_str(reason)}",
+    ]
+    norm_scope = tuple(_norm(s) for s in scope if str(s).strip())
+    if norm_scope:
+        inner = ", ".join(_toml_str(s) for s in norm_scope)
+        lines.append(f"scope  = [{inner}]")
+    return "\n".join(lines) + "\n"
+
+
+def _toml_str(value: str) -> str:
+    """One TOML basic string: double-quoted, with the spec's escapes applied.
+
+    Enough for the two free-text fields an arm file carries (``reason`` and a
+    ``scope`` path) — backslash and double-quote escaped, plus the control
+    chars TOML names. Not a general TOML serializer; just the safe quoting the
+    emitter needs so a reason containing a quote still round-trips."""
+    out = (
+        str(value)
+        .replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+    )
+    return f'"{out}"'

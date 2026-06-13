@@ -271,3 +271,124 @@ def test_cli_offers_no_arm_subcommand(tmp_path):
         from dos import cli
         cli.main(["override", "arm", "--workspace", str(tmp_path)])
     assert exc.value.code != 0
+
+
+# ==========================================================================
+# render_arm_toml — the PURE arm-line emitter (issue #145). Text in, text out,
+# no disk, no clock; the file it renders round-trips through read_override.
+# ==========================================================================
+def test_render_arm_toml_round_trips_through_reader(tmp_path):
+    until = dt.datetime(2026, 6, 13, 23, 30, 0, tzinfo=dt.timezone.utc)
+    toml = ovr.render_arm_toml('issue #145 — a "quoted" reason', until=until,
+                               scope=("pkg/widget.py", "PKG/Foo.py"))
+    # Write the rendered text to a real arm file and read it back: the emitter
+    # must produce something the reader accepts (the contract that matters).
+    p = ovr.arm_path(tmp_path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(toml, encoding="utf-8")
+    facts = ovr.read_override(tmp_path)
+    assert facts is not None
+    assert facts.until == until
+    assert facts.reason == 'issue #145 — a "quoted" reason'
+    # scope is normalized to the reader's one spelling (posix, casefolded).
+    assert facts.scope == ("pkg/widget.py", "pkg/foo.py")
+
+
+def test_render_arm_toml_no_scope_omits_the_line(tmp_path):
+    until = dt.datetime(2026, 6, 13, 23, 30, 0, tzinfo=dt.timezone.utc)
+    toml = ovr.render_arm_toml("whole T1 set", until=until)
+    assert "scope" not in toml
+    p = ovr.arm_path(tmp_path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(toml, encoding="utf-8")
+    facts = ovr.read_override(tmp_path)
+    assert facts is not None and facts.scope == ()  # absent scope = the whole T1 set
+
+
+def test_render_arm_toml_naive_until_is_made_aware(tmp_path):
+    # A naive datetime must not crash and must round-trip as an aware UTC stamp.
+    toml = ovr.render_arm_toml("r", until=dt.datetime(2026, 6, 13, 23, 30, 0))
+    assert "+00:00" in toml  # rendered UTC
+    p = ovr.arm_path(tmp_path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(toml, encoding="utf-8")
+    assert ovr.read_override(tmp_path) is not None
+
+
+# ==========================================================================
+# `dos override suggest` — PRINTS the arm line, NEVER writes (issue #145).
+# The security litmus: a headless invocation leaves the window DISARMED.
+# ==========================================================================
+def _cli_override_streams(tmp_path: Path, *argv: str):
+    """Drive `dos override …` capturing BOTH stdout and stderr (suggest splits
+    the pasteable TOML onto stdout, the human how-to onto stderr)."""
+    import io
+    import sys as _sys
+    from dos import cli
+    out, err = io.StringIO(), io.StringIO()
+    old_out, old_err = _sys.stdout, _sys.stderr
+    _sys.stdout, _sys.stderr = out, err
+    try:
+        rc = cli.main(["override", "--workspace", str(tmp_path), *argv])
+    except SystemExit as e:
+        rc = int(e.code or 0)
+    finally:
+        _sys.stdout, _sys.stderr = old_out, old_err
+    return out.getvalue(), err.getvalue(), rc
+
+
+def test_cli_suggest_prints_pasteable_toml_and_writes_nothing(tmp_path):
+    stdout, stderr, rc = _cli_override_streams(
+        tmp_path, "suggest", "pkg/widget.py", "--reason", "issue #145 demo",
+        "--minutes", "20")
+    assert rc == 0
+    # The pasteable TOML is on STDOUT (clean for `> arm-file`); the how-to is on
+    # STDERR so a redirect captures only the file content.
+    assert "until" in stdout and 'reason = "issue #145 demo"' in stdout
+    assert "pkg/widget.py" in stdout
+    assert "paste" in stderr.lower()
+    # IT WROTE NOTHING — the arm file does not exist.
+    assert not ovr.arm_path(tmp_path).exists()
+    # And the stdout is a real, reader-acceptable arm file.
+    ovr.arm_path(tmp_path).parent.mkdir(parents=True, exist_ok=True)
+    ovr.arm_path(tmp_path).write_text(stdout, encoding="utf-8")
+    facts = ovr.read_override(tmp_path)
+    assert facts is not None and facts.reason == "issue #145 demo"
+    assert facts.scope == ("pkg/widget.py",)
+
+
+def test_cli_suggest_leaves_status_disarmed_LITMUS_no_agent_arm_path(tmp_path):
+    """The load-bearing security property (issue #145, docs/296): the new verb
+    is NOT an arm path. A headless invocation prints text and the window stays
+    DISARMED — no agent-callable surface ever armed it."""
+    # Before: disarmed.
+    out, rc = _cli_override(tmp_path, "status")
+    assert rc == 1 and json.loads(out)["armed"] is False
+    # An agent (headless, no tty) calls suggest as many times as it likes.
+    for _ in range(3):
+        _cli_override_streams(tmp_path, "suggest", "--reason", "agent tried")
+    # After: STILL disarmed — suggest never wrote the guarded file.
+    out, rc = _cli_override(tmp_path, "status")
+    assert rc == 1 and json.loads(out)["armed"] is False
+    assert not ovr.arm_path(tmp_path).exists()
+
+
+def test_cli_suggest_json_form(tmp_path):
+    stdout, _stderr, rc = _cli_override_streams(
+        tmp_path, "suggest", "pkg/a.py", "pkg/b.py", "--reason", "json test",
+        "--minutes", "5", "--json")
+    assert rc == 0
+    body = json.loads(stdout)
+    assert body["minutes"] == 5 and body["reason"] == "json test"
+    assert body["scope"] == ["pkg/a.py", "pkg/b.py"]
+    assert "until" in body and body["toml"].startswith("#")
+    # Even the JSON form wrote nothing.
+    assert not ovr.arm_path(tmp_path).exists()
+
+
+def test_cli_suggest_requires_a_reason(tmp_path):
+    import pytest
+    with pytest.raises(SystemExit) as exc:
+        from dos import cli
+        cli.main(["override", "--workspace", str(tmp_path), "suggest"])
+    assert exc.value.code != 0  # --reason is required

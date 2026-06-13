@@ -3751,6 +3751,44 @@ def cmd_override(args: argparse.Namespace) -> int:
         print(json.dumps({"disarmed": existed, "path": str(p)}, sort_keys=True))
         return 0
 
+    if args.override_cmd == "suggest":
+        # PRINT the arm-file TOML the operator pastes — it writes NOTHING (issue
+        # #145). This is the friction-killer that is deliberately NOT an arm verb:
+        # an agent calling it gets text, never an armed window, so the docs/296
+        # asymmetry holds. `now` is the boundary clock (the I/O-at-the-edge rule);
+        # the renderer is pure. The raw TOML goes to STDOUT (clean for `>` into the
+        # file); the human instruction goes to STDERR so a redirect captures only
+        # the file content.
+        now = _dt.datetime.now(_dt.timezone.utc)
+        minutes = max(1, int(getattr(args, "minutes", 30) or 30))
+        until = now + _dt.timedelta(minutes=minutes)
+        scope = tuple(getattr(args, "paths", None) or ())
+        toml_text = _ovr.render_arm_toml(args.reason, until=until, scope=scope)
+        if getattr(args, "json", False):
+            print(json.dumps({
+                "path": str(p),
+                "until": _ovr._render_until(until),
+                "minutes": minutes,
+                "reason": args.reason,
+                "scope": [_ovr._norm(s) for s in scope],
+                "toml": toml_text,
+                "note": "PRINTED only — nothing was written; paste this into the "
+                        "arm file by hand to arm the window (docs/296)",
+            }, sort_keys=True, indent=2))
+            return 0
+        # Plain: the pasteable TOML on stdout, the how-to on stderr.
+        sys.stdout.write(toml_text)
+        print(
+            f"\n# ^ paste the lines above into {p} to arm a {minutes}-min window.\n"
+            f"#   Arming is your hand on the file — this command wrote nothing.\n"
+            f"#   One-liner:  dos override suggest "
+            + (" ".join(scope) + " " if scope else "")
+            + f'--reason "{args.reason}" --minutes {minutes} > "{p}"\n'
+            f"#   Then `dos override status` to confirm, `dos override disarm` to close.",
+            file=sys.stderr,
+        )
+        return 0
+
     # status
     facts = _ovr.read_override(cfg.paths.root)
     now = _dt.datetime.now(_dt.timezone.utc)
@@ -9255,6 +9293,25 @@ def build_parser() -> argparse.ArgumentParser:
     ovsub.add_parser(
         "disarm",
         help="delete the arm file — always safe, for anyone (restores the deny)")
+    # suggest — PRINT the correctly-timestamped arm TOML the operator pastes
+    # (issue #145). It is NOT an arm verb: it writes nothing, so an agent that
+    # calls it gets text, never an armed window — the docs/296 asymmetry holds.
+    psug = ovsub.add_parser(
+        "suggest",
+        help="PRINT a correctly-timestamped arm file to paste by hand — writes "
+             "nothing, never arms (issue #145)")
+    psug.add_argument(
+        "paths", nargs="*",
+        help="optional scope paths for the window (absent = the whole T1 set)")
+    psug.add_argument(
+        "--reason", required=True,
+        help="why the supervised kernel edit is sanctioned — lands in the audit note")
+    psug.add_argument(
+        "--minutes", type=int, default=30,
+        help="window length in minutes (default 30; docs/296 recommends <=30)")
+    psug.add_argument(
+        "--json", action="store_true",
+        help="emit a structured {path, until, toml, …} object instead of raw TOML")
     pov.set_defaults(func=cmd_override)
 
     # halt — record a STOP DECISION for an in-flight run + propose the command
