@@ -93,12 +93,40 @@ The asymmetry the #35 sketch names holds: *widening* the witness tree
   stream injection) need and a tree-diff alone does not close. That variant is
   the open design surface on [#107](https://github.com/anthony-chaudhary/dos-kernel/issues/107).
 
+## Proven on REAL KernelBench material — the no-GPU correctness half
+
+The stand-in kernels above exercise the gate logic; `kernelbench_real/` proves
+it on the **actual** benchmark. It vendors the real KernelBench Level-1
+Frobenius-norm task (`level1/37_FrobeniusNorm_.py`, MIT, notice retained) and
+adjudicates faithful reconstructions of the **documented correctness-side
+exploit classes** against it:
+
+```bash
+python examples/kernel_keep_gate/kernelbench_real/demo.py
+python -m pytest tests/test_kernel_keep_gate_real_kernelbench.py
+```
+
+| Candidate (documented exploit) | Verdict | Why |
+|---|---|---|
+| `precision_downgrade` (fp16 norm — the most common hack, 6.4% of samples) | **REVERT** (`regressed`) | lossy fp16 accumulation → numerics fail the tight tolerance |
+| `stale_memory` (`torch.empty` returns a stale buffer) | **REVERT** (`regressed`) | wrong on a fresh env-seeded input |
+| `seed_invariant` (memorized output / insufficient seed variation) | **REVERT** (`regressed`) | wrong on the fresh env-minted input |
+| `honest` (the correct normalization) | **REVERT** (`no-improvement`) | numerics PASS — the correctness floor is cleared; reverts only for the **absent-by-design GPU metric**, never a forged KEEP from a "trust me, faster" claim |
+
+Correctness is checked over **multiple fresh env-seeds** (the KernelBench
+"diverse seeds" defense) at a tight tolerance the harness owns — that is what
+defeats the stale-buffer and memorized-output hacks. The **timing half**
+(env-measured speedup, and the timing-channel exploits like monkey-patching
+`elapsed_time`) is GPU-bound and stays an **operator-gated decision on #107**;
+this rung proves the half that needs no GPU.
+
 ## Layout
 
 ```
 kernel_keep_gate/
-  kernels/     # the ONLY tree a candidate may edit — the four stand-in kernels
-  harness/     # the witness tree — reference, post-freeze minter, tolerance, timer (untouchable)
-  gate.py      # the host: gather the four env-authored facts → improve.classify
-  demo.py      # run the four candidates, print the verdicts
+  kernels/           # the ONLY tree a candidate may edit — the four stand-in kernels
+  harness/           # the witness tree — reference, post-freeze minter, tolerance, timer (untouchable)
+  gate.py            # the host: gather the four env-authored facts → improve.classify
+  demo.py            # run the four stand-in candidates, print the verdicts
+  kernelbench_real/  # the same gate vs the REAL vendored KernelBench L1 task (MIT), no GPU
 ```
