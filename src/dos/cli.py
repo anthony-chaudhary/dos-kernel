@@ -160,10 +160,15 @@ def _maybe_observe(args: argparse.Namespace, syscall: str, token: str, verdict=N
                 vd = verdict.to_dict()
                 # Keep the evidence-ish scalar fields; drop the prose reason + the
                 # redundant verdict token (already the event's `verdict`). Nested
-                # evidence dicts are flattened ONE level with dotted keys
-                # (`evidence.work`, `evidence.tokens`, …) — docs/300: the journal
-                # fossil must carry the counts a later fold (the efficiency trend)
-                # reads back, not just the one-word verdict.
+                # evidence dicts are flattened with dotted keys (`evidence.work`,
+                # `evidence.tokens`, `evidence.breakdown.input`, …) — docs/300: the
+                # journal fossil must carry the counts a later fold (the efficiency
+                # trend) and the exporter (#39: the OTel GenAI egress) read back, not
+                # just the one-word verdict. TWO levels of nesting (#39): the second
+                # hoists the spend split under `evidence.breakdown.*` so the
+                # per-kind token counts reach the journal instead of being dropped
+                # as a non-scalar value. The detail stays scalar-only (byte-clean,
+                # docs/138) — a deeper structure would not.
                 det = {}
                 for k, v in vd.items():
                     if k in {"reason", "verdict"}:
@@ -174,6 +179,10 @@ def _maybe_observe(args: argparse.Namespace, syscall: str, token: str, verdict=N
                         for kk, vv in v.items():
                             if isinstance(vv, (int, float, str, bool)):
                                 det[f"{k}.{kk}"] = vv
+                            elif isinstance(vv, dict):
+                                for kkk, vvv in vv.items():
+                                    if isinstance(vvv, (int, float, str, bool)):
+                                        det[f"{k}.{kk}.{kkk}"] = vvv
                 det = det or None
             except Exception:
                 det = None

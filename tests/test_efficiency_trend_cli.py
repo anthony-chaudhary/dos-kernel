@@ -126,6 +126,45 @@ def test_trend_from_journal_folds_observed_efficiency_verdicts(tmp_path: Path):
     assert obj["history"]["last_ratio"] == pytest.approx(2 / 2400)
 
 
+def test_observe_fossilizes_the_spend_breakdown(tmp_path: Path):
+    """#39 half 1: an --observe'd efficiency verdict with a --usage-json
+    breakdown records the per-kind spend split (`evidence.breakdown.*`) to the
+    journal — the two-level flatten — so the exporter can read it back. A
+    scalar-only run records no breakdown keys (the byte-identical floor)."""
+    journal = tmp_path / "verdict-journal.jsonl"
+    env = {"DISPATCH_OBSERVE": "1", "DISPATCH_VERDICT_JOURNAL_PATH": str(journal)}
+    usage = tmp_path / "usage.json"
+    usage.write_text(json.dumps({
+        "input_tokens": 10_000, "output_tokens": 20_000,
+        "cache_read_input_tokens": 50_000, "cache_creation_input_tokens": 5_000,
+        "reasoning_output_tokens": 8_000,
+    }), encoding="utf-8")
+
+    r = _run_cli("efficiency", "--work", "5", "--usage-json", str(usage),
+                 cwd=tmp_path, env=env)
+    assert r.returncode in (0, 3, 4), r.stderr
+    assert journal.exists()
+
+    rec = json.loads(journal.read_text(encoding="utf-8").splitlines()[-1])
+    detail = rec["detail"]
+    # The canonical per-kind counts reached the journal as scalars (the fossil
+    # the OTel egress maps from), not dropped as a nested dict.
+    assert detail["evidence.breakdown.input"] == 10_000
+    assert detail["evidence.breakdown.output"] == 20_000
+    assert detail["evidence.breakdown.cache_read"] == 50_000
+    assert detail["evidence.breakdown.cache_creation"] == 5_000
+    assert detail["evidence.breakdown.reasoning"] == 8_000
+    # The scalar evidence is still there (the one-level fossil is unchanged).
+    assert detail["evidence.tokens"] == 85_000
+
+    # A scalar-only run records the scalar evidence but NO breakdown keys.
+    journal2 = tmp_path / "vj2.jsonl"
+    env2 = {"DISPATCH_OBSERVE": "1", "DISPATCH_VERDICT_JOURNAL_PATH": str(journal2)}
+    _run_cli("efficiency", "--work", "5", "--tokens", "1000", cwd=tmp_path, env=env2)
+    rec2 = json.loads(journal2.read_text(encoding="utf-8").splitlines()[-1])
+    assert not any("breakdown" in k for k in rec2["detail"])
+
+
 def test_trend_from_journal_last_n_limits_the_window(tmp_path: Path):
     journal = tmp_path / "verdict-journal.jsonl"
     env = {

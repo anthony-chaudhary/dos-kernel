@@ -23,6 +23,7 @@ from dos.drivers.export_otlp import (
     _SEV_INFO,
     _SEV_WARN,
     _SEV_ERROR,
+    _GENAI_ATTR_MAP,
 )
 from dos.verdict_journal import VerdictEvent
 
@@ -70,6 +71,55 @@ def test_build_records_golden_shape():
     # byte-clean detail counts ride along, flattened under dos.detail.*
     assert r["attributes"]["dos.detail.idle_s"] == 600
     assert r["attributes"]["dos.detail.heartbeats"] == 0
+
+
+def test_efficiency_spend_maps_to_otel_genai_names():
+    """#39: an efficiency event carrying the spend fossil (evidence.breakdown.*)
+    emits the OTel GenAI usage attributes ALONGSIDE the dos.detail.* forms."""
+    batch = [
+        _ev("efficiency", "EFFICIENT", seq=1, run_id="RID-x", detail={
+            "evidence.work": 5,
+            "evidence.tokens": 85_000,
+            "evidence.breakdown.input": 10_000,
+            "evidence.breakdown.output": 20_000,
+            "evidence.breakdown.cache_read": 50_000,
+            "evidence.breakdown.cache_creation": 5_000,
+            "evidence.breakdown.reasoning": 8_000,
+            "evidence.breakdown.cache_hit_ratio": 0.83,  # a derived diagnostic
+        }),
+    ]
+    a = build_records(batch)[0]["attributes"]
+    # The standardized GenAI names carry the canonical counts, matching the record.
+    assert a["gen_ai.usage.input_tokens"] == 10_000
+    assert a["gen_ai.usage.output_tokens"] == 20_000
+    assert a["gen_ai.usage.cache_read.input_tokens"] == 50_000
+    assert a["gen_ai.usage.cache_creation.input_tokens"] == 5_000
+    assert a["gen_ai.usage.reasoning.output_tokens"] == 8_000
+    # Alongside, not replacing — the dos.detail.* forms are still present.
+    assert a["dos.detail.evidence.breakdown.input"] == 10_000
+    # The DERIVED diagnostic has no OTel-standard name — dos.detail.* only.
+    assert a["dos.detail.evidence.breakdown.cache_hit_ratio"] == 0.83
+    assert not any(k.startswith("gen_ai") and "cache_hit_ratio" in k for k in a)
+
+
+def test_no_breakdown_emits_no_genai_attributes():
+    """An event with no spend breakdown gets no gen_ai.* attribute (no
+    zero-stuffing — the fire-only-when-present rule)."""
+    batch = [_ev("liveness", "ADVANCING", seq=1, detail={"idle_s": 5})]
+    a = build_records(batch)[0]["attributes"]
+    assert not any(k.startswith("gen_ai") for k in a)
+
+
+def test_genai_attr_map_is_the_canonical_otel_vocabulary():
+    """The mapping constant is the single source of truth (#39): the five
+    canonical OTel GenAI usage names, keyed by the journal fossil keys."""
+    assert _GENAI_ATTR_MAP == {
+        "evidence.breakdown.input": "gen_ai.usage.input_tokens",
+        "evidence.breakdown.output": "gen_ai.usage.output_tokens",
+        "evidence.breakdown.cache_read": "gen_ai.usage.cache_read.input_tokens",
+        "evidence.breakdown.cache_creation": "gen_ai.usage.cache_creation.input_tokens",
+        "evidence.breakdown.reasoning": "gen_ai.usage.reasoning.output_tokens",
+    }
 
 
 def test_build_records_omits_empty_optional_attributes():

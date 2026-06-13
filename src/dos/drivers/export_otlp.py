@@ -71,6 +71,26 @@ _SEVERITY_ERROR = {"STALLED", "WASTEFUL", "BLOCK", "REJECT_POISON", "UNRESUMABLE
 # OTLP SeverityNumber values (stable ints from the spec): INFO=9, WARN=13, ERROR=17.
 _SEV_INFO, _SEV_WARN, _SEV_ERROR = 9, 13, 17
 
+# #39 — map the journal's spend-breakdown counts onto OpenTelemetry's GenAI
+# semantic-convention usage attributes (standardized Jan 2026), so a fleet's
+# efficiency events land in any GenAI-aware dashboard WITHOUT a translation
+# layer. The source keys are the two-level fossil the observe flatten now
+# records (`evidence.breakdown.<field>`, docs/300 + #39 half 1); the targets are
+# the OTel `gen_ai.usage.*` names. Emitted ALONGSIDE the `dos.detail.*` forms
+# (additive — a DOS-native reader keeps its keys, a GenAI dashboard reads the
+# standard ones). Only the canonical, OTel-standard counts are mapped; the
+# DOS-derived diagnostics (total/prefill/cache_hit_ratio/…) keep `dos.detail.*`
+# only, since they have no OTel-standard name. A target is emitted ONLY when its
+# source key is present (no zero-stuffing — an event with no breakdown gets no
+# gen_ai.* attribute). This dict is the single source of truth, asserted directly.
+_GENAI_ATTR_MAP: dict[str, str] = {
+    "evidence.breakdown.input": "gen_ai.usage.input_tokens",
+    "evidence.breakdown.output": "gen_ai.usage.output_tokens",
+    "evidence.breakdown.cache_read": "gen_ai.usage.cache_read.input_tokens",
+    "evidence.breakdown.cache_creation": "gen_ai.usage.cache_creation.input_tokens",
+    "evidence.breakdown.reasoning": "gen_ai.usage.reasoning.output_tokens",
+}
+
 
 def _read_env_file(root: Path) -> dict[str, str]:
     """Best-effort parse of `<root>/.env` → {KEY: value}. Never raises."""
@@ -122,9 +142,13 @@ def build_records(events) -> list[dict]:
     trace/log backend filters on: `dos.syscall`, `dos.verdict`, `dos.run_id` (the
     correlation key), `dos.lane`/`dos.subject` when present, and each byte-clean
     `detail.<k>` count flattened with a `dos.detail.` prefix (never the agent's narration —
-    the docs/138 invariant the journal already enforces, carried onto the wire). The
-    transport turns each dict into an OTLP LogRecord; this stays import-free + golden
-    testable, the spine's analogue of `export_statsd.build_lines`.
+    the docs/138 invariant the journal already enforces, carried onto the wire). When the
+    detail carries a spend breakdown (`evidence.breakdown.*`, #39), the canonical token
+    counts are ALSO emitted under their OpenTelemetry GenAI names (`gen_ai.usage.*`,
+    `_GENAI_ATTR_MAP`) so the event lands in a GenAI-aware dashboard with no translation
+    layer — alongside the `dos.detail.*` forms, never replacing them. The transport turns
+    each dict into an OTLP LogRecord; this stays import-free + golden testable, the spine's
+    analogue of `export_statsd.build_lines`.
     """
     out: list[dict] = []
     for e in events:
@@ -152,6 +176,13 @@ def build_records(events) -> list[dict]:
                 # OTLP attribute values must be a scalar (or a homogeneous list); coerce
                 # anything else to its string form so a nested/odd value still rides along.
                 attrs[f"dos.detail.{k}"] = v if isinstance(v, (str, int, float, bool)) else str(v)
+            # #39: also emit the OTel GenAI usage names for the canonical spend
+            # counts present, ALONGSIDE the dos.detail.* forms above. Skip a
+            # mapped key that is absent (no zero-stuffing) or non-numeric.
+            for src_key, genai_attr in _GENAI_ATTR_MAP.items():
+                val = detail.get(src_key)
+                if isinstance(val, (int, float)) and not isinstance(val, bool):
+                    attrs[genai_attr] = val
         out.append({
             "body": f"{syscall} {verdict}".strip(),
             "severity_number": _severity_number(verdict),
