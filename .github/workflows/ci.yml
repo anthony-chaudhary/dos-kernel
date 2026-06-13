@@ -152,6 +152,25 @@ jobs:
       # green today. A new unused import or undefined name fails the build.
       - name: ruff (blocking)
         run: ruff check src/dos src/dos_mcp
+      # actionlint is BLOCKING (#6): parse-clean YAML (pinned by
+      # tests/test_workflow_yaml_parses.py) is necessary, not sufficient — an
+      # expression typo inside ${{ }}, a needs: ref to a missing job, or a
+      # schema-invalid key parses as YAML but breaks at GitHub's checker, first
+      # surfacing at tag/gate time for publish.yml & dos-gate.yml (the most
+      # expensive discovery stage). actionlint catches that class deterministically
+      # in seconds. Pinned to an EXACT release (the repo's action-pin convention) —
+      # downloaded as the released binary so there is no third-party action in the
+      # trust path. Layering: this is CI tooling over vendor-shaped (GitHub)
+      # workflow YAML, never a src/dos/ module (the vendor-agnostic litmus).
+      - name: actionlint (blocking)
+        env:
+          ACTIONLINT_VERSION: "1.7.7"
+        run: |
+          curl -sSLf \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
+            -o /tmp/actionlint.tar.gz
+          tar -xzf /tmp/actionlint.tar.gz -C /tmp actionlint
+          /tmp/actionlint -color
       # mypy is ADVISORY for now (continue-on-error): ~30 findings remain across
       # the package, several blocked behind in-flight files. This surfaces them on
       # every PR without blocking; it RATCHETS to blocking once paid down (then
