@@ -116,7 +116,7 @@ dos doctor --workspace .
 ```
 
 ```
-DOS v0.25.0
+DOS v0.26.0
 workspace root      .../hello-dos
 execution-state     .../hello-dos/dos.state.yaml
 plans glob          docs/**/*-plan.md
@@ -135,7 +135,7 @@ supervisor target   1  (count_spinning_as_alive=yes, reap_stalled=yes, spin_halt
 is git workspace    no
 runtime hooks       none wired   (run `dos init --hooks auto` to bind)
 layout style        dos
-environment print   <hash>  (kernel v0.25.0 @ <sha>; py 3.13.7; <os>)
+environment print   <hash>  (kernel v0.26.0 @ <sha>; py 3.13.7; <os>)
   declared tools    (none declared)
 dos home            .../dos  (0 project(s) indexed)
 ```

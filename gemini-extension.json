@@ -1,6 +1,6 @@
 {
   "name": "dos-kernel",
-  "version": "0.25.0",
+  "version": "0.26.0",
   "description": "The kernel that doesn't believe the agents. Exposes the DOS trust syscalls as MCP tools — verify what actually shipped (git ancestry, not self-report), arbitrate file-tree collisions before two agents edit the same files, and refuse with a structured reason from a closed vocabulary. Requires the dos-kernel Python package: pip install 'dos-kernel[mcp]'.",
   "contextFileName": "GEMINI.md",
   "mcpServers": {

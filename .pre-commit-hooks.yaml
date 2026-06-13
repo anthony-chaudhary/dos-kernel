@@ -5,7 +5,7 @@
 #
 #   repos:
 #     - repo: https://github.com/anthony-chaudhary/dos-kernel
-#       rev: v0.25.0
+#       rev: v0.26.0
 #       hooks:
 #         - id: dos-commit-audit        # block a push carrying an unwitnessed claim
 #

@@ -120,7 +120,7 @@ The same verdict fires before the push via the bundled
 ```yaml
 repos:
   - repo: https://github.com/anthony-chaudhary/dos-kernel
-    rev: v0.25.0                        # the latest release tag
+    rev: v0.26.0                        # the latest release tag
     hooks:
       - id: dos-commit-audit            # block; or dos-commit-audit-warn for observe-only
 ```

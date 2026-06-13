@@ -67,7 +67,7 @@ zero config, and the only thing you ever install is one small Python package.
 > entries there undoes it. (No runtime detected? It says so and lists the
 > names to pick from — it never guesses.)
 
-<sub>**v0.25.0** · 3900+ tests · CI: Python 3.11–3.13 on Linux + a Windows 3.13
+<sub>**v0.26.0** · 3900+ tests · CI: Python 3.11–3.13 on Linux + a Windows 3.13
 smoke run · the only runtime dependency is **PyYAML** · **MIT**.</sub>
 
 > 🧭 **Want it in plain words first?** What DOS is, what it catches, and what

@@ -189,7 +189,7 @@ Step 0 — discover the layout (the WCR on-ramp):
 
 ```bash
 $ dos doctor --workspace . --json
-# dos_version 0.25.0; git true; stamp.style "grep" (generic, any/no dir prefix)
+# dos_version 0.26.0; git true; stamp.style "grep" (generic, any/no dir prefix)
 # paths.plans_glob "docs/**/*-plan.md"; paths.next_packets ".dos/verdicts"
 # lanes.concurrent [benchmark, docs, examples, scripts, spikes, src, tests]
 ```

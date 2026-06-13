@@ -46,7 +46,7 @@ try:
 
     __version__ = _pkg_version("dos-kernel")
 except Exception:  # pragma: no cover - source-tree / not-installed fallback
-    __version__ = "0.25.0"
+    __version__ = "0.26.0"
 
 from dos import config  # noqa: F401  (re-export the seam as the package entry)
 from dos.config import (  # noqa: F401

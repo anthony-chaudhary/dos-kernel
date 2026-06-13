@@ -3,7 +3,7 @@
   "name": "io.github.anthony-chaudhary/dos-kernel",
   "title": "DOS — the trust substrate for agent fleets",
   "description": "Verify what agents actually shipped, arbitrate file collisions, refuse with structured reasons.",
-  "version": "0.25.0",
+  "version": "0.26.0",
   "websiteUrl": "https://github.com/anthony-chaudhary/dos-kernel",
   "repository": {
     "url": "https://github.com/anthony-chaudhary/dos-kernel",
@@ -14,13 +14,13 @@
       "registryType": "pypi",
       "registryBaseUrl": "https://pypi.org",
       "identifier": "dos-kernel",
-      "version": "0.25.0",
+      "version": "0.26.0",
       "runtimeHint": "uvx",
       "runtimeArguments": [
         {
           "type": "named",
           "name": "--from",
-          "value": "dos-kernel[mcp]==0.25.0",
+          "value": "dos-kernel[mcp]==0.26.0",
           "description": "The [mcp] extra carries the MCP server framework; the core install is near-stdlib and does not include it.",
           "isRequired": true
         }
