@@ -1,13 +1,35 @@
 # LobeHub MCP Marketplace — submission packet (DOS)
 
-Paste-ready fields for the **Submit** modal at
-<https://market.lobehub.com/s/publish-mcp> (clear the Cloudflare Turnstile, then
-fill the form). The modal auto-detects most of this from the repo URL — paste the
-repo first, then confirm/override the fields below.
+> **LIVE (2026-06-13):** Listed at <https://lobehub.com/mcp/anthony-chaudhary-dos-kernel>
+> — identifier `anthony-chaudhary-dos-kernel`, v0.26.0, status `published`, claimed.
+> Imported via `lhm plugin submit` under the `anthony-chaudhary` GitHub identity.
+> To enrich the install command + tool list on the page, publish an
+> `lhm.plugin.json` with `lhm plugin publish` (see below).
 
-If the web modal fails after Turnstile (a known issue — see lobehub/lobehub
-#14133), the fallback is a GitHub issue on `lobehub/lobehub` using the
-**Feature request** template; the body at the bottom of this file is ready to paste there.
+**The real submission path is the `@lobehub/market-cli` (`lhm`) CLI, not a web
+modal.** `https://market.lobehub.com/s/publish-mcp` is a *markdown skill doc* for
+that CLI. The completing command is one non-interactive call once you're logged in:
+
+```bash
+npx -y @lobehub/market-cli plugin submit https://github.com/anthony-chaudhary/dos-kernel
+```
+
+Two one-time browser steps gate it: `lhm login` and `lhm github connect` (OAuth).
+Then `plugin submit` imports the repo as a new listing (async, ~minutes); poll
+`lhm plugin list --output json` for the assigned identifier.
+
+> **Windows gotcha (fixed here):** the CLI crashes with `spawn start ENOENT`
+> because it spawns `start` without a shell and node ignores `PATHEXT`. Fix: put a
+> real `start.exe` on PATH (copy `explorer.exe` → `%TEMP%\lhm-shim\start.exe`) and
+> prepend that dir to PATH before running `lhm login` / `github connect`. The
+> browser then opens and the localhost:51234 OAuth-callback listener survives.
+
+To **publish a new version** later, write `lhm.plugin.json` and run
+`lhm plugin publish --dir <abs-path>` (see the LobeHub skill doc for the manifest).
+
+The fields below were used for the original listing import and double as a
+GitHub-issue fallback (lobehub/lobehub feature request) if the CLI import ever
+fails silently — see the bottom of this file.
 
 ---
 
