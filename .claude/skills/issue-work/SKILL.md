@@ -30,27 +30,40 @@ dev-machine paths, hostnames, or private-process prose. Leak-scan every
 drafted body (`python scripts/leak_scan.py --text-file <draft>`) before
 posting; if the scanner is absent, the hand rule is the floor.
 
-## Step 1: Sweep and pick (skip if given an issue number)
+## Step 1: Triage from the deterministic floor (skip if given an issue number)
 
 ```bash
-gh issue list --state open --limit 60
+python scripts/backlog_triage.py --top 12    # the typed, ordered queue (docs/315)
 ```
 
-Triage by the label taxonomy, then by importance × feasibility:
+The script types every open issue into a closed disposition set and orders
+the offerable rows deterministically: priority tier → `ready`-label bias →
+freshness (the kernel's cooldown + pick-priority folds over the lane-journal
+`OP_ATTEMPT` history, unit id `issue-N`) → FIFO. **The top row is the default
+pick.** The floor is deterministic-first, advisory-only (the JUDGE-rung
+split): you may deviate, but state the one-line reason — the operator reads
+it to audit the triage, not to re-do it.
 
-- **Skip outright:** `human-only` (operator judgment), anything blocked on an
-  external party or a not-yet-published contract, `design` issues with no
-  `docs/NN` plan yet (they need a plan first, not code).
-- **The T1 feasibility gate:** read the issue's fix surface against
-  `_DISPATCH_RUNTIME_FILES` in `src/dos/self_modify.py`. If the fix requires
-  editing a file in that set, the PreToolUse hook will deny you and there is
-  no agent-side force — the issue is operator-gated (say so in your report;
-  do not pick it). A NEW file under `src/dos/` is not in the set and is fine.
-- **Prefer** `ready` (a checkable done-condition exists) and `priority:high`;
-  among peers, prefer the issue that is *currently costing* the fleet or
-  operator over the merely valuable.
-- State the pick and the runner-up reasoning in one short paragraph — the
-  operator reads this to audit the triage, not to re-do it.
+What each disposition hands you:
+
+- `READY (code)` — implement it; the steps below.
+- `READY (execute-plan)` — a design issue whose `docs/NN` plan exists: ship
+  the plan's next unshipped phase (`dos verify` it first — never trust the
+  plan's own status prose).
+- `NEEDS_PLAN (write-plan)` — the unit of work IS the `docs/NN` plan: write
+  it, link it from the issue, and stop there (implementation is a later pick).
+- `COOLING` / `T1_GATED` / `OPERATOR_GATED` — not yours; surface it, don't
+  pick it.
+
+Two residues the floor cannot read, still on you: (a) the T1 detection
+UNDER-matches (it fires only when the issue text literally names a guarded
+runtime file) — before building, re-check your pick's real fix surface
+against `_DISPATCH_RUNTIME_FILES` in `src/dos/self_modify.py`; if the fix
+must edit a file in that set, the PreToolUse hook will deny you and the
+issue is operator-gated (say so in your report; a NEW file under `src/dos/`
+is not in the set and is fine). (b) external blockage (a not-yet-published
+contract, a waiting upstream PR) lives in prose the floor doesn't parse —
+skip those with a stated reason.
 
 ## Step 2: Verify the issue's claims before building
 
@@ -129,7 +142,22 @@ pinned, and any operational caveat (e.g. "pre-fix binaries keep the old
 behavior until rebuilt"). **Never close the issue yourself** — closure is
 `Fixes #N` reaching `master`, or the issue-verify skill's evidenced path.
 
-## Step 7: Priority-tag every issue you touched
+## Step 7: Record the attempt (the cross-run memory)
+
+```bash
+python scripts/backlog_triage.py --record-attempt N --outcome shipped
+#                                              outcome ∈ shipped|drained|blocked|error
+```
+
+Whatever happened, record it — `shipped` (landed), `drained` (nothing left
+to do in it), `blocked` (a gate/claim/external wall), `error` (partial
+progress, retry-worthy). This appends the lane-journal `OP_ATTEMPT` for unit
+`issue-N`, so the next sweep's cooldown fold holds a just-tried issue (the
+anti re-pick-storm memory) and the freshness fold prefers untouched work. A
+recorded `blocked` on a kernel-surface issue is what keeps the NEXT loop
+from walking into the same SELF_MODIFY storm.
+
+## Step 8: Priority-tag every issue you touched
 
 The tier (create once if absent): `priority:high` (blocking or actively
 costing the fleet/operator) / `priority:medium` (real value, nothing
@@ -143,7 +171,7 @@ gh issue edit <N> --add-label "priority:<tier>"
 to rank during triage — the sweep's judgment is worth keeping, so write it
 down as labels, not just prose in a session log.
 
-## Step 8: Report
+## Step 9: Report
 
 - The pick and why; the runner-ups and why not (one line each).
 - What shipped: SHA, files, the done-condition's before/after.
