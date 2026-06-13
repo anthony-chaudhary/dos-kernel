@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" role="img" aria-label="DOS social card. Headline: catch your AI agents when they lie about what they shipped. An agent claims it shipped two features, AUTH1 and AUTH2. dos verify AUTH AUTH1 answers SHIPPED 49092fc, exit 0. dos verify AUTH AUTH2 answers NOT_SHIPPED, exit 1 — caught. The verdict comes from git, never the agent's word. pip install dos-kernel, MIT.">
+  <title>DOS — catch your AI agents when they lie about what they shipped</title>
+  <desc>The GitHub social-preview card. Every verdict string is verbatim `dos verify` output recorded from the real CLI against the canonical caught-lie demo — a rendering of ground truth, never a hand-typed dramatization. Static and freeze-safe: every element rests at its fully-visible state.</desc>
+
+  <style>
+    .canvas  { fill: #0a0a0f; }
+    .vignette{ fill: url(#vg); }
+    .ink     { fill: #eef1f6; }
+    .dim     { fill: #8b93a7; }
+    .faint   { fill: #5b6478; }
+    .lie     { fill: #ff4d57; }   /* hot-red — NOT_SHIPPED */
+    .ship    { fill: #2bff88; }   /* acid-green — SHIPPED */
+    .accent  { fill: #36e0ff; }   /* electric cyan — the 'ask git' rung */
+    .claim   { fill: #ffc24d; }   /* amber — the forgeable narration */
+    .mono    { font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+    .stamp   { font-family: "Arial Black","Helvetica Neue",Arial,sans-serif; font-weight: 900; letter-spacing: 1px; }
+  </style>
+
+  <defs>
+    <radialGradient id="vg" cx="50%" cy="30%" r="80%">
+      <stop offset="0%"  stop-color="#13131c"/>
+      <stop offset="60%" stop-color="#0a0a0f"/>
+      <stop offset="100%" stop-color="#060609"/>
+    </radialGradient>
+  </defs>
+
+  <!-- backdrop -->
+  <rect class="canvas"   x="0" y="0" width="1280" height="640"/>
+  <rect class="vignette" x="0" y="0" width="1280" height="640"/>
+
+  <!-- ===================== WORDMARK ===================== -->
+  <text x="64" y="92" class="ink stamp" font-size="46">DOS</text>
+  <text x="180" y="92" class="dim" font-size="24">— the kernel that doesn&#8217;t believe the agents</text>
+
+  <!-- ===================== HEADLINE ===================== -->
+  <text x="64" y="178" class="ink stamp" font-size="50">Catch your AI agents</text>
+  <text x="64" y="240" class="ink stamp" font-size="50">when they <tspan class="lie">lie</tspan> about what they shipped.</text>
+
+  <!-- ===================== THE MONEY MOMENT ===================== -->
+  <!-- a terminal-tinted card holding the two verbatim verify lines -->
+  <rect x="64" y="288" width="1152" height="210" rx="14" fill="#10101a" stroke="#272736" stroke-width="1.5"/>
+
+  <!-- the agent's forgeable claim -->
+  <text x="92" y="330" class="claim mono" font-size="19" font-weight="700">agent: Done! Shipped the login endpoint (AUTH1) and the password reset (AUTH2).</text>
+
+  <!-- verify #1 -> SHIPPED -->
+  <text x="92" y="378" class="accent mono" font-size="20">$ dos verify AUTH AUTH1</text>
+  <g>
+    <rect x="560" y="356" width="280" height="34" rx="7" fill="#062417" stroke="#2bff88" stroke-width="1.4"/>
+    <text x="578" y="380" class="ship stamp" font-size="17">SHIPPED 49092fc</text>
+    <text x="828" y="379" text-anchor="end" class="ship mono" font-size="18" font-weight="700">&#10003;</text>
+  </g>
+  <text x="858" y="380" class="faint mono" font-size="15">via grep-subject &#183; exit 0</text>
+
+  <!-- verify #2 -> NOT_SHIPPED -->
+  <text x="92" y="438" class="accent mono" font-size="20">$ dos verify AUTH AUTH2</text>
+  <g>
+    <rect x="560" y="416" width="280" height="34" rx="7" fill="#23090d" stroke="#ff4d57" stroke-width="1.4"/>
+    <text x="578" y="440" class="lie stamp" font-size="17">NOT_SHIPPED</text>
+    <text x="828" y="439" text-anchor="end" class="lie mono" font-size="18" font-weight="700">&#10007;</text>
+  </g>
+  <text x="858" y="440" class="claim mono" font-size="15">via none &#183; exit 1 &#8212; caught</text>
+
+  <text x="92" y="478" class="dim mono" font-size="15.5">the verdict comes from <tspan class="accent">git</tspan>, never the agent&#8217;s word &#8212; gate &#8220;done&#8221; on the exit code and a false claim can&#8217;t land</text>
+
+  <!-- ===================== FOOTER ===================== -->
+  <text x="64" y="568" class="ink mono" font-size="22" font-weight="700">pip install dos-kernel</text>
+  <text x="1216" y="556" text-anchor="end" class="mono" font-size="16">
+    <tspan class="ship">verify</tspan> <tspan class="faint">&#183;</tspan> <tspan class="accent">arbitrate</tspan> <tspan class="faint">&#183;</tspan> <tspan class="claim">refuse</tspan> <tspan class="faint">&#183;</tspan> <tspan class="dim">liveness</tspan></text>
+  <text x="1216" y="580" text-anchor="end" class="faint mono" font-size="14">works on a plain git repo &#183; MIT</text>
+</svg>

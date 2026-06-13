@@ -60,6 +60,7 @@ HTML previewer (e.g. `htmlpreview.github.io`).
 
 | File | What it shows | Source of truth |
 |---|---|---|
+| `social-card.svg` / `social-card.png` | **The GitHub social-preview card** — the image platforms unfurl *before* anyone clicks (the Slack / Discord / Twitter-X / LinkedIn card, the Open Graph image). A purpose-built **1280×640** (GitHub's recommended 2:1) still in the signature identity: the wordmark, the one-line hook ("catch your AI agents when they **lie** about what they shipped"), the two-line money moment (`dos verify AUTH AUTH1` → `SHIPPED` ✓ exit 0, `dos verify AUTH AUTH2` → `NOT_SHIPPED` ✗ exit 1 — caught), and the `pip install dos-kernel` line. **Static** (no animation — GitHub rasterizes one frame) and freeze-safe. The `.png` is what you upload to GitHub's Social-preview slot (≤ 1 MB). | **Rendered, not drawn**: `scripts/build_social_card.py` drives the real `dos verify` against the canonical caught-lie demo (`dos._demo_story`, pinned commit identity/dates → deterministic) and renders the captured verdicts; `tests/test_social_card.py` re-renders and pins the committed SVG byte for byte. |
 | `caught-lie-cast.svg` | **The README's first-screen terminal cast** (issue #64): the quickstart's caught-lie moment as an animated recording — the agent claims both features shipped, `git log` shows the one real commit, `dos verify` answers `SHIPPED` (exit 0) then `NOT_SHIPPED` (exit 1) — CAUGHT. Typed commands, line-by-line reveal, settle-and-hold ending, `prefers-reduced-motion` + stripped-stylesheet fallbacks (the final frame is every element's natural state). | **Recorded, not drawn**: `scripts/build_caught_lie_cast.py` drives the real `dos` CLI in a throwaway repo (pinned commit identity/dates → byte-deterministic) and renders the captured transcript; `tests/test_caught_lie_cast.py` re-records and pins the committed bytes. |
 | `loop-hero.svg` | **The README hero.** An animated, self-contained SVG of the open-loop-vs-closed-loop contrast: left, a fleet whose `done!` reports are believed until lies / collisions / spin pile up into a codebase that "sorta works"; right, `dos verify` reads git and the run branches `SHIPPED` (exit 0, land it) / `NOT_SHIPPED` (exit 1, re-dispatch — caught), the verdict steering the next step. CSS-keyframe reveal with a `prefers-reduced-motion` fallback. | The README narrative (conceptual — the AUTH/`e62f74d` strings mirror the `dos verify` money-moment). |
 | `loop-hero.png` | **High-res raster backup** of the hero's resolved (reduced-motion) frame — 3600×1920. For surfaces that don't render SVG (LinkedIn / Twitter-X cards, slide decks, the announce docs). GitHub embeds the SVG; this is the fallback poster. | Rendered from `loop-hero.svg` at 3× DPR (the convert recipe below). |
@@ -80,6 +81,31 @@ commit identity + dates), so `--check` can compare the committed file to a fresh
 re-recording byte for byte — that is what `tests/test_caught_lie_cast.py` runs.
 **Never edit the SVG by hand**: when the CLI's output changes shape, the test
 goes red and the fix is to re-run the script.
+
+**`social-card.svg` / `social-card.png`** — fully scripted, like the cast: run
+`python scripts/build_social_card.py` and it re-renders both — it drives the
+real `dos verify` against the canonical caught-lie demo (`dos._demo_story`,
+pinned identity/dates → the SHIPPED sha is deterministic), then writes the
+1280×640 SVG and rasterizes it to a sub-1 MB PNG (via `rsvg-convert`, else a
+headless `npx playwright` screenshot; falls back to "SVG only, export the PNG
+manually" if neither is present). `--check` byte-compares the committed SVG to
+a fresh render — that is `tests/test_social_card.py`'s pin 1. **Never edit the
+SVG by hand**: when the CLI's output changes shape, the test goes red and the
+fix is to re-run the script.
+
+> ### Installing the card on GitHub (the one human-only step)
+>
+> GitHub exposes **no API** for the social-preview slot — it is uploaded
+> through the web UI. After `build_social_card.py` writes the PNG:
+>
+> **Repo → Settings → (General) → "Social preview" → Edit → upload
+> `docs/assets/social-card.png`.**
+>
+> That single manual action is everything; the bytes themselves are scripted.
+> Confirm it took with `gh repo view --json usesCustomOpenGraphImage`
+> (`true` once uploaded) — or just paste the repo URL into Slack and watch it
+> unfurl. The image is cached by each platform, so a re-upload can take a
+> while to propagate; GitHub's own card refreshes on the next repo touch.
 
 **`loop-hero.svg`** — there's no script to capture: it renders the README's
 open-loop-vs-closed-loop *narrative* (the same conceptual story as
