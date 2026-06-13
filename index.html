@@ -104,6 +104,17 @@ dos verify AUTH AUTH2 <span class="dim">#</span> <span class="no">NOT_SHIPPED</s
         what's running now and what needs a human.</li>
   </ul>
 
+  <h2 id="incidents">Did one of these just happen to you?</h2>
+  <p>One page per real-world agent failure, titled in the words you'd search the
+  moment it bit you — each tells the story plainly and gives the one command that
+  catches it, with real output:</p>
+  <ul>
+    <li><a href="incidents/my-agent-said-it-committed-but-theres-no-commit.html">My agent said it committed, but there's no commit</a> — <code>dos verify</code></li>
+    <li><a href="incidents/the-ai-wrote-tests-that-test-nothing.html">The AI wrote tests that test nothing, or faked a green run</a> — <code>dos commit-audit</code></li>
+    <li><a href="incidents/my-agent-loop-ran-all-night-and-landed-nothing.html">My agent loop ran all night, said “making progress”, and landed nothing</a> — <code>dos liveness</code></li>
+    <li><a href="incidents/two-agents-overwrote-each-others-work.html">Two agents overwrote each other's work</a> — <code>dos arbitrate</code></li>
+  </ul>
+
   <h2>Works where your agents work</h2>
   <p>A plain CLI with exit-code verdicts (drop it into CI), an
   <a href="https://github.com/anthony-chaudhary/dos-kernel/tree/master/src/dos_mcp">MCP server</a>
