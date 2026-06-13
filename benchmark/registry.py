@@ -295,6 +295,26 @@ BENCHMARKS: Dict[str, BenchSpec] = {
                        prereqs=()),
         ),
     ),
+    # ------------------------------------------------------------- memory_integrity
+    "memory_integrity": BenchSpec(
+        name="memory_integrity",
+        question="How much bad memory does the write gate refuse and the recall gate "
+                 "catch (docs/316 taxonomy), at what false-refusal cost — vs the "
+                 "admit-all industry default?",
+        results_summary="benchmark/memory_integrity/RESULTS.md",
+        entrypoints=(
+            Entrypoint("measure", ["benchmark.memory_integrity.run"],
+                       cost="free",
+                       does="$0 two-time-point protocol over the constructed-repo corpus "
+                            "(drives the REAL admit/recall driver); writes RESULTS.md + "
+                            "results.json; no model, no network",
+                       prereqs=()),
+            Entrypoint("measure_json", ["benchmark.memory_integrity.run", "--json"],
+                       cost="free",
+                       does="$0 same protocol, full per-candidate fold as JSON",
+                       prereqs=()),
+        ),
+    ),
     # ------------------------------------------------------------------- legalcite
     "legalcite": BenchSpec(
         name="legalcite",
