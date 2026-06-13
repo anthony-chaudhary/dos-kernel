@@ -36,8 +36,8 @@ dos verify --workspace . AUTH AUTH1
 ```
 
 For work that really landed, naming the phase the way your commit subject does
-(out of the box, a phase id at the front, like `AUTH1: ship the login
-endpoint`):
+(out of the box, a phase id at the front, like
+`AUTH1: ship the login endpoint`):
 
 ```text
 SHIPPED AUTH AUTH1 f762c2a (via grep-subject)
