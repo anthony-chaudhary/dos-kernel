@@ -65,6 +65,13 @@ Start with the onboarding quickstart, then jump to your archetype:
    that refuses the (N+1)th chamber (`CLASS_BUDGET_EXHAUSTED`), and a false "the
    soak passed" claim REFUTED from the instrument's thermal capture, not the
    campaign log. Static fixtures — no physical hardware.
+7. **[`10_two-hosts-one-gate.md`](10_two-hosts-one-gate.md)** — the *cross-host*
+   proof: **two independent agent hosts, one gate, one WAL.** Host A (Claude Code)
+   books a lane in the shared lease WAL; host B (Cursor) races on the same region
+   and is refused by the **same `dos apply` gate reading the same WAL**, with no
+   collision check re-implemented on the B side. The existence proof behind the
+   P-SPOKEN property (docs/342 M5 / docs/340 §3.1: own the shared verbs). Runnable:
+   `sh examples/playbooks/two_hosts_one_gate.sh`.
 
 ## Four cookbooks (recipes, not walkthroughs)
 
