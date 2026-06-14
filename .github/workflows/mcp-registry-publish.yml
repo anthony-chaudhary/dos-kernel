@@ -7,13 +7,20 @@ name: Publish to MCP Registry
 # names. Aggregators (PulseMCP, Glama, …) ingest from the official registry, so
 # this one publish fans out to the downstream directories.
 #
-# WHY manual-only (workflow_dispatch): the registry validates the PyPI package
+# Standalone manual re-dispatch path. As of #138 the registry refresh ALSO runs
+# automatically as the `publish-mcp-registry` job at the tail of publish.yml,
+# right after a successful PyPI publish (same OIDC login, same fail-closed
+# preflight), so the registry no longer drifts behind PyPI on a normal release.
+# This workflow remains for the manual case: re-publishing after a registry-side
+# hiccup, or refreshing a version that was released before the chaining landed.
+#
+# WHY manual here (workflow_dispatch): the registry validates the PyPI package
 # named in server.json by fetching the README of the EXACT pinned version and
 # looking for the `mcp-name: io.github.anthony-chaudhary/dos-kernel` marker —
 # so a publish is only valid AFTER that version is live on PyPI (the publish.yml
-# pipeline + its human-approved `pypi` environment gate). Sequencing through a
-# human-triggered dispatch keeps this honest; wiring it to fire automatically
-# after a PyPI release is a later lift.
+# pipeline + its human-approved `pypi` environment gate). The chained job in
+# publish.yml satisfies that ordering by construction (it `needs: publish-pypi`);
+# a manual dispatch satisfies it by you running it once the version is live.
 #
 # Keeping server.json fresh: its two `version` fields must match the released
 # package version — `scripts/release_bump.py` does NOT yet know about

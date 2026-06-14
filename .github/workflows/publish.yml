@@ -365,3 +365,93 @@ jobs:
         # No `password:` — Trusted Publishing supplies the credential via OIDC.
         # No `skip-existing` — a re-upload of an existing version on REAL PyPI
         # should fail loudly (you forgot to bump), not be silently skipped.
+
+  # ── 3. Refresh the MCP Registry fan-out (docs/312, #138) ───────────────────────
+  # The official MCP Registry feeds github.com/mcp, VS Code's @mcp gallery,
+  # PulseMCP, and Mastra — so DOS's listing on ALL of them is whatever the
+  # registry last served. Before this job the registry refresh was manual
+  # (mcp-registry-publish.yml, workflow_dispatch-only), and it fell behind: PyPI
+  # reached 0.26.0 while the registry still advertised 0.24.1 across all four
+  # downstream surfaces (#138). Chaining it here — AFTER the PyPI publish
+  # succeeds — keeps the fan-out from ever going stale again: one release now
+  # refreshes PyPI and the four registry-fed directories in one pipeline.
+  #
+  # Safe to auto-fire because the preflight FAILS CLOSED: it publishes only if
+  # the just-released version is actually live on PyPI AND its README carries the
+  # `mcp-name:` ownership marker the registry validates. The PyPI index can lag
+  # the upload by a minute, so the read-back retries rather than racing. A
+  # registry-side hiccup fails THIS job loudly without touching the (already
+  # done) PyPI publish — and the standalone mcp-registry-publish.yml remains as
+  # the manual re-dispatch path. Only runs on a real `pypi` publish, never a
+  # TestPyPI rehearsal.
+  publish-mcp-registry:
+    name: refresh → MCP Registry
+    needs: [build, publish-pypi]
+    if: >-
+      !cancelled() &&
+      github.repository == 'anthony-chaudhary/dos-kernel' &&
+      needs.publish-pypi.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write   # the OIDC token mint — REQUIRED for `mcp-publisher login github-oidc`
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install mcp-publisher
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+          ./mcp-publisher --version
+
+      - name: Validate server.json
+        run: ./mcp-publisher validate
+
+      - name: Preflight — pinned version is real, released, and marker-bearing
+        run: |
+          set -euo pipefail
+          v_server="$(jq -r '.version' server.json)"
+          v_pkg="$(jq -r '.packages[0].version' server.json)"
+          v_py="${{ needs.build.outputs.version }}"
+          echo "server.json: $v_server / package pin: $v_pkg / released: $v_py"
+          if [ "$v_server" != "$v_pkg" ] || [ "$v_server" != "$v_py" ]; then
+            echo "::error::version skew — server.json ($v_server/$v_pkg) vs released ($v_py). Bump server.json to the released version (scripts/release_bump.py keeps it in lockstep) before tagging."
+            exit 1
+          fi
+          # The registry's own validator fetches this same PyPI JSON; do the
+          # read-back FIRST so a publish that outran the index fails with a clear
+          # message instead of a registry-side error. The index can lag the
+          # upload by a moment, so retry rather than race.
+          for i in 1 2 3 4 5 6; do
+            if curl -fsS "https://pypi.org/pypi/dos-kernel/$v_pkg/json" -o pypi.json; then
+              break
+            fi
+            if [ "$i" = 6 ]; then
+              echo "::error::dos-kernel==$v_pkg never appeared on the PyPI index after the publish — re-dispatch mcp-registry-publish.yml once it is live."
+              exit 1
+            fi
+            echo "PyPI index not serving dos-kernel==$v_pkg yet — retry $i/6 in 30s"
+            sleep 30
+          done
+          if ! jq -r '.info.description' pypi.json | grep -qF 'mcp-name: io.github.anthony-chaudhary/dos-kernel'; then
+            echo "::error::the PyPI README of dos-kernel==$v_pkg lacks the 'mcp-name:' ownership marker — the registry will refuse. Re-cut a release whose README carries it."
+            exit 1
+          fi
+          echo "preflight green: dos-kernel==$v_pkg is live on PyPI and carries the ownership marker."
+
+      - name: Login (GitHub OIDC)
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish
+        run: ./mcp-publisher publish
+
+      - name: Read back the published server from the registry
+        run: |
+          set -euo pipefail
+          v="$(jq -r '.version' server.json)"
+          # The kernel's own discipline: don't believe the publish step's exit
+          # code — read the record back out of the registry it claims to be in.
+          curl -fsS "https://registry.modelcontextprotocol.io/v0.1/servers/io.github.anthony-chaudhary%2Fdos-kernel/versions/$v" -o readback.json
+          jq -e --arg v "$v" '.server.version == $v' readback.json >/dev/null
+          echo "registry read-back: io.github.anthony-chaudhary/dos-kernel@$v is live — github.com/mcp + VS Code + PulseMCP + Mastra refresh on their next crawl." >> "$GITHUB_STEP_SUMMARY"
