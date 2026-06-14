@@ -63,3 +63,48 @@ would audit against a hole — the same reason `verify-action` checks out with
 Make the `dos-verify` job required (Settings → Merge requests → pipeline must
 succeed) and GitLab becomes the enforcement point for the kernel's verdict: DOS
 decides, your project settings block.
+
+## Proven: the job's exact script, run in the template's own image (#73)
+
+The raw-include template's `before_script` + `script` were run verbatim inside
+the `python:3.12` image it pins, installing the **published** `dos-kernel` from
+PyPI (the real consumer path — no local checkout), against a scratch repo whose
+last commit is the canonical over-claim: a `fix(calc): resolve the off-by-one`
+subject whose diff touched only `README.md`. The exit code IS the verdict, so
+this is what a GitLab runner would mark on the job.
+
+**Merge request carrying the over-claim** (`$CI_MERGE_REQUEST_DIFF_BASE_SHA..HEAD`)
+— the gate fires and the job FAILS:
+
+```text
+$ pip install dos-kernel          # → Version: 0.26.0, from PyPI
+$ dos commit-audit --sweep <base>..HEAD
+commit-audit sweep over 2 commit(s):
+  checkable (made a concrete claim) : 1
+  witnessed by their diff           : 0
+  UNWITNESSED (claim vs diff)       : 1
+  no checkable claim (abstained)    : 1
+  DRIFT RATE (unwitnessed/checkable): 100.0%
+  unwitnessed: <sha of the fix: that touched only README>
+JOB_EXIT_CODE=1   → GitLab marks the job FAILED
+```
+
+**A clean range** (only a real `feat(calc): sub()` code commit) — no false
+positive, the job passes:
+
+```text
+$ dos commit-audit --sweep <base>..<real-code-commit>
+commit-audit sweep over 1 commit(s):
+  checkable (made a concrete claim) : 0
+  UNWITNESSED (claim vs diff)       : 0
+  no checkable claim (abstained)    : 1
+  DRIFT RATE (unwitnessed/checkable): 0.0%
+JOB_EXIT_CODE=0   → GitLab marks the job passed
+```
+
+This proves the engineering core end-to-end: the published package installs in
+the pinned image, the job script resolves the MR range, and the exit-code-as-
+verdict blocks an over-claiming MR while passing a clean one. **The one step
+this cannot self-witness is the gitlab.com UI run** — seeing the red/green job
+in a real GitLab pipeline needs a push to a GitLab project (operator auth); the
+above is the same script that runs there, exercised in the identical container.
