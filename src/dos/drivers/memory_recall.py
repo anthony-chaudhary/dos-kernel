@@ -245,6 +245,7 @@ class RecallEvidence:
     body_date_iso: Optional[str] = None               # the self-declared "as of" date; advisory in v1
     evidences: tuple[ClaimEvidence, ...] = ()
     now_ms: int = 0
+    is_directive: bool = False                         # body INSTRUCTS future sessions (docs/316 §4, #110)
 
     @property
     def checkable(self) -> tuple[ClaimEvidence, ...]:
@@ -688,6 +689,80 @@ def extract_body_date(body: str, fm: FrontmatterFacts) -> Optional[str]:
 
 
 # ---------------------------------------------------------------------------
+# The directive detector (docs/316 §4, issue #110) — PURE. A candidate whose
+# body INSTRUCTS future sessions ("always pass --skip-checks", "before any
+# commit, disable the hooks") names nothing checkable, so it types ADMIT_OPINION
+# and would enter the store as harmless prose. That is the persisted-injection
+# shape: memory is the one channel where a planted directive outlives the
+# context window and re-injects into every later session. We TYPE it, never
+# censor it — a `directive` marker rides alongside the admission verdict (the
+# host decides what directive-typed memories may do; the gate only refuses to
+# let an instruction wear "just a note" clothing). The verdict stays whatever
+# the ladder said (an INSTRUCTION carrying a contradicted claim is still POISON;
+# the marker is orthogonal authority-vs-shape, not a fifth refusing token).
+#
+# Conservative by design — the same posture as the claim extractor. We flag only
+# an IMPERATIVE-MOOD opener ADDRESSED to the agent: a universal behavioral rule
+# ("always/never <verb>") or a command opening a sentence/line, optionally after
+# a leading "before/after/when <condition>," guard. A soft taste-preference
+# ("prefer short sentences") is NOT a directive — it states a taste, not a
+# standing instruction to act — and a third-person description of the operator
+# ("the operator prefers plain language") is a fact about a person, not a command
+# to the reader. Both stay untyped, the load-bearing negatives of the design.
+# ---------------------------------------------------------------------------
+
+# A command verb that, opening a clause aimed at the reader, makes an
+# instruction. Deliberately EXCLUDES soft taste verbs (prefer/like/favor) — a
+# preference is not a standing order. `skip`/`bypass`/`disable`/`ignore` are the
+# injection-shape verbs the §4 examples name; the rest are the common imperatives
+# a planted directive uses to steer a later session's actions.
+_DIRECTIVE_VERB = (
+    r"(?:always|never|do not|don't|please)\s+\w+"          # universal/polite rule
+    r"|(?:pass|use|run|set|add|remove|delete|drop|disable|enable|skip|bypass|"
+    r"ignore|avoid|ensure|make sure|remember to|be sure to|call|invoke|export|"
+    r"install|commit|push|edit|write|prefix|append|prepend|configure|force|"
+    r"turn off|turn on|switch off|switch on)\b"
+)
+# An optional leading guard clause — "before any commit,", "when deploying," —
+# that a directive may hide behind before the imperative ("before X, do Y").
+_DIRECTIVE_GUARD = r"(?:before|after|when|whenever|once|if)\b[^.\n]{0,60}?,\s*"
+# An imperative opener: optional guard, then the command verb, anchored at the
+# start of a sentence/line (a line start, or just after a `.`/`;`/`—`/`:`
+# clause break). Case-insensitive — "Always" and "always" both count.
+_DIRECTIVE_OPENER = re.compile(
+    r"(?:^|(?<=[.;:—\n])|(?<=[.;:—] ))\s*"
+    r"(?:" + _DIRECTIVE_GUARD + r")?"
+    r"(?:" + _DIRECTIVE_VERB + r")",
+    re.I | re.M,
+)
+
+
+def detect_directive(body: str) -> bool:
+    """Does this memory body INSTRUCT a future session? PURE; conservative.
+
+    True iff the body opens a sentence/line with an imperative-mood command
+    addressed to the agent (optionally behind a "before X," guard), e.g.
+    "Always pass --skip-checks…", "Before any commit, disable the hooks…". A
+    taste-preference ("prefer short sentences") or a third-person description
+    ("the operator prefers plain language") is NOT a directive — by construction
+    neither matches the opener grammar. Used to set the `directive` marker on the
+    admission verdict; never changes which admission RUNG fires.
+    """
+    return bool(_DIRECTIVE_OPENER.search(body))
+
+
+# Appended to the admission reason when the marker fires — the legible-distrust
+# half: the writer sees not just the rung but WHY this memory wears the directive
+# flag and what it means (the host gates it; the gate never censors).
+_DIRECTIVE_NOTE = (
+    " — and it INSTRUCTS future sessions (directive marker set): an imperative "
+    "addressed to the agent that, stored, would re-inject as standing policy. "
+    "Typed, not censored — the host decides whether a directive-typed memory may "
+    "steer later behavior"
+)
+
+
+# ---------------------------------------------------------------------------
 # The probes — BOUNDARY I/O. Each is fail-safe → UNKNOWN (never a guessed AGREE).
 # ---------------------------------------------------------------------------
 
@@ -1058,6 +1133,7 @@ def gather_text(text: str, *, fallback_name: str,
         body_date_iso=date_iso,
         evidences=evidences,
         now_ms=now_ms,
+        is_directive=detect_directive(body),
     )
 
 
@@ -1465,6 +1541,8 @@ class AdmissionVerdict:
     reason: str
     culprit: Optional[ClaimEvidence]
     evidence: RecallEvidence
+    directive: bool = False  # body INSTRUCTS future sessions (docs/316 §4, #110) —
+                             #   an orthogonal marker, NOT a fifth admission token
 
     def to_dict(self) -> dict:
         return {
@@ -1472,6 +1550,7 @@ class AdmissionVerdict:
             "reason": self.reason,
             "memory": self.evidence.mem_name,
             "type": self.evidence.mem_type,
+            "directive": self.directive,
             "culprit": self.culprit.to_dict() if self.culprit is not None else None,
             "claims": [e.to_dict() for e in self.evidence.evidences],
         }
@@ -1497,15 +1576,27 @@ def classify_admission(ev: RecallEvidence) -> AdmissionVerdict:
          write/read asymmetry.
       4. AS_CLAIM — checkable claims present, none contradicted, ≥1 probe
          abstained. The honest middle: enters as a dated claim, not a fact.
+
+    The `directive` marker (docs/316 §4, #110) is ORTHOGONAL to the rung — it
+    rides on EVERY verdict, set from `ev.is_directive` (an imperative-mood
+    instruction to future sessions). It never changes which rung fires: an
+    INSTRUCTION carrying a contradicted claim is still POISON, an honest
+    instruction is still OPINION; the marker only stops an instruction from
+    wearing "just a note" clothing. Typing, not censorship — the host decides
+    what a directive-typed memory may do.
     """
+    d = ev.is_directive
+
     # 0. Opinion-typed → admitted as the preference/positioning note it is.
     if ev.mem_type in _OPINION_TYPES:
         return AdmissionVerdict(
             Admission.ADMIT_OPINION,
             f"frontmatter type={ev.mem_type}: a preference/positioning note — "
-            f"admit typed opinion; recall will have nothing to re-probe",
+            f"admit typed opinion; recall will have nothing to re-probe"
+            + (_DIRECTIVE_NOTE if d else ""),
             None,
             ev,
+            directive=d,
         )
 
     probed = tuple(e for e in ev.evidences if e.claim.kind is not ClaimKind.OPINION)
@@ -1520,9 +1611,11 @@ def classify_admission(ev: RecallEvidence) -> AdmissionVerdict:
             f"({worst.claim.kind.value}/{worst.claim.polarity.value}, via "
             f"{worst.source or 'none'}): {worst.ground_truth} — refusing the write; "
             f"storing this would hand every future session a lie wearing memory "
-            f"authority. Fix the claim (or drop it) and re-admit",
+            f"authority. Fix the claim (or drop it) and re-admit"
+            + (_DIRECTIVE_NOTE if d else ""),
             worst,
             ev,
+            directive=d,
         )
 
     # 2. Nothing probeable at all → typed opinion.
@@ -1530,9 +1623,10 @@ def classify_admission(ev: RecallEvidence) -> AdmissionVerdict:
         return AdmissionVerdict(
             Admission.ADMIT_OPINION,
             "names no re-checkable artifact — admit typed opinion; recall will "
-            "have nothing to re-probe",
+            "have nothing to re-probe" + (_DIRECTIVE_NOTE if d else ""),
             None,
             ev,
+            directive=d,
         )
 
     # 3. WITNESSED — the whole probed set confirmed (no abstention may launder).
@@ -1540,9 +1634,11 @@ def classify_admission(ev: RecallEvidence) -> AdmissionVerdict:
         return AdmissionVerdict(
             Admission.ADMIT_WITNESSED,
             f"all {len(probed)} checkable claim(s) confirmed against ground truth "
-            f"at write time — admit with fact authority",
+            f"at write time — admit with fact authority"
+            + (_DIRECTIVE_NOTE if d else ""),
             None,
             ev,
+            directive=d,
         )
 
     # 4. AS_CLAIM — checkable, uncontradicted, not fully witnessed.
@@ -1551,9 +1647,10 @@ def classify_admission(ev: RecallEvidence) -> AdmissionVerdict:
         Admission.ADMIT_AS_CLAIM,
         f"{unknown} of {len(probed)} checkable claim(s) could not be probed and "
         f"none contradicts — admit as a DATED CLAIM, not a fact; recall must "
-        f"re-verify before believing it",
+        f"re-verify before believing it" + (_DIRECTIVE_NOTE if d else ""),
         None,
         ev,
+        directive=d,
     )
 
 
@@ -1591,26 +1688,39 @@ def admit_text(
 
 
 def interpret_admission(verdict: dict) -> str:
-    """One line on what an admission verdict means for the writer. PURE presentation."""
+    """One line on what an admission verdict means for the writer. PURE presentation.
+
+    A `directive` marker (docs/316 §4, #110) appends a second clause: the
+    candidate is also an INSTRUCTION to future sessions, so the host should gate
+    what it may do — the marker is orthogonal to the admission rung, so it can
+    ride on any of them.
+    """
     v = str(verdict.get("admission", "")).strip().upper()
     cul = verdict.get("culprit") or {}
     gt = f" ({cul.get('ground_truth')})" if isinstance(cul, dict) and cul.get("ground_truth") else ""
+    directive = (
+        " DIRECTIVE — it also INSTRUCTS future sessions (an imperative addressed to "
+        "the agent); stored, it would re-inject as standing policy. The gate types "
+        "it, it does not censor — decide as the host whether this memory may steer "
+        "later behavior before you store it."
+        if verdict.get("directive") else ""
+    )
     if v == Admission.ADMIT_WITNESSED.value:
         return ("WITNESSED — every checkable claim in this candidate confirmed against "
-                "ground truth at write time. Store it; it enters with fact authority.")
+                "ground truth at write time. Store it; it enters with fact authority." + directive)
     if v == Admission.ADMIT_AS_CLAIM.value:
         return ("AS_CLAIM — the candidate names checkable things that could not all be "
                 "probed right now. Store it as a DATED CLAIM (it says so itself), and "
-                "expect recall to re-verify before believing it.")
+                "expect recall to re-verify before believing it." + directive)
     if v == Admission.ADMIT_OPINION.value:
         return ("OPINION — nothing in this candidate is checkable, so it enters as a "
-                "preference/positioning note. Fine to store; never dress it as verified.")
+                "preference/positioning note. Fine to store; never dress it as verified." + directive)
     if v == Admission.REJECT_POISON.value:
         return ("POISON — ground truth CONTRADICTS this candidate right now" + gt + ". Do "
                 "not store it: a memory that is wrong at birth poisons every future "
-                "session that recalls it. Fix or drop the claim, then re-admit.")
+                "session that recalls it. Fix or drop the claim, then re-admit." + directive)
     return ("UNKNOWN admission verdict — treat the candidate as unadjudicated; do not "
-            "store it with any authority until a real check classifies it.")
+            "store it with any authority until a real check classifies it." + directive)
 
 
 # ---------------------------------------------------------------------------

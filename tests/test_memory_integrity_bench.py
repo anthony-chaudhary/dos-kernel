@@ -45,11 +45,14 @@ def test_write_gate_one_candidate_per_class(tmp_path: Path):
                 "poison3",           # orphaned-SHA ship claim → REJECT_POISON
                 "poison_sha_unknown",  # unknown-SHA lie → contained AS_CLAIM
                 "evasive1",          # prose-shaped lie → the OPINION ceiling
-                "directive1",        # instruction wearing a memory → OPINION (the §4 gap)
-                "opinion_fb"):       # honest preference → OPINION
+                "directive1",        # instruction wearing a memory → OPINION + directive marker (§4, #110)
+                "opinion_fb"):       # honest preference → OPINION, NOT directive-marked
         c = cands[cid]
         v = admit_text(c.text, name=c.id, cfg=cfg)
         assert v.admission.value == c.expected_admit, (cid, v.admission.value, v.reason)
+        # docs/316 §4, #110 — the directive marker is ORTHOGONAL to the admit rung:
+        # the injection-shape candidate types the marker, the honest preference does not.
+        assert v.directive == c.expected_directive, (cid, v.directive, v.reason)
 
 
 def test_t0_to_t1_handoff_aged_stale_caught_fresh_survives(tmp_path: Path):

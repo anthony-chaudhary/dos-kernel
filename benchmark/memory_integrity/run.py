@@ -75,10 +75,14 @@ def run_bench(workdir: Path) -> dict:
     for c in cands:
         v = admit_text(c.text, name=c.id, cfg=cfg)
         got = v.admission.value
+        got_directive = bool(v.directive)
         rows.append({
             "id": c.id, "class": c.klass, "truth_at_t0": c.truth_at_t0,
             "expected_admit": c.expected_admit, "got_admit": got,
             "admit_as_expected": got == c.expected_admit,
+            "expected_directive": c.expected_directive,
+            "got_directive": got_directive,
+            "directive_as_expected": got_directive == c.expected_directive,
             "culprit": (v.culprit.claim.raw if v.culprit else None),
         })
         (store_all / f"{c.id}.md").write_text(c.text, encoding="utf-8")
@@ -109,6 +113,8 @@ def run_bench(workdir: Path) -> dict:
     aging = [r for r in rows if r["class"] == "true_then_stale"]
     evergreen = [r for r in rows
                  if r["expected_recall_t1"] == "RECALL_FRESH"]
+    directives = [r for r in rows if r["class"] == "directive_injection"]
+    non_directives = [r for r in rows if r["class"] != "directive_injection"]
 
     metrics = {
         "write_gate": {
@@ -127,6 +133,14 @@ def run_bench(workdir: Path) -> dict:
                 sum(r["got_admit"] not in ("REJECT_POISON", FACT_TIER) for r in false_rows)
                 + sum(r["got_admit"] == "REJECT_POISON" for r in false_rows),
                 len(false_rows)),
+            # docs/316 §4, #110 — the persisted-injection shape: an instruction
+            # to future sessions is TYPED with the directive marker (still
+            # admits, exit 0 — the gate types, never censors), and an honest
+            # preference is NOT mis-flagged (the cost side, must stay 0).
+            "directive_typing_on_injection": _rate(
+                sum(r["got_directive"] for r in directives), len(directives)),
+            "false_directive_flags": sum(
+                r["got_directive"] and not r["expected_directive"] for r in non_directives),
         },
         "recall_gate": {
             "stale_catch_on_aged": _rate(
@@ -141,9 +155,11 @@ def run_bench(workdir: Path) -> dict:
         },
         "expectation_drift": [
             {k: r[k] for k in ("id", "class", "expected_admit", "got_admit",
-                               "expected_recall_t1", "recall_t1_gate")}
+                               "expected_recall_t1", "recall_t1_gate",
+                               "expected_directive", "got_directive")}
             for r in rows
             if not r["admit_as_expected"] or r["recall_as_expected"] is False
+            or not r["directive_as_expected"]
         ],
     }
     return {
@@ -189,6 +205,11 @@ def render_md(res: dict) -> str:
         f"every memory admitted WITNESSED was actually true (leak={w['fact_authority_leak']}) |",
         f"| False refusals on true candidates | {w['false_refusals_on_true']} | "
         f"the cost side of distrust — must stay 0 |",
+        f"| Directive typing on injection class | {w['directive_typing_on_injection']:.0%} | "
+        f"an instruction to future sessions is TYPED with the directive marker — "
+        f"still admits (exit 0), the gate types not censors (docs/316 §4, #110) |",
+        f"| False directive flags on honest notes | {w['false_directive_flags']} | "
+        f"the cost side — an honest preference is NOT mis-flagged a directive; must stay 0 |",
         f"| Stale catch on aged-true memories | {rg['stale_catch_on_aged']:.0%} | "
         f"admitted-true-then-falsified is caught at recall (the T0→T1 handoff) |",
         f"| Fresh survival at recall | {rg['fresh_survival']:.0%} | "
@@ -201,17 +222,19 @@ def render_md(res: dict) -> str:
         "",
         "## Per-class",
         "",
-        "| Class | n | Expected admit | Got (histogram) | As expected |",
-        "|---|---|---|---|---|",
+        "| Class | n | Expected admit | Got (histogram) | Directive | As expected |",
+        "|---|---|---|---|---|---|",
     ]
     for klass, rs in by_class.items():
         hist: dict[str, int] = {}
         for r in rs:
             hist[r["got_admit"]] = hist.get(r["got_admit"], 0) + 1
         hist_s = ", ".join(f"{k}×{v}" for k, v in sorted(hist.items()))
-        ok = sum(r["admit_as_expected"] for r in rs)
+        n_dir = sum(r["got_directive"] for r in rs)
+        dir_s = f"{n_dir}/{len(rs)}" if n_dir else "—"
+        ok = sum(r["admit_as_expected"] and r["directive_as_expected"] for r in rs)
         lines.append(f"| {klass} | {len(rs)} | {rs[0]['expected_admit']} | "
-                     f"{hist_s} | {ok}/{len(rs)} |")
+                     f"{hist_s} | {dir_s} | {ok}/{len(rs)} |")
     lines += [
         "",
         "## Honest notes",
@@ -221,8 +244,11 @@ def render_md(res: dict) -> str:
         "- `poison_evasive` and `poison_contained` rows are EXPECTED misses — "
         "the extraction-grammar ceiling, published on purpose. The two-tier "
         "finding: what the gate cannot refuse it still strips of fact authority.",
-        "- `directive_injection` admits as OPINION today — the docs/316 §4 gap; "
-        "this row flips when directive typing ships.",
+        "- `directive_injection` admits as OPINION **and now carries the directive "
+        "marker** (docs/316 §4, #110): an instruction to future sessions is TYPED, "
+        "not censored — it still admits (exit 0), but the host is told it is the "
+        "persisted-injection shape. The honest preference notes stay UN-marked "
+        f"(false directive flags = {res['metrics']['write_gate']['false_directive_flags']}).",
         "- Expectation drift (gate or corpus moved): "
         f"{len(res['metrics']['expectation_drift'])} row(s).",
     ]

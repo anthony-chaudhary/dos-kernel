@@ -13,8 +13,11 @@
 
 *Status: P1 SHIPPED 2026-06-12 (the benchmark — `benchmark/memory_integrity/`,
 first numbers in its `RESULTS.md`; suite pin `tests/test_memory_integrity_bench.py`).
-P2–P4 open with issue handles (#112 grammar-widening, #110 directive typing,
-#111 contradiction arbitration). P5 gated on docs/314 P2–P3. P6 owner-gated.*
+P3 (directive typing, #110) SHIPPED 2026-06-14 — the `directive` marker on the
+admission verdict (`detect_directive`); `directive_injection` now types 100% with
+0 false flags on honest notes (see `RESULTS.md`). P2/P4 open with issue handles
+(#112 grammar-widening, #111 contradiction arbitration). P5 gated on docs/314
+P2–P3. P6 owner-gated.*
 
 ## 0. Why bad memories are home turf
 
@@ -119,7 +122,7 @@ prioritizes which phrasings to teach the extractor next.
 **Done:** the evasive poison-catch row moves off 0 with the fresh-survival row
 unmoved, and the RESULTS.md delta names the grammar that did it.
 
-## 4. P3 — type the directive-bearing candidate (the injection shape)
+## 4. P3 — type the directive-bearing candidate (the injection shape) — SHIPPED
 
 A candidate whose body INSTRUCTS future sessions is not an opinion — it is an
 attempt to write policy into the inheritance channel. The gate should TYPE it
@@ -128,6 +131,21 @@ it as harmless prose. Same discipline as everything else: typing, not
 censorship — the host decides what directive-typed memories may do; the gate
 only refuses to let an instruction wear "just a note" clothing. Public handle:
 issue #110.
+
+**Shipped 2026-06-14 (#110): the `directive` MARKER, not a fifth token.** A
+`directive: bool` rides on `AdmissionVerdict` (`detect_directive` — a pure,
+conservative detector for imperative-mood openers addressed to the agent:
+`always/never <verb>`, or a command opening a clause, optionally behind a
+"before X," guard). The marker is ORTHOGONAL to the admission rung — an
+instruction carrying a contradicted claim is still POISON, an honest
+instruction still OPINION; the marker rides alongside rather than forcing a
+false either/or. The exit code is unchanged: a directive-typed memory still
+ADMITS (the gate types, never censors). The load-bearing negatives hold: a
+taste-preference ("prefer short sentences") and a third-person description
+("the operator prefers plain language") are NOT directives. Benchmark:
+`directive_injection` types 100% with 0 false flags on honest notes
+(`RESULTS.md`); pins in `tests/test_memory_admit.py` +
+`tests/test_memory_integrity_bench.py`.
 
 ## 5. P4 — contradiction arbitration at store scale
 
