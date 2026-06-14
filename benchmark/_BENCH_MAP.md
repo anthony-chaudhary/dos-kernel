@@ -120,6 +120,26 @@
   J monotone, precision==1.0 (exit non-zero if any trips).
 - **Freshness:** reproducible anytime (deterministic distribution, no `random`).
 
+### 8. `iot_tier/` — the model-size ladder; where DOS's recoverable fraction peaks/collapses  ($0 calibrated sim, drives the REAL detectors)
+- **Q:** across frontier→mid→small→IoT-class, where does the DOS-recoverable failure fraction
+  PEAK and where does it COLLAPSE — is the proof point the weakest model or the *middle* one
+  (docs/153 §1–§2)?
+- **The axis docs/153 named but never swept.** `weak_model_gate.py` self-validated the gate on
+  ONE corpus (the gemini null, 13% < 15%). This program turns that single-corpus gate into a
+  **sweep across a declared model-size ladder**, folding the SAME validated enrichment logic
+  (`weak_model_gate.gate_fraction`, extracted) over a synthetic, declared-and-cited per-tier
+  failure mix. Emits the **non-monotone** recoverable-fraction curve (rises to a middle peak,
+  collapses at IoT — the docs/153 §1 `can-do-when-nudged` decay made visible).
+- **Entrypoint:** `python -m benchmark.iot_tier.harness [--runs N --seed S --json]`. $0, no
+  prereq — pure replay over the real `dos.dangling_intent` / `dos.tool_stream` / `arg_provenance`
+  detectors. The frontier tier self-tests against the gemini null; the in-band falsifier exits
+  non-zero if the curve is flat/monotone.
+- **Output:** the ASCII curve (+ `--json`); committed summary `iot_tier/RESULTS.md`.
+- **Honesty:** a CALIBRATED SIM — the per-tier failure mix is a *declared input* (`tiers.py`),
+  cited to docs/153, not a measured magnitude. The measurement that replaces it is the docs/153
+  Stage-0 ~$50 real IoT-corpus run (tracked as a GitHub issue).
+- **Freshness:** deterministic (seed 1729), reproducible anytime.
+
 ## The cross-cutting problems a standard runner must fix
 
 1. **Env-knob soup.** ~14 `DOS_*` knobs + 2 `*_ROOT` + cache vars. `DOS_WARN` (toolathlon)

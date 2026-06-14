@@ -23,12 +23,17 @@ tables and [`../docs/ENTERPRISEOPS_ARC.md`](../docs/ENTERPRISEOPS_ARC.md)).
 | **`enterpriseops/`** | Does the intervention ladder (OBSERVE/WARN/DEFER/BLOCK) and `arg_provenance` *lift* a model on ServiceNow ITSM tasks? | [`THEORY_LADDER.md`](enterpriseops/THEORY_LADDER.md) (how the tiers run) → [`HANDOFF_next_agent.md`](enterpriseops/HANDOFF_next_agent.md) (what's next) | [`RESULTS.md`](enterpriseops/RESULTS.md) | — |
 | **`fleet_horizon/`** | Open-loop vs closed-loop fleet integrity — how many lies/overwrites does adjudication catch, at what review cost? | [`README.md`](fleet_horizon/README.md) | [`RESULTS.txt`](fleet_horizon/RESULTS.txt) | — |
 | **`toolathlon/`** | Do byte-clean in-flight detectors (`dangling_intent` / `tool_stream` / `terminal_error`) fire on a third-party-scored trajectory corpus, and do they convert to a FIX? | [`EXPLAINER.md`](toolathlon/EXPLAINER.md) (first-time) → [`AB_RUN_RECIPE.md`](toolathlon/AB_RUN_RECIPE.md) (run the A/B) → [`HANDOFF.md`](toolathlon/HANDOFF.md) (state) | (in `_results/`) | [`GLOSSARY.md`](toolathlon/GLOSSARY.md) — byte-author / byte-clean / net-new / additivity / SSOT |
+| **`iot_tier/`** | Across a model-size ladder (frontier→mid→small→IoT-class), where does DOS's recoverable-failure fraction PEAK and where does it COLLAPSE — is the proof point the weakest model or the middle one? | [`README.md`](iot_tier/README.md) | [`RESULTS.md`](iot_tier/RESULTS.md) | calibrated-sim / recoverable-fraction / the gemini-null self-test |
+
+(Many more $0 programs are in `python -m benchmark._run list` — the table above is the
+load-bearing subset, not the full inventory; the inventory is [`_BENCH_MAP.md`](_BENCH_MAP.md).)
 
 ## Reading order by audience
 
 - **Kernel developer tuning intervention costs** → `enterpriseops/THEORY_LADDER.md` then `RESULTS.md`.
 - **Fleet operator validating orchestrator trust** → `fleet_horizon/README.md` then `RESULTS.txt`.
 - **Detector researcher measuring DETECT→FIX** → `toolathlon/EXPLAINER.md`, then `GLOSSARY.md` for the vocabulary, then `AB_RUN_RECIPE.md` to reproduce.
+- **"Does DOS help small/edge (IoT-class) models?"** → `iot_tier/README.md` (the rise-then-collapse curve + the honesty contract) then `iot_tier/RESULTS.md`.
 
 ## Notes
 

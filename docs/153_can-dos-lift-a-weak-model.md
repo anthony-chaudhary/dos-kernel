@@ -225,6 +225,20 @@ weak model only clears the gate if its detectors fire on *real* failures, not no
 honest unit of progress: it turns "does DOS help a weak model?" into a $0 replay over a $50 corpus,
 per model, with a built-in noise filter.
 
+### 5.1 The instrument is now a model-tier SWEEP — `benchmark/iot_tier/` (2026-06-14)
+
+The gate above self-tests on ONE corpus. It is now also swept across a declared model-size
+ladder (frontier → mid → small → **IoT-class**) by `benchmark/iot_tier/`, which folds the SAME
+validated enrichment logic (`weak_model_gate.gate_fraction`, extracted) over a synthetic,
+**declared-and-cited** per-tier failure mix. The result is the §1 prediction made visible: the
+recoverable fraction is **non-monotone** — it reproduces the gemini null at the frontier (~13 %),
+rises to a **peak on the middle (DeepSeek-shaped) model** (~34 %), then **collapses** at the IoT
+(sub-3B) end (~10 %) as the `can-do-when-nudged` decay migrates narration into silent-stops. So
+the §2 claim — *the proof point is the middle, not the weakest model* — is now shown on a
+calibrated ladder, not only asserted. This is a **calibrated simulation** (synthetic corpora,
+real detectors); the measurement that replaces the calibration is the Stage-0 ~$50 real
+IoT-corpus run (§3), tracked as a GitHub issue. See `benchmark/iot_tier/README.md`.
+
 > **Denominator reconciliation (docs/152, concurrent).** The 11–13 % DANGLE numbers above are over
 > the *full* `live_results` corpus (280 failed runs, inflated by duplicate `none`-arm + zero-call
 > rows). docs/152 re-measured `dangling_intent` over a **deduplicated, paired** subset (~100 paired
