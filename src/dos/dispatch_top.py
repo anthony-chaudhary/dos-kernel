@@ -768,8 +768,13 @@ def snapshot(
     )
 
     # --- recent verdicts (.verdict-*.json) + trust cross-check ----------------
+    # `verify is None` ⇒ the live path: build a BATCH oracle verify that resolves
+    # every on-screen pick in ONE git-log-cache build (`batch_is_shipped_cfg`),
+    # instead of the per-pick `is_shipped(cfg=…)` that rebuilt the cache N times
+    # (~0.5 s/pick on a real repo — the dominant `dos top` cost). A test-injected
+    # `verify` is left exactly as passed (the per-pair fake).
     if verify is None:
-        verify = _make_oracle_verify(cfg)
+        verify = _make_batch_oracle_verify(cfg, limit=verdict_limit, now=now)
     verdicts = _read_verdicts(cfg, limit=verdict_limit, verify=verify, now=now)
 
     # --- git-activity strip (the fresh-repo content) --------------------------
@@ -794,8 +799,13 @@ def snapshot(
             armed = now <= (facts.until if facts.until.tzinfo else
                             facts.until.replace(tzinfo=dt.timezone.utc))
             armed_until = facts.until.isoformat()
+        # Only the most-recent fresh SELF_MODIFY deny matters (TTL-gated below),
+        # so read the log TAIL newest-first instead of parsing the whole — often
+        # tens-of-MB — observation log on every frame. `latest_self_modify_block`
+        # is pure and keeps the newest by stamp, so the bounded recent slice
+        # yields the byte-identical banner the full read would.
         self_modify_block = latest_self_modify_block(
-            _hobs.read_observations(cfg=cfg), now=now,
+            _hobs.read_observations_tail(cfg=cfg), now=now,
             armed=armed, armed_until=armed_until,
         )
     except Exception:
@@ -830,6 +840,85 @@ def _make_oracle_verify(cfg):
             return False
 
     return _verify
+
+
+def _make_batch_oracle_verify(cfg, *, limit: int, now: dt.datetime):
+    """Live `(plan, phase) -> bool` that resolves every on-screen pick in ONE pass.
+
+    The cost fix for the dominant `dos top` startup cost: the per-pick
+    `_make_oracle_verify` called `oracle.is_shipped(cfg=…)` once per verdict, and
+    each call rebuilt the git-log grep cache from scratch (~0.5 s/pick on a real
+    repo). This pre-reads the same `.verdict-*.json` set `_read_verdicts` will show,
+    collects the picks, and resolves them ALL through `oracle.batch_is_shipped_cfg`
+    (one cache build) — then hands `attach_trust` a dict lookup. Per-pair answers are
+    byte-identical to the old path (same registry-first + #390/#326/#399 gates); only
+    the cache is built once. Falls back to the per-pair `_make_oracle_verify` for any
+    pick not pre-warmed (defensive) and degrades to that verify on any batch error.
+    """
+    per_pair = _make_oracle_verify(cfg)
+    try:
+        from dos import oracle
+    except Exception:
+        return per_pair
+    pairs = _collect_verdict_picks(cfg, limit=limit)
+    if not pairs:
+        return per_pair
+    try:
+        resolved = oracle.batch_is_shipped_cfg(pairs, cfg)
+    except Exception:
+        return per_pair
+    shipped_by_pair = {k: bool(v.shipped) for k, v in resolved.items()}
+
+    def _verify(plan: str, phase: str) -> bool:
+        key = (plan, phase)
+        if key in shipped_by_pair:
+            return shipped_by_pair[key]
+        # A pick the pre-warm didn't cover (e.g. read after the prewarm scan) —
+        # resolve it singly so trust is never silently wrong.
+        try:
+            return bool(per_pair(plan, phase))
+        except Exception:
+            return False
+
+    return _verify
+
+
+def _collect_verdict_picks(cfg, *, limit: int) -> list[tuple[str, str]]:
+    """The `(plan, phase)` picks of the newest `limit` verdicts — dedup, in order.
+
+    Reads the SAME `<next_packets>/.verdict-*.json` set `_read_verdicts` renders, so
+    the batch pre-warm verifies exactly the picks the screen will show. Fail-soft to
+    [] (a missing dir / torn file yields no pre-warm; the per-pair fallback covers it).
+    """
+    ndir = cfg.paths.next_packets
+    try:
+        if not ndir.exists():
+            return []
+        files = sorted(ndir.glob(".verdict-*.json"), reverse=True)
+    except OSError:
+        return []
+    seen: set[tuple[str, str]] = set()
+    picks: list[tuple[str, str]] = []
+    count = 0
+    for p in files:
+        if count >= limit:
+            break
+        try:
+            env = json.loads(p.read_text(encoding="utf-8", errors="replace"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(env, dict):
+            continue
+        count += 1
+        pick = _envelope_lead_pick(env)
+        if not pick:
+            continue
+        parts = pick.split()
+        key = (parts[0], parts[1] if len(parts) > 1 else "")
+        if key not in seen:
+            seen.add(key)
+            picks.append(key)
+    return picks
 
 
 def _read_verdicts(cfg, *, limit: int, verify, now: dt.datetime) -> list[VerdictRow]:

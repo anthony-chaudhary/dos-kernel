@@ -246,21 +246,97 @@ def read_observations(path: Optional[Path] = None,
         return ()
     out: list[dict] = []
     for line in text.splitlines():
-        s = line.strip()
-        if not s:
-            continue
-        try:
-            rec = json.loads(s)
-        except (ValueError, TypeError):
-            continue
-        if not isinstance(rec, dict):
-            continue
-        verdict = _ds.classify(rec, family=SCHEMA_FAMILY, understands=SCHEMA_VERSION)
-        if not verdict.readability.is_soundly_readable:
-            continue
-        if rec.get("op") != OP_OBSERVE:
+        rec = _decode_observation(line)
+        if rec is not None:
+            out.append(rec)
+    return tuple(out)
+
+
+def _decode_observation(line: str) -> Optional[dict]:
+    """One log line → a soundly-readable OBSERVE record, or None. PURE.
+
+    The single home of the tolerance contract both readers share: a blank or
+    torn line, a record tagged for a different family / a version this kernel
+    predates (refuse-don't-guess, `durable_schema`), an untagged record, a
+    non-dict, or one whose `op` is not OBSERVE all return None ("didn't
+    happen"). Lifted out of `read_observations` so the bounded tail reader
+    applies the exact same gate — one definition, no drift.
+    """
+    s = line.strip()
+    if not s:
+        return None
+    try:
+        rec = json.loads(s)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(rec, dict):
+        return None
+    verdict = _ds.classify(rec, family=SCHEMA_FAMILY, understands=SCHEMA_VERSION)
+    if not verdict.readability.is_soundly_readable:
+        return None
+    if rec.get("op") != OP_OBSERVE:
+        return None
+    return rec
+
+
+# The default tail window the watchdog banner reads. `dispatch_top` only needs
+# the most-recent fresh SELF_MODIFY deny (TTL 2 h, `latest_self_modify_block`),
+# so it never has to parse the whole — possibly tens-of-MB — log: it reads the
+# trailing slice newest-first and stops. 1 MiB comfortably covers a 2 h window
+# of per-call records at any realistic fleet rate; the bound is on the SCAN, not
+# on correctness — a log smaller than the window is read whole.
+TAIL_DEFAULT_MAX_BYTES = 1 << 20  # 1 MiB
+TAIL_DEFAULT_MAX_RECORDS = 4096
+
+
+def read_observations_tail(
+    path: Optional[Path] = None,
+    cfg: "Optional[_config.SubstrateConfig]" = None,
+    *,
+    max_bytes: int = TAIL_DEFAULT_MAX_BYTES,
+    max_records: int = TAIL_DEFAULT_MAX_RECORDS,
+) -> tuple[dict, ...]:
+    """The trailing observations, NEWEST-FIRST, bounded by bytes and records.
+
+    The cost-bounded sibling of `read_observations` for the readers that only
+    care about RECENT records (the `dos top` self-modify banner): instead of
+    parsing the whole log to find the newest needle, read only the last
+    `max_bytes` of the file and keep at most `max_records`, returned newest
+    first. Same tolerance contract as `read_observations` (via
+    `_decode_observation`); a missing/unreadable file degrades to (). Pure
+    boundary I/O — read-only, takes no lease.
+
+    Bounding rules that keep it correct, not just fast:
+
+    * The trailing-window read can slice mid-line at its FRONT, so the first
+      (oldest) line in the window is dropped as possibly-truncated — UNLESS the
+      window starts at byte 0 (the whole file fit), where nothing was cut.
+    * Records are yielded newest-first by reversing file order, so a caller that
+      wants "the latest matching record" stops at the first hit.
+    """
+    p = path or observations_path(cfg)
+    try:
+        size = p.stat().st_size
+        with open(p, "rb") as fh:
+            start = max(0, size - max(0, int(max_bytes)))
+            if start:
+                fh.seek(start)
+            raw = fh.read()
+    except OSError:
+        return ()
+    text = raw.decode("utf-8", errors="replace")
+    lines = text.splitlines()
+    # A non-zero start may have sliced the first line mid-record — drop it.
+    if start and lines:
+        lines = lines[1:]
+    out: list[dict] = []
+    for line in reversed(lines):
+        rec = _decode_observation(line)
+        if rec is None:
             continue
         out.append(rec)
+        if len(out) >= max(0, int(max_records)):
+            break
     return tuple(out)
 
 

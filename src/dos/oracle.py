@@ -1193,6 +1193,68 @@ def batch_is_shipped(
     return out
 
 
+def batch_is_shipped_cfg(
+    pairs: Iterable[tuple[str, str]],
+    cfg: "_config.SubstrateConfig",
+) -> dict[tuple[str, str], ShipVerdict]:
+    """Workspace-bound MANY-pair verify — the batch sibling of `is_shipped(cfg=…)`.
+
+    A fan-out caller that verifies a screen-full of `(plan, phase)` picks against
+    ONE workspace (the `dispatch_top` / `plan_board` verdict columns) used to call
+    `is_shipped(plan, phase, cfg=cfg)` once per pick — and each call rebuilt the
+    git-log grep cache from scratch (`default_grep_fallback_single` → a batch of
+    one). On a real repo that is N full-repo `git log` + glob walks per frame (~0.5 s
+    each); collapsing them to ONE cache build is the whole point of `batch_is_shipped`.
+
+    This wires the SAME workspace defaults `is_shipped(cfg=…)` installs — state from
+    `cfg.state_path()`, the FQ-390 plan-doc collision gate, the #326 soak demotion,
+    the #399 release-bump demotion — but routes the registry MISSES through the
+    BATCHED grep fallback (`default_grep_fallback_batch`, one cache build for all
+    misses). The per-pair result is byte-identical to calling `is_shipped(…, cfg=cfg)`
+    on each pair, including the negative-`source='none'` normalization; only the cost
+    changes (N cache builds → 1). `cfg` is installed active for the lookup and
+    restored in a `finally`, the same global-side-effect-free convenience contract.
+    """
+    pair_list = [(p, ph) for (p, ph) in pairs if p and ph]
+    if not pair_list:
+        return {}
+    _prev_active = _config.active()
+    _config.set_active(cfg)
+    try:
+        state = load_state_from(cfg.state_path())
+        doc_map = default_plan_doc_map(cfg)
+        commit_touches_doc = default_commit_touches_doc if doc_map else None
+        soaks = load_soaks_from(cfg.paths.soaks_index)
+
+        # Mirror `is_shipped(cfg=…)` EXACTLY: that path wires `default_grep_fallback_single`,
+        # which calls the grep rung WITHOUT a `plan_doc_map` — the doc map there gates only
+        # the REGISTRY collision check (`expected_doc`/`commit_touches_doc` below), never the
+        # grep rung's plan-body consultation. Feeding the doc map into the grep fallback would
+        # change a grep verdict (e.g. a file-path match the single path never consults), so the
+        # batch fallback omits it to stay byte-identical to the per-pick answer.
+        def _grep_fallback(misses: list[tuple[str, str]]):
+            return default_grep_fallback_batch(misses)
+
+        out = batch_is_shipped(
+            pair_list,
+            state=state,
+            grep_fallback=_grep_fallback,
+            plan_doc_map=doc_map,
+            commit_touches_doc=commit_touches_doc,
+            grep_touched_files=_git_touched_files,
+            soaks=soaks,
+        )
+        # Mirror `is_shipped(cfg=…)`'s negative-source normalization: a non-shipped
+        # verdict reports `source='none'` whether the grep rung looked or not (the
+        # no-plan contract is "no positive evidence", not "grep said no").
+        for key, verdict in list(out.items()):
+            if not verdict.shipped and verdict.source != "none":
+                out[key] = dataclasses.replace(verdict, source="none")
+        return out
+    finally:
+        _config.set_active(_prev_active)
+
+
 # ---------------------------------------------------------------------------
 # Forgeability grading of the grep rung (docs/118).
 #

@@ -142,6 +142,40 @@ def test_cli_verify_multiword_phase_out_of_the_box(tmp_path: Path):
     assert payload["source"] == "grep-subject"
     assert proc.returncode == 0
 
+
+def test_batch_is_shipped_cfg_equals_per_pair_is_shipped(tmp_path: Path):
+    """`batch_is_shipped_cfg` is byte-identical to per-pair `is_shipped(cfg=…)`.
+
+    The cost fix for `dos top` resolves a whole screen of picks in ONE git-log
+    cache build instead of one rebuild per pick. The contract that makes that safe:
+    every pair's verdict must match what `is_shipped(plan, phase, cfg=cfg)` returns
+    on its own — same registry-first resolution, same grep rung, same negative
+    `source='none'` normalization. A repo with a shipped phase + an unshipped one
+    exercises both branches; this is the regression guard that caught a doc-map
+    divergence during development.
+    """
+    _plainest_repo(tmp_path)
+    _git(tmp_path, "commit", "--allow-empty", "-m", "docs/RS: RS1 — ship the surfacer")
+    cfg = default_config(tmp_path)
+
+    pairs = [("RS", "RS1"), ("RS", "RS9"), ("OTHER", "PH1")]
+    batch = oracle.batch_is_shipped_cfg(pairs, cfg)
+    for plan, phase in pairs:
+        single = oracle.is_shipped(plan, phase, cfg=cfg)
+        b = batch[(plan, phase)]
+        assert (b.shipped, b.source, b.sha) == (single.shipped, single.source, single.sha), (
+            f"batch≠single for {(plan, phase)}: batch={b} single={single}"
+        )
+    # And the shipped one is actually found (the test isn't vacuously all-False).
+    assert batch[("RS", "RS1")].shipped is True
+
+
+def test_batch_is_shipped_cfg_empty_pairs_is_empty(tmp_path: Path):
+    """No pairs → empty dict, no I/O, no crash (the fail-soft floor)."""
+    _plainest_repo(tmp_path)
+    cfg = default_config(tmp_path)
+    assert oracle.batch_is_shipped_cfg([], cfg) == {}
+
     # Honest-negative: a phase that did not ship stays not-shipped.
     proc2 = subprocess.run(
         [sys.executable, "-m", "dos.cli", "verify",

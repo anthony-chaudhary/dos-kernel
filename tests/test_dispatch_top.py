@@ -704,6 +704,22 @@ class TestSelfModifyBanner:
         assert "⛔ kernel edit blocked (SELF_MODIFY)" in text
         assert "dos override suggest pkg/widget.py" in text
 
+    def test_snapshot_finds_recent_deny_under_bulk_tail(self, tmp_path: Path):
+        """The tail read must still surface a recent deny when MANY newer non-deny
+        records follow it — the realistic busy-log shape the full-read fix targets.
+        A deny 5 min ago, then a flood of posttool records: the banner still fires."""
+        repo = _git_repo(tmp_path, commits=("seed",))
+        cfg = default_config(repo)
+        recs = [_deny_rec(minutes_ago=5, target="pkg/widget.py")]
+        recs += [
+            {"verb": "posttool", "outcome": "passthrough", "ts": _iso(4)}
+            for _ in range(2000)
+        ]
+        _write_observations(cfg, recs)
+        frame = T.snapshot(cfg, verify=lambda p, ph: False, now=NOW)
+        assert frame.self_modify_block is not None
+        assert frame.self_modify_block.target == "pkg/widget.py"
+
     def test_snapshot_no_deny_renders_byte_identical_frame(self, tmp_path: Path):
         """LITMUS 3: with no fresh SELF_MODIFY deny, the frame and its render are
         exactly the pre-#145 output — the banner is reachable only via a block."""

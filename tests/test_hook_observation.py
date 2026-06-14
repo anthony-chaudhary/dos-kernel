@@ -237,6 +237,82 @@ def test_reader_missing_file_degrades_to_empty(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# The bounded tail reader — `dos top` reads only the RECENT records (the newest
+# self-modify deny, TTL-gated), so it must not parse a tens-of-MB log per frame.
+# ---------------------------------------------------------------------------
+
+
+def test_tail_returns_newest_first(tmp_path):
+    p = tmp_path / "obs.jsonl"
+    lines = [json.dumps(_obs(ts=f"2026-06-10T10:00:{i:02d}Z")) for i in range(5)]
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    recs = hobs.read_observations_tail(p)
+    # Newest-first: the reversed file order. tail[0] == the LAST line of read_observations.
+    full = hobs.read_observations(p)
+    assert recs[0] == full[-1]
+    assert [r["ts"] for r in recs] == [r["ts"] for r in reversed(full)]
+
+
+def test_tail_same_tolerance_as_full_read(tmp_path):
+    p = tmp_path / "obs.jsonl"
+    lines = [
+        _GO_WRITTEN_LINE,
+        "",
+        '{"torn": ',
+        '"a bare string"',
+        json.dumps({**_obs(), "schema": {"family": "lane-journal", "version": 1}}),
+        json.dumps({**_obs(), "schema": {"family": "hook-observation", "version": 99}}),
+        json.dumps({**_obs(), "op": "ENFORCE"}),
+        json.dumps(_obs(outcome="deny")),
+    ]
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    recs = hobs.read_observations_tail(p)
+    # Same gate as read_observations, just reversed: the two soundly-readable
+    # records ("passthrough", "deny") returned newest-first.
+    assert [r["outcome"] for r in recs] == ["deny", "passthrough"]
+
+
+def test_tail_honors_max_records(tmp_path):
+    p = tmp_path / "obs.jsonl"
+    lines = [json.dumps(_obs(ts=f"2026-06-10T10:00:{i:02d}Z")) for i in range(10)]
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    recs = hobs.read_observations_tail(p, max_records=3)
+    assert len(recs) == 3
+    # The 3 NEWEST: seconds 09, 08, 07.
+    assert [r["ts"][-3:] for r in recs] == ["09Z", "08Z", "07Z"]
+
+
+def test_tail_window_drops_truncated_front_line(tmp_path):
+    # A small byte window slices the file mid-record at its FRONT; that partial
+    # first line must be dropped, never half-parsed. Make line 0 huge so a small
+    # window starts inside it.
+    p = tmp_path / "obs.jsonl"
+    big = json.dumps(_obs(ts="2026-06-10T10:00:00Z", pad="x" * 5000))
+    tail_recs = [json.dumps(_obs(ts=f"2026-06-10T10:00:{i:02d}Z")) for i in range(1, 4)]
+    p.write_text("\n".join([big, *tail_recs]) + "\n", encoding="utf-8")
+    recs = hobs.read_observations_tail(p, max_bytes=400)
+    # The window can't reach the big first line; only the small tail records survive,
+    # and the (possibly truncated) front line of the window is dropped — never a
+    # corrupt half-parse.
+    assert all(r["ts"] != "2026-06-10T10:00:00Z" for r in recs)
+    assert recs[0]["ts"] == "2026-06-10T10:00:03Z"
+
+
+def test_tail_reads_whole_when_smaller_than_window(tmp_path):
+    p = tmp_path / "obs.jsonl"
+    lines = [json.dumps(_obs(ts=f"2026-06-10T10:00:{i:02d}Z")) for i in range(3)]
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # A window far larger than the file reads it whole — nothing dropped, all 3 back.
+    recs = hobs.read_observations_tail(p, max_bytes=1 << 20)
+    assert len(recs) == 3
+    assert recs[0]["ts"] == "2026-06-10T10:00:02Z"
+
+
+def test_tail_missing_file_degrades_to_empty(tmp_path):
+    assert hobs.read_observations_tail(tmp_path / "nope.jsonl") == ()
+
+
+# ---------------------------------------------------------------------------
 # `dos helped` — the issue-#24 done-condition, end to end.
 # ---------------------------------------------------------------------------
 
