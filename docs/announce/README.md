@@ -4,8 +4,11 @@ Launch copy for `dos-kernel`, staged here ready to post. **Nothing here posts
 itself** — LinkedIn's API forbids automating promotional posts, and the rest is
 your identity to spend. These are drafts you copy, paste, and publish.
 
-*Refreshed 2026-06-10 against v0.20.1. Re-check the numbers against the paper before
-posting — they trace to `paper/sections/*.html` + `paper/meta.py`.*
+*Refreshed 2026-06-14 against v0.26.0. Repo is public, `pip install dos-kernel`
+serves 0.26.0, and the scoreboard pages are live — the repo/package launch
+(LinkedIn + Show HN) is link-ready now; only the arXiv item still waits on an ID.
+Re-check the numbers against the paper before posting — they trace to
+`paper/sections/*.html` + `paper/meta.py`.*
 
 ## The files
 

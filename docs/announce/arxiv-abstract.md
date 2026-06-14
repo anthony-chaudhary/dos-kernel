@@ -5,7 +5,9 @@
 > they diverge, the `.html` wins; regenerate with `python paper/assemble_arxiv.py`).
 > Fill `arXiv:XXXX.XXXXX` once assigned.
 
-*Refreshed 2026-06-10 against v0.20.1.*
+*Refreshed 2026-06-14 against v0.26.0. This item still waits on an arXiv ID — do
+not post until `arXiv:XXXX.XXXXX` is filled; it goes up as its own separate
+submission, after the repo/package launch.*
 
 ---
 

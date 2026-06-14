@@ -6,7 +6,9 @@
 > PyPI are live. The opening is the user-approved "concurrency changes the verdict"
 > wording — keep it verbatim.
 >
-> *Refreshed 2026-06-10 against v0.20.1. Numbers trace to `paper/meta.py`.*
+> *Refreshed 2026-06-14 against v0.26.0 (repo public, `pip install dos-kernel`
+> live, scoreboard pages serving). Numbers trace to `paper/meta.py`; the
+> load-bearing figures (6/8, 10 @ 8.3%) were re-verified at this refresh.*
 
 ---
 
@@ -59,6 +61,12 @@ the rest of the fleet and the training loop behind it.
 
 It's open source, MIT, one `pip install`, runs on a plain git repo with no config.
 There's an MCP server so you can wire it into the agent host you already run.
+
+To show it isn't just grading its own homework, I ran the same git-evidence check
+over real third-party agent repos and published the audits — 197 commit-claims
+checked across four outside projects, 0 I could confirm as unwitnessed. On
+honestly-built code it comes back clean, and that's the point: the check is cheap
+enough to leave running.
 
 🔗 Repo: github.com/anthony-chaudhary/dos-kernel
 📦 `pip install dos-kernel`

@@ -4,7 +4,8 @@
 > announcement page. Lead is the user-approved fleet wording; every number traces
 > to the paper (`paper/sections/*.html`). Trim to taste for the venue.
 
-*Refreshed 2026-06-10 against v0.20.1. Fill the repo/PyPI/arXiv links before posting.*
+*Refreshed 2026-06-14 against v0.26.0. Repo + PyPI links resolve now; fill the
+arXiv link once an ID is assigned.*
 
 ---
 

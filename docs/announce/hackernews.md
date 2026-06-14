@@ -7,8 +7,10 @@
 > pitch. Lead with the mechanism, not the adjective. Fill the links once the repo
 > + PyPI are live; post the paper as a separate item once arXiv assigns an ID.
 
-*Refreshed 2026-06-10 against v0.20.1. Numbers trace to `paper/meta.py` (the
-single source of truth) — re-check before posting.*
+*Refreshed 2026-06-14 against v0.26.0 (repo public, `pip install dos-kernel`
+serves 0.26.0, scoreboard pages live). Numbers trace to `paper/meta.py` (the
+single source of truth) — re-check before posting; the load-bearing figures
+(6/8, 10 @ 8.3%, 0/1634, 2–7%, 88–98%) were re-verified at this refresh.*
 
 ---
 
@@ -55,6 +57,14 @@ couldn't have written. What it says about itself never enters in. It's a small
 deterministic kernel (close to stdlib Python), MIT, `pip install dos-kernel`, runs
 on a plain git repo with no config, and ships an MCP server so you can wire it into
 whatever agent host you already run.
+
+To show it on something other than my own code, I pointed it at a handful of real
+third-party agent repos and published the audits: every commit whose subject claims
+a behavior change, checked against its own diff. Four external repos so far, 197
+checkable claims, 0 I could confirm as unwitnessed — the same `commit-audit` rung
+you can run on your repo in one command. It's not a "gotcha" tool; on honestly-built
+code it mostly comes back clean, and that's the point — the check is cheap enough to
+leave on.
 
 The result I didn't expect, and the reason it turned into a paper: I held the check
 fixed (one the agent can't fake) and measured only where it's worth spending.
