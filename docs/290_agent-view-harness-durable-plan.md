@@ -69,7 +69,7 @@ node ids + the failure headline; "exit" is the pytest process exit code):
 
 | Litmus | Probe (the defect, reintroduced) | RED | GREEN after restore |
 |---|---|---|---|
-| AV1 (D1) | `"hooks": {}` added to the committed `.claude/settings.json` | `FAILED …::test_av1_committed_settings_carry_no_hooks` — *".claude/settings.json (committed — it ships to every clone) carries a 'hooks' key"* (exit 1) | `2 passed` (exit 0) |
+| AV1 (D1) | a non-cold-safe `dos hook …` command (no trailing `\|\| true`) added to the committed `.claude/settings.json` | `FAILED …::test_av1_committed_settings_hooks_are_cold_safe` — *"carries hook command(s) that are NOT cold-safe … they error on every Stop"* (exit 1) | `2 passed` (exit 0) |
 | AV2 (D2) | AGENTS.md's build-block install degraded to bare `pip install -e .` | `FAILED …::test_av2_every_pytest_block_installs_pytest_first[AGENTS.md]` — *"a fenced block runs pytest without first installing an extra that provides it (need one of ['dev'] …)"* (exit 1) | `2 passed` (exit 0) |
 | AV3 (D3) | AGENTS.md's documented lint widened to `ruff check .` | `FAILED …::test_av3_documented_lint_equals_ci_blocking_lint` — *"AGENTS.md documents 'ruff check .' but CI's blocking lint is 'ruff check src/dos src/dos_mcp'"* (exit 1) | `1 passed` (exit 0) |
 | AV4 (D5) | the consumer table's `dos quickstart` move renamed to the dead verb `dos quickdemo` | `FAILED …::test_av4_every_consumer_move_resolves_in_the_cli_parser` — *"the consumer table tells agents to run `dos quickdemo`, but the CLI parser has no such command"* (exit 1) | `3 passed` (exit 0) |

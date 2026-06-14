@@ -19,9 +19,12 @@ follows the ground truth and reddens on the doc.
 
 The tier:
 
-  AV1 (pins D1) — the committed `.claude/settings.json` carries no `hooks` key,
-        and `.claude/settings.local.json` is gitignored + untracked. A cold
-        machine must have nothing to error on.
+  AV1 (pins D1) — every `hooks` command in the committed `.claude/settings.json`
+        is cold-machine safe (degrades to exit 0 when `dos` is absent, the
+        `|| true` shape), and `.claude/settings.local.json` is gitignored +
+        untracked. A cold machine must have nothing that errors on it; a hook
+        that no-ops when `dos` is missing is safe to ship (the dogfood goal-gate,
+        issue #18).
   AV2 (pins D2) — any fenced block in AGENTS.md / CLAUDE.md that runs pytest is
         preceded, in the same block, by an install line whose extras actually
         provide pytest (a bare `-e .` is PyYAML-only — the exact cold failure).
@@ -174,14 +177,58 @@ def _extras_providing(package: str) -> set[str]:
 # ---------------------------------------------------------------------------
 
 
-def test_av1_committed_settings_carry_no_hooks():
+def _claude_hook_commands(data: dict) -> list[str]:
+    """Every shell command string under a Claude-Code `hooks` config.
+
+    Claude Code nests entries two deep: `hooks[event] -> [matcher-group] ->
+    group["hooks"] -> [entry]`, each entry an `{type, command, …}`. We flatten
+    to the command strings so AV1 can check each for cold-safety.
+    """
+    out: list[str] = []
+    hooks = data.get("hooks")
+    if not isinstance(hooks, dict):
+        return out
+    for groups in hooks.values():
+        if not isinstance(groups, list):
+            continue
+        for group in groups:
+            entries = group.get("hooks", []) if isinstance(group, dict) else []
+            for entry in entries:
+                cmd = entry.get("command", "") if isinstance(entry, dict) else ""
+                if isinstance(cmd, str) and cmd.strip():
+                    out.append(cmd.strip())
+    return out
+
+
+def _is_cold_safe(command: str) -> bool:
+    """A committed hook command is cold-safe iff it cannot error on a machine
+    where `dos` is not importable — i.e. it swallows the missing-binary failure
+    and exits 0. The canonical shape is a trailing `|| true` (so a `command
+    not found` / non-zero `dos` exit becomes a clean exit 0). This is the D1
+    floor expressed as a property of the command, not a ban on hooks.
+    """
+    return command.endswith("|| true") or command.endswith("|| exit 0")
+
+
+def test_av1_committed_settings_hooks_are_cold_safe():
+    """D1: the committed `.claude/settings.json` ships to every clone, so any
+    `hooks` it carries must be cold-machine safe — every command must exit 0
+    when `dos` is absent. A bare `dos hook …` (which 127s on a cold clone, and
+    whose `python -m dos.cli` fallback ModuleNotFoundErrors) is the D1 defect;
+    a `dos hook … || true` form is allowed because it degrades to a no-op.
+    The maintainer's non-cold-safe rig still belongs in the gitignored
+    `.claude/settings.local.json`.
+    """
     data = json.loads(_text(".claude/settings.json"))
-    assert "hooks" not in data, (
-        ".claude/settings.json (committed — it ships to every clone) carries a "
-        "'hooks' key. That is the D1 defect: a cold machine without `dos` "
-        "importable errors on every tool call. The maintainer rig belongs in "
-        ".claude/settings.local.json (gitignored), the committed file carries "
-        "permissions only."
+    commands = _claude_hook_commands(data)
+    not_cold_safe = [c for c in commands if not _is_cold_safe(c)]
+    assert not not_cold_safe, (
+        ".claude/settings.json (committed — it ships to every clone) carries "
+        f"hook command(s) that are NOT cold-safe: {not_cold_safe}. That is the "
+        "D1 defect: on a cold machine without `dos` importable they error on "
+        "every Stop. End each committed hook command with `|| true` (degrades "
+        "to a no-op when `dos` is absent) or move the rig to the gitignored "
+        ".claude/settings.local.json."
     )
 
 

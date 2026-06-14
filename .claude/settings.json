@@ -7,7 +7,7 @@
           {
             "type": "command",
             "shell": "bash",
-            "command": "dos hook stop --workspace . || python -m dos.cli hook stop --workspace ."
+            "command": "dos hook stop --workspace . 2>/dev/null || true"
           }
         ]
       }
