@@ -1,4 +1,4 @@
-"""The benchmark registry — the single typed inventory of all DOS benchmark
+﻿"""The benchmark registry — the single typed inventory of all DOS benchmark
 programs, their arms, prereqs, and runnable entrypoints.
 
 This is the declarative core the standardized runner (`benchmark/_run.py`) reads.
@@ -248,6 +248,25 @@ BENCHMARKS: Dict[str, BenchSpec] = {
                             "narration-grader); emits the forgery-rate gap (floor 0% vs text "
                             "100%) + the append-only attempts rows. Exits non-zero if the floor "
                             "EVER admits a forgery (a #35-class witness-tamper hole)",
+                       prereqs=()),
+        ),
+    ),
+    # ------------------------------------------------------------- smartphone_tier
+    "smartphone_tier": BenchSpec(
+        name="smartphone_tier",
+        question="Does the DOS-recoverable failure fraction RISE as the model shrinks "
+                 "toward on-device / smartphone size (<=1B / 1-3B / 3-7B vs frontier)?",
+        results_summary="benchmark/smartphone_tier/RESULTS.md",  # docs/341
+        entrypoints=(
+            Entrypoint("sweep", ["benchmark.smartphone_tier.harness", "--json"],
+                       cost="free",
+                       does="$0 fold the THREE real kernel detectors (dangling_intent / "
+                            "tool_stream / arg_provenance) over a param-tier-parameterized "
+                            "failure-shape corpus; emits the recoverable-fraction-vs-capability "
+                            "curve + the enrichment guard. The synthetic magnitudes are a "
+                            "DECLARED pre-registration; point --recordings at on-device model "
+                            "dumps for the measurement. Exits non-zero if the monotone "
+                            "fall (the thesis's directional prediction) breaks",
                        prereqs=()),
         ),
     ),
