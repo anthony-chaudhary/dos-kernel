@@ -66,9 +66,16 @@ from the long README:
 ```bash
 pip install -e ".[dev,mcp]"       # editable + the test/lint toolchain (exactly what CI installs)
 python -m pytest -q               # the full kernel suite — must stay green (~4,900 tests, ~4–5 min)
+python scripts/dev.py fast        # the inner loop: pytest -m "not slow" (skips the ~150s of heavies)
+python scripts/dev.py verify-self # doctor --check + a real SHIPPED/NOT_SHIPPED round-trip (the CI smoke)
 dos doctor --workspace .          # what IS this workspace? (the config seam, made visible)
 ruff check src/dos src/dos_mcp    # lint exactly as CI does (the wider tree is NOT lint-clean — don't "fix" it)
 ```
+
+`scripts/dev.py` (`test` / `fast` / `lint` / `verify-self` / `all`) mirrors the CI
+steps so green-local implies green-CI. Use `fast` while editing one module — it
+skips the `@pytest.mark.slow` heavies (the poisoned-pool replays + the real-install
+suite); the full `pytest -q` is still the pre-commit gate.
 
 **Two traps that bite an agent here.** (1) A bare `pip install -e .` deliberately
 installs only PyYAML — `pytest` comes from the `[dev]` extra, so the suite command
