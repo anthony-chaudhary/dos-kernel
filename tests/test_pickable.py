@@ -69,6 +69,25 @@ class TestHoldReasonContract:
         assert HoldReason.COOLDOWN.to_no_pick_cause is NPC.TRUE_DRAIN
         assert HoldReason.UNPARSEABLE.to_no_pick_cause is NPC.UNCLASSIFIED
 
+    def test_next_action_is_total_and_nonempty(self):
+        # The unblock-action map (docs/168 §2 routing as data): EVERY HoldReason
+        # carries a non-empty, operator-facing next step — co-located with the
+        # token like reasons.ReasonSpec.fix, so a HELD verdict can surface its own
+        # remedy. Total over the enum (a new member without an action fails here).
+        for reason in HoldReason:
+            action = reason.next_action
+            assert isinstance(action, str)
+            assert action.strip(), f"{reason.name} has an empty next_action"
+
+    def test_next_action_names_no_host_path(self):
+        # Vendor-blind, like every kernel-emitted remedy: the action names a
+        # generic verb (dos/replan/promote/wait), never a host-specific path.
+        for reason in HoldReason:
+            action = reason.next_action.lower()
+            assert ".claude" not in action
+            assert "cursor" not in action
+            assert "\\" not in action  # no Windows path separators
+
     def test_redispatch_invariant_set(self):
         # The keystone for the loop_decide rung: exactly the four reasons a
         # re-dispatch cannot change.

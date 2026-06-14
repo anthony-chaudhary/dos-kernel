@@ -135,6 +135,21 @@ class HoldReason(str, enum.Enum):
         """
         return _TO_NO_PICK_CAUSE[self]
 
+    @property
+    def next_action(self) -> str:
+        """The canonical unblock action for this hold — one operator-facing line.
+
+        The consequence-routing the class docstring describes ("a `DRAFT_CLASS`
+        hold → `/promote`; an `OPERATOR_GATED` hold → escalate a decision; a
+        `SOAK_OPEN` hold → wait, never `/replan`") returned AS DATA instead of
+        re-discovered per incident or buried in a skill's prose. Co-located with
+        the token by design — the same discipline as `reasons.ReasonSpec.fix` —
+        so a `HELD(reason)` verdict can carry its own remedy to the surface
+        (`dos pickable` prints it, `/dos-promote` routes on it). Total over the
+        enum, pinned by `tests/test_pickable.py`.
+        """
+        return _NEXT_ACTION[self]
+
 
 _REDISPATCH_INVARIANT: frozenset[HoldReason] = frozenset(
     {
@@ -159,6 +174,45 @@ _TO_NO_PICK_CAUSE: dict[HoldReason, "picker_oracle.NoPickCause"] = {
     HoldReason.COOLDOWN: picker_oracle.NoPickCause.TRUE_DRAIN,
     HoldReason.UNPARSEABLE: picker_oracle.NoPickCause.UNCLASSIFIED,
     HoldReason.STALE_CLAIM: picker_oracle.NoPickCause.STALE_CLAIM,
+}
+
+
+# The unblock action per hold reason (docs/168 §2 consequence-routing as data).
+# Total over `HoldReason` — pinned by `tests/test_pickable.py`. Each line names a
+# generic next step (a `dos`/`/replan`/`/promote` verb or a wait), never a host
+# path: the same vendor-blind discipline as `reasons.ReasonSpec.fix`. The
+# re-dispatch-INVARIANT holds need an operator/time/dependency event; the
+# CURABLE holds clear on their own, so their action is "wait" (re-dispatching
+# now is the waste `is_redispatch_invariant` exists to name).
+_NEXT_ACTION: dict[HoldReason, str] = {
+    HoldReason.SHIPPED:
+        "Nothing to do — the unit is already shipped; drop it from the residual.",
+    HoldReason.IN_FLIGHT:
+        "Wait for the live worker to finish (racing it is the collision the gate "
+        "prevents). It clears on its own when the holder ships or releases.",
+    HoldReason.SOFT_CLAIMED_ELSEWHERE:
+        "Wait for the sibling fanout's soft-claim to ship or age out; do not "
+        "re-dispatch this unit in parallel.",
+    HoldReason.DRAFT_CLASS:
+        "Promote the plan from DRAFT to ACTIVE (an operator greenlight, e.g. "
+        "/dos-promote) — its phases are not yet cleared for build.",
+    HoldReason.OPERATOR_GATED:
+        "Answer the open operator decision (`dos decisions`); it surfaces once, "
+        "then /replan to re-rank.",
+    HoldReason.SOAK_OPEN:
+        "Wait for the soak window to elapse — a re-dispatch now cannot "
+        "fast-forward it. Never /replan to dodge the soak.",
+    HoldReason.DEPENDENCY_UNMET:
+        "Ship the prerequisite unit first; this one un-gates only when its "
+        "dependency lands.",
+    HoldReason.COOLDOWN:
+        "Wait for the per-pick cooldown window to elapse, then re-attempt.",
+    HoldReason.UNPARSEABLE:
+        "Inspect the unit's declaration (the deriver could not parse it) and fix "
+        "the malformed plan/phase syntax, then re-enumerate.",
+    HoldReason.STALE_CLAIM:
+        "Let the orphaned claim age out or scavenge it (`dos reconcile`), then "
+        "re-attempt — the unit itself is fine.",
 }
 
 

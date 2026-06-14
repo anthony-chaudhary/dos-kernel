@@ -98,6 +98,29 @@ def test_pickable_json_round_trips(tmp_path: Path):
     assert obj["reason"] == "SOAK_OPEN"
     assert obj["redispatch_invariant"] is True
     assert obj["unit"] == "U1"
+    # The unblock action travels WITH the held verdict (docs/168 §2 routing as data).
+    assert obj["next_action"], "a HELD verdict must carry its remedy in JSON"
+    assert "soak" in obj["next_action"].lower()
+
+
+def test_pickable_offerable_json_has_null_next_action(tmp_path: Path):
+    proc = _cli(tmp_path, "pickable", "U1", "--state", "{}", "--json")
+    assert proc.returncode == 0, proc.stderr
+    obj = json.loads(proc.stdout)
+    assert obj["held"] is False
+    assert obj["next_action"] is None  # nothing to unblock — nothing held
+
+
+def test_pickable_next_action_stays_off_stdout(tmp_path: Path):
+    """The remedy line is stderr + TTY-gated, so a non-TTY text run (this
+    subprocess, and any pipe/CI) keeps stdout byte-clean — the `→` never lands
+    on stdout where a parser would trip on it."""
+    proc = _cli(tmp_path, "pickable", "U1", "--state", json.dumps({"plan_class": "DRAFT"}))
+    assert proc.returncode == 10, proc.stderr
+    assert proc.stdout.startswith("HELD(DRAFT_CLASS)")
+    assert "→" not in proc.stdout  # the action is not on stdout
+    # And nothing chatty on stderr either (non-TTY ⇒ the gate suppresses it).
+    assert proc.stderr.strip() == ""
 
 
 def test_pickable_bad_state_is_contract_error(tmp_path: Path):

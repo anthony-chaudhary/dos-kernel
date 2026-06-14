@@ -7516,9 +7516,15 @@ def cmd_pickable(args: argparse.Namespace) -> int:
 
     verdict = pickable.classify(state, now_ms=now_ms)
     token = verdict.reason.value if verdict.held and verdict.reason else "OFFERABLE"
+    # The unblock action travels WITH the held verdict (docs/168 §2 routing as
+    # data) — machine consumers read it from JSON; a human at a TTY gets it as a
+    # dimmed `→` line on stderr so a piped `dos pickable --json | jq` and CI logs
+    # stay byte-identical (the `_arbitrate_followup_note` posture).
+    next_action = verdict.reason.next_action if verdict.held and verdict.reason else None
     payload = {
         "held": verdict.held,
         "reason": token if verdict.held else None,
+        "next_action": next_action,
         "evidence": verdict.evidence,
         "redispatch_invariant": verdict.is_redispatch_invariant,
         "unit": args.unit,
@@ -7529,6 +7535,11 @@ def cmd_pickable(args: argparse.Namespace) -> int:
         if verdict.held:
             inv = " (re-dispatch-invariant)" if verdict.is_redispatch_invariant else ""
             print(f"HELD({token}){inv}  {verdict.evidence}")
+            if next_action and sys.stderr.isatty():
+                line = f"→ {next_action}"
+                if _color_enabled(args):
+                    line = f"{_ANSI['dim']}{line}{_ANSI['reset']}"
+                print(line, file=sys.stderr)
         else:
             print(f"OFFERABLE  {args.unit or 'unit'} may be picked up")
     return _PICKABLE_EXIT_CODES.get(token, _PICKABLE_EXIT_UNKNOWN)
