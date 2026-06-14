@@ -5,7 +5,7 @@
 > range. The page is the receipt. Drift is a claim-vs-diff mismatch,
 > **never** a correctness, honesty, or intent grade.
 
-**Coverage (as of 2026-06-13):** 25 repositories audited, 3 pages published clean, 22 withheld (aggregate-only — a non-clean or unadjudicated verdict is never a named page, [docs/311](../311_scoreboard-per-repo-index-plan.md) §2).
+**Coverage (as of 2026-06-13):** 26 repositories audited, 4 pages published clean, 22 withheld (aggregate-only — a non-clean or unadjudicated verdict is never a named page, [docs/311](../311_scoreboard-per-repo-index-plan.md) §2).
 
 ## Page #1 — the auditor's own repo
 
@@ -15,6 +15,7 @@
 
 - [JuliusBrussee/caveman](JuliusBrussee/caveman.md)
 - [farion1231/cc-switch](farion1231/cc-switch.md)
+- [kenn-io/roborev](kenn-io/roborev.md)
 - [unslothai/unsloth](unslothai/unsloth.md)
 
 ## How to read this
