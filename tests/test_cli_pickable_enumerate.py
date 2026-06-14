@@ -113,12 +113,18 @@ def test_pickable_offerable_json_has_null_next_action(tmp_path: Path):
 
 def test_pickable_next_action_stays_off_stdout(tmp_path: Path):
     """The remedy line is stderr + TTY-gated, so a non-TTY text run (this
-    subprocess, and any pipe/CI) keeps stdout byte-clean — the `→` never lands
-    on stdout where a parser would trip on it."""
+    subprocess, and any pipe/CI) keeps stdout free of the action hint where a
+    parser would trip on it."""
     proc = _cli(tmp_path, "pickable", "U1", "--state", json.dumps({"plan_class": "DRAFT"}))
     assert proc.returncode == 10, proc.stderr
     assert proc.stdout.startswith("HELD(DRAFT_CLASS)")
-    assert "→" not in proc.stdout  # the action is not on stdout
+    # The remedy hint is the `→ `-prefixed line and the next-action text; neither
+    # may reach stdout. (A bare `"→" not in stdout` is wrong — the evidence string
+    # itself legitimately contains an arrow, e.g. "(DRAFT→ACTIVE)", so on UTF-8/CI
+    # the blanket check tripped on the evidence; on cp1252 it only "passed" because
+    # the arrow was mangled in capture. Assert the HINT, not the character.)
+    assert not any(ln.startswith("→") for ln in proc.stdout.splitlines())
+    assert "/dos-promote" not in proc.stdout  # the remedy text is not on stdout
     # And nothing chatty on stderr either (non-TTY ⇒ the gate suppresses it).
     assert proc.stderr.strip() == ""
 
