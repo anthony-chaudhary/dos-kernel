@@ -374,6 +374,48 @@ def _sweep_version_literals(
     return new_text, count
 
 
+def rebuild_llms_full(root: Path, *, dry_run: bool) -> dict:
+    """Regenerate ``llms-full.txt`` after the doc sweep (#139).
+
+    ``llms-full.txt`` is a SECOND generated artifact (after README.md) derived from
+    the rostered docs `llms.txt` indexes — and `bump_docs` sweeps the version literal
+    in two of those rostered docs (`docs/QUICKSTART.md`, `docs/HACKING.md`). Before
+    this, the bumper swept the sources but left the assembly stale, so every release
+    reddened `tests/test_llms_full.py::test_llms_full_matches_assembly` on all four
+    CI legs and needed a manual follow-up rebuild (it bit v0.26.0: bump `a40ce65`,
+    rebuild `b900599`). The generated-file leash must cover BOTH derived artifacts —
+    same reasoning as the README-parts rebuild the release skill already runs.
+
+    Reassembles via `build_llms_full.assemble(root)` (the single source of the
+    assembly the test pins) and writes only on a real change. Degrades to a soft,
+    non-failing result if the builder can't be imported/run — the doc sweep already
+    ran, and `test_llms_full` would fail louder on its own; we record the gap rather
+    than crash the bump.
+    """
+    target = root / "llms-full.txt"
+    if not target.exists():
+        return {"path": "llms-full.txt", "ok": True, "changed": False,
+                "note": "llms-full.txt absent — nothing to rebuild"}
+    try:
+        sys.path.insert(0, str(root / "scripts"))
+        import build_llms_full  # noqa: E402 — sibling release tool, lazy import
+        new_text = build_llms_full.assemble(root)
+    except Exception as exc:  # surface, never crash the bump (skill can rebuild by hand)
+        return {"path": "llms-full.txt", "ok": False,
+                "reason": f"{type(exc).__name__}: {exc}",
+                "note": "could not reassemble — run `python scripts/build_llms_full.py`"}
+    finally:
+        if str(root / "scripts") in sys.path:
+            sys.path.remove(str(root / "scripts"))
+    old_text = read(target)
+    changed = new_text != old_text
+    if changed:
+        write(target, new_text, dry_run=dry_run)
+    return {"path": "llms-full.txt", "ok": True, "changed": changed,
+            "note": "reassembled from the rostered docs" if changed
+            else "already in sync with the rostered docs"}
+
+
 def bump_docs(root: Path, old: str, new: str, *, dry_run: bool) -> dict:
     """Sweep the FTUE doc banners + skill-pack samples from ``old`` to ``new``.
 
@@ -438,7 +480,7 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true",
                         help="Print JSON plan without writing")
     parser.add_argument("--skip", action="append", default=[],
-                        choices=["pyproject", "init", "plugin", "marketplace", "server", "docs"],
+                        choices=["pyproject", "init", "plugin", "marketplace", "server", "docs", "llms_full"],
                         help="Skip a target (repeatable)")
     args = parser.parse_args()
 
@@ -470,6 +512,11 @@ def main() -> int:
         if old_version else
         {"path": "docs+skills", "ok": True, "changed": False,
          "note": "could not read old version from pyproject — doc sweep skipped"},
+        # LAST: rebuild llms-full.txt from the docs the sweep just touched (#139).
+        # Runs unconditionally (not keyed on old→new) because the assembly can drift
+        # for reasons beyond the version literal; reassembling is always the safe,
+        # idempotent close — a no-op when already in sync.
+        "llms_full": lambda: rebuild_llms_full(root, dry_run=args.dry_run),
     }
 
     report: dict = {"new_version": new_version, "old_version": old_version,

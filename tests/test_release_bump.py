@@ -39,7 +39,12 @@ _BUMP_PY = _REPO_ROOT / "scripts" / "release_bump.py"
 # way the plugin — then the docs, then server.json — drifted), this set stops
 # matching and the test fails loudly.
 _LOCKSTEP_TARGETS = {"pyproject", "init", "plugin", "gemini", "marketplace", "server"}
-_EXPECTED_TARGETS = _LOCKSTEP_TARGETS | {"docs"}
+# `docs` is keyed on old→new (a prose sweep, not a single scalar); `llms_full` is a
+# REBUILD of a generated artifact (llms-full.txt) the doc sweep feeds, not a version
+# marker at all (#139) — both are on the bumper's leash but neither is a lockstep
+# scalar, so they're excluded from the drift guard and the new==X marker assertion.
+_REBUILD_TARGETS = {"docs", "llms_full"}
+_EXPECTED_TARGETS = _LOCKSTEP_TARGETS | _REBUILD_TARGETS
 
 
 def _load_bump():
@@ -60,21 +65,72 @@ def _dry_run(version: str) -> dict:
     return json.loads(proc.stdout)
 
 
-def test_bump_covers_all_seven_version_markers():
-    """The bumper targets pyproject + __init__ + plugin + gemini + marketplace + server + docs.
+def test_bump_covers_all_version_markers_and_rebuilds():
+    """The bumper targets the six lockstep markers (pyproject + __init__ + plugin +
+    gemini + marketplace + server) PLUS two rebuild targets (docs sweep + llms_full).
 
     This is the structural regression guard: the plugin bundle drifted because the
     bumper had no `plugin`/`marketplace` target, the FTUE docs/skills drifted because
-    it had no `docs` target, and server.json stranded the registry publish because it
-    had no `server` target (issue #30). The `gemini` target (gemini-extension.json,
-    fronting the auto-indexed Gemini gallery, #101) joins the leash the same way. Pin
-    the full set so dropping one is caught here, not by a red plugin/version-drift/
-    registry-preflight failure later.
+    it had no `docs` target, server.json stranded the registry publish because it had
+    no `server` target (issue #30), and `llms-full.txt` went stale on every release
+    because nothing rebuilt it after the doc sweep (issue #139, which reddened all
+    four CI legs on v0.26.0). The `gemini` target (#101) joins the leash the same way.
+    Pin the full set so dropping one is caught here, not by a red plugin/version-drift/
+    registry-preflight/llms-full failure later.
     """
     report = _dry_run("9.9.9")
     assert set(report["targets"]) == _EXPECTED_TARGETS, (
         f"release_bump targets {set(report['targets'])} != {_EXPECTED_TARGETS} — "
-        "a version marker was added or dropped from the package-leash set")
+        "a version marker or rebuild target was added or dropped from the leash")
+
+
+def test_rebuild_llms_full_reassembles_when_a_rostered_doc_drifts(tmp_path):
+    """#139: `rebuild_llms_full` regenerates llms-full.txt from a drifted roster.
+
+    Directly exercises the rebuild step the bug needed: build a tiny workspace with
+    an `llms.txt` rostering one doc, a STALE `llms-full.txt`, then prove
+    `rebuild_llms_full` writes the correct assembly (`changed=True`) and that a
+    second call is a no-op (`changed=False`) — i.e. it closes the drift the doc
+    sweep opens and is idempotent. This tests the fix's own code, not a full bump.
+    """
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("_rb", _BUMP_PY)
+    rb = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(rb)
+    sys.path.insert(0, str(_REPO_ROOT / "scripts"))
+    try:
+        import build_llms_full
+    finally:
+        sys.path.remove(str(_REPO_ROOT / "scripts"))
+
+    ws = tmp_path
+    (ws / "doc.md").write_text("the swept body v9.9.9\n", encoding="utf-8")
+    # llms.txt rosters by FULL GitHub URL (REPO_FILE_RE), not a relative link.
+    url = "https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/doc.md"
+    (ws / "llms.txt").write_text(f"# index\n- [doc]({url}): the one rostered doc\n",
+                                 encoding="utf-8")
+    want = build_llms_full.assemble(ws)
+    (ws / "llms-full.txt").write_text("STALE — pre-bump body v0.0.0\n", encoding="utf-8")
+
+    first = rb.rebuild_llms_full(ws, dry_run=False)
+    assert first["ok"] and first["changed"] is True, first
+    assert (ws / "llms-full.txt").read_text(encoding="utf-8") == want, (
+        "rebuild_llms_full did not write the correct assembly")
+
+    second = rb.rebuild_llms_full(ws, dry_run=False)
+    assert second["ok"] and second["changed"] is False, (
+        f"rebuild should be idempotent (a no-op when in sync): {second}")
+
+
+def test_rebuild_llms_full_absent_is_a_clean_noop(tmp_path):
+    """No llms-full.txt in the workspace → a clean, non-failing result (a host repo
+    that doesn't ship the assembly must not break the bump)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("_rb", _BUMP_PY)
+    rb = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(rb)
+    res = rb.rebuild_llms_full(tmp_path, dry_run=False)
+    assert res["ok"] is True and res["changed"] is False, res
 
 
 def test_bump_drives_every_marker_to_one_value():
@@ -88,6 +144,10 @@ def test_bump_drives_every_marker_to_one_value():
     assert report["drift_after_bump"] is False, report.get("drift_reason")
     for name, target in report["targets"].items():
         assert target.get("ok", True), f"{name} target failed: {target}"
+        # `llms_full` is a rebuild of a generated artifact, not a version marker — it
+        # carries no `new` scalar and isn't part of the lockstep set.
+        if name == "llms_full":
+            continue
         assert target.get("new") == "9.9.9", f"{name} new != 9.9.9: {target}"
         if name in _LOCKSTEP_TARGETS:
             assert target.get("changed") is True, (
