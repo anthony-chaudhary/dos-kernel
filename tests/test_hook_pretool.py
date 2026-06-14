@@ -587,3 +587,215 @@ def test_gh_issue_mention_not_denied_but_redirect_still_denied():
     assert outcome["decision"] == "deny"
     assert outcome["reason_class"] == "SELF_MODIFY"
     assert dialect["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+# ==========================================================================
+# (9) The apply-gate binding turnstile (docs/126 Phase 1.5 / docs/342 M1 = P-GATE).
+#     The keystone: generalize the always-on SELF_MODIFY deny — which binds a write
+#     to the kernel's OWN T1 files — to ANY held lease's tree. A NON-cooperating
+#     agent's out-of-lane Write is DENIED at the tool call (not just by an opt-in CLI
+#     it can skip), and the file is UNCHANGED on disk afterward (the P-GATE witness:
+#     the filesystem state + the host deny record, never the agent's report).
+#
+#     The gate is OPT-IN (`DOS_APPLY_GATE`) and binds only when this run holds a
+#     lease — so the four pins are: a default install is unchanged; an out-of-lane
+#     loop write DENIES (and the file stays put); an in-lane write PASSES; and an
+#     interactive operator gets a WARN, never a dead-end deny (the docs/143 escape).
+# ==========================================================================
+def _self_lease(lane="docs", tree=("docs/",)):
+    """A live lease this very test process holds — matched by `resolve_self_lease`
+    on the running pid, so `self_tree` resolves to the lease's recorded tree without
+    needing a configured lane taxonomy."""
+    import os
+    return {"lane": lane, "tree": list(tree), "kind": "cluster",
+            "pid": os.getpid(), "loop_ts": "2026-06-14T00:00:00Z"}
+
+
+def _enable_apply_gate(monkeypatch, *, loop: bool):
+    """Turn the opt-in gate on; set/clear the loop-context env that decides
+    deny-under-loop vs warn-for-an-operator."""
+    monkeypatch.setenv("DOS_APPLY_GATE", "1")
+    if loop:
+        monkeypatch.setenv("DOS_LOOP", "1")
+    else:
+        for var in ("DOS_LOOP", "CID_RUN_ID", "DISPATCH_LOOP_TS"):
+            monkeypatch.delenv(var, raising=False)
+
+
+def test_apply_gate_off_by_default_out_of_lane_write_not_denied(monkeypatch):
+    """OPT-IN proof: without `DOS_APPLY_GATE`, an out-of-lane write is NOT apply-gate
+    denied — the default install keeps exactly today's SELF_MODIFY + disjointness
+    behavior (docs/126 §3 rule 3: the gate is an ADDITIONAL surface, opt-in)."""
+    import tempfile
+    monkeypatch.delenv("DOS_APPLY_GATE", raising=False)
+    cfg = _foreign_cfg(Path(tempfile.mkdtemp()))  # no SELF_MODIFY interference
+    monkeypatch.setattr(prt, "live_leases_for", lambda c: [_self_lease("docs", ("docs/",))])
+    # A write to src/ while holding the docs/ lane: an out-of-lane escape — but the
+    # gate is OFF, so it passes through (Rung B over an empty corpus believes).
+    dialect, outcome = prt.decide(
+        _event("Write", {"file_path": "src/dos/oracle.py", "content": "x"}, cwd="/repo"), cfg)
+    assert outcome["rung"] != "apply-gate", outcome
+    assert outcome["decision"] != "deny", outcome
+
+
+def test_apply_gate_out_of_lane_write_denied_and_file_unchanged(monkeypatch, tmp_path):
+    """THE P-GATE WITNESS: a NON-cooperating loop write OUTSIDE its held lane is DENIED
+    at PreToolUse, and the target file is UNCHANGED on disk afterward.
+
+    The witness is the filesystem state + the host deny record, never the agent's
+    report: `decide()` returns a `permissionDecision: deny`, which the host honors by
+    NOT executing the Write — so a file we seed on disk keeps its original bytes. This
+    is docs/335 §5's acceptance test against a non-cooperating consumer: the consumer
+    issues a raw out-of-lane Write through the normal tool path and is refused before
+    the effect, driving its acceptance rate of bad effects toward zero."""
+    import tempfile
+    _enable_apply_gate(monkeypatch, loop=True)
+    cfg = _foreign_cfg(Path(tempfile.mkdtemp()))
+    # The agent holds the docs/ lane; a real file under src/ exists with known bytes.
+    monkeypatch.setattr(prt, "live_leases_for", lambda c: [_self_lease("docs", ("docs/",))])
+    target = tmp_path / "src" / "dos" / "oracle.py"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    original = "# the real kernel bytes — must survive a refused out-of-lane write\n"
+    target.write_text(original, encoding="utf-8")
+
+    event = _event("Write",
+                   {"file_path": "src/dos/oracle.py", "content": "POISONED"},
+                   cwd="/repo")
+    dialect, outcome = prt.decide(event, cfg)
+
+    # 1. The host deny record — the binding refusal at the tool call.
+    assert outcome["rung"] == "apply-gate", outcome
+    assert outcome["decision"] == "deny", outcome
+    assert outcome["reason_class"] == "SCOPE_ESCAPE", outcome
+    hso = dialect["hookSpecificOutput"]
+    assert hso["hookEventName"] == "PreToolUse"
+    assert hso["permissionDecision"] == "deny"
+    assert "updatedInput" not in hso  # never mint corrective bytes (docs/191 §4)
+    # 2. The filesystem witness — the host honored the deny, so the Write never ran:
+    #    the file on disk is byte-for-byte its original content. (decide() itself does
+    #    no I/O; the deny is what keeps the agent's bytes from ever landing.)
+    assert target.read_text(encoding="utf-8") == original, \
+        "the refused out-of-lane write must NOT have changed the file on disk"
+
+
+def test_apply_gate_in_lane_write_passes(monkeypatch):
+    """An IN-LANE write passes the apply-gate: holding the src/ lane, a write to a
+    src/ path is contained — the gate allows it, so the decision is not an apply-gate
+    deny (it falls through to Rung B, which believes over an empty corpus)."""
+    import tempfile
+    _enable_apply_gate(monkeypatch, loop=True)
+    cfg = _foreign_cfg(Path(tempfile.mkdtemp()))
+    monkeypatch.setattr(prt, "live_leases_for", lambda c: [_self_lease("src", ("src/",))])
+    dialect, outcome = prt.decide(
+        _event("Write", {"file_path": "src/dos/oracle.py", "content": "x"}, cwd="/repo"), cfg)
+    assert outcome["rung"] != "apply-gate", outcome
+    assert outcome["decision"] != "deny", outcome
+    assert dialect is None or "permissionDecision" not in dialect.get("hookSpecificOutput", {})
+
+
+def test_apply_gate_interactive_operator_escape_warns_no_dead_end(monkeypatch):
+    """THE docs/143 SOFTEN-TRAP ESCAPE (no dead-end): the SAME out-of-lane write a loop
+    is hard-DENIED on WARNS-and-passes for an INTERACTIVE operator (no loop-context
+    env). A SCOPE_ESCAPE is a MISROUTE/contention-class refusal; the human-in-command
+    owns the blast radius of their own deliberate edit (the --force principle), so the
+    gate downgrades to an advisory WARN — never the docs/143 −9 pp dead-end deny."""
+    import tempfile
+    _enable_apply_gate(monkeypatch, loop=False)
+    cfg = _foreign_cfg(Path(tempfile.mkdtemp()))
+    monkeypatch.setattr(prt, "live_leases_for", lambda c: [_self_lease("docs", ("docs/",))])
+    dialect, outcome = prt.decide(
+        _event("Write", {"file_path": "src/dos/oracle.py", "content": "x"}, cwd="/repo"), cfg)
+    assert outcome["rung"] == "apply-gate", outcome
+    assert outcome["decision"] == "warn", outcome
+    assert outcome["reason_class"] == "SCOPE_ESCAPE", outcome
+    hso = (dialect or {}).get("hookSpecificOutput", {})
+    # A WARN passes through: additionalContext only, NO permissionDecision (CC's normal
+    # permission flow proceeds — the operator is never dead-ended).
+    assert "permissionDecision" not in hso, dialect
+    assert hso.get("additionalContext"), "the WARN must still surface the corrective"
+
+
+def test_apply_gate_collision_with_sibling_lease_denied_under_loop(monkeypatch):
+    """A SIBLING collision is a BINDING refusal: a loop write inside its OWN lane that
+    still overlaps a SIBLING lease's region is DENIED at the tool call. The sibling
+    collision is caught by the always-on disjointness predicate (which correctly
+    compares against NON-self leases) — the apply-gate's collision floor is a backup of
+    the same sound floor (docs/126 §1.1). Either binding rung is a valid refusal; the
+    witness is the `permissionDecision: deny`, not which rung emitted it. (The
+    apply-gate's UNIQUE contribution — an out-of-lane CONTAINMENT escape disjointness
+    cannot see — is the SCOPE_ESCAPE deny test above.)"""
+    import tempfile
+    _enable_apply_gate(monkeypatch, loop=True)
+    cfg = _foreign_cfg(Path(tempfile.mkdtemp()))
+    import os
+    leases = [
+        {"lane": "src", "tree": ["src/"], "kind": "cluster", "pid": os.getpid()},
+        {"lane": "sibling", "tree": ["src/dos/"], "kind": "cluster", "pid": -1},
+    ]
+    monkeypatch.setattr(prt, "live_leases_for", lambda c: leases)
+    dialect, outcome = prt.decide(
+        _event("Write", {"file_path": "src/dos/oracle.py", "content": "x"}, cwd="/repo"), cfg)
+    assert outcome["decision"] == "deny", outcome
+    assert outcome["rung"] in ("admission", "apply-gate"), outcome
+    assert dialect["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+def test_apply_gate_no_self_lease_keeps_pre_gate_behavior(monkeypatch):
+    """The gate binds a run that DECLARED a lane: an un-leased session (no lease this
+    run holds) is NOT apply-gate denied — `resolve_self_lease` returns an empty
+    self-tree and no other trees, and the caller skips the gate (the gate must never
+    invent a lane for a session that never opted in)."""
+    import tempfile
+    _enable_apply_gate(monkeypatch, loop=True)
+    cfg = _foreign_cfg(Path(tempfile.mkdtemp()))
+    # No leases at all → resolve_self_lease yields ("", (), ()) → the gate is skipped.
+    monkeypatch.setattr(prt, "live_leases_for", lambda c: [])
+    dialect, outcome = prt.decide(
+        _event("Write", {"file_path": "src/dos/oracle.py", "content": "x"}, cwd="/repo"), cfg)
+    assert outcome["rung"] != "apply-gate", outcome
+    assert outcome["decision"] != "deny", outcome
+
+
+def test_apply_gate_self_modify_still_takes_precedence(monkeypatch):
+    """Safety ordering: the always-on SELF_MODIFY deny runs FIRST (in run_predicates),
+    so a write to a kernel T1 file is a SELF_MODIFY deny, not an apply-gate one — even
+    with the gate enabled. The apply-gate ADDS refusals (refuse-MORE only); it never
+    displaces the request-absolute kernel guard."""
+    import tempfile
+    _enable_apply_gate(monkeypatch, loop=True)
+    cfg = _kernel_cfg(Path(tempfile.mkdtemp()))  # T1 files configured
+    monkeypatch.setattr(prt, "live_leases_for", lambda c: [_self_lease("docs", ("docs/",))])
+    dialect, outcome = prt.decide(
+        _event("Write", {"file_path": "src/dos/arbiter.py", "content": "x"}, cwd="/repo"), cfg)
+    assert outcome["decision"] == "deny", outcome
+    assert outcome["reason_class"] == "SELF_MODIFY", outcome  # not SCOPE_ESCAPE
+    assert outcome["rung"] == "admission", outcome
+
+
+def test_apply_gate_read_never_gated(monkeypatch):
+    """A read is never apply-gated — it has a known-EMPTY tree (touches nothing), so
+    even with the gate on and a held lease, a Read passes clean."""
+    import tempfile
+    _enable_apply_gate(monkeypatch, loop=True)
+    cfg = _foreign_cfg(Path(tempfile.mkdtemp()))
+    monkeypatch.setattr(prt, "live_leases_for", lambda c: [_self_lease("docs", ("docs/",))])
+    dialect, outcome = prt.decide(
+        _event("Read", {"file_path": "src/dos/oracle.py"}, cwd="/repo"), cfg)
+    assert outcome["rung"] != "apply-gate", outcome
+    assert outcome["decision"] != "deny", outcome
+
+
+def test_resolve_self_lease_matches_pid_and_falls_back_to_lease_tree(monkeypatch):
+    """`resolve_self_lease` unit: it matches the running pid, takes the lease's
+    recorded tree when the taxonomy doesn't name the lane, and reports OTHER trees."""
+    import os
+    import tempfile
+    cfg = _foreign_cfg(Path(tempfile.mkdtemp()))
+    leases = [
+        {"lane": "docs", "tree": ["docs/"], "pid": os.getpid()},
+        {"lane": "other", "tree": ["bench/"], "pid": -1},
+    ]
+    self_lane, self_tree, other_trees = prt.resolve_self_lease(leases, cfg)
+    assert self_lane == "docs"
+    assert self_tree == ("docs/",)
+    assert ("bench/",) in other_trees
