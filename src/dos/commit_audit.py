@@ -763,11 +763,19 @@ def sweep_summary(verdicts: list[ClaimVerdict]) -> dict:
 
 def _git(root: Path | str, *args: str) -> tuple[int, str]:
     try:
+        # Decode git output as UTF-8 explicitly: git emits UTF-8 (commit
+        # subjects, author names) but `text=True` alone uses the platform
+        # default (cp1252 on Windows), which raises UnicodeDecodeError on any
+        # non-Latin-1 byte — crashing the audit on a repo with international
+        # contributors. `errors="replace"` keeps a stray byte from aborting the
+        # read; the subject/diff are matched against ASCII markers, so a
+        # replaced byte never changes a verdict.
         r = subprocess.run(["git", "-C", str(root), *args],
                            capture_output=True, text=True, check=False,
+                           encoding="utf-8", errors="replace",
                            timeout=_GIT_TIMEOUT_S,
                            stdin=subprocess.DEVNULL)  # docs/295
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError, UnicodeError):
         return 1, ""
     return r.returncode, r.stdout
 
