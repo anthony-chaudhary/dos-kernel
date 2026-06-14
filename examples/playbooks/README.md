@@ -88,9 +88,11 @@ Start with the onboarding quickstart, then jump to your archetype:
   integration tier: **any environment that runs a command** reads a `dos` verb's
   exit code, no hook adapter and no MCP client required. Recipes for **aider**
   (a kernel verdict inside its auto-fix loop, one flag), a **git pre-push** gate,
-  and a **generic command step** for any runner the Action and GitLab template
+  a **generic command step** for any runner the Action and GitLab template
   don't reach (Jenkins, Make, `package.json`, a bespoke CLI agent on a hook-less
-  host). The honest tier for Windsurf / Warp / Zed today.
+  host), and a **Windsurf** on-ramp (a `/verify` workflow + a `.windsurfrules`
+  snippet — no hooks, the exit code is the verdict). The honest tier for
+  Windsurf / Warp / Zed today.
 
 ## Runnable example workspaces
 
