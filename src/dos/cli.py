@@ -1,8 +1,10 @@
 """The `dos` umbrella CLI — one entrypoint over the kernel syscalls.
 
-New here?  →  dos quickstart      the caught-lie + collision demo, throwaway repo (60s)
+New here?  →  dos start-here      the "what do you want to do?" router (task → verb)
+            →  dos quickstart      the caught-lie + collision demo, throwaway repo (60s)
             →  dos init [DIR]       scaffold the one dos.toml most repos need
             →  dos doctor          report the active workspace + lane taxonomy
+            →  dos completion bash  turn on tab-completion (also zsh / fish)
 
 TRUTH — did it actually happen? (the verdict IS the exit code; `dos exit-codes`)
     dos verify PLAN PHASE          did (plan,phase) ship?  (git ancestry, not self-report)
@@ -233,6 +235,23 @@ def _render_to_stdout(args: argparse.Namespace, method: str, obj, *, colorize=No
         out = colorize(out)
     print(out)
     return 0
+
+
+def _fail(msg: str, *, hint: str | None = None, code: int = 2) -> int:
+    """Print an error to stderr (+ an optional next-action hint), return `code`.
+
+    The one-line "here's what to do" affordance for the everyday usage error: the
+    error always prints; the `hint` rides a dimmed `→` line, TTY-gated so a piped
+    or CI invocation keeps stderr stable for parsers (the `_arbitrate_followup_note`
+    posture). `code` defaults to the CLI contract-error floor (2); a verdict-bearing
+    verb passes its own refusal code.
+    """
+    print(f"error: {msg}", file=sys.stderr)
+    if hint and sys.stderr.isatty():
+        print(f"\033[2m→ {hint}\033[0m", file=sys.stderr)
+    elif hint:
+        print(f"→ {hint}", file=sys.stderr)
+    return code
 
 
 def _emit_with_explanation(args, obj, method: str, interpretation: str, *,
@@ -6735,6 +6754,166 @@ def cmd_exit_codes(args: argparse.Namespace) -> int:
     return 0
 
 
+# ---------------------------------------------------------------------------
+# `dos completion {bash,zsh,fish}` — shell tab-completion, generated from the
+# LIVE parser so it can never advertise a verb that does not exist and needs
+# zero edits when a verb is added. Argparse-native, no runtime dependency.
+# ---------------------------------------------------------------------------
+_COMPLETION_SHELLS = ("bash", "zsh", "fish")
+
+
+def _registered_verbs(parser: argparse.ArgumentParser) -> list[str]:
+    """The registered subcommand names, read from the live `_SubParsersAction`.
+
+    The same walk `tests/test_cli_ergonomics.py` uses to pin the curated help —
+    so completion derives its verb set from the one source of truth (the built
+    parser), never a hand-kept list that would rot against the ~60 verbs.
+    """
+    verbs: set[str] = set()
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            verbs |= set(action.choices)
+    return sorted(verbs)
+
+
+def _verb_options(parser: argparse.ArgumentParser) -> dict[str, list[str]]:
+    """`{verb: [--flag, ...]}` for each subparser, read off its own `_actions`."""
+    out: dict[str, list[str]] = {}
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            for name, sub in action.choices.items():
+                opts: set[str] = set()
+                for a in sub._actions:
+                    opts |= {o for o in a.option_strings if o.startswith("--")}
+                out[name] = sorted(opts)
+    return out
+
+
+def _completion_script(shell: str) -> str:
+    """Render a sourceable completion script for `shell` from the live parser."""
+    parser = build_parser()
+    verbs = _registered_verbs(parser)
+    verb_opts = _verb_options(parser)
+    verbs_line = " ".join(verbs)
+    if shell == "bash":
+        # One function: complete the verb at word 1, else that verb's --flags.
+        cases = "\n".join(
+            f"        {v}) opts=\"{' '.join(verb_opts.get(v, []))}\" ;;"
+            for v in verbs)
+        return (
+            "# dos bash completion — source me: source <(dos completion bash)\n"
+            "_dos_completion() {\n"
+            "    local cur prev words cword\n"
+            "    COMPREPLY=()\n"
+            '    cur="${COMP_WORDS[COMP_CWORD]}"\n'
+            "    if [ \"$COMP_CWORD\" -eq 1 ]; then\n"
+            f"        COMPREPLY=( $(compgen -W \"{verbs_line}\" -- \"$cur\") )\n"
+            "        return 0\n"
+            "    fi\n"
+            '    local verb="${COMP_WORDS[1]}" opts=""\n'
+            "    case \"$verb\" in\n"
+            f"{cases}\n"
+            "    esac\n"
+            "    COMPREPLY=( $(compgen -W \"$opts\" -- \"$cur\") )\n"
+            "}\n"
+            "complete -F _dos_completion dos\n")
+    if shell == "zsh":
+        # #compdef-style; the verb list as a _values set, flags per verb.
+        cases = "\n".join(
+            f"        {v}) opts=({' '.join(verb_opts.get(v, []))}) ;;"
+            for v in verbs)
+        return (
+            "#compdef dos\n"
+            "# dos zsh completion — source me: source <(dos completion zsh)\n"
+            "_dos() {\n"
+            "    local -a verbs opts\n"
+            f"    verbs=({verbs_line})\n"
+            "    if (( CURRENT == 2 )); then\n"
+            "        _describe 'dos command' verbs\n"
+            "        return\n"
+            "    fi\n"
+            '    case "${words[2]}" in\n'
+            f"{cases}\n"
+            "    esac\n"
+            "    compadd -- $opts\n"
+            "}\n"
+            "_dos \"$@\"\n")
+    # fish — one `complete` line per verb, plus per-verb flag completions.
+    lines = [
+        "# dos fish completion — source me: dos completion fish | source",
+        "function __dos_no_verb",
+        "    set -l cmd (commandline -opc)",
+        "    test (count $cmd) -le 1",
+        "end",
+    ]
+    for v in verbs:
+        lines.append(
+            f"complete -c dos -n '__dos_no_verb' -f -a '{v}'")
+    for v in verbs:
+        for opt in verb_opts.get(v, []):
+            lines.append(
+                f"complete -c dos -n '__fish_seen_subcommand_from {v}' "
+                f"-l {opt.lstrip('-')}")
+    return "\n".join(lines) + "\n"
+
+
+def cmd_completion(args: argparse.Namespace) -> int:
+    """Emit a shell tab-completion script for `dos`, generated from the live parser.
+
+    Detail: docs/CLI.md § cmd_completion.
+    """
+    shell = args.shell
+    if shell not in _COMPLETION_SHELLS:
+        return _fail(
+            f"{shell!r} is not a supported shell. Known: "
+            f"{', '.join(_COMPLETION_SHELLS)}.",
+            hint="e.g. `dos completion bash` (then: source <(dos completion bash))")
+    # A shell script MUST use LF endings — a CR breaks `source`/`bash -n` (a real
+    # bug on Windows, where `print()` would translate \n→\r\n). Write the bytes
+    # directly so the script is byte-identical on every platform.
+    script = _completion_script(shell)
+    sys.stdout.buffer.write(script.encode("utf-8"))
+    sys.stdout.buffer.flush()
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# `dos start-here` — the "what do you want to do?" router. The curated families
+# from the module docstring, rendered as task→verb rows a newcomer scans past
+# `quickstart`. Every verb it names is cross-checked against the live parser so
+# the router can never advertise a dead verb.
+# ---------------------------------------------------------------------------
+_START_HERE_ROWS: tuple[tuple[str, str, str], ...] = (
+    ("get started in 60 seconds", "quickstart", "the caught-lie + collision demo in a throwaway repo"),
+    ("adopt DOS in a repo", "init", "scaffold dos.toml (+ --skills / --hooks <runtime>)"),
+    ("see this workspace's setup", "doctor", "the active workspace, lane taxonomy, stamp grammar"),
+    ("check a claim actually landed", "verify", "did (plan,phase) ship? — git ancestry, not self-report"),
+    ("check a commit matches its diff", "commit-audit", "subject vs its own diff (subjects are forgeable)"),
+    ("stop two agents colliding", "arbitrate", "may a loop start on this lane? (auto-picks a free one)"),
+    ("see if a unit is workable now", "pickable", "is it offerable, and if not, the typed hold + unblock action"),
+    ("see what's running", "top", "the live fleet watchdog"),
+    ("see what needs a human", "decisions", "the operator-decision queue"),
+    ("learn the exit-code contract", "exit-codes", "the verdict IS the exit code, per verb"),
+    ("turn on tab-completion", "completion", "source <(dos completion bash|zsh|fish)"),
+)
+
+
+def cmd_start_here(args: argparse.Namespace) -> int:
+    """Print the task→verb router for a newcomer (the on-ramp past quickstart).
+
+    Detail: docs/CLI.md § cmd_start_here.
+    """
+    known = set(_registered_verbs(build_parser()))
+    rows = [(task, verb, blurb) for (task, verb, blurb) in _START_HERE_ROWS
+            if verb in known]
+    width = max((len(verb) for _, verb, _ in rows), default=0)
+    print("DOS — what do you want to do?  (run `dos <verb> --help` for any verb)\n")
+    for task, verb, blurb in rows:
+        print(f"  {task:<32}  dos {verb:<{width}}  — {blurb}")
+    print("\nThe full curated map is `dos --help`; every verb is `dos <verb> --help`.")
+    return 0
+
+
 def cmd_quickstart(args: argparse.Namespace) -> int:
     """Run the DOS money-moment end to end in a throwaway repo (the 60-second on-ramp).
 
@@ -8495,6 +8674,39 @@ def build_parser() -> argparse.ArgumentParser:
     pec.add_argument("--json", action="store_true",
                      help="emit the contract as JSON (the doctor --json shape)")
     pec.set_defaults(func=cmd_exit_codes)
+
+    psh = sub.add_parser(
+        "start-here",
+        help="the 'what do you want to do?' router — task → verb, for a newcomer",
+        description=(
+            "Print a task→verb router for someone new to DOS: 'I want to X → run "
+            "`dos Y`'. The curated families from `dos --help`, rendered as the "
+            "first move for each common goal (verify a claim, stop a collision, "
+            "adopt DOS, turn on completion). Every verb it names is cross-checked "
+            "against the live parser, so it can never point at a verb that does "
+            "not exist. `dos --help` is the full map; this is the on-ramp."),
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    psh.set_defaults(func=cmd_start_here)
+
+    pcomp = sub.add_parser(
+        "completion",
+        help="emit a shell tab-completion script (bash/zsh/fish)",
+        description=(
+            "Emit a sourceable shell completion script for `dos`, generated from "
+            "the LIVE parser — so it completes every registered verb (and each "
+            "verb's --flags) and never advertises one that does not exist. "
+            "Argparse-native, no runtime dependency, nothing shipped in the wheel: "
+            "the script is built from the parser at call time, always in sync.\n\n"
+            "Install (pick your shell):\n"
+            "  bash:  source <(dos completion bash)      # or write to a completions dir\n"
+            "  zsh:   source <(dos completion zsh)\n"
+            "  fish:  dos completion fish | source\n\n"
+            "Put the line in your shell rc to make it permanent. v1 completes "
+            "verbs + flags; value completion (plan/phase/lane) is future work."),
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    pcomp.add_argument("shell", choices=_COMPLETION_SHELLS,
+                       help="the shell to emit a completion script for")
+    pcomp.set_defaults(func=cmd_completion)
 
     pv = sub.add_parser("verify", help="the truth syscall: did (plan,phase) ship?",
                         description=_HELP_VERIFY,
