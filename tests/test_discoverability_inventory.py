@@ -37,6 +37,7 @@ _REPO = Path(__file__).resolve().parents[1]
 # ---------------------------------------------------------------------------
 
 _HEADLINE_KEYS = {
+    "arrival_queries_captured", "arrival_queries_tracked", "arrival_query_pages",
     "arrival_files_present", "arrival_files_expected", "answer_pages",
     "hosts_wireable", "integration_tiers", "framework_recipes",
     "registries_live", "registries_gated_submitted",
@@ -109,6 +110,31 @@ def test_all_arrival_files_present_today_rot_pin():
     # fix the path or the file, do not delete the assertion (the llms.txt rule).
     missing = [p for p, _, ok in di.gather()["arrival_files"] if not ok]
     assert not missing, f"arrival files missing: {missing}"
+
+
+def test_arrival_queries_capture_matches_page_presence():
+    # captured is read from the tree (the page exists), never asserted — the same
+    # honesty rule as the registries. Every tracked query must point at a real
+    # answer page (a dangling target is a rot bug), and the headline's captured
+    # count must equal the number of present targets.
+    inv = di.gather()
+    for q, page, ok in inv["arrival_queries"]:
+        assert ok == (_REPO / page).exists(), f"{q!r} capture flag disagrees with the tree"
+        assert (_REPO / page).exists(), f"{q!r} points at a missing page: {page}"
+    h = di.headline(inv)
+    captured = sum(1 for _, _, ok in inv["arrival_queries"] if ok)
+    assert h["arrival_queries_captured"] == captured
+    assert h["arrival_queries_tracked"] == len(inv["arrival_queries"])
+    # distinct pages the captured queries resolve to — the real surface count
+    assert h["arrival_query_pages"] == len({page for _, page, ok in inv["arrival_queries"] if ok})
+
+
+def test_transition_query_is_tracked_and_captured():
+    # the 2026 token-maxxing→verified-outcomes transition query is the measured
+    # delta this work added; pin it so a regression that drops the page is caught.
+    inv = di.gather()
+    targets = {page for _, page, ok in inv["arrival_queries"] if ok}
+    assert "docs/answers/what-replaced-tokens-burned-as-the-metric-for-ai-agents.md" in targets
 
 
 def test_answer_page_count_matches_the_glob():

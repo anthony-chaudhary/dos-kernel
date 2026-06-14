@@ -11,9 +11,14 @@ It is dev tooling that operates ON the repo (it imports nothing from `src/dos/`
 beyond shelling the public CLI for the host registry; the package is unaware of
 it — the same one-way arrow as `build_readme.py` and `backlog_triage.py`).
 
-What "discoverable by an agent" means here — four families, each a real fetch an
+What "discoverable by an agent" means here — five families, each a real fetch an
 agent or its installer makes:
 
+  0. ARRIVAL QUERIES the high-intent questions an answer-engine routes to a
+                     canonical page. Captured = the evidence-backed answer page
+                     exists in the tree (we count having the answer, never where
+                     we rank). A fresh query with no incumbent answer is the
+                     cheapest discovery win; this counts whether we took it.
   1. ARRIVAL FILES   the well-known files an agent fetches first (llms.txt, the
                      manifests, the answer corpus). The llms.txt convention says
                      an LLM reads `/llms.txt` before it clones; an MCP host reads
@@ -48,6 +53,36 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
+
+# --- family 0: arrival queries (the high-intent questions an answer-engine routes) -
+# (query, target answer page). A query is CAPTURED only when its canonical page
+# is present in the tree — read from ground truth, never a ranking claim (we do
+# not assert "we rank #1", only "we have a canonical, evidence-backed answer").
+# The point of tracking queries, not just files: a fresh high-intent query with
+# no incumbent answer is the cheapest discovery win, and this counts whether we
+# took it. The "metric shift" rows are the 2026 token-maxxing→verified-outcomes
+# transition queries.
+ARRIVAL_QUERIES = [
+    ("how to verify an AI agent actually did the work",
+     "docs/answers/how-to-verify-an-ai-agent-actually-did-the-work.md"),
+    ("how to stop two AI agents overwriting each other",
+     "docs/answers/how-to-stop-two-ai-agents-overwriting-each-other.md"),
+    ("how to detect an agent loop spinning without progress",
+     "docs/answers/how-to-detect-an-agent-loop-spinning-without-progress.md"),
+    ("do AI coding agents lie about what they shipped",
+     "docs/answers/do-ai-coding-agents-lie-about-what-they-shipped.md"),
+    ("process-reward training data that can't be gamed",
+     "docs/answers/process-reward-model-training-data-that-cant-be-gamed.md"),
+    ("add a guardrail to a coding agent with no plugin system",
+     "docs/answers/how-to-add-a-guardrail-to-a-coding-agent-with-no-plugin-system.md"),
+    # metric-shift / transition queries (2026 token-maxxing is over)
+    ("what replaced tokens-burned as the metric for AI agents",
+     "docs/answers/what-replaced-tokens-burned-as-the-metric-for-ai-agents.md"),
+    ("is the token-maxxing era over / what is token efficiency",
+     "docs/answers/what-replaced-tokens-burned-as-the-metric-for-ai-agents.md"),
+    ("how to measure verified outcomes instead of token usage",
+     "docs/answers/what-replaced-tokens-burned-as-the-metric-for-ai-agents.md"),
+]
 
 # --- family 1: arrival files (the well-known fetch targets) -------------------
 # (path, what an agent/tool fetches it for). Presence is read from the tree.
@@ -145,6 +180,9 @@ def _scoreboard() -> dict:
 
 def gather() -> dict:
     arrival = [(p, d, _present(p)) for p, d in ARRIVAL_FILES]
+    # captured = the canonical answer page exists; we dedupe distinct target pages
+    # so two query phrasings pointing at one page don't double-count the surface.
+    queries = [(q, page, _present(page)) for q, page in ARRIVAL_QUERIES]
     answers = _count_glob("docs/answers/*.md", exclude="README")
     hosts = _hosts()
     tiers = ["MCP (advisory)", "hooks (enforcement)", "exit-code (any command env)"]
@@ -157,6 +195,7 @@ def gather() -> dict:
             "evidence_present": proven, "why": why,
         })
     return {
+        "arrival_queries": queries,
         "arrival_files": arrival,
         "answers_pages": answers,
         "hosts": hosts,
@@ -168,11 +207,18 @@ def gather() -> dict:
 
 
 def headline(inv: dict) -> dict:
+    queries_captured = sum(1 for _, _, ok in inv["arrival_queries"] if ok)
+    queries_total = len(inv["arrival_queries"])
+    # distinct canonical pages the captured queries resolve to (the real surface count)
+    captured_pages = {page for _, page, ok in inv["arrival_queries"] if ok}
     arrival_present = sum(1 for _, _, ok in inv["arrival_files"] if ok)
     registries_live = sum(1 for r in inv["registries"] if r["status"] == "LIVE")
     registries_gated = sum(1 for r in inv["registries"] if r["status"] == "GATED")
     sb = inv["scoreboard"]
     return {
+        "arrival_queries_captured": queries_captured,
+        "arrival_queries_tracked": queries_total,
+        "arrival_query_pages": len(captured_pages),
         "arrival_files_present": arrival_present,
         "arrival_files_expected": len(inv["arrival_files"]),
         "answer_pages": len(inv["answers_pages"]),
@@ -197,6 +243,9 @@ def render(inv: dict, h: dict) -> str:
     L.append("")
     L.append("## Headline")
     L.append("")
+    L.append(f"- high-intent queries captured (canonical page in tree): "
+             f"**{h['arrival_queries_captured']}/{h['arrival_queries_tracked']}** "
+             f"→ **{h['arrival_query_pages']}** distinct answer pages")
     L.append(f"- arrival files present: **{h['arrival_files_present']}/{h['arrival_files_expected']}**")
     L.append(f"- answer-shaped pages (answer-engine liftable): **{h['answer_pages']}**")
     L.append(f"- agent hosts wireable (live registry): **{h['hosts_wireable']}**")
@@ -205,6 +254,15 @@ def render(inv: dict, h: dict) -> str:
     L.append(f"- external registries LIVE: **{h['registries_live']}**  ·  GATED/submitted: **{h['registries_gated_submitted']}**")
     fanout = "yes" if h["scoreboard_fanout_engine"] else "no"
     L.append(f"- scoreboard per-repo pages published: **{h['scoreboard_pages_published']}**  ·  corpus fan-out engine: **{fanout}**")
+    L.append("")
+    L.append("## 0. Arrival queries (the high-intent questions an answer-engine routes)")
+    L.append("")
+    L.append("> Captured = a canonical, evidence-backed answer page exists in the tree.")
+    L.append("> This counts whether we *have the answer*, not where we rank.")
+    L.append("")
+    for q, page, ok in inv["arrival_queries"]:
+        mark = "[captured]" if ok else "[OPEN]"
+        L.append(f"- {mark}  \"{q}\" → `{page}`")
     L.append("")
     L.append("## 1. Arrival files (the well-known fetch targets)")
     L.append("")
@@ -273,6 +331,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.json:
         print(json.dumps({"headline": h, "inventory": {
+            "arrival_queries": [{"query": q, "page": page, "captured": ok} for q, page, ok in inv["arrival_queries"]],
             "arrival_files": [{"path": p, "why": w, "present": ok} for p, w, ok in inv["arrival_files"]],
             "answers_pages": inv["answers_pages"],
             "hosts": inv["hosts"],
