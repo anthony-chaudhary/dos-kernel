@@ -129,11 +129,24 @@ PYTHONPATH=. python -m benchmark.smartphone_tier.harness \
     --recordings path/to/llama-3.2-1b/runs --tier-name "Llama-3.2-1B"
 ```
 
-Each recorded run maps to the reduced `Trajectory` datum. Run it once per tier — a
-`none`-arm dump from Llama-3.2-1B, Qwen2.5-1.5B, and Phi-3-mini beside a frontier
-reference — and the synthetic table becomes a measured one. That is the docs/153 §5
-experiment, now at on-device tier and reproducible at $0 for the fold itself. The
-only cost is generating the trajectories (a local GGUF run; no API needed).
+Each recorded run maps to the reduced `Trajectory` datum. `_drive_cpu_model.py` does
+this for a real model: it drives a tiny instruct model on CPU (no GPU) over tool-use
+tasks and dumps the trajectories. That is the docs/153 §5 experiment, now at on-device
+tier and reproducible at $0 for the fold (the only cost is the local CPU generation).
+
+### 4a. The surprise at the extreme low end (a real CPU run)
+
+Driving **SmolLM2-135M-Instruct on CPU** gave 6/6 failures, **0% recoverable** — the
+model failed *below the detectors' reach*. It said `DONE` with no open-obligation cue
+(so `dangling_intent` abstains) and hallucinated a tool named after the user id rather
+than minting an id on a real mutating tool (so `arg_provenance` abstains). So the curve
+is **not monotone all the way down**: it rises from frontier toward the weak tiers, then
+**falls again at the sub-0.5B extreme**, where failures stop being coherent enough to be
+DOS-shaped. The byte-clean detectors need a model competent enough to fail *coherently*.
+Silence dominates at **both** ends of the capability axis — frontier (succeeds or fails
+cleanly) and sub-0.5B (fails incoherently) — for opposite reasons. That floor is a real
+result the synthetic 80% hid, and it sharpens (not weakens) the paper's silent-failure
+ceiling.
 
 ## 5. Why this matters beyond a benchmark
 
