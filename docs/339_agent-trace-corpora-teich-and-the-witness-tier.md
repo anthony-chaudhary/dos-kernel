@@ -1,4 +1,4 @@
-# 337 — Agent-trace corpora (teich, the Fable-5 pools) and the witness tier: what to borrow, and the 2.0 DOS can power
+# 339 — Agent-trace corpora (teich, the Fable-5 pools) and the witness tier: what to borrow, and the 2.0 DOS can power
 
 > **One sentence.** A community is now pooling raw Claude Code agent traces into
 > training datasets (the `teich` toolchain + the Fable-5 trace pools the r/ClaudeCode
