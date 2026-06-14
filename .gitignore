@@ -337,3 +337,6 @@ benchmark/enterpriseops/_verify_witness_claim.py
 /scoreboard-seed-out*.log
 /scoreboard-out*.log
 /scoreboard-seed-out*.manifest.json
+
+# scoreboard HTML render staging (copied onto gh-pages, never tracked on master)
+/site-scoreboard/
