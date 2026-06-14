@@ -42,7 +42,7 @@ go = ["go/**"]
 # to the whole tree and would collide with every lane) keeps `meta` disjoint from
 # the dir-prefixed lanes (proven by the disjointness algebra) while still a strict
 # subset of `global`. A new root meta-doc gets a line here.
-meta = ["CLAUDE.md", "AGENTS.md", "CONTRIBUTING.md", "SECURITY.md", "README.md"]
+meta = ["CLAUDE.md", "AGENTS.md", "CONTRIBUTING.md", "SECURITY.md", "README.md", "llms.txt", "llms-full.txt", "CITATION.cff"]
 paper = ["paper/**"]
 scripts = ["scripts/**"]
 spikes = ["spikes/**"]
