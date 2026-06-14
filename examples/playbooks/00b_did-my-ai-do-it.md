@@ -127,6 +127,9 @@ about that, and so should you be.
 
 ## Where to go next
 
+- **Built it in a browser app-builder** (Lovable, v0, bolt.new) and pushed to
+  GitHub? The export-then-verify on-ramp →
+  [`00c_vibe-coders-export-then-verify.md`](00c_vibe-coders-export-then-verify.md).
 - **Hand the same plain-English verdict to a non-coder** (a PM, a founder) →
   [`00_non-coder-verdict-in-15-minutes.md`](00_non-coder-verdict-in-15-minutes.md).
 - **Set up your repo properly** (so "Probably yes" becomes a firm "yes") →

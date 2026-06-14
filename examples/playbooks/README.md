@@ -41,6 +41,10 @@ Start with the onboarding quickstart, then jump to your archetype:
 0. **[`00_non-coder-verdict-in-15-minutes.md`](00_non-coder-verdict-in-15-minutes.md)** —
    the smallest adoption move: turn on `--output plain` so a non-coder gets an
    honest "Probably yes" / "Not yet" verdict on what an agent claimed it built.
+   The 30-second front door is **[`00b_did-my-ai-do-it.md`](00b_did-my-ai-do-it.md)**;
+   built it in a **browser app-builder** (Lovable / v0 / bolt.new)? The
+   export-then-verify on-ramp is
+   **[`00c_vibe-coders-export-then-verify.md`](00c_vibe-coders-export-then-verify.md)**.
 1. **[`01_onboard-a-repo.md`](01_onboard-a-repo.md)** — 10 minutes from `pip install`
    to your first verified ship, on *any* repo. Read this first.
 2. Your archetype playbook (table above).
