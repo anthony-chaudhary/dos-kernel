@@ -2099,6 +2099,155 @@ def cmd_scope_gate(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# apply  (docs/126 Phase 1 — the BINDING diff turnstile, DOS's first PEP)
+#   The enforcement sibling of `scope-gate`: it resolves the run's OWN held lease
+#   at the boundary (so the gate confines a write to the lane the agent leased,
+#   not a lane named on the CLI), composes the declared-tree-escape verdict with
+#   the sound sibling-collision floor (apply_gate.decide), and BINDS — exit 1
+#   refuses the write, the agent's `--force` cannot self-override (operator-only,
+#   audited). The verdict IS the exit code.
+_APPLY_EXITS = ExitMap(
+    {"allowed": 0, "refused": 1, "contract_error": 2},
+    syscall="apply",
+)
+_APPLY_EXIT_CODES = _APPLY_EXITS.codes
+
+
+def _resolve_self_lease(cfg, requested_lane: str):
+    """Resolve the lane THIS run holds + its declared tree + the OTHER live trees.
+
+    The self-lease is BOUNDARY I/O — a predicate cannot derive "which lane is mine"
+    (it sees only `request` + one other lease + config), so the gate's caller resolves
+    it here and freezes it into `apply_gate.ApplyEvidence`, the same way
+    `SelfModifyPredicate` receives its protected set as constructor data.
+
+    Identity, in priority order:
+      1. an explicit `--lane X` — the operator naming their own lane (always wins);
+      2. else a WAL lease whose `run_id` matches `$CID_RUN_ID` / `$DISPATCH_RUN_ID`;
+      3. else a WAL lease whose `loop_ts` matches `$DISPATCH_LOOP_TS`;
+      4. else a WAL lease whose `pid` matches this process's pid (or its parent's —
+         the agent's commit often runs in a child shell of the leasing process).
+
+    Returns `(self_lane, self_tree, other_trees)`. A self_lane that resolves but
+    has NO declared tree, or that does not resolve at all, yields an EMPTY
+    `self_tree` — `apply_gate.decide` then fails CLOSED on a non-empty diff (an
+    unknown blast radius is refused, never admitted). `other_trees` is every OTHER
+    live lease's tree (the collision-floor operands).
+    """
+    from dos import lane_lease as _lane_lease
+    try:
+        live = _lane_lease.live_leases(cfg)
+    except Exception:  # noqa: BLE001 — a read of an append-only WAL is best-effort.
+        live = []
+
+    def _tree_of(lane: str) -> tuple:
+        # The DECLARED tree is authoritative (config), then the lease's recorded
+        # tree as a fallback for a lane the taxonomy doesn't name.
+        declared = tuple(cfg.lanes.tree_for(lane)) if lane else ()
+        return declared
+
+    self_lease = None
+    if requested_lane:
+        self_lane = requested_lane
+    else:
+        run_id = os.environ.get("CID_RUN_ID") or os.environ.get("DISPATCH_RUN_ID") or ""
+        loop_ts = os.environ.get("DISPATCH_LOOP_TS") or ""
+        my_pids = {os.getpid()}
+        try:
+            my_pids.add(os.getppid())
+        except (AttributeError, OSError):
+            pass
+        for lease in live:
+            if run_id and str(lease.get("run_id") or "") == run_id:
+                self_lease = lease
+                break
+            if loop_ts and str(lease.get("loop_ts") or "") == loop_ts:
+                self_lease = lease
+                break
+            try:
+                if int(lease.get("pid")) in my_pids:  # type: ignore[arg-type]
+                    self_lease = lease
+                    break
+            except (TypeError, ValueError):
+                continue
+        self_lane = str(self_lease.get("lane") or "") if self_lease else ""
+
+    self_tree = _tree_of(self_lane)
+    # The lease's own recorded tree is the fallback when the lane isn't in [lanes]
+    # (e.g. a keyword lane), so a resolved-but-undeclared lane is still confined.
+    if not self_tree and self_lease and self_lease.get("tree"):
+        self_tree = tuple(self_lease.get("tree") or ())
+
+    other_trees = tuple(
+        tuple(lease.get("tree") or ())
+        for lease in live
+        if lease is not self_lease and (lease.get("tree"))
+    )
+    return self_lane, self_tree, other_trees
+
+
+def cmd_apply(args: argparse.Namespace) -> int:
+    """The binding diff turnstile: may this proposed write LAND? (docs/126 Phase 1).
+
+    Detail: docs/CLI.md § cmd_apply. The keystone that converts DOS's diff-grading
+    from forensic (a receipt after the commit) to preventive (a refusal before it).
+    """
+    _apply_workspace(args)
+    from dos import apply_gate
+    cfg = _config.active()
+    root = cfg.paths.root
+
+    touched = _scope_gate_proposed_files(args, root)
+    self_lane, self_tree, other_trees = _resolve_self_lease(cfg, args.lane or "")
+    ev = apply_gate.ApplyEvidence(
+        touched_files=touched,
+        self_lane=self_lane,
+        self_tree=self_tree,
+        other_trees=other_trees,
+    )
+    decision = apply_gate.decide(ev)
+
+    forced = bool(getattr(args, "force", False)) and not decision.allowed
+    if getattr(args, "output", "text") == "json" or getattr(args, "json", False):
+        payload = decision.to_dict()
+        payload["self_lane"] = self_lane
+        payload["forced"] = forced
+        print(json.dumps(payload, indent=2 if getattr(args, "pretty", False) else None))
+    else:
+        verb = "ALLOW" if decision.allowed else ("FORCE-ALLOW" if forced else "REFUSE")
+        lane_note = f" [held lane: {self_lane or '<unresolved>'}]"
+        print(f"{verb}: {decision.reason}{lane_note}")
+
+    if forced:
+        # docs/126 §3 rule 4 — `--force` is the SOLE human override, and it is
+        # AUDITED: a typed, ancestry-visible HUMAN row carrying the refused verdict's
+        # reason. The agent can never force its own gate — `--force` is an operator's
+        # explicit hand (the arbitrate `--force` audit shape, cli.py cmd_arbitrate).
+        try:
+            _ensure_home_if_persisting()
+            from dos import home
+            home.append_decision(cfg, {
+                "kind": "APPLY_FORCE",
+                "resolver_kind": "HUMAN",
+                "lane": self_lane,
+                "reason_token": decision.reason_class,
+                "reason_category": "MISROUTE",
+                "run_ts": os.environ.get("DISPATCH_LOOP_TS") or "",
+                "resolution": {
+                    "action": "force_apply",
+                    "lane": self_lane,
+                    "forced": True,
+                    "refused_files": list(decision.refused_files),
+                },
+            })
+        except Exception:  # noqa: BLE001 — the audit is best-effort; never fail the
+            pass            # override on a journal write (the local mirror rebuilds).
+        return _APPLY_EXIT_CODES["allowed"]
+
+    return _APPLY_EXIT_CODES["allowed" if decision.allowed else "refused"]
+
+
+# ---------------------------------------------------------------------------
 # liveness  (the temporal verdict — is the run moving, or spinning?)
 #   (full prose: docs/CLI.md § "liveness  (the temporal verdict — is the run moving, or spin")
 _LIVENESS_EXITS = ExitMap(
@@ -6053,12 +6202,17 @@ def cmd_memory(args: argparse.Namespace) -> int:
         if args.json or getattr(args, "output", None) == "json":
             print(json.dumps(d, sort_keys=True, ensure_ascii=False))
         else:
-            print(f"{d['admission']}  {d['memory']}")
+            # The directive marker (docs/316 §4, #110) rides the headline line so
+            # an instruction-bearing memory can't hide its shape in the reason
+            # prose. It never moves the exit code — the gate types, not censors.
+            tag = "  [DIRECTIVE]" if d.get("directive") else ""
+            print(f"{d['admission']}{tag}  {d['memory']}")
             print(f"  {v.reason}")
             if explain:
                 print(f"  → {d['interpretation']}")
         # The verdict IS the exit code: only POISON refuses (3); every admit
-        # typing exits 0 — the gate types, it does not censor.
+        # typing exits 0 — the gate types, it does not censor (a directive-typed
+        # memory still admits; the marker is for the host, not a refusal).
         return 3 if d["admission"] == "REJECT_POISON" else 0
 
     if args.memory_cmd == "recall":
@@ -9312,6 +9466,43 @@ def build_parser() -> argparse.ArgumentParser:
     psg.add_argument("--pretty", action="store_true")
     _add_output_flag(psg)
     psg.set_defaults(func=cmd_scope_gate)
+
+    # apply — the BINDING diff turnstile (docs/126 Phase 1, DOS's first PEP). Unlike
+    # `scope-gate` (which checks a CLI-named lane, advisory), `apply` resolves the
+    # run's OWN held lease at the boundary and BINDS: exit 1 refuses the write, and
+    # `--force` is the operator's sole, audited override (the agent cannot force
+    # itself). Wire it as a git pre-commit hook (`dos apply --staged`) so the gate
+    # is unavoidable, not voluntary. The verdict IS the exit code.
+    pap = sub.add_parser(
+        "apply",
+        help="the binding diff turnstile: refuse a write that escapes the held lane",
+    )
+    _add_workspace_flags(pap)
+    pap.add_argument("--lane", default="",
+                     help="name the held lane explicitly (an operator override of the "
+                          "boundary self-lease resolution); '' auto-resolves from the "
+                          "WAL via run-id / loop-ts / pid")
+    pap.add_argument("--file", action="append", metavar="PATH",
+                     help="an explicit proposed-write path (repeatable); OVERRIDES the "
+                          "git gather — a commit broker that already has its footprint "
+                          "passes them here")
+    pap.add_argument("--staged", action="store_true",
+                     help="gather the proposed write-set from `git diff --cached "
+                          "--name-only` (the footprint about to be committed) — the "
+                          "pre-commit-hook shape")
+    pap.add_argument("--base", default="HEAD",
+                     help="base ref when gathering from a range (default HEAD)")
+    pap.add_argument("--head", default="HEAD",
+                     help="head ref when gathering from a range (default HEAD)")
+    pap.add_argument("--force", action="store_true",
+                     help="operator override: allow a refused write and AUDIT it (a "
+                          "typed HUMAN row carrying the refused reason). The agent "
+                          "cannot force its own gate — this is the operator's hand.")
+    pap.add_argument("--json", action="store_true",
+                     help="machine-readable {allowed, reason_class, refused_files, ...}")
+    pap.add_argument("--pretty", action="store_true")
+    _add_output_flag(pap)
+    pap.set_defaults(func=cmd_apply)
 
     pl = sub.add_parser("lease", help="cross-process archive lock")
     _add_workspace_flags(pl)

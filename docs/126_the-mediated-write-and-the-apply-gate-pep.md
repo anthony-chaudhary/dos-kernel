@@ -1,9 +1,14 @@
 # 126 — The mediated write, and the apply-gate PEP
 
-> **Status:** design plan. Unbuilt, and a larger lift than docs/125 — this is the
-> architectural step that gives DOS its first **enforcement point**. This doc is the
-> argument for it, the narrow shape that keeps it from turning DOS into a sandbox,
-> and the phasing.
+> **Status:** Phase 1 SHIPPED — DOS now has its first **enforcement point**: the
+> `dos apply` diff turnstile (`cli.cmd_apply` + the pure `apply_gate.decide`,
+> `tests/test_apply_{gate,cli}.py`, the `dos-apply` pre-commit hook). A staged write
+> that escapes the held lane — or collides with a live sibling lease — is now
+> *refused before it lands* (exit 1), with `--force` the operator's sole audited
+> override. Phases 2–5 (the lease fence, the launched exec, the spawn-time manifest,
+> the docs/125 loop) remain design plan; the PreToolUse binding is the Phase-1.5
+> follow-on (§4). This doc is the argument for it, the narrow shape that keeps it from
+> turning DOS into a sandbox, and the phasing.
 >
 > **One line:** DOS today is, in its own audit's words (docs/114), **a sound PDP
 > with no PEP** — it *decides, observes, and re-adjudicates* but never **mediates the
@@ -167,16 +172,35 @@ it is a different product (a sandbox), and DOS should decline it.
 
 ## 4. Phase plan
 
-**Phase 1 — `dos apply`, the diff turnstile (the keystone, smallest useful core).**
-- A `dos apply` verb that takes a staged diff (or wraps the commit), resolves the
-  active lease, and runs the **declared-tree-escape** check (`scope.classify` of the
-  diff's footprint vs the lease region) + the **disjointness floor** vs live leases.
-  Refuse ⇒ the commit does not proceed; the refusal carries a typed reason.
-- The pre-commit / PR-gate integration shape (a hook the agent cannot bypass) so
-  "goes through `dos apply`" is enforced, not voluntary. Document the host wiring.
-- Tests: an escaping diff is refused; an in-tree diff passes; a colliding diff is
-  refused at the floor; `--force` overrides with an audited reason; the existing
-  advisory verdicts are untouched.
+**Phase 1 — `dos apply`, the diff turnstile (the keystone, smallest useful core). SHIPPED.**
+- A `dos apply` verb (`cli.cmd_apply`) takes a staged diff (`--staged` →
+  `git diff --cached`) or an explicit footprint (`--file`), resolves the run's OWN
+  held lease **at the boundary** (`_resolve_self_lease`: match `run-id` / `loop-ts` /
+  `pid` against the WAL leases — the self-lane cannot be derived inside a pure
+  predicate, so the caller resolves it and freezes it in, the `SelfModifyPredicate`
+  pattern), and runs the **declared-tree-escape** check + the **sibling-collision
+  floor** as one pure verdict (`apply_gate.decide` = `scope.gate` +
+  `lock_modes.region_conflict`, the sound `ratio_max = 0` floor — NO new decision
+  logic, §2). Refuse ⇒ exit 1, the commit does not proceed; the refusal carries the
+  typed `SCOPE_ESCAPE` reason (declared as `dos.toml [reasons]` data — host policy,
+  opt-in, never a built-in predicate).
+- The pre-commit integration shape (a hook the agent cannot bypass): the `dos-apply`
+  hook in `.pre-commit-hooks.yaml` fires `dos apply --staged` at the **pre-commit
+  stage** (where the staged footprint exists — unlike `commit-audit`, off-by-one
+  there). `--force` is the operator's sole, audited override (an `APPLY_FORCE` HUMAN
+  row via `home.append_decision`); the agent cannot force its own gate (§3 rule 4).
+- Tests (`tests/test_apply_gate.py`, `tests/test_apply_cli.py`): an escaping diff is
+  refused; an in-tree diff passes (exit 0); a colliding diff is refused at the floor;
+  an unresolvable lane fails CLOSED; `--force` overrides AND writes the audited
+  HUMAN row; the existing advisory verdicts (`scope-gate`, `arbitrate`) are untouched.
+- **Discipline kept:** the out-of-band PDP path is unchanged (this is an *additional*
+  opt-in surface, §3 rule 3); the gate is refuse-MORE only; the kernel leaf
+  (`apply_gate.py`) names no host. The PreToolUse binding (generalize the SELF_MODIFY
+  surface from T1-files to any-lease-tree) is the deliberate Phase-1.5 follow-on —
+  it must first resolve the docs/143 softening trap (a `reason_class` refuse is never
+  softened at that surface, so an interactive operator needs the operator-session
+  soften OR a `dos override` arm); the CLI gate, which HAS `--force`, is the safe home
+  for the typed reason and ships first.
 
 **Phase 2 — the lease fence (generation numbers).**
 - A generation/epoch on each lease grant (the WAL already records grants); the

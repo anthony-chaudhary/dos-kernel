@@ -81,6 +81,20 @@ summary  = "edit introduces a private dev path / hostname into a public-bound fi
 fix      = "scrub the leak (run `python scripts/leak_scan.py`); a leak is a refusal, not a warning"
 see_also = ["scripts/leak_scan.py", "scripts/seed_public_repo.ps1", "man wedge SELF_MODIFY"]
 
+# The typed refusal `dos apply` emits when a proposed write escapes the lane the run
+# holds — or collides with a sibling's live lease (docs/126 Phase 1, the binding diff
+# turnstile). A MISROUTE: the work landed in a lane it doesn't own. Declared as DATA
+# (no kernel edit) because confining writes to declared lanes is HOST policy, opt-in
+# at the `dos apply` surface — never a built-in admission predicate. The deterministic
+# floor under it is `apply_gate.decide` (scope.gate + lock_modes.region_conflict);
+# `dos apply --force` is the operator's sole, audited override.
+[reasons.SCOPE_ESCAPE]
+category = "MISROUTE"
+refusal  = true
+summary  = "proposed write escapes the held lane's tree (or collides with a live lease)"
+fix      = "re-scope the diff to the held lane, or take the right lane; `dos apply --force` is the operator's audited override"
+see_also = ["apply", "scope-gate", "man wedge SELF_MODIFY"]
+
 # How much `.dos/` scratch to keep (docs/106 §3.3). `dos reap` bounds the per-project
 # scratch to these caps — recency keep-last-N for audits/verdicts/runs, a size/age
 # threshold for the WAL. Only what you name overrides the generous generic default;

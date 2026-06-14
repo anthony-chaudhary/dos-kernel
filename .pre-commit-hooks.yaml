@@ -57,3 +57,34 @@
   verbose: true
   stages: [post-commit]
   minimum_pre_commit_version: "3.2.0"
+
+# The BINDING diff turnstile (docs/126 Phase 1) — DOS's first enforcement point,
+# fired at the pre-commit stage over the STAGED footprint (`dos apply --staged`
+# reads `git diff --cached`, which exists at that stage — unlike commit-audit,
+# which needs the commit object and is off-by-one there, the docs/304 fix above).
+# Where dos-commit-audit WITNESSES a claim after the fact, this PREVENTS a write
+# that escapes the lane the agent leased — or collides with a sibling's live
+# lease — from being committed at all. The verdict IS the exit code: exit 1 fails
+# the commit.
+#
+# OPT-IN, and deliberately so: the gate needs to know which lane this run holds.
+# Inside a leased dispatch loop it auto-resolves from the WAL (run-id / loop-ts /
+# pid). For an interactive commit, pin the lane in your .pre-commit-config.yaml:
+#
+#   - id: dos-apply
+#     args: ["--lane", "src"]     # the lane THIS checkout is working in
+#
+# With no resolvable lease and no --lane it fails CLOSED (refuses a non-empty
+# diff — an unknown blast radius). `dos apply --force` is the operator's sole,
+# audited override (the agent cannot force its own gate). Install the stage:
+#
+#   pre-commit install --hook-type pre-commit
+- id: dos-apply
+  name: "DOS: a staged write must stay inside the lane this run holds"
+  description: "Refuse to commit a staged diff that escapes the held lane's tree or collides with a live sibling lease (docs/126 Phase 1, the binding turnstile). Fails closed on an unresolvable lane; `dos apply --force` is the operator's audited override."
+  entry: dos apply --staged
+  language: python
+  pass_filenames: false
+  always_run: true
+  stages: [pre-commit]
+  minimum_pre_commit_version: "3.2.0"
