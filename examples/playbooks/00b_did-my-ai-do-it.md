@@ -1,6 +1,10 @@
 # Playbook 00b — "Did my AI actually do it?" in 30 seconds
 
-> **Your AI said it shipped the feature. Did it? Find out in one command.**
+> **In plain words:** your AI said it added a feature. Did it really? This page
+> is one command you point at your own project, and a plain answer comes back —
+> "Probably yes" or "Not yet" — read from your code's history, not from what the
+> AI told you. It's for anyone who lets an AI write code and wants a quick,
+> honest check. No setup, no special words to learn.
 
 You let an AI write most of the code. It said *"Done! Added dark mode and
 password reset."* You didn't read every diff — nobody does. But one of those

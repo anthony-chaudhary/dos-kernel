@@ -207,14 +207,22 @@ non-zero a non-blocking warning); a fleet declares its own in `dos.toml`
 
 ## Recipe 4 — Windsurf (and Warp, Zed): the hook-less editor, for a vibe coder
 
-> **No hooks here — the exit code is the verdict.** Windsurf, Warp, and Zed
-> can't take the `dos init --hooks <host>` wiring that Cursor and Claude Code
-> do: there is no PreToolUse/Stop seam for DOS to block on. Do not look for a
-> hooks install for these editors — there isn't one, and a recipe that promised
-> one would be lying. What these editors *can* do is run a command in a terminal
-> and read its exit code. That is the whole exit-code tier (the framing and the
-> soundness argument above apply verbatim), and it is enough: the `dos` process
-> authors the verdict, not the in-editor agent it's judging.
+> **In plain words:** if you vibe-code in Windsurf (or Warp, or Zed) and the AI
+> says a feature is done, this recipe makes the editor check that claim against
+> your code's history instead of taking the AI's word. These editors can't take
+> the auto-wiring that Cursor and Claude Code do — so you run one command and
+> read whether it comes back green ("shipped") or red ("not yet"). It's for a
+> vibe coder living in one of those editors.
+
+> **No auto-wiring here — the command's result is the verdict.** Windsurf, Warp,
+> and Zed can't take the `dos init --hooks <host>` wiring that Cursor and Claude
+> Code do: there is no place for DOS to plug into and block the AI mid-step. Do
+> not look for a hooks install for these editors — there isn't one, and a recipe
+> that promised one would be lying. What these editors *can* do is run a command
+> in a terminal and read its exit code (the small number a command leaves behind
+> — `0` good, anything else a problem). That is the whole exit-code tier (the
+> framing and the soundness argument above apply verbatim), and it is enough: the
+> `dos` process authors the verdict, not the in-editor agent it's judging.
 
 If you're a vibe coder shipping in Windsurf and your Cascade agent just told you
 the feature is done, here is how to make the editor check that claim against git
@@ -224,8 +232,9 @@ agent) can run, and a rule that points the agent at it before it says "done."
 ### 1. The check — red is "not yet," green is "shipped"
 
 Open Windsurf's terminal (or wire it as a Windsurf **workflow**, below) and run
-the truth syscall on the phase the agent claimed. The exit code *is* the verdict
-— `0` shipped, `1` not shipped:
+the did-it-ship check (DOS calls this the *verify* verdict) on the step the
+agent claimed. The exit code — the small number a command leaves behind — *is*
+the answer: `0` shipped, `1` not shipped:
 
 ```bash
 # did the phase the agent claimed actually land in git history?

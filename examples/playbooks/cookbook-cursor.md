@@ -1,21 +1,28 @@
 # Cookbook — Cursor: wire DOS into the editor in one command
 
-> **Vibe-coding in Cursor? DOS already speaks Cursor.** One command wires the
-> three DOS hooks into Cursor's own `.cursor/hooks.json`, so the editor's agent
-> can't run a refused call, can't sit on a stalled stream, and can't tell you a
-> feature is "done" that didn't ship — checked by the kernel, not by the agent's
-> own say-so.
+> **In plain words:** if you write code with the AI inside Cursor, this page
+> hooks a small honesty-checker into Cursor for you, with one command. After
+> that, the editor's AI can't quietly tell you a feature is "done" when it never
+> landed — Cursor checks the AI's claim against your code's history, instead of
+> taking the AI's word. It's for vibe coders already living in Cursor.
+
+That one command wires three small checks into Cursor's own `.cursor/hooks.json`
+file, so the editor's AI can't run an action the checker has already refused,
+can't sit quietly on a stream that has stalled, and can't tell you a feature
+shipped when your code's history doesn't back it. The checker (DOS) does the
+checking, not the AI grading its own homework.
 
 This is the **Cursor on-ramp**. The adapter ships today; this page just shows
-you the one command and what it buys you. If you have never run a `dos` verdict
-before, read the front-door quickstart first —
+you the one command and what it buys you. If you have never run a did-it-ship
+check before, read the front-door quickstart first —
 [`00b_did-my-ai-do-it.md`](00b_did-my-ai-do-it.md) ("Did my AI actually do
-it?") — then come back here to bind the verdict to the editor you already use.
+it?") — then come back here to bind the check to the editor you already use.
 
-For the other integration tiers (the MCP advisory path, the universal exit-code
-path) see [`cookbook-exit-code-tier.md`](cookbook-exit-code-tier.md); for other
-hook hosts (Codex, Gemini, Antigravity, Claude Code) the install path is the
-same one command with a different `--hooks` value.
+There are other ways to plug the check in (one the AI calls itself, one that's
+just a command's exit code) — see
+[`cookbook-exit-code-tier.md`](cookbook-exit-code-tier.md). For other editors
+that take the same wiring (Codex, Gemini, Antigravity, Claude Code) the install
+is the same one command with a different `--hooks` value.
 
 ---
 
