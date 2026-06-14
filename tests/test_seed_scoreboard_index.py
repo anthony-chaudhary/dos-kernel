@@ -166,6 +166,30 @@ def test_non_clean_repo_is_withheld_not_rendered():
                           rendered="2026-06-13", auditor="dos-kernel test") is None
 
 
+def test_clean_but_thin_denominator_is_withheld():
+    # a CLEAN verdict over too few checkable claims is not a real trust signal —
+    # withheld by the small-denominator floor (the §4 ≥20 intent on the page's
+    # checkable denominator). 3 checkable < a 20 floor → withheld.
+    thin = {"repo": "https://github.com/tiny/repo", "full_name": "tiny/repo",
+            "summary": {"commits": 5, "checkable": 3, "witnessed": 3,
+                        "unwitnessed": 0, "abstained": 2, "by_kind": {},
+                        "unwitnessed_shas": []}}
+    assert ssi.render_one(thin, base_sha=_B, head_sha=_H, rendered="2026-06-13",
+                          auditor="dos-kernel test", min_checkable=20) is None
+    # …but with the floor off (0) the same CLEAN page renders.
+    assert ssi.render_one(thin, base_sha=_B, head_sha=_H, rendered="2026-06-13",
+                          auditor="dos-kernel test", min_checkable=0) is not None
+
+
+def test_clean_with_substantive_denominator_renders():
+    # the synthetic _summary has 30 checkable, 0 unwitnessed → clears a 20 floor.
+    clean = {"repo": "https://github.com/big/repo", "full_name": "big/repo",
+             "summary": _summary(unwitnessed=0)}
+    r = ssi.render_one(clean, base_sha=_B, head_sha=_H, rendered="2026-06-13",
+                       auditor="dos-kernel test", min_checkable=20)
+    assert r is not None and r[1] == "CLEAN"
+
+
 # ---------------------------------------------------------------------------
 # the index root — published (named) pages only; coverage is a count.
 # ---------------------------------------------------------------------------
@@ -265,3 +289,39 @@ def test_run_publishes_clean_withholds_drift_and_leaks_no_withheld_name(tmp_path
     # small/gamma was excluded pre-sweep; it may appear only as a COUNT, never
     # named in published.
     assert "gamma" not in json.dumps(manifest["published"]).lower()
+
+
+# ---------------------------------------------------------------------------
+# --write-index — the self-tier-only contract: the TRACKED index commits page
+# #1 only; a sweep's foreign CLEAN names stage for review, never the committed
+# file (no soft accusation, no dangling links, no contradictory count).
+# ---------------------------------------------------------------------------
+
+
+def test_write_index_commits_self_tier_only_never_foreign_names(tmp_path, monkeypatch):
+    # a sweep that found foreign CLEAN pages — exactly the case where the old
+    # branch leaked their names into the tracked file.
+    monkeypatch.setattr(ssi, "_auditor_string", lambda: "dos-kernel test")
+    monkeypatch.setattr(ssi, "run", lambda **kw: {
+        "enumerated": 13, "kept_after_floor": 9, "excluded": 4,
+        "audited": 9, "published": ["big-org/foo", "other-org/bar"], "withheld": 4})
+    # don't shell out to gh / a live enumerate for the candidate read.
+    cand = tmp_path / "c.txt"
+    cand.write_text("big-org/foo\tclaude\n", encoding="utf-8")
+    # redirect the tracked-index write into tmp so the real repo file is untouched.
+    monkeypatch.setattr(ssi, "REPO", tmp_path)
+    (tmp_path / "docs" / "scoreboard").mkdir(parents=True)
+
+    rc = ssi.main(["--candidates", str(cand), "--out", str(tmp_path / "out"),
+                   "--rendered", "2026-06-13", "--write-index"])
+    assert rc == 0
+    written = (tmp_path / "docs" / "scoreboard" / "README.md").read_text(
+        encoding="utf-8")
+    # the self-page IS committed; the foreign sweep names are NOT.
+    assert ssi._sp._AUDITOR_REPO in written
+    assert "big-org/foo" not in written
+    assert "other-org/bar" not in written
+    # the coverage count reflects the self-page only (1), not the foreign 9 —
+    # and reads grammatically.
+    assert "1 repository audited" in written
+    assert "9 repositories" not in written

@@ -210,8 +210,16 @@ def fetch_meta(full: str, timeout: int = 30) -> dict | None:
 
 
 def repo_range(clone: Path, scan_limit: int) -> tuple[str, str] | None:
-    """(base_sha, head_sha) for the audited window: HEAD and the oldest commit
-    within the newest-`scan_limit` window. None if git can't answer."""
+    """(base_sha, head_sha) for the audited window: HEAD and the PARENT of the
+    oldest commit within the newest-`scan_limit` window. None if git can't answer.
+
+    We return the oldest commit's parent, not the oldest commit itself, because
+    the page renders the range as the git two-dot reproducer `base..head`, which
+    EXCLUDES base. Parent..head then covers exactly the audited window —
+    inclusive of the oldest commit. When the oldest IS a root commit (no parent),
+    the window genuinely begins at the repo's first commit and base..head can't
+    include it; we fall back to the oldest commit's own SHA (the prior behavior),
+    losing only that one root commit from the reproducer."""
     try:
         head = subprocess.run(
             ["git", "-C", str(clone), "rev-parse", "HEAD"],
@@ -224,9 +232,18 @@ def repo_range(clone: Path, scan_limit: int) -> tuple[str, str] | None:
         return None
     if len(head) != 40 or not oldest:
         return None
-    base = oldest[-1].strip()
-    if len(base) != 40:
+    oldest_sha = oldest[-1].strip()
+    if len(oldest_sha) != 40:
         return None
+    # Resolve the parent so base..head is inclusive of the oldest audited commit.
+    try:
+        parent = subprocess.run(
+            ["git", "-C", str(clone), "rev-parse", "--verify", "--quiet",
+             f"{oldest_sha}^"],
+            capture_output=True, text=True, timeout=30).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        parent = ""
+    base = parent if len(parent) == 40 else oldest_sha  # root commit ⇒ no parent
     return base, head
 
 
@@ -250,19 +267,29 @@ def seeded_meta(full: str, *, base_sha: str, head_sha: str, rendered: str,
                         "docs/scoreboard/methodology.md §3); a human commit is "
                         "never audited here"),
         "auditor": auditor,
+        # NOT "newest N commits" — `commits` is the count of agent-ATTRIBUTED
+        # commits audited (capped at --audit-limit), scattered within the
+        # base..head window, not a contiguous newest-N prefix. The base..head row
+        # pins the actual span; this number is the audited subset.
         "range": {"base_sha": base_sha, "head_sha": head_sha,
-                  "commits_note": f"newest {commits} commits in the scan window"},
+                  "commits_note": f"{commits} attributed commits audited"},
         "records": [],
     }
 
 
 def render_one(per_repo: dict, *, base_sha: str, head_sha: str, rendered: str,
-               auditor: str) -> tuple[str, str] | None:
-    """Render one repo's seeded page, or return None if the §2 gate withholds it.
+               auditor: str, min_checkable: int = 0) -> tuple[str, str] | None:
+    """Render one repo's seeded page, or return None if a gate withholds it.
 
     `per_repo` is a drift_scoreboard per-repo JSON ({repo, summary, …}); the
     `repo` field there is the corpus ENTRY (a URL/path). The caller passes the
     `<org>/<name>` form via `per_repo['full_name']`.
+
+    `min_checkable` (the small-denominator floor): a CLEAN verdict over only a
+    handful of checkable claims is not a meaningful trust signal — "CLEAN over 2
+    claims" says almost nothing. Below the floor the page is withheld (the §4
+    ≥20-attributed-commits intent, applied to the checkable DENOMINATOR the page
+    actually grades). 0 = off.
     """
     full = per_repo["full_name"]
     # The per-repo JSON's `repo` field is the corpus ENTRY (a clone URL); the
@@ -270,6 +297,8 @@ def render_one(per_repo: dict, *, base_sha: str, head_sha: str, rendered: str,
     # normalize it to the canonical form before handing it over.
     paired = {**per_repo, "repo": full}
     sweep = load_sweep(paired, repo=full)
+    if min_checkable and int(sweep.get("checkable", 0)) < min_checkable:
+        return None  # too thin a denominator to publish a CLEAN claim honestly
     meta = seeded_meta(full, base_sha=base_sha, head_sha=head_sha,
                        rendered=rendered, auditor=auditor,
                        commits=int(sweep.get("commits", 0)))
@@ -303,8 +332,10 @@ def render_index(published: list[str], *, audited: int, withheld: int,
     L.append("> range. The page is the receipt. Drift is a claim-vs-diff mismatch,")
     L.append("> **never** a correctness, honesty, or intent grade.")
     L.append("")
-    L.append(f"**Coverage (as of {rendered}):** {audited} repositories audited, "
-             f"{len(published)} published clean, {withheld} withheld "
+    repo_noun = "repository" if audited == 1 else "repositories"
+    page_noun = "page" if len(published) == 1 else "pages"
+    L.append(f"**Coverage (as of {rendered}):** {audited} {repo_noun} audited, "
+             f"{len(published)} {page_noun} published clean, {withheld} withheld "
              "(aggregate-only — a non-clean or unadjudicated verdict is never a "
              "named page, [docs/311](../311_scoreboard-per-repo-index-plan.md) "
              "§2).")
@@ -370,7 +401,7 @@ def _slug(entry: str) -> str:
 def run(*, candidates: list[tuple[str, str]], excluded: set[str],
         out: Path, min_stars: int, active_days: int, audit_limit: int,
         scan_limit: int, rendered: str, auditor: str, now_iso: str,
-        limit: int | None, max_mb: int = 0) -> dict:
+        limit: int | None, max_mb: int = 0, min_checkable: int = 0) -> dict:
     """Execute the pipeline. Returns a manifest of COUNTS + the published
     (CLEAN, named) set only — never an un-published foreign name."""
     out.mkdir(parents=True, exist_ok=True)
@@ -435,9 +466,10 @@ def run(*, candidates: list[tuple[str, str]], excluded: set[str],
             continue  # no pinned range → can't make an honest as-of page
         base_sha, head_sha = rng
         result = render_one(per_repo, base_sha=base_sha, head_sha=head_sha,
-                            rendered=rendered, auditor=auditor)
+                            rendered=rendered, auditor=auditor,
+                            min_checkable=min_checkable)
         if result is None:
-            continue  # §2: withheld (non-CLEAN) — unnamed, no page
+            continue  # §2 withheld (non-CLEAN) OR too-thin a denominator — unnamed
         markdown, _state = result
         org, name = full.split("/", 1)
         page_path = pages_dir / org / f"{name}.md"
@@ -495,6 +527,11 @@ def main(argv: list[str] | None = None) -> int:
                     "huge repo blows the time/disk budget — measured: a 1GB+ "
                     "repo can't clone in a session. A shallow clone is not a "
                     "fix (ancestry). Excluded as TOO_LARGE.")
+    ap.add_argument("--min-checkable", type=int, default=20,
+                    help="withhold a CLEAN page with fewer than this many "
+                    "checkable claims — a CLEAN verdict over a handful of claims "
+                    "is not a real trust signal (the §4 small-denominator floor, "
+                    "applied to the checkable denominator). Default 20; 0 = off.")
     ap.add_argument("--rendered", help="render date YYYY-MM-DD (default: today UTC)")
     ap.add_argument("--write-index", action="store_true",
                     help="write the tracked docs/scoreboard/README.md index "
@@ -538,12 +575,19 @@ def main(argv: list[str] | None = None) -> int:
         min_stars=args.min_stars, active_days=args.active_days,
         audit_limit=args.audit_limit, scan_limit=args.scan_limit,
         rendered=rendered, auditor=_auditor_string(), now_iso=now_iso,
-        limit=args.limit, max_mb=args.max_clone_mb)
+        limit=args.limit, max_mb=args.max_clone_mb,
+        min_checkable=args.min_checkable)
 
     if args.write_index:
+        # The self-tier-only contract (docstring §"owner-gated boundary"): the
+        # TRACKED index commits page #1 (the auditor's own repo) ONLY. Foreign
+        # CLEAN pages stage under --out for the operator's review + right-of-reply
+        # before any gh-pages push — they are NOT named in the committed file, and
+        # their links would dangle (the pages live in the gitignored staging dir,
+        # not under docs/scoreboard/). So pass published=[] and count just the
+        # self-page; the foreign counts live in the staged manifest, not here.
         index_md = render_index(
-            manifest.get("published", []), audited=manifest.get("audited", 0),
-            withheld=manifest.get("withheld", 0), rendered=rendered,
+            [], audited=1, withheld=0, rendered=rendered,
             self_page=_sp._AUDITOR_REPO)
         (REPO / "docs" / "scoreboard" / "README.md").write_bytes(
             index_md.encode("utf-8"))

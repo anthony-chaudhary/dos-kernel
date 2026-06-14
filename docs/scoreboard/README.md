@@ -5,7 +5,7 @@
 > range. The page is the receipt. Drift is a claim-vs-diff mismatch,
 > **never** a correctness, honesty, or intent grade.
 
-**Coverage (as of 2026-06-13):** 1 repositories audited, 0 published clean, 0 withheld (aggregate-only — a non-clean or unadjudicated verdict is never a named page, [docs/311](../311_scoreboard-per-repo-index-plan.md) §2).
+**Coverage (as of 2026-06-13):** 25 repositories audited, 3 pages published clean, 22 withheld (aggregate-only — a non-clean or unadjudicated verdict is never a named page, [docs/311](../311_scoreboard-per-repo-index-plan.md) §2).
 
 ## Page #1 — the auditor's own repo
 
@@ -13,7 +13,9 @@
 
 ## Published pages (seeded — clean verdicts)
 
-_(none yet — the seed run publishes here once the corpus sweep runs and the operator publishes to Pages, #98)_
+- [JuliusBrussee/caveman](JuliusBrussee/caveman.md)
+- [farion1231/cc-switch](farion1231/cc-switch.md)
+- [unslothai/unsloth](unslothai/unsloth.md)
 
 ## How to read this
 
