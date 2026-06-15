@@ -72,6 +72,7 @@ taxonomy is 1:1 with the EXAMPLES.md recipes, which is the whole spine:
 | "this commit did what its subject says" | `COMMIT_HONEST` | R1 | `dos commit-audit` — subject vs. its own diff |
 | "keep working until the goal is met" | `GOAL_DONE` | R1b | `dos hook stop` wired *alongside* the harness goal (ANY-block) |
 | "I created file / row / message / deploy" | `EFFECT` | R9/§2b | effect read-back — **no CLI verb today**; Python API + **log the gap** |
+| "a CI / workflow run concluded GREEN/RED" | `CI_GREEN` | (issue-verify R-run) | the run's own `conclusion` field (`gh run view --json conclusion`, the `dos.drivers.ci_status` rung), never the run-log narration — **driver-witnessed, no first-party CLI verb today; log the gap** |
 | "I'm editing these files (no collision)" | `WRITE` | R2 | `dos arbitrate` over the tree **before** writing; honor the redirect |
 | "is there work / safe to proceed" | `GATE` | R3 | `dos gate` — branch on the exit code, not the printed line |
 | "how is run R doing" | `RUN_STATE` | R4 | `dos status` — the digest with no `claimed` field |

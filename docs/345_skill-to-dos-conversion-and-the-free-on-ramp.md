@@ -87,6 +87,7 @@ the EXAMPLES.md recipes — that is the design's spine:
 | "this commit did what its subject says" | R1 | `dos commit-audit` — subject vs. its own diff |
 | "keep working until the goal is met" | R1b | `dos hook stop` wired alongside the harness goal |
 | "I created file / row / message / deploy" | R9/§2b | effect read-back (Python API gap — log it honestly) |
+| "a CI / workflow run concluded GREEN/RED" | issue-verify R-run | the run's own `conclusion` field (`gh run view --json conclusion`, the `dos.drivers.ci_status` rung), not the run-log — **driver-witnessed; no first-party CLI verb yet, log the gap** |
 | "I'm editing these files (no one else is)" | R2 | `dos arbitrate` over the tree **before** writing |
 | "is there work / is it safe to proceed" | R3 | `dos gate` — branch on the exit code, not prose |
 | "how is run R doing" | R4 | `dos status` — the no-`claimed`-field digest |
@@ -201,6 +202,30 @@ the row (and the recipe, if it's genuinely new).
 > **Headless spawn (operator's "next step").** A headless `claude -p` worker,
 > wrapped by `dos guard` so it can call the referee, runs the dogfood sweep and
 > the §5 corpus design unattended. Spec in §8.
+
+### Dogfood result (2026-06-15, M1 — verified)
+
+The taxonomy was run by hand over all 18 repo skills (14 generic + 4 host).
+Findings, each ground-checked:
+
+- **Idempotence PASS — no converter churn.** All 14 generic skills come out
+  **all-LEAVE**; so do 2 of the 4 host skills (`issue-work`, `issue-verify`).
+  `dos-goal-gate` (the canonical idempotence target) is clean — every belief-bit
+  already shells the right `dos` verb. This validates the converter's core design
+  promise: it does not rewrite an already-grounded skill.
+- **One taxonomy gap found and CLOSED — `CI_GREEN`.** "a CI/workflow run concluded
+  green/red" is a load-bearing belief-bit in `release` / `stable-release` /
+  `issue-verify`, but it mapped onto no §2 row (it is neither `SHIPPED` git
+  ancestry nor a file/row `EFFECT`). Its witness is the run's own `conclusion`
+  field (the `dos.drivers.ci_status` rung) — driver-witnessed, with **no
+  first-party CLI verb today**, so a converter logs it as a gap. Added as a §2
+  row. This is exactly the honesty-check loop above working as designed.
+- **Two arguable host-skill seams (not bugs).** `release` Step 7.6 runs
+  `dos commit-audit --warn-only` (advisory by design — correct for an
+  already-immutable tag → LEAVE-with-a-note); `stable-release` Step 2 gathers the
+  PyPI read-back (`pip index versions`) *by hand, not in the gate* — the most
+  defensible GUARD, promotable to a `stable_release_context.py` gate row. Neither
+  is a forced conversion; both are surfaced, not auto-edited.
 
 ---
 
