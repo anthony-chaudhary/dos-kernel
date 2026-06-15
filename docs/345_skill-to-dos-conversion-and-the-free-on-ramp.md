@@ -297,6 +297,91 @@ a tracked issue (§8 drafts it). The design:
 
 ---
 
+## 6.5 Why this is unique — and where it is not (the honest positioning)
+
+The operator's question behind this whole plan: *"DOS can be added to any skill —
+how unique is that, really?"* The kernel's own discipline says: don't assert it,
+check it against the field. A landscape scan of what shipped agent ecosystems,
+eval frameworks, guardrails, and the self-verification literature actually do (as
+of mid-2026) gives a sharp, falsifiable answer — including two things we must
+**not** claim.
+
+The claim only matters if **four** properties hold together. Grade any neighbor
+against all four:
+
+1. **Additive over an *arbitrary* existing skill** — it bolts a layer onto a
+   skill you already have, without rewriting its job. Not "adopt our framework."
+2. **Grounds on an independently-authored witness** — the "done/shipped/found"
+   bit is decided by something the agent did not write (git ancestry, a CI run's
+   `conclusion` field, a file read-back), not the agent's own output re-scored,
+   not a content-safety classifier, not a supplied reference corpus.
+3. **Witness-type-agnostic** — it spans many effect kinds (a phase shipped, a
+   file written, a CI run, a fan-out fold), not one fixed oracle.
+4. **Inline per-run** — it gates the belief *before* the agent acts on it, not an
+   offline eval over a logged trace.
+
+### The two things we do NOT get to claim
+
+- **Inline gating is not novel.** CrewAI task guardrails, the OpenAI Agents SDK,
+  Galileo Agent Control, and DeepEval guards all block a step inline. Property 4
+  is table stakes, not a differentiator. What is unusual is *what our gate reads*
+  (property 2), never that it gates.
+- **"Distrust the narration, check an oracle" is not novel.** It is an active
+  research direction (execution-grounded verification — *AgentForge*, *Verify
+  Before You Fix*) and at least one shipped tool (the Swarm merge-gate
+  orchestrator demotes transcript-parsing and checks `git_diff` / `test_exec`).
+  We did not invent the principle. Claiming we did would be exactly the
+  over-claim the kernel refuses.
+
+### What the field actually leaves unoccupied
+
+With those two concessions made, the surveyed field still does **not** deliver
+all four properties together. Each near-neighbor breaks one:
+
+- **Agent skill formats** (Claude/OpenAI skills) are prompt + tool-binding with
+  **no outcome-verification construct at all** — fail property 2.
+- **Eval frameworks** (LangSmith, Braintrust, Arize) market "online evals," but
+  that means continuous LLM-judge scoring of *logged traces* — observability, run
+  async, not a gate. The most common way a reviewer wrongly thinks this is
+  already solved. Fail property 4 (and 2 — an LLM-judge is not an independent
+  effect read-back).
+- **Guardrails** (NeMo, Guardrails AI, Llama Guard) validate text against a
+  rule / schema / safety taxonomy, or entailment against a *retrieved* corpus —
+  never "this claimed effect is true in the world." Fail property 2. (Their
+  fact-check rails are the most *confusable*, because they check a claim against a
+  source inline — but the source is a supplied document, not a witness an effect
+  occurred.)
+- **Self-verification research** (Reflexion, Self-Refine, CriticGPT, LLM-judge) is
+  the model checking its **own** work — consistency, not grounding (the
+  self-preference-bias literature is direct evidence it is not independent).
+- **Execution-grounded research & Swarm** match property 2 but ground on a single
+  narrow oracle (code execution / test pass) inside a **purpose-built pipeline you
+  adopt** — fail property 1 and property 3. None is a witness-type-agnostic layer
+  you wrap around a pre-existing arbitrary skill.
+
+### The defensible one-liner
+
+> Not *"first to verify agent claims."* The honest, narrow, defensible claim is:
+> **the first to make independent-witness grounding a mechanical, additive,
+> witness-type-agnostic layer over *any* existing skill, inline — rather than a
+> property of a bespoke pipeline, an offline eval, or a content-safety gate.**
+
+That is the value: a maintainer keeps their skill, their job logic, their taste,
+and gains a grounded "done" without adopting a framework — at the cost of the
+witness steps' latency (§6's cost axis) and the honest `UNWITNESSABLE` rows DOS
+can't ground. The benchmark (§6) is what turns this positioning from an argument
+into a measurement; this section is what the benchmark is *for*.
+
+> Sourcing note: this section is grounded in a 2026 landscape scan across the
+> five categories above (agent skill ecosystems, eval/observability frameworks,
+> prompt/skill linters, guardrails, and the self-verification literature). The two
+> concessions are load-bearing — a positioning that can only confirm itself is the
+> bias the kernel refuses (docs/333). Treat any specific 2026-dated arXiv ID as
+> claimed-not-verified until resolved; the *shape* of the field (who holds which
+> two of the four properties) is the robust finding.
+
+---
+
 ## 7. The free, easy on-ramp (the "expose as a service" axis)
 
 Three tiers, cheapest-to-stand-up first. All free; the kernel is already MIT/pip.
