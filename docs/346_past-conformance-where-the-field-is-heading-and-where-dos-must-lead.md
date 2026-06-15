@@ -1,4 +1,4 @@
-# 345 — Past conformance: where the field is heading, and where DOS must lead
+# 346 — Past conformance: where the field is heading, and where DOS must lead
 
 > **The question behind the question.** The operator's framing is exact and it is
 > a critique wearing a compliment: *"DOS has so far aimed to conform the most to
