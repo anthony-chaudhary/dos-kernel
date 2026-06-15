@@ -11,6 +11,20 @@
 
 This is issue [#176](https://github.com/anthony-chaudhary/dos-kernel/issues/176), the docs/345 §6 ablation.
 
+> **Public dashboard.** The scored result renders into a self-contained public page by
+> [`scripts/build_skill_dos_page.py`](../../scripts/build_skill_dos_page.py) — every number
+> DERIVED from this harness, byte-reproducible under `--check`, the same house style as the
+> [drift-rate scoreboard](../../scripts/drift_scoreboard.py). The HTML is not tracked here
+> (`*.html` is gitignored); the builder regenerates it on demand and it publishes to the
+> `gh-pages` branch as `skill-dos-benchmark.html`. The page draws the one contrast: the field
+> audits a skill by **grading the agent's output** (an LLM-judge rubric — Tessl's eval
+> methodology); DOS grounds the "done" bit on a **witness the agent did not author**.
+>
+> ```bash
+> python scripts/build_skill_dos_page.py --out skill-dos-benchmark.html   # render
+> python scripts/build_skill_dos_page.py --check --out skill-dos-benchmark.html  # freshness
+> ```
+
 ## Scope (stated plainly)
 
 A **CPU-only, no-API-key, fully deterministic** replay over a **committed fixture corpus**. The
