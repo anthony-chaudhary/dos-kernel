@@ -544,6 +544,47 @@ def resolve_self_lease(
     return self_lane, self_tree, other_trees
 
 
+def _lease_key(lease: dict) -> tuple[str, str]:
+    """The `(loop_ts, lane)` identity the generation map is keyed on — the SAME
+    key `lane_journal._lease_identity` / `lease_generations` uses, so a generation
+    folded from the WAL joins onto the live lease it belongs to."""
+    return (str(lease.get("loop_ts") or ""), str(lease.get("lane") or ""))
+
+
+def resolve_self_generation(
+    leases: list[dict],
+    cfg: "_config.SubstrateConfig",
+    generations: dict[tuple[str, str], int],
+) -> tuple["Optional[int]", tuple["Optional[int]", ...]]:
+    """The fencing GENERATION this run holds + each OTHER live lease's (docs/342 M2).
+
+    The generation half of the apply-gate evidence (docs/114 §A2 — the fencing token).
+    Joins the WAL-folded `generations` map (`lane_lease.live_generations`) onto the
+    SAME live-lease set `resolve_self_lease` reads, by `(loop_ts, lane)` identity, and
+    returns `(self_generation, other_generations)` ALIGNED 1:1 with the `other_trees`
+    that `resolve_self_lease` returns — so the gate can pair each sibling's tree with
+    its generation. `other_generations[i]` is the generation of the same lease whose
+    tree is `other_trees[i]` (the identical filter: NOT self, has a tree).
+
+    The generation is the WAL-folded token, NOT the holder's heartbeat (§A2's sharpest
+    point — the heartbeat is itself a self-report). A lease with no folded generation
+    (a legacy/pre-M2 ACQUIRE) reads as `None` — present-but-unfenced, which the gate's
+    fail-CLOSED-on-self / strictly-greater-on-other rules handle. When THIS run resolves
+    no own lease, `self_generation` is `None` (fail-closed at the gate against any
+    overlapping live grant).
+    """
+    self_lease = _find_self_lease(leases, cfg)
+    self_generation = (
+        generations.get(_lease_key(self_lease)) if self_lease else None
+    )
+    other_generations = tuple(
+        generations.get(_lease_key(lease))
+        for lease in leases
+        if lease is not self_lease and lease.get("tree")
+    )
+    return self_generation, other_generations
+
+
 def prior_results(session_id: str, cfg: "_config.SubstrateConfig"):
     """The env-authored corpus of PRIOR tool results — the cross-moment join (docs/191 §2).
 
@@ -895,11 +936,27 @@ def decide(
         self_lane, self_tree, other_trees = resolve_self_lease(leases, cfg)
         if self_tree or other_trees:
             from dos import apply_gate
+            from dos import lane_lease
+            # The fencing generations (docs/342 M2 / docs/114 §A2): fold the WAL into
+            # the monotonic per-lease generation and present THIS run's at the gate,
+            # so a stale-paused holder that wakes after a SCAVENGE is refused over a
+            # region re-granted to another agent. Read from the WAL (not the holder's
+            # heartbeat — itself a self-report); a read fault degrades to no fence
+            # (the collision rung still binds), never blocks the call on a fold error.
+            try:
+                gens = lane_lease.live_generations(cfg)
+            except Exception:
+                gens = {}
+            self_generation, other_generations = resolve_self_generation(
+                leases, cfg, gens
+            )
             ev = apply_gate.ApplyEvidence(
                 touched_files=frozenset(tree),
                 self_lane=self_lane,
                 self_tree=self_tree,
                 other_trees=other_trees,
+                self_generation=self_generation,
+                other_generations=other_generations,
             )
             gate = apply_gate.decide(ev)
             if not gate.allowed:

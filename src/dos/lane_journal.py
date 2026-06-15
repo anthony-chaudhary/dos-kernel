@@ -471,6 +471,92 @@ def replay(entries: Iterable[dict]) -> list[dict]:
     return [live[k] for k in order if k in live]
 
 
+def lease_generations(entries: Iterable[dict]) -> dict[tuple[str, str], int]:
+    """Fold the WAL into a per-lease GENERATION number, monotonic by append order.
+
+    The docs/342 M2 fence primitive (docs/114 §A2 — Kleppmann's fencing token). The
+    lease record carries `pid, host_id, holder, acquired_at` but NO monotonically
+    increasing generation a holder must re-present on every write, so a stale-paused
+    holder that wakes after a SCAVENGE can write over a region re-granted to another
+    agent (the routine LLM-agent hazard: a pause that outlives the TTL). This fold is
+    that token: a counter incremented on every GRANT (ACQUIRE / RECONCILE) in append
+    order, assigned to the granted `(loop_ts, lane)` lease. The check is at the GATE
+    (`apply_gate`), never trusted from the holder's heartbeat (itself a self-report).
+
+    PURE — entries in, a `{(loop_ts, lane): generation}` map out, no disk, no clock.
+    Folded the SAME append-ordered way `replay` reconstructs the live set, so the
+    generation is **monotonic by construction** (each grant takes a strictly higher
+    number than every grant before it) and an ADJUDICATION over the same WAL, not a
+    counter the kernel persists separately. Kept DELIBERATELY OUT of `replay`'s
+    reconstructed lease dict: a new `generation` key on the live lease would break
+    the `replay(compact(E)) == replay(E)` differential invariant (the live set is
+    compared by dict equality). So this is a read-time projection over the WAL — the
+    same stance `_expire_dead` takes — computed at the gate boundary, never a WAL
+    mutation. Generations survive compaction: a CHECKPOINT carries each surviving
+    lease's `generation` in its payload (`checkpoint_entry`), and re-basing onto it
+    seeds the counter from the snapshot's high-water mark, so a compacted journal
+    yields generations `>=` the originals on the leases that survived (never a reused
+    or lower number — the same monotonicity `next_seq`'s `seq_watermark` preserves).
+
+    The semantics, matching the fence at the gate:
+
+      * ACQUIRE / RECONCILE -> assign the NEXT generation to `(loop_ts, lane)`. A
+        re-grant of a lane a prior holder was scavenged out of takes a strictly higher
+        number than that prior grant (the witness: A=gen N, B re-granted=gen N+1).
+      * RELEASE / SCAVENGE  -> DROP the `(loop_ts, lane)` entry (a freed lease holds
+        no generation; the region's live generation, if any, belongs to whoever holds
+        it NOW). A holder that wakes after its SCAVENGE therefore resolves NO live
+        generation for its old identity and presents only the STALE number it last
+        knew — which the gate compares against the live re-grant's higher one.
+      * HEARTBEAT / ADOPT   -> NO new generation. A beat is not a grant; an ADOPT is
+        an ownership rewrite of an EXISTING hold (the lease keeps its generation, the
+        way it keeps its identity/tree/children). Neither re-fences a region.
+      * CHECKPOINT          -> RESET the map to the snapshot's `(loop_ts,lane)->generation`
+        payload and continue the counter from its max (compaction-stable, above).
+      * HALT / REFUSE / ENFORCE / ATTEMPT / SPAWN / _CORRUPT / unknown -> ignored (no
+        grant, mirroring `replay`'s forensic-event handling).
+
+    Returns ONLY the generations of leases that are still live in the fold (a dropped
+    lease has no entry), so a caller can join it to `replay`'s live set by identity.
+    """
+    gens: dict[tuple[str, str], int] = {}
+    counter = 0
+    for e in entries:
+        op = str(e.get("op") or "")
+        if op == OP_CHECKPOINT:
+            # A compaction snapshot re-bases the generation map exactly as it re-bases
+            # `replay`'s live set: reset to the carried generations, then continue the
+            # counter from the high-water mark so post-checkpoint grants stay strictly
+            # monotonic (no reused number after the lines that held the prior max were
+            # discarded — the `seq_watermark` discipline, here for generations).
+            gens.clear()
+            payload = e.get("generations")
+            if isinstance(payload, list):
+                for row in payload:
+                    if not isinstance(row, dict):
+                        continue
+                    key = (str(row.get("loop_ts") or ""), str(row.get("lane") or ""))
+                    if not key[0] and not key[1]:
+                        continue
+                    g = row.get("generation")
+                    if isinstance(g, int) and not isinstance(g, bool):
+                        gens[key] = g
+                        counter = max(counter, g)
+            continue
+        if op not in _STATE_MUTATING_OPS:
+            continue
+        key = _lease_identity(e)
+        if not key[0] and not key[1]:
+            continue
+        if op in (OP_ACQUIRE, OP_RECONCILE):
+            counter += 1
+            gens[key] = counter
+        elif op in (OP_RELEASE, OP_SCAVENGE):
+            gens.pop(key, None)
+        # HEARTBEAT / ADOPT: no new grant — the generation is unchanged.
+    return gens
+
+
 # --------------------------------------------------------------------------
 # Entry builders — the writer (`lane_lease` / the supervisor driver) uses these
 # so the entry shape is defined HERE (one home), not duplicated at each call
@@ -904,7 +990,12 @@ def enforce_entry(
     }
 
 
-def checkpoint_entry(leases: list[dict], *, seq_watermark: int) -> dict:
+def checkpoint_entry(
+    leases: list[dict],
+    *,
+    seq_watermark: int,
+    generations: dict[tuple[str, str], int] | None = None,
+) -> dict:
     """Build an OP_CHECKPOINT snapshot of the authoritative live-lease set.
 
     Written at the HEAD of a compacted journal (`compact`): it carries the full
@@ -912,12 +1003,31 @@ def checkpoint_entry(leases: list[dict], *, seq_watermark: int) -> dict:
     without the original ACQUIRE lines, plus `seq_watermark` (the max `seq` seen
     in the discarded history) so `next_seq` stays monotonic across a rewrite that
     deleted the lines holding the prior high-water mark. Pure constructor.
+
+    `generations` (OPTIONAL, docs/342 M2) is the per-lease fencing generation of the
+    surviving leases (`lease_generations` over the discarded history). It rides in a
+    SEPARATE `generations` field — a list of `{loop_ts, lane, generation}` rows — NOT
+    on the `leases` payload, on purpose: `replay`'s CHECKPOINT branch reads only
+    `leases` and reconstructs each lease with `dict(lease)`, so a `generation` key on
+    that payload would re-enter the live lease and break `replay(compact(E)) ==
+    replay(E)` (compared by dict equality). Keeping it in its own field means `replay`
+    never sees it and stays byte-identical, while `lease_generations` reads it to
+    carry the fencing token across a compaction (so a re-granted region's generation
+    cannot reset below a still-live holder's after the WAL is folded). Absent ⇒ a
+    checkpoint from a kernel that did not stamp generations: the fold re-seeds from
+    that point, the safe direction (a missing generation fails CLOSED at the gate).
     """
-    return {
+    e: dict = {
         "op": OP_CHECKPOINT,
         "leases": [dict(l) for l in leases],
         "seq_watermark": int(seq_watermark),
     }
+    if generations:
+        e["generations"] = [
+            {"loop_ts": k[0], "lane": k[1], "generation": int(g)}
+            for k, g in generations.items()
+        ]
+    return e
 
 
 def compact(entries: Iterable[dict]) -> list[dict]:
@@ -953,6 +1063,12 @@ def compact(entries: Iterable[dict]) -> list[dict]:
     """
     materialized = list(entries)
     live = replay(materialized)
+    # The fencing generations (docs/342 M2) of the surviving leases, carried in the
+    # checkpoint's SEPARATE `generations` field so a compaction cannot reset a region's
+    # generation below a still-live holder's. Folded from the same discarded history as
+    # `live`, so a surviving lease keeps the generation it was granted at; `replay`
+    # never sees this field, so the live-set equivalence is untouched.
+    gens = lease_generations(materialized)
     watermark = 0
     corrupt: list[dict] = []
     for e in materialized:
@@ -968,7 +1084,9 @@ def compact(entries: Iterable[dict]) -> list[dict]:
         watermark = max(watermark, s, w)
         if str(e.get("op") or "") == "_CORRUPT":
             corrupt.append(dict(e))
-    return [checkpoint_entry(live, seq_watermark=watermark)] + corrupt
+    return [
+        checkpoint_entry(live, seq_watermark=watermark, generations=gens)
+    ] + corrupt
 
 
 def main(argv: list[str] | None = None) -> int:
