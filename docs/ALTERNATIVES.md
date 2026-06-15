@@ -159,6 +159,37 @@ status check — this very repo gates on it.
 **Use both.** Keep CI as the merge floor; add DOS where the agents actually
 work.
 
+## Legal citation checkers (CiteCheck-class, Westlaw/Lexis verifiers)
+
+A wave of tools now checks AI-generated legal citations against real case law:
+commercial citation-validation engines and the verification features built into
+the big legal-research platforms. They are good at what they do — they scan a
+finished brief at document scale, cross-reference a managed, licensed caselaw
+corpus, and many reach toward the harder question of whether a case is still
+good law. If your need is post-hoc review of a completed document against a
+comprehensive paid corpus, that is the right tool and DOS does not replace it.
+
+**What DOS adds.** Look at *where* and *when* the check runs, and *who* it runs
+for. Those tools scan the document *after* it's written, for the lawyer
+reviewing it. DOS's `citation_resolve` is the same existence-and-quote check
+aimed *inside the agent that writes the cite* — a free, open-source MCP tool (or
+exit-code command) the legal agent calls at the moment it emits a citation, so a
+fabrication is refused *before* it becomes a paragraph. It resolves against a
+third-party reporter the model didn't author (CourtListener / Free Law Project),
+needs no API key to abstain safely, and is deliberately Tier-1: it witnesses
+existence and quote-fidelity, and **abstains** on whether the case supports your
+argument — the over-claim that, in this domain, is a liability. The mechanism is
+reproducible at $0 ([`benchmark/legalcite/RESULTS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/legalcite/RESULTS.md)),
+not a number you have to take on faith.
+
+**Use both — and choose a commercial tool when** you need argument-level review
+(is this good law? does it support the proposition?), managed-corpus breadth
+beyond CourtListener's coverage, or a turnkey product for non-engineers. Choose
+DOS when you are *building* the legal agent and want the cheap, non-forgeable
+existence rung wired in at emit time, before the irreversible act of filing.
+The [sourced walkthroughs](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/answers/catch-fabricated-legal-citations-in-my-ai-agent.md)
+are in the answer corpus.
+
 ---
 
 ## When NOT to use DOS
@@ -194,7 +225,8 @@ needed.
 | Temporal-class | execution progress | its own event history | continuously |
 | in-toto / witness | artifact provenance | signed step attestations | per pipeline run |
 | Plain CI | the merge | the checks' exit codes | at the PR |
-| **DOS** | **belief in "done"** | **git ancestry, exit codes, read-backs — never the agent's narration** | **during and after the work** |
+| Legal citation checkers | a finished brief's cites | a managed, paid caselaw corpus | post-hoc, for the reviewer |
+| **DOS** | **belief in "done"** (incl. *does this cited case exist?*) | **git ancestry, exit codes, read-backs, a third-party reporter — never the agent's narration** | **during and after the work** |
 
 Every row above is a tool this repo either uses, integrates with, or learned
 from. Start with the [README](https://github.com/anthony-chaudhary/dos-kernel/blob/master/README.md)
@@ -204,7 +236,7 @@ for the arriving questions, and the
 [fleet-framework cookbook](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/cookbook-fleet-frameworks.md)
 for the per-framework recipes (LangGraph, CrewAI, AutoGen, the Agents SDKs).
 
-*Citations checked 2026-06-12 against each project's primary documentation.
+*Citations checked 2026-06-15 against each project's primary documentation.
 Spotted a claim about your project that's wrong or stale?
 [Open an issue](https://github.com/anthony-chaudhary/dos-kernel/issues) — this
 page holds itself to the standard it describes.*

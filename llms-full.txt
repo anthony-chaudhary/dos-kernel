@@ -31,6 +31,12 @@
 [![commit-claims](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fanthony-chaudhary%2Fdos-kernel%2Fmaster%2Fdocs%2Fscoreboard%2Fanthony-chaudhary%2Fdos-kernel%2Fbadge.json)](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/scoreboard/methodology.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/anthony-chaudhary/dos-kernel/blob/master/LICENSE)
 
+> 📊 **See it run on real repos:** the **[scoreboard](https://anthony-chaudhary.github.io/dos-kernel/scoreboard/)**
+> takes this same check public — for 15 popular AI-built repos (roborev,
+> open-interpreter, crewAI, autogen, …) it shows how much of each was written by
+> agents, which agents, and whether every commit's claim is backed by its own
+> diff. One command scores yours: `dos commit-audit --sweep --workspace . BASE..HEAD`.
+
 <p align="center">
   <img src="https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/docs/assets/caught-lie-cast.svg" alt="A terminal recording of the caught lie. The agent reports: Done! Shipped the login endpoint (AUTH1) and the password reset (AUTH2). git log shows one commit — AUTH1: ship the login endpoint. dos verify AUTH AUTH1 answers SHIPPED (exit 0); dos verify AUTH AUTH2 answers NOT_SHIPPED via none (exit 1) — caught. The exit code is the verdict: gate the agent's done on it and a false claim cannot land." width="100%">
   <br>
@@ -564,6 +570,18 @@ The MCP server is **advisory**: the agent *calls* the referee when it (or you)
 thinks to. The per-host wiring for Cursor / Codex / Gemini is in
 **[the MCP README](https://github.com/anthony-chaudhary/dos-kernel/blob/master/src/dos_mcp/README.md)** — all four are MCP clients, so this
 works on every one of them with zero code.
+
+**Building a legal agent?** `dos_citation_resolve` is the same lie-detector
+aimed at the failure class that gets lawyers sanctioned: a fabricated case
+citation (the *Mata v. Avianca* class). Wired in as an MCP tool, it checks each
+cite the agent emits *before* the brief is written — a pre-effect gate, not a
+post-hoc document scan — by resolving it against a third-party reporter the
+model didn't author (CourtListener), and abstains rather than guess when it has
+no corpus access. It witnesses existence and quote-fidelity, never whether the
+case supports your argument. The sourced walkthroughs:
+[catch fabricated citations inside your agent](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/answers/catch-fabricated-legal-citations-in-my-ai-agent.md),
+[avoid an AI-citation sanction](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/answers/largest-ai-hallucination-sanction-how-to-avoid.md),
+and [the ABA Opinion 512 duty](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/answers/aba-512-verify-ai-citations-duty.md).
 
 **Gemini CLI users get a one-liner.** DOS ships a `gemini-extension.json`
 manifest at the repo root, so the whole referee — the MCP server plus a context
@@ -1628,6 +1646,59 @@ story, start at the [README](../../README.md) or the
 | Do AI coding agents lie about what they shipped? | `dos verify` / `dos commit-audit` | [do-ai-coding-agents-lie-about-what-they-shipped](do-ai-coding-agents-lie-about-what-they-shipped.md) |
 | How do I add a guardrail to a coding agent with no plugin/hook system? | `dos commit-audit` (exit code) | [how-to-add-a-guardrail-to-a-coding-agent-with-no-plugin-system](how-to-add-a-guardrail-to-a-coding-agent-with-no-plugin-system.md) |
 | What replaced tokens-burned as the metric for AI agents? | `dos verify` / `dos efficiency` / `dos reward` | [what-replaced-tokens-burned-as-the-metric-for-ai-agents](what-replaced-tokens-burned-as-the-metric-for-ai-agents.md) |
+| How do I verify an agent actually committed code instead of just saying it did? | `dos verify` | [how-to-verify-an-ai-agent-actually-committed-code](how-to-verify-an-ai-agent-actually-committed-code.md) |
+| My AI agent said "all tests pass" but the app is still broken | `dos test-witness` / `dos coverage` | [ai-agent-said-tests-pass-but-app-is-broken](ai-agent-said-tests-pass-but-app-is-broken.md) |
+| How do I know if my agent's commit message matches what it changed? | `dos commit-audit` | [does-the-commit-message-match-what-changed](does-the-commit-message-match-what-changed.md) |
+| How do I verify a cited legal case actually exists before filing? | `citation-resolve` (MCP) / `dos doctor` | [how-to-verify-a-cited-legal-case-exists](how-to-verify-a-cited-legal-case-exists.md) |
+| How do I catch fabricated legal citations inside my AI agent? | `citation-resolve` (MCP / exit code) | [catch-fabricated-legal-citations-in-my-ai-agent](catch-fabricated-legal-citations-in-my-ai-agent.md) |
+| How do I avoid an AI-citation sanction? | `citation-resolve` (MCP) / `dos doctor` | [largest-ai-hallucination-sanction-how-to-avoid](largest-ai-hallucination-sanction-how-to-avoid.md) |
+| Does ABA Opinion 512 require me to verify AI-generated citations? | `citation-resolve` (MCP) / `dos doctor` | [aba-512-verify-ai-citations-duty](aba-512-verify-ai-citations-duty.md) |
+| How do I make an agent prove it did the work instead of self-certifying done? | `dos improve` / `dos verify` | [make-an-agent-prove-the-work-not-self-certify](make-an-agent-prove-the-work-not-self-certify.md) |
+| My AI agent deleted my tests to make the build pass | `dos test-witness` / `dos commit-audit` | [ai-agent-deleted-my-tests-to-pass-the-build](ai-agent-deleted-my-tests-to-pass-the-build.md) |
+| How do I refuse an agent action with a structured reason instead of free text? | `dos refuse-reasons` / `dos check-reason` | [refuse-an-agent-action-with-a-structured-reason](refuse-an-agent-action-with-a-structured-reason.md) |
+| How do I catch an empty commit / `--allow-empty "shipped"` fake-done? | `dos commit-audit` / `dos verify` | [catch-allow-empty-shipped-fake-done](catch-allow-empty-shipped-fake-done.md) |
+| How do I verify a quoted holding actually appears in the cited opinion? | `citation-resolve` (MCP) | [verify-a-quoted-holding-appears-in-the-opinion](verify-a-quoted-holding-appears-in-the-opinion.md) |
+| How can a court audit AI-generated citations in filings it receives? | `citation-resolve` (MCP) / `dos attest` | [how-a-court-can-audit-ai-citations-in-filings](how-a-court-can-audit-ai-citations-in-filings.md) |
+| My recalled agent memory is stale or wrong — how do I re-verify it? | `recall` (MCP) | [recalled-agent-memory-is-stale-how-to-reverify](recalled-agent-memory-is-stale-how-to-reverify.md) |
+| How do I prove a phase or feature actually shipped from git history? | `dos verify` | [prove-a-phase-shipped-from-git-history](prove-a-phase-shipped-from-git-history.md) |
+| How do I do lease-based file locking to coordinate parallel coding agents? | `dos arbitrate` / `dos lease-lane` | [lease-based-file-locking-for-parallel-agents](lease-based-file-locking-for-parallel-agents.md) |
+| How do I verify what a subagent claims before folding its output? | `dos verify` / `dos commit-audit` | [verify-what-a-subagent-claims-before-folding](verify-what-a-subagent-claims-before-folding.md) |
+| Reward hacking in LLM coding agents — how do I measure and prevent it? | `dos reward` / `dos improve` | [reward-hacking-in-llm-coding-agents](reward-hacking-in-llm-coding-agents.md) |
+| Why can't I trust an AI model to judge its own work? | `dos verify` / `dos improve` | [why-you-cant-trust-a-model-to-judge-its-own-work](why-you-cant-trust-a-model-to-judge-its-own-work.md) |
+| How do I catch fabricated figures in an agent's financial model output? | `formula_recompute` / `dos doctor` | [catch-fabricated-figures-in-agent-financial-output](catch-fabricated-figures-in-agent-financial-output.md) |
+| Which on-device agent models can a guardrail actually recover from a bad action? | `dos commit-audit` / `dos verify` | [which-on-device-agent-models-are-recoverable](which-on-device-agent-models-are-recoverable.md) |
+| What does "true" mean for an AI agent's verdict? | `dos verify` | [what-is-truth-for-an-ai-agent-verdict](what-is-truth-for-an-ai-agent-verdict.md) |
+| How do I combine a deterministic check, an LLM judge, and a human reviewer? | `dos verify` | [the-trust-ladder-oracle-judge-human](the-trust-ladder-oracle-judge-human.md) |
+| Why should "no" be a first-class, verifiable primitive in an agent system? | `dos refuse-reasons` / `dos verify` | [refusal-as-a-first-class-primitive-for-agents](refusal-as-a-first-class-primitive-for-agents.md) |
+| How do I stop an AI agent from editing CI config to skip failing tests? | `dos commit-audit` / `dos scope-gate` | [stop-an-agent-editing-ci-to-skip-tests](stop-an-agent-editing-ci-to-skip-tests.md) |
+| How do I block an out-of-lane file write before the agent makes it (PreToolUse)? | `dos arbitrate` | [block-an-out-of-lane-file-write-at-pretooluse](block-an-out-of-lane-file-write-at-pretooluse.md) |
+| How do agents prove to each other that work actually landed? | `dos status` / `dos verify` | [agent-to-agent-proof-that-work-landed](agent-to-agent-proof-that-work-landed.md) |
+| AI agents that game SWE-bench — how do I catch benchmark cheating? | `dos reward` / `dos commit-audit` | [ai-agents-that-game-swe-bench-benchmark-cheating](ai-agents-that-game-swe-bench-benchmark-cheating.md) |
+| Deterministic pre-commit hook vs an agent skill — which actually enforces? | `dos commit-audit` (exit code) | [deterministic-hook-vs-agent-skill-which-enforces](deterministic-hook-vs-agent-skill-which-enforces.md) |
+| How do I detect when an agent self-edited its CLAUDE.md / AGENTS.md? | `dos commit-audit` | [detect-a-self-edited-claude-md-instruction-file](detect-a-self-edited-claude-md-instruction-file.md) |
+| Is there an open-source alternative to paid AI legal citation checkers? | `citation-resolve` (MCP) | [open-source-ai-legal-citation-checker](open-source-ai-legal-citation-checker.md) |
+| How do I detect a runaway AI agent before it burns the token budget? | `dos liveness` / `dos breaker` | [detect-a-runaway-agent-before-it-burns-the-budget](detect-a-runaway-agent-before-it-burns-the-budget.md) |
+| How do I scavenge a stalled agent's lease without killing a live one? | `dos liveness` / `dos reap` | [scavenge-a-stalled-lease-without-killing-a-live-one](scavenge-a-stalled-lease-without-killing-a-live-one.md) |
+| How do I keep an AI self-improvement loop from keeping bad changes? | `dos improve` | [keep-a-self-improvement-loop-from-keeping-bad-changes](keep-a-self-improvement-loop-from-keeping-bad-changes.md) |
+| My AI agent claimed it fixed the bug, but it didn't | `dos verify` / `dos commit-audit` | [agent-claimed-it-fixed-the-bug-but-it-didnt](agent-claimed-it-fixed-the-bug-but-it-didnt.md) |
+| CI passed but the feature isn't there — how do I catch that? | `dos verify` / `dos test-witness` | [ci-passed-but-the-feature-isnt-there](ci-passed-but-the-feature-isnt-there.md) |
+| How do I audit AI-generated commits across a repo? | `dos commit-audit` | [audit-which-commits-were-ai-and-did-they-ship](audit-which-commits-were-ai-and-did-they-ship.md) |
+| Two Claude Code agents on one branch keep clobbering each other — how do I fix it? | `dos arbitrate` | [two-claude-code-agents-on-one-branch](two-claude-code-agents-on-one-branch.md) |
+| How do I make an agent's "done" mean a checkable effect, not a sentence? | `dos verify` (stop hook) | [make-agent-done-mean-a-checkable-effect](make-agent-done-mean-a-checkable-effect.md) |
+| Can I trust an AI coding agent's pull request? | `dos commit-audit` / `dos verify` | [can-i-trust-a-coding-agents-pull-request](can-i-trust-a-coding-agents-pull-request.md) |
+| How do I enforce that an agent actually ran the tests it claims it ran? | `dos test-witness` / `dos coverage` | [enforce-that-an-agent-ran-the-tests-it-claims](enforce-that-an-agent-ran-the-tests-it-claims.md) |
+| How do I catch an agent that fakes tool calls or fabricates output? | `dos verify` / `dos commit-audit` | [catch-an-agent-that-fakes-tool-calls-or-output](catch-an-agent-that-fakes-tool-calls-or-output.md) |
+| The last-writer-wins problem in multi-agent shared memory — how do I stop it? | `dos arbitrate` | [last-writer-wins-multi-agent-shared-memory](last-writer-wins-multi-agent-shared-memory.md) |
+| How do I prevent context poisoning from an agent's own prior outputs? | `recall` (MCP) | [prevent-context-poisoning-from-an-agents-own-outputs](prevent-context-poisoning-from-an-agents-own-outputs.md) |
+| How do I coordinate multiple AI agents without a central orchestrator? | `dos arbitrate` | [multi-agent-coordination-without-a-central-orchestrator](multi-agent-coordination-without-a-central-orchestrator.md) |
+| How do I build a builder-validator chain that separates the generator from the evaluator? | `dos verify` / `dos commit-audit` | [builder-validator-chain-separate-generator-from-evaluator](builder-validator-chain-separate-generator-from-evaluator.md) |
+| What is a trust substrate for a fleet of autonomous AI agents? | `dos verify` / `dos arbitrate` | [trust-substrate-for-a-fleet-of-autonomous-agents](trust-substrate-for-a-fleet-of-autonomous-agents.md) |
+| Why does my AI agent ignore the rules in CLAUDE.md — how do I make them stick? | `dos commit-audit` (exit code) | [why-does-my-agent-ignore-the-rules-in-claude-md](why-does-my-agent-ignore-the-rules-in-claude-md.md) |
+| How do I detect a no-op commit from an agent? | `dos commit-audit` | [detect-a-no-op-commit-from-an-agent](detect-a-no-op-commit-from-an-agent.md) |
+| How do I verify an LLM didn't hallucinate a function or API that doesn't exist? | `dos test-witness` / `dos commit-audit` | [verify-an-llm-didnt-hallucinate-a-function-or-api](verify-an-llm-didnt-hallucinate-a-function-or-api.md) |
+| How do I use a hidden test split to stop agents overfitting the visible tests? | `dos improve` / `dos reward` | [hidden-test-split-to-stop-agents-overfitting](hidden-test-split-to-stop-agents-overfitting.md) |
+| Governance is why agentic AI projects get canceled — what is the missing layer? | `dos verify` / `dos arbitrate` | [governance-for-agentic-ai-projects-that-keep-getting-canceled](governance-for-agentic-ai-projects-that-keep-getting-canceled.md) |
+| How do I make any agent skill verify its own work? | `dos-skillify` / `dos verify` / `dos commit-audit` | [make-any-agent-skill-verify-its-own-work](make-any-agent-skill-verify-its-own-work.md) |
 
 ## How to read the numbers on these pages
 
@@ -1809,6 +1880,37 @@ status check — this very repo gates on it.
 **Use both.** Keep CI as the merge floor; add DOS where the agents actually
 work.
 
+## Legal citation checkers (CiteCheck-class, Westlaw/Lexis verifiers)
+
+A wave of tools now checks AI-generated legal citations against real case law:
+commercial citation-validation engines and the verification features built into
+the big legal-research platforms. They are good at what they do — they scan a
+finished brief at document scale, cross-reference a managed, licensed caselaw
+corpus, and many reach toward the harder question of whether a case is still
+good law. If your need is post-hoc review of a completed document against a
+comprehensive paid corpus, that is the right tool and DOS does not replace it.
+
+**What DOS adds.** Look at *where* and *when* the check runs, and *who* it runs
+for. Those tools scan the document *after* it's written, for the lawyer
+reviewing it. DOS's `citation_resolve` is the same existence-and-quote check
+aimed *inside the agent that writes the cite* — a free, open-source MCP tool (or
+exit-code command) the legal agent calls at the moment it emits a citation, so a
+fabrication is refused *before* it becomes a paragraph. It resolves against a
+third-party reporter the model didn't author (CourtListener / Free Law Project),
+needs no API key to abstain safely, and is deliberately Tier-1: it witnesses
+existence and quote-fidelity, and **abstains** on whether the case supports your
+argument — the over-claim that, in this domain, is a liability. The mechanism is
+reproducible at $0 ([`benchmark/legalcite/RESULTS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/legalcite/RESULTS.md)),
+not a number you have to take on faith.
+
+**Use both — and choose a commercial tool when** you need argument-level review
+(is this good law? does it support the proposition?), managed-corpus breadth
+beyond CourtListener's coverage, or a turnkey product for non-engineers. Choose
+DOS when you are *building* the legal agent and want the cheap, non-forgeable
+existence rung wired in at emit time, before the irreversible act of filing.
+The [sourced walkthroughs](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/answers/catch-fabricated-legal-citations-in-my-ai-agent.md)
+are in the answer corpus.
+
 ---
 
 ## When NOT to use DOS
@@ -1844,7 +1946,8 @@ needed.
 | Temporal-class | execution progress | its own event history | continuously |
 | in-toto / witness | artifact provenance | signed step attestations | per pipeline run |
 | Plain CI | the merge | the checks' exit codes | at the PR |
-| **DOS** | **belief in "done"** | **git ancestry, exit codes, read-backs — never the agent's narration** | **during and after the work** |
+| Legal citation checkers | a finished brief's cites | a managed, paid caselaw corpus | post-hoc, for the reviewer |
+| **DOS** | **belief in "done"** (incl. *does this cited case exist?*) | **git ancestry, exit codes, read-backs, a third-party reporter — never the agent's narration** | **during and after the work** |
 
 Every row above is a tool this repo either uses, integrates with, or learned
 from. Start with the [README](https://github.com/anthony-chaudhary/dos-kernel/blob/master/README.md)
@@ -1854,7 +1957,7 @@ for the arriving questions, and the
 [fleet-framework cookbook](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/cookbook-fleet-frameworks.md)
 for the per-framework recipes (LangGraph, CrewAI, AutoGen, the Agents SDKs).
 
-*Citations checked 2026-06-12 against each project's primary documentation.
+*Citations checked 2026-06-15 against each project's primary documentation.
 Spotted a claim about your project that's wrong or stale?
 [Open an issue](https://github.com/anthony-chaudhary/dos-kernel/issues) — this
 page holds itself to the standard it describes.*

@@ -31,6 +31,18 @@ thinks to. The per-host wiring for Cursor / Codex / Gemini is in
 **[the MCP README](https://github.com/anthony-chaudhary/dos-kernel/blob/master/src/dos_mcp/README.md)** — all four are MCP clients, so this
 works on every one of them with zero code.
 
+**Building a legal agent?** `dos_citation_resolve` is the same lie-detector
+aimed at the failure class that gets lawyers sanctioned: a fabricated case
+citation (the *Mata v. Avianca* class). Wired in as an MCP tool, it checks each
+cite the agent emits *before* the brief is written — a pre-effect gate, not a
+post-hoc document scan — by resolving it against a third-party reporter the
+model didn't author (CourtListener), and abstains rather than guess when it has
+no corpus access. It witnesses existence and quote-fidelity, never whether the
+case supports your argument. The sourced walkthroughs:
+[catch fabricated citations inside your agent](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/answers/catch-fabricated-legal-citations-in-my-ai-agent.md),
+[avoid an AI-citation sanction](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/answers/largest-ai-hallucination-sanction-how-to-avoid.md),
+and [the ABA Opinion 512 duty](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/answers/aba-512-verify-ai-citations-duty.md).
+
 **Gemini CLI users get a one-liner.** DOS ships a `gemini-extension.json`
 manifest at the repo root, so the whole referee — the MCP server plus a context
 file that tells the model to gate its own done-claims — installs as one Gemini
