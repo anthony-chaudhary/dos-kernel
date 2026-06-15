@@ -333,38 +333,73 @@ against all four:
   We did not invent the principle. Claiming we did would be exactly the
   over-claim the kernel refuses.
 
-### What the field actually leaves unoccupied
+### What the field actually leaves unoccupied — each neighbor breaks *exactly one* property
 
 With those two concessions made, the surveyed field still does **not** deliver
-all four properties together. Each near-neighbor breaks one:
+all four properties together. The sharp, falsifiable form of the finding: **the
+five nearest neighbors each break exactly one of the properties** — and the five
+breaks, taken together, cover the whole conjunction. None breaks zero (that would
+be a true competitor); none needs two breaks to be excluded (that would mean the
+properties are redundant). One property cleanly cedes to each:
 
-- **Agent skill formats** (Claude/OpenAI skills) are prompt + tool-binding with
-  **no outcome-verification construct at all** — fail property 2.
-- **Eval frameworks** (LangSmith, Braintrust, Arize) market "online evals," but
-  that means continuous LLM-judge scoring of *logged traces* — observability, run
-  async, not a gate. The most common way a reviewer wrongly thinks this is
-  already solved. Fail property 4 (and 2 — an LLM-judge is not an independent
-  effect read-back).
+> A note on the count. The four numbered properties above are the *claim* surface
+> — what a maintainer is buying. To map "exactly one break each" cleanly, property
+> 2 ("grounds on an independently-authored witness") splits into the two distinct
+> ways a check can fail to be that: it can score the agent's **own** output
+> (not *independent*), or it can compare text against a **supplied document**
+> (not an *effect in the world*). Those are different failures, broken by
+> different neighbors — so the honest grading axis is five-wide, and each
+> neighbor trips exactly one wire.
+
+- **Agent skill formats** (Claude / OpenAI skills) are prompt + tool-binding with
+  **no outcome-verification construct at all.** Breaks property 2 at the root:
+  there is no grounding step to be independent *of*. (Passes 1, 3, 4 vacuously —
+  there is simply nothing there to check.)
+- **"Online evals" / eval frameworks** (LangSmith, Braintrust, Arize) market
+  continuous scoring, but it is LLM-judge scoring of *logged traces* —
+  observability that runs **async, after the fact, not as a gate.** Breaks
+  **property 4 (inline-per-run)** specifically. This is the single most common way
+  a reviewer wrongly concludes the problem is already solved — so name the exact
+  miss: it never gates the belief *before* the agent acts on it.
 - **Guardrails** (NeMo, Guardrails AI, Llama Guard) validate text against a
-  rule / schema / safety taxonomy, or entailment against a *retrieved* corpus —
-  never "this claimed effect is true in the world." Fail property 2. (Their
-  fact-check rails are the most *confusable*, because they check a claim against a
-  source inline — but the source is a supplied document, not a witness an effect
-  occurred.)
-- **Self-verification research** (Reflexion, Self-Refine, CriticGPT, LLM-judge) is
-  the model checking its **own** work — consistency, not grounding (the
-  self-preference-bias literature is direct evidence it is not independent).
-- **Execution-grounded research & Swarm** match property 2 but ground on a single
-  narrow oracle (code execution / test pass) inside a **purpose-built pipeline you
-  adopt** — fail property 1 and property 3. None is a witness-type-agnostic layer
-  you wrap around a pre-existing arbitrary skill.
+  rule / schema / safety taxonomy, or entailment against a *retrieved* corpus.
+  They check **text-vs-rule / text-vs-RAG-corpus, never effect-vs-world.** Breaks
+  the **effect-in-the-world** half of property 2. Their fact-check rails are the
+  most *confusable* — they do check a claim against a source, inline — but the
+  source is a supplied document, not a witness that an effect occurred.
+- **Self-verification research** (Reflexion, Self-Refine, CriticGPT, LLM-judge)
+  is the model checking its **own** work — **consistency, not grounding.** Breaks
+  the **independent-authorship** half of property 2 (the self-preference-bias
+  literature is direct evidence the checker is not independent of the checked).
+- **Execution-grounded research & Swarm** are the closest: they genuinely ground
+  on an independently-authored effect (property 2 holds). But they ground on **one
+  narrow oracle (code execution / a test pass) inside a bespoke pipeline you
+  adopt** — so they break **property 1 (additive over an arbitrary skill) and
+  property 3 (witness-type-agnostic) as a single failure**: the same "it's one
+  fixed oracle wired into one purpose-built pipeline" fact trips both. It is not a
+  layer you wrap around a pre-existing skill, and it does not span effect kinds.
+
+That last neighbor is the one honest seam in the "exactly one" framing: P1 and P3
+co-fail because they fail *for the same reason* — a single-oracle bespoke pipeline
+is both non-additive and non-agnostic by construction. They are one wire, not two.
+The other four neighbors each trip a genuinely distinct wire.
 
 ### The defensible one-liner
 
-> Not *"first to verify agent claims."* The honest, narrow, defensible claim is:
-> **the first to make independent-witness grounding a mechanical, additive,
-> witness-type-agnostic layer over *any* existing skill, inline — rather than a
-> property of a bespoke pipeline, an offline eval, or a content-safety gate.**
+> Not *"first to verify agent claims"* — that over-claims, and the field has been
+> verifying claims for years. The honest, narrow, defensible claim is the
+> **conjunction**, not any one property: **the first to make independent-witness
+> grounding a mechanical, additive, witness-type-agnostic layer over *any*
+> existing skill, inline — rather than a property of a bespoke pipeline, an
+> offline eval, or a content-safety gate.**
+
+Each clause in that sentence is load-bearing because it is the exact property a
+named neighbor lacks: *mechanical / additive over any existing skill* (vs.
+execution-grounded's bespoke pipeline), *witness-type-agnostic* (vs. its one
+oracle), *independent-witness grounding* (vs. self-verification's consistency and
+guardrails' text-vs-corpus), *inline* (vs. eval frameworks' offline traces). Drop
+any clause and a neighbor catches up; the claim is precisely as strong as the
+four-property conjunction and no stronger.
 
 That is the value: a maintainer keeps their skill, their job logic, their taste,
 and gains a grounded "done" without adopting a framework — at the cost of the

@@ -78,12 +78,43 @@ Then it admits its own output the same way it grounds everything else:
 dos commit-audit --workspace . HEAD   # the diff did the KIND of thing claimed
 ```
 
+## How is this different from evals, guardrails, or self-checking?
+
+It is fair to ask whether this is just an eval, a guardrail, or the model
+double-checking itself under a new name. It is not — and the difference is
+**falsifiable**, not a slogan. The value only exists if **four** properties hold
+*together*: (1) it is **additive over an arbitrary skill** you already have, not a
+framework you adopt; (2) it **grounds on an independently-authored witness** — the
+"done" bit is decided by something the agent did not write (git ancestry, a CI
+run's `conclusion` field, a file read-back); (3) it is **witness-type-agnostic**,
+spanning many effect kinds, not one fixed oracle; (4) it is **inline per-run** — it
+gates the belief *before* the agent acts, not an offline eval after the fact.
+
+The five nearest neighbors each hold most of those — and each **breaks exactly
+one**:
+
+| Near-neighbor | What it actually checks | The one property it breaks |
+|---|---|---|
+| **Agent skill formats** (Claude / OpenAI skills) | prompt + tool-binding — no verify construct at all | (2) no grounding step exists to be independent of |
+| **"Online evals"** (LangSmith, Braintrust, Arize) | async LLM-judge scoring of *logged traces* | (4) it is observability after the fact, **not a gate** |
+| **Guardrails** (NeMo, Guardrails AI, Llama Guard) | text vs. a rule / schema / *retrieved* corpus | (2) text-vs-document, **never effect-vs-world** |
+| **Self-verification** (Reflexion, Self-Refine, CriticGPT) | the model re-reading its **own** output | (2) consistency, **not independent grounding** |
+| **Execution-grounded research & merge-gate tools** | a real effect — but one narrow oracle (a test pass) | (1)+(3) it is a **bespoke pipeline with one oracle**, not a layer over any skill |
+
+The honest, narrow claim is the **conjunction**, not any single property:
+
+> **Not** *"first to verify agent claims"* — the field has verified claims for
+> years. The defensible one-liner: **the first to make independent-witness
+> grounding a mechanical, additive, witness-type-agnostic layer over *any*
+> existing skill, inline — rather than a property of a bespoke pipeline, an
+> offline eval, or a content-safety gate.**
+
 ## What this does — and does not — certify
 
 It grounds the **trust seams** and nothing else. It does not make the skill
 smarter, change its job, or judge whether the domain work is correct — only
 whether each "done" bit rests on a witness or on the agent's word. Two honest
-boundaries:
+boundaries we will not pretend past:
 
 - **Inline gating is not the novel part.** Several agent frameworks already block
   a step inline; what is unusual here is *what* the gate reads — an
