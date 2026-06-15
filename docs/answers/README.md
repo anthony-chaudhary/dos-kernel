@@ -24,6 +24,11 @@ story, start at the [README](../../README.md) or the
 | How do I verify a cited legal case actually exists before filing? | `citation-resolve` (MCP) / `dos doctor` | [how-to-verify-a-cited-legal-case-exists](how-to-verify-a-cited-legal-case-exists.md) |
 | How do I make an agent prove it did the work instead of self-certifying done? | `dos improve` / `dos verify` | [make-an-agent-prove-the-work-not-self-certify](make-an-agent-prove-the-work-not-self-certify.md) |
 | My AI agent deleted my tests to make the build pass | `dos test-witness` / `dos commit-audit` | [ai-agent-deleted-my-tests-to-pass-the-build](ai-agent-deleted-my-tests-to-pass-the-build.md) |
+| How do I refuse an agent action with a structured reason instead of free text? | `dos refuse-reasons` / `dos check-reason` | [refuse-an-agent-action-with-a-structured-reason](refuse-an-agent-action-with-a-structured-reason.md) |
+| How do I catch an empty commit / `--allow-empty "shipped"` fake-done? | `dos commit-audit` / `dos verify` | [catch-allow-empty-shipped-fake-done](catch-allow-empty-shipped-fake-done.md) |
+| How do I verify a quoted holding actually appears in the cited opinion? | `citation-resolve` (MCP) | [verify-a-quoted-holding-appears-in-the-opinion](verify-a-quoted-holding-appears-in-the-opinion.md) |
+| My recalled agent memory is stale or wrong — how do I re-verify it? | `recall` (MCP) | [recalled-agent-memory-is-stale-how-to-reverify](recalled-agent-memory-is-stale-how-to-reverify.md) |
+| How do I prove a phase or feature actually shipped from git history? | `dos verify` | [prove-a-phase-shipped-from-git-history](prove-a-phase-shipped-from-git-history.md) |
 
 ## How to read the numbers on these pages
 
