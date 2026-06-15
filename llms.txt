@@ -48,6 +48,7 @@ job or an agent loop can gate on it directly.
 
 ## Optional
 
+- [Scoreboard](https://anthony-chaudhary.github.io/dos-kernel/scoreboard/): the commit-claim check run public over 15 popular AI-built repos — how much of each repo agents wrote, which agents, and whether every commit's claim is backed by its own diff (each page a re-runnable receipt)
 - [Incident pages](https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/docs/incidents/README.md): one page per real-world failure mode ("my agent said it committed, but there's no commit", …) with the command that catches it
 - [Paper](https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/paper/README.md): the research write-up of the verdict spine
 - [Benchmarks](https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/benchmark/README.md): fleet-horizon and the detector-evaluation harnesses

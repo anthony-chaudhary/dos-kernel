@@ -1,44 +1,55 @@
-# kenn-io/roborev — drift scoreboard
+# How AI built kenn-io/roborev
 
-> **Clean — every one of 96 checkable commit messages matched its diff. 0 drifts.**
-> A drift is a commit whose subject claims something its own diff doesn't show
-> — an empty commit that says "fixed it", a "tests pass" that deletes the
-> test. A drift is a message-vs-diff mismatch — **never** a correctness,
-> honesty, or intent grade. Schema and grade vocabulary:
+> **Every one of the 273 AI commits here that made a checkable claim did what it said — each claim backed by the commit's own diff.**
+> The check: an AI agent's commit message is just text it wrote — the diff is
+> what git recorded. This page reports, for the AI-authored commits, whether
+> each concrete claim in a message ("fix X", "add tests for Y") is backed by
+> that commit's own diff. A message-vs-diff mismatch is **never** a
+> correctness, honesty, or intent grade — only a note that a commit's words
+> and its own diff disagree. Schema and the precise definition:
 > [docs/311](../../311_scoreboard-per-repo-index-plan.md).
 
-### What a drift would have looked like (this repo had none)
+## How AI built this
+
+AI agents wrote **65%** of the last 668 commits here — 432 agent-authored
+commits. The agents behind them: **claude 430 · copilot 1 · cursor 1**.
+
+Of those, **273** made a concrete claim you can check ("fix X", "add tests
+for Y") — and **every one** was backed by the commit's own diff. No commit
+claimed work its diff doesn't show.
+
+### What a mismatch would have looked like (this repo had none)
 
 > **would flag:** `fix: handle null user` → touched 0 files  
 > **would flag:** `test: all green` → deleted test lines, added none
 
-Neither happened here. Every "fix / add / remove" commit touched a real source file; every "tests" commit touched a real test file. That's what clean means — **not "nothing happened", but every checkable claim backed by the diff.**
+Neither happened here. Every "fix / add / remove" commit touched a real source file; every "tests" commit touched a real test file. That's what a clean page means — **not "nothing happened", but every checkable claim backed by the diff.**
 
 ## As of
 
 | | |
 |---|---|
 | Audited range | `1aacb414133734f7d9c78014b17b74a8e6b72083` → `473c539e80f5e62a19141a840785786725aa79d7` |
-| Commits in range | 150 (150 attributed commits audited) |
-| Rendered | 2026-06-13 |
+| Commits in range | 432 (432 attributed commits audited) |
+| Rendered | 2026-06-15 |
 | Auditor | dos-kernel 0.26.0 |
 | Tier | seeded |
 | Attribution | agent-attributed commits only (the closed marker set, docs/scoreboard/methodology.md §3); a human commit is never audited here |
 
 ## The verdict
 
-| Commits | Checkable | Backed by the diff | Drifted (raw) | Skipped | Raw rate | Final grade |
+| Commits | Checkable | Backed by the diff | Claimed, not shown (raw) | Skipped | Raw rate | Final grade |
 |---|---|---|---|---|---|---|
-| 150 | 96 | 96 | 0 | 54 | 0.0% | **0 of 96 (0.0%)** |
+| 432 | 273 | 273 | 0 | 159 | 0.0% | **0 of 273 (0.0%)** |
 
 ## By kind of claim
 
-| Kind of claim | Backed by the diff | Drifted | Skipped |
+| Kind of claim | Backed by the diff | Claimed, not shown | Skipped |
 |---|---|---|---|
-| `fix / add / remove` (code) | 87 | 0 | 0 |
-| `tests` | 7 | 0 | 0 |
-| `docs` | 2 | 0 | 0 |
-| no checkable claim (skipped) | — | — | 54 |
+| `fix / add / remove` (code) | 229 | 0 | 0 |
+| `tests` | 18 | 0 | 0 |
+| `docs` | 26 | 0 | 0 |
+| no checkable claim (skipped) | — | — | 159 |
 
 ## The receipts — every flag, adjudicated
 

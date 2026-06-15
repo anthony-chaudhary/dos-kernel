@@ -326,35 +326,68 @@ def render_one(per_repo: dict, *, base_sha: str, head_sha: str, rendered: str,
 
 
 def render_index(published: list[str], *, audited: int, withheld: int,
-                 rendered: str, self_page: str | None = None) -> str:
+                 rendered: str, self_page: str | None = None,
+                 rows: list[dict] | None = None) -> str:
     """The index landing page. `published` is the sorted `<org>/<name>` list of
     seeded CLEAN pages; `self_page` is page #1 — the auditor's OWN repo, the one
     page that publishes its own verdict whatever it is (the docs/311 P1
     self-grades-first rule). Everything not published is a NUMBER (§2 — a
-    withheld repo is never named)."""
-    # The reading order: hook → what a drift is → the pages (self first,
-    # promoted; then the clean ones, framed as earned) → the fine print (the
-    # ethics line, the deeper links, and the withheld count as a NUMBER). Every
-    # string comes from scoreboard_copy so the wording is editable in one place.
-    L = [copy.index_hook(), "", copy.drift_explainer(), ""]
+    withheld repo is never named).
+
+    `rows` (optional) is the per-repo stat list for the comparison leaderboard +
+    the aggregate headline — built over the PUBLISHED set ONLY, never a withheld
+    repo (the §2 name-protection rule). When `rows` is None/empty the index
+    renders exactly as before: a plain bullet list under the clean section. So
+    the self-tier `--write-index` path (rows=None) is byte-unchanged."""
+    # The reading order: hook → (aggregate headline if we have rows) → what the
+    # check means → the pages (self first, promoted; then the leaderboard /
+    # clean list, framed as earned) → the fine print (the ethics line, the
+    # deeper links, and the withheld count as a NUMBER). Every string comes from
+    # scoreboard_copy so the wording is editable in one place.
+    rows = rows or []
+    L = [copy.index_hook(), ""]
+
+    if rows:
+        agg = _aggregate_over_rows(rows)
+        headline = copy.index_aggregate_headline(repos=len(rows), **agg)
+        if headline:
+            L += ["> " + headline, ""]
+
+    L += [copy.drift_explainer(), ""]
 
     if self_page:
         L += [copy.index_self_section(self_page), ""]
 
     L.append(copy.index_clean_section_intro())
     L.append("")
-    if published:
+    leaderboard = copy.index_leaderboard(rows) if rows else ""
+    if leaderboard:
+        L += [leaderboard, ""]
+    elif published:
         for full in published:
             org, name = full.split("/", 1)
             L.append(f"- [{full}]({org}/{name}.md)")
+        L.append("")
     else:
         L.append(copy.index_clean_empty_placeholder())
-    L.append("")
+        L.append("")
 
     # The fine print carries the withheld count as a count (§2 — never a name).
     L += [copy.index_fine_print(audited=audited, withheld=withheld), ""]
     L += [copy.INDEX_TAGLINE, ""]
     return "\n".join(L)
+
+
+def _aggregate_over_rows(rows: list[dict]) -> dict:
+    """Sum the leaderboard rows into the aggregate-headline inputs. Denominators
+    stay distinct: `scanned`/`attributed` drive the agent SHARE,
+    `checkable`/`witnessed` drive the backed RATE."""
+    return {
+        "scanned": sum(int(r.get("scanned", 0) or 0) for r in rows),
+        "attributed": sum(int(r.get("attributed", 0) or 0) for r in rows),
+        "checkable": sum(int(r.get("checkable", 0) or 0) for r in rows),
+        "witnessed": sum(int(r.get("witnessed", 0) or 0) for r in rows),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -435,6 +468,7 @@ def run(*, candidates: list[tuple[str, str]], excluded: set[str],
     pages_dir.mkdir(parents=True, exist_ok=True)
     cache = sweep_out / "clones"
     published: list[str] = []
+    rows: list[dict] = []
     audited = 0
     for full, _label in kept:
         per_path = sweep_out / "per-repo" / f"{_slug(full)}.json"
@@ -459,17 +493,47 @@ def run(*, candidates: list[tuple[str, str]], excluded: set[str],
         page_path.parent.mkdir(parents=True, exist_ok=True)
         page_path.write_text(markdown, encoding="utf-8")
         published.append(full)
+        # a leaderboard row for THIS published (CLEAN, named) repo only — never
+        # a withheld one (§2). Built from the same per-repo JSON the page used.
+        rows.append(_leaderboard_row(full, per_repo))
 
     published.sort()
+    rows.sort(key=_row_sort_key)
     withheld = audited - len(published)
     manifest.update({"audited": audited, "published": published,
                      "withheld": withheld})
 
     # -- stage: the index root (published-only) -----------------------------
     index_md = render_index(published, audited=audited, withheld=withheld,
-                            rendered=rendered)
+                            rendered=rendered, rows=rows)
     (out / "index.md").write_text(index_md, encoding="utf-8")
     return manifest
+
+
+def _leaderboard_row(full: str, per_repo: dict) -> dict:
+    """Build one published-repo leaderboard row from its corpus-sweep JSON. The
+    agent mix is sorted deterministically (count desc, then name) so the index
+    is byte-reproducible."""
+    summary = per_repo.get("summary", per_repo)
+    markers = per_repo.get("markers") or {}
+    mix = sorted(((str(k), int(v)) for k, v in markers.items()),
+                 key=lambda kv: (-kv[1], kv[0]))
+    return {
+        "full": full,
+        "scanned": int(per_repo.get("commits_scanned", 0) or 0),
+        "attributed": int(per_repo.get("attributed_commits", 0) or 0),
+        "mix": mix,
+        "checkable": int(summary.get("checkable", 0) or 0),
+        "witnessed": int(summary.get("witnessed", 0) or 0),
+    }
+
+
+def _row_sort_key(r: dict):
+    """Leaderboard order: most agent-built first (by share), ties by repo name.
+    Repos with no scan data sort last but stay listed."""
+    scanned = int(r.get("scanned", 0) or 0)
+    share = (int(r.get("attributed", 0) or 0) / scanned) if scanned else -1.0
+    return (-share, r["full"])
 
 
 def _auditor_string() -> str:

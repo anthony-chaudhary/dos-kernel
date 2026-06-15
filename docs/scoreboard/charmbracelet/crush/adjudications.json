@@ -1,0 +1,14 @@
+{
+  "schema": "dos-scoreboard-page/v1",
+  "repo": "charmbracelet/crush",
+  "tier": "seeded",
+  "rendered": "2026-06-15",
+  "attribution": "agent-attributed commits only (the closed marker set, docs/scoreboard/methodology.md \u00a73); a human commit is never audited here",
+  "auditor": "dos-kernel 0.26.0",
+  "range": {
+    "base_sha": "4b0ea68d7af9a6031a7ffda7ad66e0cb83315750",
+    "head_sha": "afea814e4b13359745b71c81aab2498c39a247f5",
+    "commits_note": "96 attributed commits audited"
+  },
+  "records": []
+}

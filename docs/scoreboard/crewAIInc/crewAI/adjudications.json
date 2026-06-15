@@ -1,0 +1,14 @@
+{
+  "schema": "dos-scoreboard-page/v1",
+  "repo": "crewAIInc/crewAI",
+  "tier": "seeded",
+  "rendered": "2026-06-15",
+  "attribution": "agent-attributed commits only (the closed marker set, docs/scoreboard/methodology.md \u00a73); a human commit is never audited here",
+  "auditor": "dos-kernel 0.26.0",
+  "range": {
+    "base_sha": "6d08ac32296cda7d2c0a33c89d84ad9ef8d39e51",
+    "head_sha": "bb477f8a91460c744871e02fc606077eeb634a95",
+    "commits_note": "87 attributed commits audited"
+  },
+  "records": []
+}

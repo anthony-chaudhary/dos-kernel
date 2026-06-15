@@ -1,31 +1,39 @@
 {
-  "commits": 65,
-  "checkable": 49,
-  "abstained": 16,
-  "witnessed": 49,
-  "unwitnessed": 0,
-  "drift_rate": 0.0,
-  "by_kind": {
-    "code_effect": {
-      "unwitnessed": 0,
-      "witnessed": 32,
-      "abstain": 0
-    },
-    "test": {
-      "unwitnessed": 0,
-      "witnessed": 2,
-      "abstain": 0
-    },
-    "doc": {
-      "unwitnessed": 0,
-      "witnessed": 15,
-      "abstain": 0
-    },
-    "none": {
-      "unwitnessed": 0,
-      "witnessed": 0,
-      "abstain": 16
-    }
+  "repo": "JuliusBrussee/caveman",
+  "commits_scanned": 201,
+  "attributed_commits": 65,
+  "markers": {
+    "claude": 65
   },
-  "unwitnessed_shas": []
+  "summary": {
+    "commits": 65,
+    "checkable": 49,
+    "abstained": 16,
+    "witnessed": 49,
+    "unwitnessed": 0,
+    "drift_rate": 0.0,
+    "by_kind": {
+      "none": {
+        "unwitnessed": 0,
+        "witnessed": 0,
+        "abstain": 16
+      },
+      "code_effect": {
+        "unwitnessed": 0,
+        "witnessed": 32,
+        "abstain": 0
+      },
+      "test": {
+        "unwitnessed": 0,
+        "witnessed": 2,
+        "abstain": 0
+      },
+      "doc": {
+        "unwitnessed": 0,
+        "witnessed": 15,
+        "abstain": 0
+      }
+    },
+    "unwitnessed_shas": []
+  }
 }

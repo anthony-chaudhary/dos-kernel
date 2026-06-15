@@ -1,0 +1,41 @@
+{
+  "repo": "exo-explore/exo",
+  "commits_scanned": 2351,
+  "attributed_commits": 101,
+  "markers": {
+    "claude": 99,
+    "cursor": 1,
+    "jules": 1
+  },
+  "summary": {
+    "commits": 101,
+    "checkable": 67,
+    "abstained": 34,
+    "witnessed": 67,
+    "unwitnessed": 0,
+    "drift_rate": 0.0,
+    "by_kind": {
+      "code_effect": {
+        "unwitnessed": 0,
+        "witnessed": 63,
+        "abstain": 0
+      },
+      "none": {
+        "unwitnessed": 0,
+        "witnessed": 0,
+        "abstain": 34
+      },
+      "test": {
+        "unwitnessed": 0,
+        "witnessed": 1,
+        "abstain": 0
+      },
+      "doc": {
+        "unwitnessed": 0,
+        "witnessed": 3,
+        "abstain": 0
+      }
+    },
+    "unwitnessed_shas": []
+  }
+}

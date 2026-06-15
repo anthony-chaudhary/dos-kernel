@@ -1,14 +1,16 @@
-# anthony-chaudhary/dos-kernel — drift scoreboard
+# How AI built anthony-chaudhary/dos-kernel
 
-> **We found 3 drifts — 3 of 129 checkable commit messages claim something the diff doesn't show (2.3%).**
+> **3 of 129 AI commit messages here claimed work the commit's own diff doesn't show (2.3%). The rest checked out.**
 > All three are convention-driven empty re-stamp commits; the receipts are
 > below. This is **page #1 of the index, the self-grade**: the scoreboard
 > names no other repository before publishing its own verdict, and ours is
-> deliberately not airbrushed to zero. A drift is a commit whose subject
-> claims something its own diff doesn't show — an empty commit that says
-> "fixed it", a "tests pass" that deletes the test. A drift is a
-> message-vs-diff mismatch — **never** a correctness, honesty, or intent
-> grade. Schema and grade vocabulary:
+> deliberately not airbrushed to zero. The check: an AI agent's commit message
+> is just text it wrote — the diff is what git recorded. This page reports,
+> for the AI-authored commits, whether each concrete claim in a message ("fix
+> X", "add tests for Y") is backed by that commit's own diff. A
+> message-vs-diff mismatch is **never** a correctness, honesty, or intent
+> grade — only a note that a commit's words and its own diff disagree. Schema
+> and the precise definition:
 > [docs/311](../../311_scoreboard-per-repo-index-plan.md).
 
 ## As of
@@ -24,7 +26,7 @@
 
 ## The verdict
 
-| Commits | Checkable | Backed by the diff | Drifted (raw) | Skipped | Raw rate | Final grade |
+| Commits | Checkable | Backed by the diff | Claimed, not shown (raw) | Skipped | Raw rate | Final grade |
 |---|---|---|---|---|---|---|
 | 203 | 129 | 126 | 3 | 74 | 2.3% | **3 of 129 (2.3%)** |
 
@@ -36,7 +38,7 @@ in the [methodology's false-positive section](../methodology.md).)
 
 ## By kind of claim
 
-| Kind of claim | Backed by the diff | Drifted | Skipped |
+| Kind of claim | Backed by the diff | Claimed, not shown | Skipped |
 |---|---|---|---|
 | `fix / add / remove` (code) | 25 | 0 | 0 |
 | `tests` | 5 | 0 | 0 |

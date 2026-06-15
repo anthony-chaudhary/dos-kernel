@@ -1,0 +1,14 @@
+{
+  "schema": "dos-scoreboard-page/v1",
+  "repo": "getzep/graphiti",
+  "tier": "seeded",
+  "rendered": "2026-06-15",
+  "attribution": "agent-attributed commits only (the closed marker set, docs/scoreboard/methodology.md \u00a73); a human commit is never audited here",
+  "auditor": "dos-kernel 0.26.0",
+  "range": {
+    "base_sha": "1de840dc948929b611ab13ac65223cfb2eb4ea1c",
+    "head_sha": "0ed90b72505c2a6a4f3ee953939888fb56572944",
+    "commits_note": "127 attributed commits audited"
+  },
+  "records": []
+}

@@ -125,19 +125,40 @@ def _cell(text: str) -> str:
 
 
 def load_sweep(data: dict, *, repo: str) -> dict:
-    """Normalize either accepted sweep shape to the bare summary dict."""
+    """Normalize either accepted sweep shape to the bare summary dict.
+
+    The docs/307 per-repo artifact (the corpus-sweep shape) carries three
+    attribution facts ALONGSIDE the summary that the bare `dos commit-audit
+    --sweep` shape does not: `attributed_commits` (of the recent history, how
+    many commits an agent toolchain authored), `commits_scanned` (the recent
+    window those were found in), and `markers` (the per-agent commit counts,
+    e.g. {"claude": 81, "aider": 12}). These are what lets the page lead with
+    "how much of this repo did AI build, and which agents" instead of one bit.
+    They are OPTIONAL: a bare-summary input (the self page, an older sweep)
+    simply lacks them, and the page omits the attribution section. We stash
+    them under `_attribution` on the returned summary so `render_page` can
+    read them without changing the required-field contract below.
+    """
+    attribution: dict = {}
     if "summary" in data:
         # the docs/307 per-repo artifact — identity-carrying, operator-only
         if data.get("repo") not in (None, repo):
             raise Refusal(
                 f"sweep artifact is for '{data.get('repo')}' but the "
                 f"adjudications file is for '{repo}' — wrong pairing")
+        for key in ("attributed_commits", "commits_scanned", "markers"):
+            if key in data:
+                attribution[key] = data[key]
         data = data["summary"]
     missing = [k for k in ("commits", "checkable", "witnessed", "unwitnessed",
                            "abstained", "by_kind", "unwitnessed_shas")
                if k not in data]
     if missing:
         raise Refusal("sweep JSON missing field(s): " + ", ".join(missing))
+    if attribution:
+        # don't mutate the caller's dict in place — return a shallow copy with
+        # the optional attribution facts attached.
+        data = {**data, "_attribution": attribution}
     return data
 
 
@@ -255,6 +276,50 @@ def derive_state(matched: list[tuple[str, dict | None]],
     return state, confirmed
 
 
+def _sorted_mix(markers: dict) -> list[tuple[str, int]]:
+    """The agent mix as a deterministic (label, count) list — biggest first,
+    ties broken by name. The deterministic order is load-bearing: the page is
+    byte-reproducible under --check, and a raw dict iteration order is not."""
+    return sorted(((str(k), int(v)) for k, v in (markers or {}).items()),
+                  key=lambda kv: (-kv[1], kv[0]))
+
+
+def _how_ai_built_lines(sweep: dict, attribution: dict) -> list[str]:
+    """The "How AI built this" section, or [] when there is no agent data.
+
+    Every line is guarded on field presence: a bare-summary input (the self
+    page, an older sweep) has no `_attribution`, so the section is omitted and
+    the page renders exactly as before. The claims-backed sentence renders
+    whenever there are checkable claims, even without share/mix data.
+    """
+    scanned = int(attribution.get("commits_scanned", 0) or 0)
+    attributed = int(attribution.get("attributed_commits", 0) or 0)
+    mix = _sorted_mix(attribution.get("markers") or {})
+    checkable = int(sweep["checkable"])
+
+    share = (copy.agent_share_sentence(attributed=attributed, scanned=scanned)
+             if scanned > 0 else "")
+    mix_line = copy.agent_mix_sentence(mix)
+    backed = copy.claims_backed_sentence(
+        witnessed=int(sweep["witnessed"]), checkable=checkable,
+        unwitnessed=int(sweep["unwitnessed"]))
+
+    # The section needs at least the agent-build facts (share/mix) to earn its
+    # heading — a page with only the backed sentence already carries that fact
+    # in the headline + verdict table, so we don't repeat it under a heading.
+    if not share and not mix_line:
+        return []
+
+    out = ["", copy.how_ai_built_heading(), ""]
+    paras = [p for p in (share + (" " + mix_line if mix_line else ""), backed)
+             if p.strip()]
+    for i, para in enumerate(paras):
+        if i:
+            out.append("")
+        out.extend(_fill(para).splitlines())
+    return out
+
+
 # ---------------------------------------------------------------------------
 # The renderer — the docs/311 §5 page, section by section. Pure.
 # ---------------------------------------------------------------------------
@@ -291,12 +356,22 @@ def render_page(sweep: dict, meta: dict) -> tuple[str, str]:
         adjudicated_cell = "**no grade — adjudication incomplete**"
 
     lines: list[str] = []
-    lines.append(f"# {repo} — drift scoreboard")
+    lines.append(copy.page_h1(repo))
     lines.append("")
     lines.append("> " + headline)
     quote_tail = " ".join(
         part for part in (notes.get("headline"), _HEADLINE_TAIL) if part)
     lines.extend(_fill_quote(quote_tail).splitlines())
+
+    # -- the "How AI built this" lede — the facts that make each page DIFFER:
+    # the agent-authored share, which agents, and the claims-backed rate, all
+    # in plain words. Driven by the optional attribution facts the corpus sweep
+    # carries; omitted entirely when the input is a bare summary (the self
+    # page) that has no agent data, so older inputs render unchanged.
+    attribution = sweep.get("_attribution") or {}
+    built = _how_ai_built_lines(sweep, attribution)
+    if built:
+        lines += built
 
     # A CLEAN page makes "clean" concrete: show the shape that WOULD have
     # flagged, so green reads as earned, not as "nothing happened".

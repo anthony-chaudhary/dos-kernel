@@ -31,8 +31,8 @@ from __future__ import annotations
 # ---------------------------------------------------------------------------
 
 ETHICS_LINE = (
-    "A drift is a message-vs-diff mismatch — **never** a correctness, honesty, "
-    "or intent grade."
+    "A message-vs-diff mismatch is **never** a correctness, honesty, or intent "
+    "grade — only a note that a commit's words and its own diff disagree."
 )
 
 # Where the schema / grade vocabulary is defined (relative link from a per-repo
@@ -49,14 +49,16 @@ _SCHEMA_LINK = "[docs/311](../../311_scoreboard-per-repo-index-plan.md)"
 # ---------------------------------------------------------------------------
 
 def drift_explainer() -> str:
-    """The 'What a drift looks like' section — markdown, no leading/trailing blank."""
+    """The 'what we check' section — markdown, no leading/trailing blank. (Name
+    kept for callers; the reader-facing word "drift" is gone — the precise term
+    lives in the methodology.)"""
     return "\n".join([
-        "## What a \"drift\" looks like",
+        "## What \"backed by the diff\" means",
         "",
         "The commit *message* is written by a person or an agent — it can say "
-        "anything. The *diff* is written by git — it can't. A **drift** is when "
-        "the two don't match: the message makes a concrete claim the diff "
-        "doesn't back up.",
+        "anything. The *diff* is written by git — it can't. We check whether a "
+        "concrete claim in the message is **backed by** the commit's own diff. "
+        "When it isn't, the claim rests on the words alone:",
         "",
         "**The empty fix.**",
         "",
@@ -75,8 +77,8 @@ def drift_explainer() -> str:
         "that was the right call — but the subject says the opposite of what the "
         "diff shows.",
         "",
-        "Those are the two clearest shapes. Most real commits aren't drifts at "
-        "all — which is the whole point of a clean page.",
+        "Those are the two clearest mismatch shapes. Most real commits aren't "
+        "mismatches at all — which is the whole point of a clean page.",
     ])
 
 
@@ -94,11 +96,11 @@ def index_hook() -> str:
         "Nothing checks that the change actually did that. The **diff** can't "
         "lie about which files it touched. The **message** can say anything.",
         "",
-        "This scoreboard runs one check over public repos built with AI agents: "
-        "**does each commit's message match what its diff actually did?** When "
-        "it doesn't — an empty commit that says \"fixed it\", a \"tests pass\" "
-        "that deletes the test — we call that a **drift**. Each page below is "
-        "the receipt.",
+        "This scoreboard asks two plain questions about public repos built "
+        "with AI agents: **how much of the repo did the AI write — and did the "
+        "AI tell the truth about what each commit did?** For every "
+        "AI-authored commit we check whether its message's claim is backed by "
+        "the commit's own diff. Each page below is the receipt.",
         "",
         "### Score your own repo in one command",
         "",
@@ -109,6 +111,70 @@ def index_hook() -> str:
         "",
         "That's the same check, on your history. No account, no upload.",
     ])
+
+
+def index_aggregate_headline(*, repos: int, scanned: int, attributed: int,
+                             checkable: int, witnessed: int) -> str:
+    """The one-line ecosystem fact at the top of the index — a punchy
+    comparative insight across the published set, computed from the threaded
+    per-repo rows. Denominators are kept distinct: the agent SHARE is over
+    commits scanned; the backed RATE is over checkable claims. Returns "" when
+    there is nothing to summarize (no rows yet)."""
+    if repos <= 0:
+        return ""
+    repo_noun = "repo" if repos == 1 else "repos"
+    bits = [f"Across **{repos} {repo_noun}** audited here"]
+    if scanned > 0:
+        share = attributed / scanned
+        bits.append(f"AI agents wrote about **{share:.0%}** of recent commits")
+    if checkable > 0:
+        rate = witnessed / checkable
+        gap = checkable - witnessed
+        if gap == 0:
+            bits.append("and **every one** of the concrete claims those "
+                        "commits made was backed by the commit's own diff")
+        else:
+            bits.append(f"and **{rate:.1%}** of the concrete claims those "
+                        "commits made were backed by the commit's own diff "
+                        f"(the {gap} exceptions are named on their pages)")
+    return " — ".join(bits) + "."
+
+
+def index_leaderboard(rows: list[dict]) -> str:
+    """The comparison table — the heart of the redesigned index. `rows` is the
+    pre-sorted list of per-repo stat dicts (over the PUBLISHED set only, never a
+    withheld repo): each {full, attributed, scanned, mix (list[(label,count)]),
+    checkable, witnessed}. Columns differ per repo, so the table is worth
+    reading — unlike a flat list of identical 'clean' links. Returns "" for no
+    rows (the caller falls back to the bullet list)."""
+    if not rows:
+        return ""
+    out = [
+        "What differs between them is how much of the repo the AI built and "
+        "which agents did it — sorted by AI-built share. Click a repo for the "
+        "full receipt.",
+        "",
+        "| Repo | AI-built | Agents | Claims checked | Backed |",
+        "|---|---|---|---|---|",
+    ]
+    for r in rows:
+        full = r["full"]
+        org, name = full.split("/", 1)
+        link = f"[{full}]({org}/{name}.md)"
+        scanned = int(r.get("scanned", 0) or 0)
+        attributed = int(r.get("attributed", 0) or 0)
+        share = f"{attributed / scanned:.0%}" if scanned > 0 else "—"
+        mix = r.get("mix") or []
+        mix_cell = " · ".join(f"{label} {count:,}" for label, count in mix[:3])
+        if len(mix) > 3:
+            mix_cell += " · …"
+        mix_cell = mix_cell or "—"
+        checkable = int(r.get("checkable", 0) or 0)
+        witnessed = int(r.get("witnessed", 0) or 0)
+        backed = f"{witnessed / checkable:.0%}" if checkable > 0 else "—"
+        out.append(f"| {link} | {share} | {mix_cell} | {checkable:,} "
+                   f"| {backed} |")
+    return "\n".join(out)
 
 
 def index_self_section(self_page: str) -> str:
@@ -130,13 +196,15 @@ def index_self_section(self_page: str) -> str:
 
 
 def index_clean_section_intro() -> str:
-    """The intro line above the list of clean pages — green reframed as earned."""
+    """The intro line above the list of clean pages — green reframed as earned.
+    Shown as the section heading; when a leaderboard table is present it sits
+    above it, when not it heads the plain bullet list (the empty/seed case)."""
     return "\n".join([
         "## Repos that came back clean",
         "",
-        "Every checkable commit message matched its diff over the audited "
-        "range. \"Clean\" here is earned, not empty: each page shows the range, "
-        "the count, and receipts you can re-run yourself.",
+        "Every checkable claim an AI commit made matched the commit's own diff "
+        "over the audited range. \"Clean\" here is earned, not empty: each page "
+        "shows the range, the count, and receipts you can re-run yourself.",
     ])
 
 
@@ -160,18 +228,18 @@ def index_fine_print(audited: int, withheld: int) -> str:
     L = [
         "## The fine print (it matters)",
         "",
-        "**A drift is not an accusation.** It does not mean the code is wrong, "
-        "or that anyone lied. It means one thing only: a commit's subject "
-        "claimed something its own diff doesn't show. A real fix to the wrong "
-        "bug passes the check; an honest doc cleanup with a sloppy subject can "
-        "flag. " + ETHICS_LINE,
+        "**A mismatch is not an accusation.** It does not mean the code is "
+        "wrong, or that anyone lied. It means one thing only: a commit's "
+        "subject claimed something its own diff doesn't show. A real fix to "
+        "the wrong bug passes the check; an honest doc cleanup with a sloppy "
+        "subject can flag. " + ETHICS_LINE,
         "",
         "- **[How it works](methodology.md)** — exactly what the check reads, "
         "what it skips, and every time the check itself was wrong (we narrow "
         "the check, never trust the subject).",
-        "- **[The big picture](report-2026-06.md)** — the population drift rate "
-        "across public repos, with every flag hand-checked and denominators "
-        "everywhere.",
+        "- **[The big picture](report-2026-06.md)** — the population mismatch "
+        "rate across public repos, with every flag hand-checked and "
+        "denominators everywhere.",
         "- **Want your repo listed?** Clean or not, it's opt-in and you see the "
         "result before it publishes. See the methodology's registration "
         "section.",
@@ -197,45 +265,114 @@ INDEX_TAGLINE = "> The kernel is the part that doesn't believe the agents."
 # plain table labels, and the "what a drift would have looked like" block.
 # ---------------------------------------------------------------------------
 
+def page_h1(repo: str) -> str:
+    """The page title. Leads with the question a real person asks — how much of
+    THIS repo did AI build — not the internal metric name."""
+    return f"# How AI built {repo}"
+
+
 def page_headline(state: str, *, confirmed: int, checkable: int, pct: str,
                   pending: int) -> str:
     """The bold one-line verdict at the very top of a per-repo page.
 
     state is one of CLEAN / DRIFT / RAW_ONLY (the scoreboard_page.py constants).
-    Plain English, the count inline — derived from the verdict, never authored.
+    Plain English, derived from the verdict, never authored. The reader-facing
+    word "drift" is gone (it confused readers — it lives on only in the
+    methodology as the precise term); the honesty fact is stated in plain
+    words: did every claim an AI commit made check out against its own diff.
     """
     if state == "DRIFT":
-        noun = "drift" if confirmed == 1 else "drifts"
-        verb = "claims" if confirmed == 1 else "claim"
-        return (f"**We found {confirmed} {noun} — {confirmed} of {checkable} "
-                f"checkable commit messages {verb} something the diff doesn't "
-                f"show ({pct}).**")
+        n = confirmed
+        noun = "commit" if n == 1 else "commits"
+        return (f"**{n} of {checkable} AI commit {('message' if n == 1 else 'messages')} "
+                f"here claimed work the commit's own diff doesn't show ({pct}). "
+                "The rest checked out.**")
     if state == "CLEAN":
-        return (f"**Clean — every one of {checkable} checkable commit messages "
-                "matched its diff. 0 drifts.**")
+        return (f"**Every one of the {checkable} AI commits here that made a "
+                "checkable claim did what it said — each claim backed by the "
+                "commit's own diff.**")
     # RAW_ONLY
-    flag_noun = "flag" if pending == 1 else "flags"
-    return (f"**No grade yet — {pending} {flag_noun} of {checkable} checkable "
-            "claims still need a human look before this page can grade.**")
+    flag_noun = "commit" if pending == 1 else "commits"
+    return (f"**Not graded yet — {pending} AI {flag_noun} of {checkable} "
+            "checkable claims still need a human look before this page can "
+            "grade.**")
 
 
 def page_headline_tail() -> str:
-    """The sentence under the headline blockquote on every page: what a drift
+    """The sentence under the headline blockquote on every page: what the check
     is, in plain words, with the ethics line folded in (not a standalone
-    disclaimer), plus the schema link."""
+    disclaimer), plus the schema link. No jargon — the precise term lives in
+    the linked methodology, not here."""
     return (
-        "A drift is a commit whose subject claims something its own diff "
-        "doesn't show — an empty commit that says \"fixed it\", a \"tests "
-        "pass\" that deletes the test. " + ETHICS_LINE + " Schema and grade "
-        "vocabulary: " + _SCHEMA_LINK + "."
+        "The check: an AI agent's commit message is just text it wrote — the "
+        "diff is what git recorded. This page reports, for the AI-authored "
+        "commits, whether each concrete claim in a message (\"fix X\", \"add "
+        "tests for Y\") is backed by that commit's own diff. " + ETHICS_LINE
+        + " Schema and the precise definition: " + _SCHEMA_LINK + "."
     )
 
 
+# ---------------------------------------------------------------------------
+# The "How AI built this" section — the new lede that makes each page DIFFER:
+# the agent-authored share, the agent mix, and the claims-backed rate, all in
+# plain words. Driven by the optional attribution facts the corpus sweep
+# carries (markers / attributed_commits / commits_scanned); omitted when the
+# input is a bare summary (the self page) that has no agent data.
+# ---------------------------------------------------------------------------
+
+def agent_share_sentence(*, attributed: int, scanned: int) -> str:
+    """How much of the recent history is agent-authored, in plain words."""
+    if scanned <= 0:
+        return ""
+    pct = attributed / scanned
+    commits = "commit" if attributed == 1 else "commits"
+    return (f"AI agents wrote **{pct:.0%}** of the last {scanned:,} commits "
+            f"here — {attributed:,} agent-authored {commits}.")
+
+
+def agent_mix_sentence(mix: list[tuple[str, int]]) -> str:
+    """Which agents, biggest first. `mix` is a list of (label, count) the
+    renderer sorts deterministically (count desc, then name) before passing in.
+    """
+    if not mix:
+        return ""
+    parts = [f"{label} {count:,}" for label, count in mix]
+    if len(parts) == 1:
+        return f"The agent behind them: **{parts[0]}**."
+    return "The agents behind them: **" + " · ".join(parts) + "**."
+
+
+def claims_backed_sentence(*, witnessed: int, checkable: int,
+                           unwitnessed: int) -> str:
+    """The truthfulness fact, in one plain sentence — no 'drift'."""
+    if checkable <= 0:
+        return ("None of the audited commits made a concrete, checkable "
+                "claim, so there is nothing to back-check here.")
+    if unwitnessed == 0:
+        return (f"Of those, **{checkable:,}** made a concrete claim you can "
+                f"check (\"fix X\", \"add tests for Y\") — and **every one** "
+                "was backed by the commit's own diff. No commit claimed work "
+                "its diff doesn't show.")
+    pct = witnessed / checkable
+    n = unwitnessed
+    msg = "message" if n == 1 else "messages"
+    return (f"Of those, **{checkable:,}** made a concrete claim you can check; "
+            f"**{witnessed:,}** ({pct:.0%}) were backed by the commit's own "
+            f"diff. **{n}** {msg} claimed work the diff doesn't show — listed "
+            "in the receipts below.")
+
+
+def how_ai_built_heading() -> str:
+    return "## How AI built this"
+
+
 def clean_passed_block() -> str:
-    """The 'what a drift would have looked like (this repo had none)' block —
-    makes a CLEAN page concrete instead of empty. Markdown, no trailing blank."""
+    """The 'what an over-claim would look like (this repo had none)' block —
+    makes a clean page concrete instead of empty. Markdown, no trailing blank.
+    No jargon: the shapes are shown, the precise term stays in the methodology.
+    """
     return "\n".join([
-        "### What a drift would have looked like (this repo had none)",
+        "### What a mismatch would have looked like (this repo had none)",
         "",
         "> **would flag:** `fix: handle null user` → touched 0 files  ",
         "> **would flag:** `test: all green` → deleted test lines, added "
@@ -243,20 +380,23 @@ def clean_passed_block() -> str:
         "",
         "Neither happened here. Every \"fix / add / remove\" commit touched a "
         "real source file; every \"tests\" commit touched a real test file. "
-        "That's what clean means — **not \"nothing happened\", but every "
-        "checkable claim backed by the diff.**",
+        "That's what a clean page means — **not \"nothing happened\", but "
+        "every checkable claim backed by the diff.**",
     ])
 
 
 # Plain-English column labels for the tables, replacing the auditor's
-# Witnessed / Unwitnessed (raw) / Abstained vocabulary on the reader-facing page.
+# Witnessed / Unwitnessed / Abstained vocabulary on the reader-facing page.
+# "Drifted" is gone — "Claimed, not shown" says the same thing in plain words.
 VERDICT_TABLE_HEADER = (
-    "| Commits | Checkable | Backed by the diff | Drifted (raw) | Skipped "
-    "| Raw rate | Final grade |"
+    "| Commits | Checkable | Backed by the diff | Claimed, not shown (raw) "
+    "| Skipped | Raw rate | Final grade |"
 )
 VERDICT_TABLE_RULE = "|---|---|---|---|---|---|---|"
 
-BY_KIND_HEADER = "| Kind of claim | Backed by the diff | Drifted | Skipped |"
+BY_KIND_HEADER = (
+    "| Kind of claim | Backed by the diff | Claimed, not shown | Skipped |"
+)
 BY_KIND_RULE = "|---|---|---|---|"
 
 # How each claim kind reads to a cold dev (the raw key stays in the JSON / the

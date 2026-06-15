@@ -1,0 +1,14 @@
+{
+  "schema": "dos-scoreboard-page/v1",
+  "repo": "livekit/agents",
+  "tier": "seeded",
+  "rendered": "2026-06-15",
+  "attribution": "agent-attributed commits only (the closed marker set, docs/scoreboard/methodology.md \u00a73); a human commit is never audited here",
+  "auditor": "dos-kernel 0.26.0",
+  "range": {
+    "base_sha": "429a166a7bd43c628924112326bbe92f47bc45c2",
+    "head_sha": "25a6e5102e523b190c578341028c39f8483ba482",
+    "commits_note": "71 attributed commits audited"
+  },
+  "records": []
+}

@@ -1,0 +1,39 @@
+{
+  "repo": "getzep/graphiti",
+  "commits_scanned": 874,
+  "attributed_commits": 127,
+  "markers": {
+    "claude": 127
+  },
+  "summary": {
+    "commits": 127,
+    "checkable": 66,
+    "abstained": 61,
+    "witnessed": 66,
+    "unwitnessed": 0,
+    "drift_rate": 0.0,
+    "by_kind": {
+      "none": {
+        "unwitnessed": 0,
+        "witnessed": 0,
+        "abstain": 61
+      },
+      "code_effect": {
+        "unwitnessed": 0,
+        "witnessed": 59,
+        "abstain": 0
+      },
+      "test": {
+        "unwitnessed": 0,
+        "witnessed": 1,
+        "abstain": 0
+      },
+      "doc": {
+        "unwitnessed": 0,
+        "witnessed": 6,
+        "abstain": 0
+      }
+    },
+    "unwitnessed_shas": []
+  }
+}

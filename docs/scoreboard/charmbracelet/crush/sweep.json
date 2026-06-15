@@ -1,0 +1,41 @@
+{
+  "repo": "charmbracelet/crush",
+  "commits_scanned": 3532,
+  "attributed_commits": 96,
+  "markers": {
+    "crush": 86,
+    "copilot": 9,
+    "claude": 1
+  },
+  "summary": {
+    "commits": 96,
+    "checkable": 50,
+    "abstained": 46,
+    "witnessed": 50,
+    "unwitnessed": 0,
+    "drift_rate": 0.0,
+    "by_kind": {
+      "code_effect": {
+        "unwitnessed": 0,
+        "witnessed": 37,
+        "abstain": 0
+      },
+      "none": {
+        "unwitnessed": 0,
+        "witnessed": 0,
+        "abstain": 46
+      },
+      "doc": {
+        "unwitnessed": 0,
+        "witnessed": 7,
+        "abstain": 0
+      },
+      "test": {
+        "unwitnessed": 0,
+        "witnessed": 6,
+        "abstain": 0
+      }
+    },
+    "unwitnessed_shas": []
+  }
+}

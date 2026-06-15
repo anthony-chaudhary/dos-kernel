@@ -1,0 +1,14 @@
+{
+  "schema": "dos-scoreboard-page/v1",
+  "repo": "exo-explore/exo",
+  "tier": "seeded",
+  "rendered": "2026-06-15",
+  "attribution": "agent-attributed commits only (the closed marker set, docs/scoreboard/methodology.md \u00a73); a human commit is never audited here",
+  "auditor": "dos-kernel 0.26.0",
+  "range": {
+    "base_sha": "a21f59ff459c62933832638df628e457030e4970",
+    "head_sha": "09f9ea313f72e261f40a94cea4c0e3681b31af23",
+    "commits_note": "101 attributed commits audited"
+  },
+  "records": []
+}

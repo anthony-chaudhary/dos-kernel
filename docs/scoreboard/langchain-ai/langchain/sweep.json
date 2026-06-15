@@ -1,0 +1,35 @@
+{
+  "repo": "langchain-ai/langchain",
+  "commits_scanned": 10000,
+  "attributed_commits": 39,
+  "markers": {
+    "claude": 15,
+    "copilot": 24
+  },
+  "summary": {
+    "commits": 39,
+    "checkable": 29,
+    "abstained": 10,
+    "witnessed": 29,
+    "unwitnessed": 0,
+    "drift_rate": 0.0,
+    "by_kind": {
+      "none": {
+        "unwitnessed": 0,
+        "witnessed": 0,
+        "abstain": 10
+      },
+      "code_effect": {
+        "unwitnessed": 0,
+        "witnessed": 20,
+        "abstain": 0
+      },
+      "doc": {
+        "unwitnessed": 0,
+        "witnessed": 9,
+        "abstain": 0
+      }
+    },
+    "unwitnessed_shas": []
+  }
+}

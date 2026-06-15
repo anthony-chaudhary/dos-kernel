@@ -5,6 +5,14 @@ its diff actually did. The message can say anything; the diff can't. Below is
 the long version — exactly what the check reads, what it skips, and every time
 the check itself was wrong (we fixed the check, never trusted the subject).
 
+> **A note on words.** The reader-facing pages (the index and each per-repo
+> page) deliberately avoid the word "drift" — it reads as jargon to a first-time
+> visitor. There they say it plainly: how much of the repo AI built, which
+> agents, and whether each claim was *backed by the commit's own diff*. This
+> methodology keeps **drift** as the precise term, because it is the one place
+> the exact definition lives. Same measurement, two registers: plain words out
+> front, the precise term here.
+
 > **What it measures:** how often a commit written by an AI coding agent makes
 > a concrete claim in its subject line ("fix X", "add tests for Y") that the
 > commit's **own diff does not witness** — an empty commit claiming a fix, a

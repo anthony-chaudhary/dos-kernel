@@ -1,0 +1,42 @@
+{
+  "repo": "pydantic/pydantic-ai",
+  "commits_scanned": 2172,
+  "attributed_commits": 200,
+  "markers": {
+    "claude": 188,
+    "devin": 7,
+    "cursor": 1,
+    "copilot": 4
+  },
+  "summary": {
+    "commits": 200,
+    "checkable": 139,
+    "abstained": 61,
+    "witnessed": 139,
+    "unwitnessed": 0,
+    "drift_rate": 0.0,
+    "by_kind": {
+      "code_effect": {
+        "unwitnessed": 0,
+        "witnessed": 122,
+        "abstain": 0
+      },
+      "none": {
+        "unwitnessed": 0,
+        "witnessed": 0,
+        "abstain": 61
+      },
+      "doc": {
+        "unwitnessed": 0,
+        "witnessed": 16,
+        "abstain": 0
+      },
+      "test": {
+        "unwitnessed": 0,
+        "witnessed": 1,
+        "abstain": 0
+      }
+    },
+    "unwitnessed_shas": []
+  }
+}

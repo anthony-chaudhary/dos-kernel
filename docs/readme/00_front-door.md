@@ -9,6 +9,12 @@
 [![commit-claims](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fanthony-chaudhary%2Fdos-kernel%2Fmaster%2Fdocs%2Fscoreboard%2Fanthony-chaudhary%2Fdos-kernel%2Fbadge.json)](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/scoreboard/methodology.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/anthony-chaudhary/dos-kernel/blob/master/LICENSE)
 
+> 📊 **See it run on real repos:** the **[scoreboard](https://anthony-chaudhary.github.io/dos-kernel/scoreboard/)**
+> takes this same check public — for 15 popular AI-built repos (roborev,
+> open-interpreter, crewAI, autogen, …) it shows how much of each was written by
+> agents, which agents, and whether every commit's claim is backed by its own
+> diff. One command scores yours: `dos commit-audit --sweep --workspace . BASE..HEAD`.
+
 <p align="center">
   <img src="https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/docs/assets/caught-lie-cast.svg" alt="A terminal recording of the caught lie. The agent reports: Done! Shipped the login endpoint (AUTH1) and the password reset (AUTH2). git log shows one commit — AUTH1: ship the login endpoint. dos verify AUTH AUTH1 answers SHIPPED (exit 0); dos verify AUTH AUTH2 answers NOT_SHIPPED via none (exit 1) — caught. The exit code is the verdict: gate the agent's done on it and a false claim cannot land." width="100%">
   <br>

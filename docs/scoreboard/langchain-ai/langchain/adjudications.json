@@ -1,0 +1,14 @@
+{
+  "schema": "dos-scoreboard-page/v1",
+  "repo": "langchain-ai/langchain",
+  "tier": "seeded",
+  "rendered": "2026-06-15",
+  "attribution": "agent-attributed commits only (the closed marker set, docs/scoreboard/methodology.md \u00a73); a human commit is never audited here",
+  "auditor": "dos-kernel 0.26.0",
+  "range": {
+    "base_sha": "6826feea147ce7761f9d27fe0fe7c3566e19ed95",
+    "head_sha": "62f255980d3fcb6fe24f2471498b4fdad289319b",
+    "commits_note": "39 attributed commits audited"
+  },
+  "records": []
+}

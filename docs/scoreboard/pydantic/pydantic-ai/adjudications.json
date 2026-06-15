@@ -1,0 +1,14 @@
+{
+  "schema": "dos-scoreboard-page/v1",
+  "repo": "pydantic/pydantic-ai",
+  "tier": "seeded",
+  "rendered": "2026-06-15",
+  "attribution": "agent-attributed commits only (the closed marker set, docs/scoreboard/methodology.md \u00a73); a human commit is never audited here",
+  "auditor": "dos-kernel 0.26.0",
+  "range": {
+    "base_sha": "9785eb3ea3a767c866c1cbc62e0a3043d590312a",
+    "head_sha": "fabeacc3af417e81218fb2f4e0e8f812975c24a9",
+    "commits_note": "200 attributed commits audited"
+  },
+  "records": []
+}

@@ -1,0 +1,35 @@
+{
+  "repo": "microsoft/autogen",
+  "commits_scanned": 3782,
+  "attributed_commits": 30,
+  "markers": {
+    "claude": 2,
+    "copilot": 28
+  },
+  "summary": {
+    "commits": 30,
+    "checkable": 27,
+    "abstained": 3,
+    "witnessed": 27,
+    "unwitnessed": 0,
+    "drift_rate": 0.0,
+    "by_kind": {
+      "code_effect": {
+        "unwitnessed": 0,
+        "witnessed": 23,
+        "abstain": 0
+      },
+      "doc": {
+        "unwitnessed": 0,
+        "witnessed": 4,
+        "abstain": 0
+      },
+      "none": {
+        "unwitnessed": 0,
+        "witnessed": 0,
+        "abstain": 3
+      }
+    },
+    "unwitnessed_shas": []
+  }
+}

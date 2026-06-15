@@ -1,31 +1,41 @@
 {
-  "commits": 150,
-  "checkable": 96,
-  "abstained": 54,
-  "witnessed": 96,
-  "unwitnessed": 0,
-  "drift_rate": 0.0,
-  "by_kind": {
-    "code_effect": {
-      "unwitnessed": 0,
-      "witnessed": 87,
-      "abstain": 0
-    },
-    "test": {
-      "unwitnessed": 0,
-      "witnessed": 7,
-      "abstain": 0
-    },
-    "doc": {
-      "unwitnessed": 0,
-      "witnessed": 2,
-      "abstain": 0
-    },
-    "none": {
-      "unwitnessed": 0,
-      "witnessed": 0,
-      "abstain": 54
-    }
+  "repo": "kenn-io/roborev",
+  "commits_scanned": 668,
+  "attributed_commits": 432,
+  "markers": {
+    "claude": 430,
+    "cursor": 1,
+    "copilot": 1
   },
-  "unwitnessed_shas": []
+  "summary": {
+    "commits": 432,
+    "checkable": 273,
+    "abstained": 159,
+    "witnessed": 273,
+    "unwitnessed": 0,
+    "drift_rate": 0.0,
+    "by_kind": {
+      "none": {
+        "unwitnessed": 0,
+        "witnessed": 0,
+        "abstain": 159
+      },
+      "code_effect": {
+        "unwitnessed": 0,
+        "witnessed": 229,
+        "abstain": 0
+      },
+      "test": {
+        "unwitnessed": 0,
+        "witnessed": 18,
+        "abstain": 0
+      },
+      "doc": {
+        "unwitnessed": 0,
+        "witnessed": 26,
+        "abstain": 0
+      }
+    },
+    "unwitnessed_shas": []
+  }
 }

@@ -1,0 +1,36 @@
+{
+  "repo": "danny-avila/LibreChat",
+  "commits_scanned": 4519,
+  "attributed_commits": 38,
+  "markers": {
+    "claude": 24,
+    "copilot": 13,
+    "cursor": 1
+  },
+  "summary": {
+    "commits": 38,
+    "checkable": 24,
+    "abstained": 14,
+    "witnessed": 24,
+    "unwitnessed": 0,
+    "drift_rate": 0.0,
+    "by_kind": {
+      "none": {
+        "unwitnessed": 0,
+        "witnessed": 0,
+        "abstain": 14
+      },
+      "code_effect": {
+        "unwitnessed": 0,
+        "witnessed": 23,
+        "abstain": 0
+      },
+      "doc": {
+        "unwitnessed": 0,
+        "witnessed": 1,
+        "abstain": 0
+      }
+    },
+    "unwitnessed_shas": []
+  }
+}

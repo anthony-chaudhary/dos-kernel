@@ -1,0 +1,38 @@
+{
+  "repo": "crewAIInc/crewAI",
+  "commits_scanned": 2526,
+  "attributed_commits": 87,
+  "markers": {
+    "claude": 29,
+    "cursor": 3,
+    "devin": 51,
+    "copilot": 1,
+    "aider": 3
+  },
+  "summary": {
+    "commits": 87,
+    "checkable": 69,
+    "abstained": 18,
+    "witnessed": 69,
+    "unwitnessed": 0,
+    "drift_rate": 0.0,
+    "by_kind": {
+      "none": {
+        "unwitnessed": 0,
+        "witnessed": 0,
+        "abstain": 18
+      },
+      "code_effect": {
+        "unwitnessed": 0,
+        "witnessed": 51,
+        "abstain": 0
+      },
+      "doc": {
+        "unwitnessed": 0,
+        "witnessed": 18,
+        "abstain": 0
+      }
+    },
+    "unwitnessed_shas": []
+  }
+}

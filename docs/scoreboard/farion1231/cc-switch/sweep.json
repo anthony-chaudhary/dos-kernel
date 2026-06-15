@@ -1,26 +1,36 @@
 {
-  "commits": 41,
-  "checkable": 30,
-  "abstained": 11,
-  "witnessed": 30,
-  "unwitnessed": 0,
-  "drift_rate": 0.0,
-  "by_kind": {
-    "code_effect": {
-      "unwitnessed": 0,
-      "witnessed": 29,
-      "abstain": 0
-    },
-    "doc": {
-      "unwitnessed": 0,
-      "witnessed": 1,
-      "abstain": 0
-    },
-    "none": {
-      "unwitnessed": 0,
-      "witnessed": 0,
-      "abstain": 11
-    }
+  "repo": "farion1231/cc-switch",
+  "commits_scanned": 1954,
+  "attributed_commits": 42,
+  "markers": {
+    "claude": 40,
+    "cursor": 1,
+    "copilot": 1
   },
-  "unwitnessed_shas": []
+  "summary": {
+    "commits": 42,
+    "checkable": 30,
+    "abstained": 12,
+    "witnessed": 30,
+    "unwitnessed": 0,
+    "drift_rate": 0.0,
+    "by_kind": {
+      "none": {
+        "unwitnessed": 0,
+        "witnessed": 0,
+        "abstain": 12
+      },
+      "code_effect": {
+        "unwitnessed": 0,
+        "witnessed": 29,
+        "abstain": 0
+      },
+      "doc": {
+        "unwitnessed": 0,
+        "witnessed": 1,
+        "abstain": 0
+      }
+    },
+    "unwitnessed_shas": []
+  }
 }

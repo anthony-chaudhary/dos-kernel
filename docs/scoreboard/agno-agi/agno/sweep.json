@@ -1,0 +1,42 @@
+{
+  "repo": "agno-agi/agno",
+  "commits_scanned": 5697,
+  "attributed_commits": 168,
+  "markers": {
+    "claude": 159,
+    "devin": 1,
+    "copilot": 7,
+    "aider": 1
+  },
+  "summary": {
+    "commits": 168,
+    "checkable": 103,
+    "abstained": 65,
+    "witnessed": 103,
+    "unwitnessed": 0,
+    "drift_rate": 0.0,
+    "by_kind": {
+      "none": {
+        "unwitnessed": 0,
+        "witnessed": 0,
+        "abstain": 65
+      },
+      "code_effect": {
+        "unwitnessed": 0,
+        "witnessed": 95,
+        "abstain": 0
+      },
+      "doc": {
+        "unwitnessed": 0,
+        "witnessed": 6,
+        "abstain": 0
+      },
+      "test": {
+        "unwitnessed": 0,
+        "witnessed": 2,
+        "abstain": 0
+      }
+    },
+    "unwitnessed_shas": []
+  }
+}

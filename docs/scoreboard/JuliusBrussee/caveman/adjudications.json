@@ -2,8 +2,8 @@
   "schema": "dos-scoreboard-page/v1",
   "repo": "JuliusBrussee/caveman",
   "tier": "seeded",
-  "rendered": "2026-06-13",
-  "attribution": "agent-attributed commits only (the closed marker set, docs/scoreboard/methodology.md §3); a human commit is never audited here",
+  "rendered": "2026-06-15",
+  "attribution": "agent-attributed commits only (the closed marker set, docs/scoreboard/methodology.md \u00a73); a human commit is never audited here",
   "auditor": "dos-kernel 0.26.0",
   "range": {
     "base_sha": "fb0bc2d1776ad0e3c425c4f98f42f4d2cead7269",

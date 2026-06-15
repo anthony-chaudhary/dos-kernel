@@ -1,0 +1,42 @@
+{
+  "repo": "livekit/agents",
+  "commits_scanned": 3484,
+  "attributed_commits": 71,
+  "markers": {
+    "claude": 45,
+    "cursor": 6,
+    "devin": 17,
+    "copilot": 3
+  },
+  "summary": {
+    "commits": 71,
+    "checkable": 58,
+    "abstained": 13,
+    "witnessed": 58,
+    "unwitnessed": 0,
+    "drift_rate": 0.0,
+    "by_kind": {
+      "code_effect": {
+        "unwitnessed": 0,
+        "witnessed": 55,
+        "abstain": 0
+      },
+      "none": {
+        "unwitnessed": 0,
+        "witnessed": 0,
+        "abstain": 13
+      },
+      "test": {
+        "unwitnessed": 0,
+        "witnessed": 2,
+        "abstain": 0
+      },
+      "doc": {
+        "unwitnessed": 0,
+        "witnessed": 1,
+        "abstain": 0
+      }
+    },
+    "unwitnessed_shas": []
+  }
+}

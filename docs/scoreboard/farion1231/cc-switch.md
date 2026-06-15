@@ -1,43 +1,54 @@
-# farion1231/cc-switch — drift scoreboard
+# How AI built farion1231/cc-switch
 
-> **Clean — every one of 30 checkable commit messages matched its diff. 0 drifts.**
-> A drift is a commit whose subject claims something its own diff doesn't show
-> — an empty commit that says "fixed it", a "tests pass" that deletes the
-> test. A drift is a message-vs-diff mismatch — **never** a correctness,
-> honesty, or intent grade. Schema and grade vocabulary:
+> **Every one of the 30 AI commits here that made a checkable claim did what it said — each claim backed by the commit's own diff.**
+> The check: an AI agent's commit message is just text it wrote — the diff is
+> what git recorded. This page reports, for the AI-authored commits, whether
+> each concrete claim in a message ("fix X", "add tests for Y") is backed by
+> that commit's own diff. A message-vs-diff mismatch is **never** a
+> correctness, honesty, or intent grade — only a note that a commit's words
+> and its own diff disagree. Schema and the precise definition:
 > [docs/311](../../311_scoreboard-per-repo-index-plan.md).
 
-### What a drift would have looked like (this repo had none)
+## How AI built this
+
+AI agents wrote **2%** of the last 1,954 commits here — 42 agent-authored
+commits. The agents behind them: **claude 40 · copilot 1 · cursor 1**.
+
+Of those, **30** made a concrete claim you can check ("fix X", "add tests
+for Y") — and **every one** was backed by the commit's own diff. No commit
+claimed work its diff doesn't show.
+
+### What a mismatch would have looked like (this repo had none)
 
 > **would flag:** `fix: handle null user` → touched 0 files  
 > **would flag:** `test: all green` → deleted test lines, added none
 
-Neither happened here. Every "fix / add / remove" commit touched a real source file; every "tests" commit touched a real test file. That's what clean means — **not "nothing happened", but every checkable claim backed by the diff.**
+Neither happened here. Every "fix / add / remove" commit touched a real source file; every "tests" commit touched a real test file. That's what a clean page means — **not "nothing happened", but every checkable claim backed by the diff.**
 
 ## As of
 
 | | |
 |---|---|
-| Audited range | `e0a9c1ab4c46ecadf665dfb31dd967ce6f0019ac` → `11572b1337999a53eb6be6e657e2b17fd72f49d3` |
-| Commits in range | 41 (41 attributed commits audited) |
-| Rendered | 2026-06-13 |
+| Audited range | `e0a9c1ab4c46ecadf665dfb31dd967ce6f0019ac` → `c548e7fcbad52c3704c7e58a52be90fc05a7fbe7` |
+| Commits in range | 42 (42 attributed commits audited) |
+| Rendered | 2026-06-15 |
 | Auditor | dos-kernel 0.26.0 |
 | Tier | seeded |
 | Attribution | agent-attributed commits only (the closed marker set, docs/scoreboard/methodology.md §3); a human commit is never audited here |
 
 ## The verdict
 
-| Commits | Checkable | Backed by the diff | Drifted (raw) | Skipped | Raw rate | Final grade |
+| Commits | Checkable | Backed by the diff | Claimed, not shown (raw) | Skipped | Raw rate | Final grade |
 |---|---|---|---|---|---|---|
-| 41 | 30 | 30 | 0 | 11 | 0.0% | **0 of 30 (0.0%)** |
+| 42 | 30 | 30 | 0 | 12 | 0.0% | **0 of 30 (0.0%)** |
 
 ## By kind of claim
 
-| Kind of claim | Backed by the diff | Drifted | Skipped |
+| Kind of claim | Backed by the diff | Claimed, not shown | Skipped |
 |---|---|---|---|
 | `fix / add / remove` (code) | 29 | 0 | 0 |
 | `docs` | 1 | 0 | 0 |
-| no checkable claim (skipped) | — | — | 11 |
+| no checkable claim (skipped) | — | — | 12 |
 
 ## The receipts — every flag, adjudicated
 
@@ -47,10 +58,10 @@ No flags in range.
 
 ```bash
 git clone https://github.com/farion1231/cc-switch.git && cd cc-switch
-git checkout 11572b1337999a53eb6be6e657e2b17fd72f49d3
+git checkout c548e7fcbad52c3704c7e58a52be90fc05a7fbe7
 pip install dos-kernel
 dos commit-audit --sweep --json --workspace . \
-    e0a9c1ab4c46ecadf665dfb31dd967ce6f0019ac..11572b1337999a53eb6be6e657e2b17fd72f49d3
+    e0a9c1ab4c46ecadf665dfb31dd967ce6f0019ac..c548e7fcbad52c3704c7e58a52be90fc05a7fbe7
 ```
 
 A newer auditor over the same pinned range may count differently as

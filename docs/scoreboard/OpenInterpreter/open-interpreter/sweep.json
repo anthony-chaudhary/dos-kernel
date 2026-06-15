@@ -1,0 +1,41 @@
+{
+  "repo": "OpenInterpreter/open-interpreter",
+  "commits_scanned": 5909,
+  "attributed_commits": 253,
+  "markers": {
+    "codex": 240,
+    "claude": 10,
+    "copilot": 3
+  },
+  "summary": {
+    "commits": 253,
+    "checkable": 118,
+    "abstained": 135,
+    "witnessed": 118,
+    "unwitnessed": 0,
+    "drift_rate": 0.0,
+    "by_kind": {
+      "none": {
+        "unwitnessed": 0,
+        "witnessed": 0,
+        "abstain": 135
+      },
+      "code_effect": {
+        "unwitnessed": 0,
+        "witnessed": 111,
+        "abstain": 0
+      },
+      "doc": {
+        "unwitnessed": 0,
+        "witnessed": 6,
+        "abstain": 0
+      },
+      "test": {
+        "unwitnessed": 0,
+        "witnessed": 1,
+        "abstain": 0
+      }
+    },
+    "unwitnessed_shas": []
+  }
+}
