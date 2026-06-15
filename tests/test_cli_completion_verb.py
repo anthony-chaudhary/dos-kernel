@@ -74,15 +74,35 @@ def test_completion_each_shell_emits_appropriate_script():
         assert needle in proc.stdout, f"{shell} script missing {needle!r}"
 
 
+def _usable_bash() -> bool:
+    """True only for a REAL bash on PATH.
+
+    On the GitHub `windows-latest` runner, `shutil.which("bash")` resolves to the
+    WSL launcher stub (`C:\\Windows\\System32\\bash.exe`). With no distro installed
+    it does not run scripts — it prints a UTF-16 "Windows Subsystem for Linux has
+    no installed distributions… wsl --install" message and exits non-zero. That is
+    not a bash we can syntax-check with, so a bare `which("bash") is not None`
+    guard wrongly proceeds and fails on the stub's output, not on the script.
+    Probe that a trivial command actually succeeds before trusting it.
+    """
+    if shutil.which("bash") is None:
+        return False
+    try:
+        probe = subprocess.run(["bash", "-c", "exit 0"], capture_output=True)
+    except OSError:
+        return False
+    return probe.returncode == 0
+
+
 def test_completion_bash_is_syntactically_valid_when_bash_available():
-    """If bash is on PATH, the emitted script must parse (`bash -n`).
+    """If a REAL bash is on PATH, the emitted script must parse (`bash -n`).
 
     Pipe the script as BYTES so the parent shell does not re-encode \n→\r\n on
     Windows — a CR would make `bash -n` fail on a script that is actually fine.
     The CLI emits pure-LF bytes (see cmd_completion); this checks them as-is.
     """
-    if shutil.which("bash") is None:
-        return  # bash not on this runner — skip the syntax check
+    if not _usable_bash():
+        return  # no real bash on this runner (or only the WSL stub) — skip
     env = {**os.environ, "PYTHONPATH": str(Path(dos.__file__).parents[1])}
     raw = subprocess.run(
         [sys.executable, "-m", "dos.cli", "completion", "bash"],
