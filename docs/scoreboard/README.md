@@ -1,8 +1,12 @@
 # AI commit messages can lie. This catches it.
 
-When Copilot, Cursor, or Claude writes a commit for you, the message is just text — `fix the login bug`, `tests pass`, `add caching`. Nothing checks that the change actually did that. The **diff** can't lie about which files it touched. The **message** can say anything.
+More and more code is written by agents that also write their own commit messages. So the message stops being evidence. `fix the login bug`, `tests pass`, `add caching` — that is just text the agent typed. The **diff** is what git actually recorded. The two can disagree.
 
-This scoreboard asks two plain questions about public repos built with AI agents: **how much of the repo did the AI write — and did the AI tell the truth about what each commit did?** For every AI-authored commit we check whether its message's claim is backed by the commit's own diff. Each page below is the receipt.
+**Why it matters:** when a team merges on the message, an empty commit that says `fix` — or a `tests pass` that *deleted* the test — slips in quietly. Nobody lied on purpose; the words just ran ahead of the work. The cost is a false sense of done: the codebase now carries a "fix" that fixed nothing, and no one noticed.
+
+**The move:** read the thing that can't lie. This check compares each AI commit's claim against its own diff — never the message alone. A mismatch is **not** an accusation of lying or bad code; it means only that the words and the diff disagree, and someone should look. That restraint is why the result is worth trusting.
+
+This scoreboard is the proof it works on real, popular repos: for every AI-authored commit it asks **how much of the repo the AI wrote — and whether each commit's claim is backed by its own diff.** It graded our own repo first, and published a non-zero result. Each page below is the receipt.
 
 ### Score your own repo in one command
 
@@ -11,7 +15,7 @@ pip install dos-kernel
 dos commit-audit --sweep --workspace . BASE..HEAD
 ```
 
-That's the same check, on your history. No account, no upload.
+That is the exact same check, on your history — before you trust the next "done". No account, no upload, no one named.
 
 > Across **15 repos** audited here — AI agents wrote about **3%** of recent commits — and **every one** of the concrete claims those commits made was backed by the commit's own diff.
 
