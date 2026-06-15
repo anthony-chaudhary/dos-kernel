@@ -185,6 +185,8 @@ ARRIVAL_QUERIES = [
      "docs/answers/hidden-test-split-to-stop-agents-overfitting.md"),
     ("governance is why agentic AI projects get canceled what is the missing layer",
      "docs/answers/governance-for-agentic-ai-projects-that-keep-getting-canceled.md"),
+    ("how to make any agent skill verify its own work",
+     "docs/answers/make-any-agent-skill-verify-its-own-work.md"),
 ]
 
 # --- family 1: arrival files (the well-known fetch targets) -------------------
