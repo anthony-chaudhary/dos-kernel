@@ -61,6 +61,20 @@ wakeup `--interval` seconds out; else stop.
 Parse the counter from the prior iteration, run `/dos-replan`, and re-run Step 2
 again. Stop when the counter reaches `--max-iterations`.
 
+## The outer ratchet for this loop (docs/351)
+
+This loop's "am I producing a witnessed net gain, or just spinning?" ratchet
+already exists as the kernel's **`REPLAN_STALLED`** stop (`loop_decide` / docs/258,
+#506): K consecutive UNPRODUCTIVE `/dos-replan` sweeps — replans that refilled or
+gardened *nothing* — stop the loop and surface, because a sweep that did costly
+nothing twice will not on a third identical pass. That IS the docs/351 outer ratchet
+for a planning loop: its net gain is gardening/refill (a different metric than the
+dispatch loop's reconcile-VERIFIED ship-count), so it does NOT fold under the
+`improve` keep-gate — `REPLAN_STALLED` is its shaped equivalent. Same doctrine
+across the loop roster: a loop that is running but not *improving* stops and hands
+the judgment back, rather than burning the cap (the dispatch loop names this
+`not-ratcheting`; this loop names it `REPLAN_STALLED`).
+
 ## What this skill deliberately does NOT do (no silent gap)
 
 - **No hardcoded trunk.** It resolves the default branch from git, so a `master`

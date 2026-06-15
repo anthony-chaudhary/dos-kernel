@@ -104,6 +104,21 @@ Stop when the operator interrupts the run, or when `--max-ticks` is reached.
 There is no "all done" terminal state — a supervisor's job is to *stay up*; it
 ends only on an explicit bound or an interrupt.
 
+## The outer ratchet for this loop (docs/351)
+
+A supervisor does not itself produce a net gain — it keeps a population alive — so
+its docs/351 ratchet is at the **population** level, and it already exists as the
+**FLAG** disposition: a worker the kernel classifies SPINNING (alive, but landing
+zero forward delta — the per-worker `liveness` ground-truth verdict) is surfaced to
+the operator, never killed. That is this loop's "running but not improving" signal:
+a worker that is up but not making witnessed progress is flagged for a human, the
+same doctrine the dispatch loop's `not-ratcheting` and the replan loop's
+`REPLAN_STALLED` express at their own level. The supervisor's contract keeps the
+*act* (reap/halt) a human-rung decision — it FLAGs the spin, it does not act on it
+— so the ratchet here is "surface the worker that is not ratcheting," not an
+auto-stop. (An optional aggregate "fleet not ratcheting" rung — K consecutive ticks
+where every worker is FLAGGED — is a `supervise.py` policy change, deferred.)
+
 ## What this skill deliberately does NOT do (no silent gap, `CLAUDE.md` heavy tier)
 
 - **No auto-kill of a SPINNING worker.** A spin is FLAGged (advisory) and

@@ -25,9 +25,18 @@ The stop conditions are the kernel's, in one place:
 7. **pick-cooldown** — the next unit was attempted-and-didn't-move inside its
    cooldown window AND nothing fresher is offerable; re-dispatching it would
    re-storm a known drain (the ~5%-shipping re-pick loop the bare loop hit).
+8. **not-ratcheting** — the OUTER RATCHET (docs/351): the loop has run too many
+   iterations in a row with no *witnessed net gain* — the reconcile-VERIFIED
+   ship-count (Step 3) is not rising, even though each iteration reported SHIPPED.
+   The loop is running but not improving (the "spinning, narrating progress while
+   net-shipping nothing real" failure that worsens the longer the loop runs). The
+   verdict is the kernel's `improve` ESCALATE, read VERBATIM — not the loop's
+   self-report. Hand the judgment back to a human.
 
-The last two are the docs/207 anti-churn rungs: the loop stops re-picking work it
-cannot move, instead of burning the cap re-confirming a known hold.
+Conditions 6–7 are the docs/207 anti-churn rungs (the loop stops re-picking work
+it cannot move); condition 8 is the docs/351 ratchet (the loop stops when it is
+moving but not *improving* — RSI made first-class here, the same `improve` keep-gate
+the `/dos-self-improve` loop uses, now gating each dispatch iteration's net gain).
 
 ## Inputs
 
@@ -112,6 +121,37 @@ the carried `Pickability` (→ `pick-held-invariant` stop) and `Cooldown` (→
 `pick-cooldown` stop). So the loop's continue/stop is driven END-TO-END by kernel
 rungs — the honest-STOP that used to be a per-run human override is now a kernel
 rule, not prose the loop re-applies each iteration.
+
+### Step 2b — Gather the outer-ratchet verdict (docs/351, the RSI rung)
+
+One more piece of in-flight evidence rides into `decide()`: the **outer ratchet**,
+the verdict on whether this iteration produced a *witnessed net gain* or the loop is
+spinning while narrating progress. The work-metric is the cross-run KEEP the loop
+already computes in **Step 3** — the count of picks `dos reconcile` confirms VERIFIED
+(exit 0) against git ancestry, NOT the SHIPPED self-report. Carry a cumulative
+baseline of VERIFIED picks across iterations and ask the kernel:
+
+```bash
+# work = the carried cumulative VERIFIED count + this iteration's VERIFIED picks;
+# baseline_work = the carried cumulative count BEFORE this iteration.
+# suite/truth come from the gate being LIVE and reconcile not flagging QUIET_INCOMPLETE.
+dos improve --workspace . \
+  $( [ "$GATE_LIVE" = 1 ] && echo --suite-passed ) \
+  $( [ "$RECONCILE_CLEAN" = 1 ] && echo --truth-clean ) \
+  --work "$VERIFIED_TOTAL" --baseline-work "$VERIFIED_BASELINE" \
+  --consecutive-reverts "$RATCHET_REVERTS" --max-reverts 3 --json
+```
+
+Branch on the verdict (the exit code): `0` KEEP — net gain witnessed, raise the
+baseline (`VERIFIED_BASELINE=$VERIFIED_TOTAL`), reset `RATCHET_REVERTS=0`; `3` REVERT
+— no net gain this iteration, bump `RATCHET_REVERTS`; `4` ESCALATE — the breaker is
+open. Pass the verdict as `loop_decide.decide`'s `ratchet` evidence. When it is
+ESCALATE the kernel STOPs the loop with **not-ratcheting** (condition 8): N iterations
+of "SHIPPED" that all reconcile QUIET_INCOMPLETE accrue reverts and stop the loop
+instead of burning the cap — the exact failure the bare loop hit (motion without
+measured progress). This is the same `improve` keep-gate the `/dos-self-improve` loop
+uses, now gating each dispatch iteration's net gain; the metric is the non-forgeable
+reconcile-VERIFIED count (git ancestry), never the loop's word.
 
 ## Step 3 — Reconcile each claimed pick (the cross-run KEEP)
 
