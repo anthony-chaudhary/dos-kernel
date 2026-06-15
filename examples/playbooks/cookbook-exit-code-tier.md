@@ -341,3 +341,42 @@ and the front door
   [the agent-hosts README section](https://github.com/anthony-chaudhary/dos-kernel/blob/master/README.md#give-your-agent-a-lie-detector-mcp);
   for the **Python-API** equivalent of these gates (embedding instead of
   shelling), see [`cookbook-python-api.md`](cookbook-python-api.md).
+
+  ---
+
+## Windsurf On-Ramp (Hook-less Setup)
+
+Windsurf (as well as similar editors like Warp and Zed) does not support hook-based integrations.
+
+Instead of relying on hooks, you can use the **exit-code tier**, which works in any environment that can run terminal commands.
+
+### ✅ How it works
+
+Run the following command in your terminal:
+```
+dos verify
+
+### ✅ Result interpretation
+
+- Exit code `0` → SHIPPED ✅  
+- Exit code `1` → NOT_SHIPPED ❌  
+
+The exit code **is the verdict** — no additional integration, hooks, or MCP setup is required.
+
+### ⚠️ Important
+
+There are **no hooks in Windsurf**. Do not expect a hook installation. The workflow relies entirely on command execution and exit codes.
+
+### ⚙️ Optional: Windsurf Rules
+
+You can define a `.windsurfrules` file to ensure checks are run before marking tasks complete:
+
+```
+Run dos verify before completing any task. Treat exit code 0 as success and 1 as failure.
+
+### 📌 Summary
+
+- No hooks required  
+- No special setup needed  
+- Works via terminal commands  
+- Exit code = source of truth  
