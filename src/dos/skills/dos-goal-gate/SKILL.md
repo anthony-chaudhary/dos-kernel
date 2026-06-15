@@ -126,6 +126,34 @@ the prose says done but git does not corroborate it.
 > converge on the same finish line. Do not write the gate as if it parses the
 > goal — it parses the agent's claims and asks git.
 
+### Step 1b — The Fable-5 guide's "check your last paragraph" is the advisory form of this gate
+
+Anthropic's Claude Fable 5 prompting guide has a section, **"Rare cases of early
+stopping,"** for a known failure: deep in a long session the model can end a turn
+on a text-only statement of intent ("I'll now run X") without the tool call, or
+pause to ask permission it already has. Its fix is a **prompt**:
+
+> Before ending your turn, check your last paragraph. If it is a plan, an analysis,
+> a question, a list of next steps, or a promise about work you have not done
+> ("I'll…", "let me know when…"), do that work now with tool calls. End your turn
+> only when the task is complete or you are blocked on input only the user can
+> provide.
+
+That is the **advisory** version of this skill, and `dos hook stop` is the
+**enforced** version that subsumes it. Same failure, opposite ends: the guide asks
+the model to re-read its OWN last paragraph (consistency, not grounding — the same
+shape Step 1a flags for `/goal`); the gate refuses the stop until a witness the
+agent did not author backs the claimed effect. The prompt lowers the *frequency* of
+"I'll now run X" early stops; the gate makes them *impossible to get away with*.
+
+So a kernel reader migrating to Fable does **not** need to add the guide's prompt as
+a separate safeguard — the witness gate already covers that case. It is still fine
+to keep the prompt as **defense-in-depth**: it cuts the early stop before it happens,
+the gate catches the one that slips through. (An "I'll now run X" turn with no tool
+call and no shipped effect is exactly the unwitnessed-claim case the gate refuses —
+the operator sees a structured "your goal isn't witnessed yet, keep going," not a
+generic block.)
+
 ## Step 2 — State the goal as checkable effects (the decomposition)
 
 A goal is met when its **effects** are present in the world. Translate the prose
