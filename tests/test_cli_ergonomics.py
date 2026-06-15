@@ -711,4 +711,45 @@ def test_lease_lane_spawn_subcommand_parses():
     ns = cli.build_parser().parse_args(["lease-lane", "spawn", "--lane", "src"])
     assert ns.lease_lane_cmd == "spawn"
     assert ns.lane == "src"
-    assert ns.func is cli.cmd_lease_lane
+
+
+# ---------------------------------------------------------------------------
+# Issue #168 — the high-traffic usage-error sites route through `_fail`, so a
+# malformed flag carries a `→ next action` hint without changing its exit code.
+# (The subprocess stderr is non-TTY, so the hint rides a plain `→` line — no
+# ANSI bytes — and stdout is never touched.)
+# ---------------------------------------------------------------------------
+def test_malformed_leases_carries_a_hint_without_changing_exit_code(tmp_path: Path):
+    """`arbitrate --leases '<bad json>'` is still a contract error (exit 2), and now
+    prints a `→` next-action hint on stderr."""
+    repo = tmp_path / "r"
+    _plain_repo(repo)
+    cp = _cli("--workspace", str(repo), "arbitrate", "--lane", "main",
+              "--kind", "cluster", "--leases", "[not json")
+    assert cp.returncode == 2, (cp.stdout, cp.stderr)   # exit code unchanged
+    assert "not valid JSON" in cp.stderr
+    assert "→" in cp.stderr                              # the next-action hint
+    assert "Traceback" not in cp.stderr
+    assert cp.stdout == ""                               # stdout stays byte-clean
+
+
+def test_malformed_pickable_state_carries_a_hint_without_changing_exit_code(tmp_path: Path):
+    """`pickable --state '<bad json>'` keeps its contract-error exit and gains a hint."""
+    repo = tmp_path / "r"
+    _plain_repo(repo)
+    cp = _cli("--workspace", str(repo), "pickable", "--state", "{not json")
+    assert cp.returncode == 2, (cp.stdout, cp.stderr)
+    assert "not valid JSON" in cp.stderr
+    assert "→" in cp.stderr
+    assert "Traceback" not in cp.stderr
+
+
+def test_unknown_driver_carries_a_hint_without_changing_exit_code(tmp_path: Path):
+    """An unknown `--example` driver keeps exit 1 and routes the remedy through the
+    `→` hint line (the template suggestion)."""
+    repo = tmp_path / "r"
+    _plain_repo(repo)
+    cp = _cli("--workspace", str(repo), "init", "--example", "nonesuch")
+    assert cp.returncode == 1, (cp.stdout, cp.stderr)    # the init refusal floor
+    assert "could not be resolved" in cp.stderr
+    assert "→" in cp.stderr and "workshop" in cp.stderr

@@ -242,10 +242,10 @@ def _fail(msg: str, *, hint: str | None = None, code: int = 2) -> int:
     """Print an error to stderr (+ an optional next-action hint), return `code`.
 
     The one-line "here's what to do" affordance for the everyday usage error: the
-    error always prints; the `hint` rides a dimmed `→` line, TTY-gated so a piped
-    or CI invocation keeps stderr stable for parsers (the `_arbitrate_followup_note`
-    posture). `code` defaults to the CLI contract-error floor (2); a verdict-bearing
-    verb passes its own refusal code.
+    error always prints; the `hint` rides a `→` line on stderr — dimmed at a TTY,
+    plain (no ANSI) when piped, so a CI parser reading stderr sees stable bytes and
+    stdout is never touched. `code` defaults to the CLI contract-error floor (2); a
+    verdict-bearing verb passes its own refusal code.
     """
     print(f"error: {msg}", file=sys.stderr)
     if hint and sys.stderr.isatty():
@@ -1032,10 +1032,11 @@ def cmd_init(args: argparse.Namespace) -> int:
             try:
                 taxonomy = _resolve_driver_taxonomy(example)
             except (ImportError, AttributeError, ValueError) as e:
-                print(f"error: --example {example!r} could not be resolved: {e}\n"
-                      f"  reference drivers live in dos.drivers.<name>; try "
-                      f"--example workshop.", file=sys.stderr)
-                return 1
+                return _fail(
+                    f"--example {example!r} could not be resolved: {e}",
+                    hint="reference drivers live in dos.drivers.<name>; try "
+                         "--example workshop",
+                    code=1)
             config_text = _render_driver_config(example, taxonomy)
             cfg_path.write_text(config_text, encoding="utf-8")
             print(f"wrote {cfg_path}")
@@ -1081,13 +1082,14 @@ def cmd_init(args: argparse.Namespace) -> int:
         if hook_host == _hi.AUTO_HOST:
             chosen, probed = _detect_auto_hosts(target)
             if not chosen:
-                print(f"dos init --hooks auto: no agent runtime detected under "
-                      f"{target} — none of {', '.join(probed)} exists here and no "
-                      f"runtime marker is in the environment. Run it from the repo "
-                      f"your agent works in, or name the host: dos init --hooks "
-                      f"<host> — one of: {', '.join(_hi.host_names())}.",
-                      file=sys.stderr)
-                return 1
+                return _fail(
+                    f"dos init --hooks auto: no agent runtime detected under "
+                    f"{target} — none of {', '.join(probed)} exists here and no "
+                    f"runtime marker is in the environment",
+                    hint=f"run it from the repo your agent works in, or name the "
+                         f"host: dos init --hooks <host> — one of: "
+                         f"{', '.join(_hi.host_names())}",
+                    code=1)
             print("--hooks auto: detected " + ", ".join(
                 name for name, _ in chosen))
         else:
@@ -2024,16 +2026,16 @@ def cmd_arbitrate(args: argparse.Namespace) -> int:
         try:
             live = json.loads(args.leases)
         except json.JSONDecodeError as e:
-            print(f"error: --leases is not valid JSON ({e}); expected a JSON array "
-                  f"of live-lease objects, e.g. '[]' or "
-                  f'\'[{{"lane":"api","lane_kind":"cluster","tree":["src/**"]}}]\'',
-                  file=sys.stderr)
-            return _ARBITRATE_EXIT_CODES["contract_error"]
+            return _fail(
+                f"--leases is not valid JSON ({e})",
+                hint='expected a JSON array of live-lease objects, e.g. \'[]\' or '
+                     '\'[{"lane":"api","lane_kind":"cluster","tree":["src/**"]}]\'',
+                code=_ARBITRATE_EXIT_CODES["contract_error"])
         if not isinstance(live, list):
-            print(f"error: --leases must be a JSON array (got "
-                  f"{type(live).__name__}); e.g. '[]' or a list of lease objects.",
-                  file=sys.stderr)
-            return _ARBITRATE_EXIT_CODES["contract_error"]
+            return _fail(
+                f"--leases must be a JSON array (got {type(live).__name__})",
+                hint="pass '[]' or a list of lease objects",
+                code=_ARBITRATE_EXIT_CODES["contract_error"])
     else:
         # No explicit override → the durable live set. A missing/empty journal folds
         # to [] (a fresh workspace genuinely has no leases), so this is safe before
@@ -4018,13 +4020,13 @@ def cmd_lease_lane(args: argparse.Namespace) -> int:
     try:
         extra = json.loads(args.leases) if args.leases else []
     except json.JSONDecodeError as e:
-        print(f"error: --leases is not valid JSON ({e}); expected a JSON array "
-              f"of live-lease objects (e.g. '[]')", file=sys.stderr)
-        return 2
+        return _fail(
+            f"--leases is not valid JSON ({e})",
+            hint="expected a JSON array of live-lease objects (e.g. '[]')")
     if not isinstance(extra, list):
-        print("error: --leases must be a JSON array of lease objects.",
-              file=sys.stderr)
-        return 2
+        return _fail(
+            "--leases must be a JSON array of lease objects",
+            hint="pass '[]' or a list of lease objects")
     # Resolve the CID spine id at the BOUNDARY (docs/137): explicit flag, else the
     #   (full prose: docs/CLI.md § "Resolve the CID spine id at the BOUNDARY (docs/137): explici")
     run_id = (
@@ -6392,6 +6394,38 @@ def cmd_helped(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# model-calls  (the per-MODEL-CALL timing + spend rollup — fold the model-call
+#               log into per-model latency percentiles + summed spend; model_call.py)
+# ---------------------------------------------------------------------------
+def cmd_model_calls(args: argparse.Namespace) -> int:
+    """`dos model-calls` — roll up per-model call timing + token spend.
+
+    Folds the workspace's model-call log (`.dos/metrics/model_calls.jsonl`) into
+    a per-model report: call counts, latency p50/p95/max, and the summed
+    SpendBreakdown (so total tokens + cache-hit share come for free). Read-only
+    (the `helped`/`observe` posture): it folds a log the runtime already wrote,
+    takes no lease, launches nothing, mutates nothing. An empty/unpopulated log
+    renders an honest "(no model calls recorded yet …)" line, never an error.
+    """
+    _apply_workspace(args)
+    cfg = _config.active()
+    from dos import model_call as _mc
+
+    since = (getattr(args, "since", "") or "").strip()
+    try:
+        records = _mc.read_model_calls(cfg=cfg)
+    except Exception:  # noqa: BLE001 — a read fault degrades to "nothing", never a crash
+        records = ()
+    roll = _mc.roll_up(records, since=since)
+
+    if getattr(args, "json", False):
+        print(json.dumps(roll.to_dict(), indent=2, default=str))
+        return 0
+    print(_mc.render_roll_text(roll))
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # export  (the verdict-journal DRAIN — ship the stream outward to observability;
 #   (full prose: docs/CLI.md § "export  (the verdict-journal DRAIN — ship the stream outward")
 # ---------------------------------------------------------------------------
@@ -7454,10 +7488,10 @@ def cmd_quickstart(args: argparse.Namespace) -> int:
             try:
                 taxonomy = _resolve_driver_taxonomy(driver_name)
             except (ImportError, AttributeError, ValueError) as e:
-                print(f"error: --driver {driver_name!r} could not be resolved: {e}\n"
-                      f"  drivers live in dos.drivers.<name>; try --driver workshop "
-                      f"(the reference template).", file=sys.stderr)
-                return 2
+                return _fail(
+                    f"--driver {driver_name!r} could not be resolved: {e}",
+                    hint="drivers live in dos.drivers.<name>; try --driver workshop "
+                         "(the reference template)")
             cfg_text = _render_driver_config(driver_name, taxonomy)
             (work / "dos.toml").write_text(cfg_text, encoding="utf-8")
             _say(f"$ dos init . --example {driver_name}")
@@ -8060,12 +8094,16 @@ def cmd_gate(args: argparse.Namespace) -> int:
             try:
                 picks = json.loads(args.picks_json)
             except json.JSONDecodeError as e:
-                print(f"error: --picks-json is not valid JSON: {e}", file=sys.stderr)
-                return _GATE_EXIT_CONTRACT_ERROR
+                return _fail(
+                    f"--picks-json is not valid JSON: {e}",
+                    hint="pass a JSON list of disposition dicts",
+                    code=_GATE_EXIT_CONTRACT_ERROR)
             if not isinstance(picks, list):
-                print(f"error: --picks-json must be a JSON list of disposition "
-                      f"dicts, got {type(picks).__name__}", file=sys.stderr)
-                return _GATE_EXIT_CONTRACT_ERROR
+                return _fail(
+                    f"--picks-json must be a JSON list of disposition dicts, "
+                    f"got {type(picks).__name__}",
+                    hint="pass a JSON list, e.g. '[{\"id\":\"X\",\"disposition\":\"...\"}]'",
+                    code=_GATE_EXIT_CONTRACT_ERROR)
             result = gate_classify.classify_packet(picks)
         else:
             result = gate_classify.classify_packet_file(args.packet)
@@ -8146,12 +8184,15 @@ def cmd_pickable(args: argparse.Namespace) -> int:
         try:
             state = json.loads(args.state)
         except json.JSONDecodeError as e:
-            print(f"error: --state is not valid JSON: {e}", file=sys.stderr)
-            return _PICKABLE_EXIT_CONTRACT_ERROR
+            return _fail(
+                f"--state is not valid JSON: {e}",
+                hint="pass a JSON object of picker state (e.g. '{}')",
+                code=_PICKABLE_EXIT_CONTRACT_ERROR)
         if not isinstance(state, dict):
-            print(f"error: --state must be a JSON object, got {type(state).__name__}",
-                  file=sys.stderr)
-            return _PICKABLE_EXIT_CONTRACT_ERROR
+            return _fail(
+                f"--state must be a JSON object, got {type(state).__name__}",
+                hint="pass a JSON object (e.g. '{}')",
+                code=_PICKABLE_EXIT_CONTRACT_ERROR)
 
     # `now_ms` is an input to the pure verdict (the `liveness.classify` discipline),
     # read from the wall ONCE here at the boundary — never inside `classify`.
@@ -11083,6 +11124,22 @@ def build_parser() -> argparse.ArgumentParser:
                       help="machine-readable {refused/withheld, advisory, by_refused_reason, "
                            "by_advisory_tool, by_reason, by_tool, examples, glossary, …}")
     phlp.set_defaults(func=cmd_helped)
+
+    # model-calls — the per-MODEL-CALL timing + spend rollup (model_call.py): fold
+    # the model-call log the runtime writes into a per-model report (call counts,
+    # latency p50/p95/max, summed token spend + cache-hit share). The observability
+    # rung the existing folds miss — `helped` times the kernel's hooks, `efficiency`
+    # is a per-run ratio; this times the MODEL and prices each call. Read-only.
+    pmc = sub.add_parser(
+        "model-calls",
+        help="roll up per-model call timing + token spend (latency p50/p95/max, "
+             "tokens, cache-hit)")
+    _add_workspace_flags(pmc)
+    pmc.add_argument("--since", metavar="TS", default="",
+                     help="keep only model calls at/after this ISO timestamp")
+    pmc.add_argument("--json", action="store_true",
+                     help="machine-readable {since, call_count, total, models:[…]}")
+    pmc.set_defaults(func=cmd_model_calls)
 
     # export — the verdict-journal DRAIN (docs/266): ship the stream outward to an
     #   (full prose: docs/CLI.md § "export — the verdict-journal DRAIN (docs/266): ship the stre")
