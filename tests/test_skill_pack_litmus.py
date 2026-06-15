@@ -40,6 +40,10 @@ EXPECTED_SKILLS = {
     # worker per independent objective, co-launch-safe via `dos arbitrate`, with
     # every claimed ship confirmed by `dos verify` / `commit-audit`, not narration.
     "dos-goal-fleet",
+    # docs/345 — the skill→DOS converter: read any skill, map each belief-bit onto
+    # the EXAMPLES.md witness recipes, emit an ADDITIVE `<name>-dos` variant +
+    # report. The meta-skill (a screenplay that grounds other screenplays).
+    "dos-skillify",
 }
 
 # Host literals a generic skill must never name (the skill analogue of "kernel
