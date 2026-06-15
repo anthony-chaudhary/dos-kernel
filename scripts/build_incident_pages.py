@@ -76,8 +76,8 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
   </script>
   <style>
     :root {{
-      --bg: #0d1117; --panel: #161b22; --border: #30363d;
-      --fg: #e6edf3; --muted: #9198a1; --accent: #58a6ff; --green: #3fb950; --red: #f85149;
+      --bg: #ffffff; --panel: #f6f8fa; --border: #d0d7de;
+      --fg: #1f2328; --muted: #59636e; --accent: #0969da; --green: #1a7f37; --red: #cf222e;
     }}
     * {{ box-sizing: border-box; }}
     body {{
