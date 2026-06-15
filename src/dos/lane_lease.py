@@ -359,6 +359,27 @@ def live_leases(config: SubstrateConfig, *, expire_dead: bool = False) -> list[d
     return folded
 
 
+def live_generations(config: SubstrateConfig) -> dict[tuple[str, str], int]:
+    """The fencing GENERATION of each live lease, folded from the WAL (docs/342 M2).
+
+    The boundary I/O shell over the pure `lane_journal.lease_generations` — the same
+    `live_leases` is over `lane_journal.replay`. Reads the journal and folds it by
+    append-order into a `{(loop_ts, lane): generation}` map, the monotonic fencing
+    token (docs/114 §A2) the apply-gate checks: a run presents the generation it
+    holds, and the gate refuses a write a later grant on an overlapping region
+    superseded. Kept SEPARATE from `live_leases` (not stamped onto the lease dict)
+    so `replay`'s live set stays byte-identical and the `replay(compact(E)) ==
+    replay(E)` invariant is untouched — the generation is a read-time projection,
+    not a WAL field. No lock: the same consistent-enough append-only read.
+
+    A caller joins this to `live_leases` by `(loop_ts, lane)` identity to learn the
+    generation of its OWN lease (the one it presents at the gate) and of each OTHER
+    live lease (the supersede operands).
+    """
+    entries = lane_journal.read_all(_journal_path(config))
+    return lane_journal.lease_generations(entries)
+
+
 def acquire(
     config: SubstrateConfig,
     *,
