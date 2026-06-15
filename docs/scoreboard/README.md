@@ -75,6 +75,7 @@ What differs between them is how much of the repo the AI built and which agents 
 
 - **[How it works](methodology.md)** — exactly what the check reads, what it skips, and every time the check itself was wrong (we narrow the check, never trust the subject).
 - **[The big picture](report-2026-06.md)** — the population mismatch rate across public repos, with every flag hand-checked and denominators everywhere.
+- **[The live roll-up](rollup.md)** — the published set above, folded into one aggregate by `scripts/scoreboard_rollup.py`. Every number is derived from the committed per-repo data, reproducible offline.
 - **Want your repo listed?** Clean or not, it's opt-in and you see the result before it publishes. See the methodology's registration section.
 
 The pages above are the 15 repos we've audited and named. Another 20 repos were checked but not named — a non-clean or unadjudicated verdict is reported only as a count, never as a named page ([docs/311](../311_scoreboard-per-repo-index-plan.md) §2).

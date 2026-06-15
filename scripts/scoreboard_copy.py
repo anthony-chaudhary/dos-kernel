@@ -295,6 +295,9 @@ def index_fine_print(audited: int, withheld: int) -> str:
         "- **[The big picture](report-2026-06.md)** — the population mismatch "
         "rate across public repos, with every flag hand-checked and "
         "denominators everywhere.",
+        "- **[The live roll-up](rollup.md)** — the published set above, folded "
+        "into one aggregate by `scripts/scoreboard_rollup.py`. Every number is "
+        "derived from the committed per-repo data, reproducible offline.",
         "- **Want your repo listed?** Clean or not, it's opt-in and you see the "
         "result before it publishes. See the methodology's registration "
         "section.",
