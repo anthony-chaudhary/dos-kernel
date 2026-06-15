@@ -83,6 +83,40 @@ def drift_explainer() -> str:
 
 
 # ---------------------------------------------------------------------------
+# The AI-built SHARE formatter — one helper, used by every render site.
+#
+# `f"{share:.0%}"` rounds anything under 0.5% to the literal "0%". On a board OF
+# AI-built repos a "0% AI-built" cell reads as a bug: a repo with real
+# AI-authored commits (28/5727 = 0.49%, 39/10000 = 0.39%) showed "0%". This
+# helper floors any NONZERO share that would round to "0%" to "<1%" instead, and
+# keeps a ≥1% share rendering as a whole percent ("3%") exactly as before. Pure
+# and deterministic — the renders stay byte-reproducible under `--check`.
+#
+# This is the AI-built SHARE only; the BACKED rate (witnessed/checkable) is a
+# different, checkable number and is NOT touched here.
+# ---------------------------------------------------------------------------
+
+def format_ai_share(attributed: int, scanned: int) -> str:
+    """Render an AI-built share as a percent, with a sub-1% floor.
+
+    Returns "—" when `scanned <= 0` (no denominator to divide by). A true zero
+    (`attributed == 0`) renders as "0%" — there is genuinely no AI-built share.
+    Every NAMED scoreboard repo has `attributed > 0`, so a true zero shouldn't
+    occur on a listed page; the sub-1% case is the real one this fixes:
+
+      * 28 / 5727  → 0.49%  → "<1%"  (was "0%")
+      * 39 / 10000 → 0.39%  → "<1%"  (was "0%")
+      *  3 / 100   → 3.0%   → "3%"   (unchanged)
+    """
+    if scanned <= 0:
+        return "—"
+    share = attributed / scanned
+    if attributed > 0 and round(share * 100) == 0:
+        return "<1%"
+    return f"{share:.0%}"
+
+
+# ---------------------------------------------------------------------------
 # The index (docs/scoreboard/README.md) — assembled by seed_scoreboard_index.py.
 # ---------------------------------------------------------------------------
 
@@ -125,8 +159,8 @@ def index_aggregate_headline(*, repos: int, scanned: int, attributed: int,
     repo_noun = "repo" if repos == 1 else "repos"
     bits = [f"Across **{repos} {repo_noun}** audited here"]
     if scanned > 0:
-        share = attributed / scanned
-        bits.append(f"AI agents wrote about **{share:.0%}** of recent commits")
+        share = format_ai_share(attributed, scanned)
+        bits.append(f"AI agents wrote about **{share}** of recent commits")
     if checkable > 0:
         rate = witnessed / checkable
         gap = checkable - witnessed
@@ -163,7 +197,7 @@ def index_leaderboard(rows: list[dict]) -> str:
         link = f"[{full}]({org}/{name}.md)"
         scanned = int(r.get("scanned", 0) or 0)
         attributed = int(r.get("attributed", 0) or 0)
-        share = f"{attributed / scanned:.0%}" if scanned > 0 else "—"
+        share = format_ai_share(attributed, scanned)
         mix = r.get("mix") or []
         mix_cell = " · ".join(f"{label} {count:,}" for label, count in mix[:3])
         if len(mix) > 3:
@@ -324,9 +358,9 @@ def agent_share_sentence(*, attributed: int, scanned: int) -> str:
     """How much of the recent history is agent-authored, in plain words."""
     if scanned <= 0:
         return ""
-    pct = attributed / scanned
+    pct = format_ai_share(attributed, scanned)
     commits = "commit" if attributed == 1 else "commits"
-    return (f"AI agents wrote **{pct:.0%}** of the last {scanned:,} commits "
+    return (f"AI agents wrote **{pct}** of the last {scanned:,} commits "
             f"here — {attributed:,} agent-authored {commits}.")
 
 

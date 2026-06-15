@@ -11,7 +11,7 @@
 
 ## How AI built this
 
-AI agents wrote **0%** of the last 5,727 commits here — 28 agent-authored
+AI agents wrote **<1%** of the last 5,727 commits here — 28 agent-authored
 commits. The agents behind them: **claude 26 · cursor 2**.
 
 Of those, **22** made a concrete claim you can check ("fix X", "add tests

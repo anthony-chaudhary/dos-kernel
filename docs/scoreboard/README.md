@@ -62,8 +62,8 @@ What differs between them is how much of the repo the AI built and which agents 
 | [livekit/agents](livekit/agents.md) | 2% | claude 45 · devin 17 · cursor 6 · … | 58 | 100% |
 | [danny-avila/LibreChat](danny-avila/LibreChat.md) | 1% | claude 24 · copilot 13 · cursor 1 | 24 | 100% |
 | [microsoft/autogen](microsoft/autogen.md) | 1% | copilot 28 · claude 2 | 27 | 100% |
-| [unslothai/unsloth](unslothai/unsloth.md) | 0% | claude 26 · cursor 2 | 22 | 100% |
-| [langchain-ai/langchain](langchain-ai/langchain.md) | 0% | copilot 24 · claude 15 | 29 | 100% |
+| [unslothai/unsloth](unslothai/unsloth.md) | <1% | claude 26 · cursor 2 | 22 | 100% |
+| [langchain-ai/langchain](langchain-ai/langchain.md) | <1% | copilot 24 · claude 15 | 29 | 100% |
 
 ## The fine print (it matters)
 
