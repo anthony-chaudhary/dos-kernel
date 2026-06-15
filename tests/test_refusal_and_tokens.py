@@ -43,6 +43,36 @@ class TestWedgeReasonClosedEnum:
         assert wr.is_refusal("MYSTERY_TOKEN")
 
 
+class TestNoFreeRegionReason:
+    """docs/97 §model — the typed refuse a `TopPickablePlan` open-pool source emits
+    when every candidate region overlaps a live lease (the pool is full of contended
+    regions, not empty of work). It is declared in BASE_REASONS so the
+    region-source-emitted reason is simultaneously emittable, verifiable, and
+    refusable — the SELF_MODIFY/UNKNOWN_LANE completeness rail."""
+
+    def test_no_free_region_is_declared(self):
+        spec = BASE_REASONS.get("NO_FREE_REGION")
+        assert spec is not None
+        assert spec.token == "NO_FREE_REGION"
+
+    def test_no_free_region_rolls_up_to_true_drain(self):
+        # TRUE_DRAIN, not OPERATOR_GATE/MISROUTE: the regions are all taken, the work
+        # exists — wait for a holder to release, do NOT /replan.
+        assert BASE_REASONS.category_for("NO_FREE_REGION") == "TRUE_DRAIN"
+        assert "TRUE_DRAIN" in KNOWN_CATEGORIES
+
+    def test_no_free_region_is_a_refusal(self):
+        assert BASE_REASONS.is_refusal("NO_FREE_REGION") is True
+
+    def test_no_free_region_is_distinct_from_class_budget_exhausted(self):
+        # The two open-pool refuses must not be the same token: NO_FREE_REGION =
+        # "no disjoint region remains" (budget has room); CLASS_BUDGET_EXHAUSTED =
+        # "the class is at its max_concurrent". A fix line that conflates them
+        # mis-routes the operator.
+        spec = BASE_REASONS.get("NO_FREE_REGION")
+        assert "CLASS_BUDGET_EXHAUSTED" in spec.fix  # the disambiguation is curated in
+
+
 class TestRefusalLockstep:
     def test_oracle_recognizes_every_wedge_reason(self):
         # The load-bearing invariant: a reason class added to wedge_reason is

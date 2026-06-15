@@ -364,6 +364,35 @@ BASE_REASONS = ReasonRegistry(specs=(
             "any free lane, or register the lane in dos.toml.",
         see_also=("lane", "dos arbitrate", "dos man wedge SELF_MODIFY"),
     ),
+    # docs/97 §model — the typed refuse a `TopPickablePlan` region source emits when
+    # an OPEN pool yields no admissible region: every candidate plan's derived tree
+    # OVERLAPS a live lease (the pool is full of contended regions, not empty of
+    # work). This is the open-pool sibling of the priority-ladder-exhausted refuse —
+    # distinct from CLASS_BUDGET_EXHAUSTED (the class is at its budget; here the
+    # budget has room but no disjoint region remains) and from a true DRAIN (the work
+    # exists, the regions are simply all taken). It rolls up to TRUE_DRAIN: the right
+    # lever is to WAIT for a holder to release a region, never to /replan (there is
+    # nothing to refill — the pool is full, not empty). Declared here so the
+    # arbiter/region-source-emitted reason is simultaneously emittable, verifiable
+    # (`category_for`), refusable (`is_refusal`), and `dos man wedge NO_FREE_REGION`-
+    # documented — the same completeness rail SELF_MODIFY/UNKNOWN_LANE ride. It lives
+    # in BASE_REASONS, not dos.toml, because the kernel's own region-source admission
+    # emits it: a dos.toml-only token would be undeclared on a foreign workspace whose
+    # arbiter still emits it (the SELF_MODIFY/UNKNOWN_LANE rule).
+    ReasonSpec(
+        token="NO_FREE_REGION",
+        category="TRUE_DRAIN",
+        refusal=True,
+        summary="An open-pool region source (TopPickablePlan) found no candidate "
+                "whose derived tree is disjoint from every live lease — the pool is "
+                "full of contended regions, not empty of work.",
+        fix="Wait for a holder to release a region (the pool is FULL, not empty — do "
+            "NOT /replan, there is nothing to refill), or widen the pool so a "
+            "disjoint region exists. Distinct from CLASS_BUDGET_EXHAUSTED (the class "
+            "has budget room here; no disjoint region remains).",
+        see_also=("dos arbitrate", "dos man wedge CLASS_BUDGET_EXHAUSTED",
+                  "dos man lane"),
+    ),
 ))
 
 

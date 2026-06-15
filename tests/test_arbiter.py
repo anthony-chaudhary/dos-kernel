@@ -908,3 +908,159 @@ class TestConcurrencyClassBudget:
                  class_budgets={"priority": True})
         assert d.outcome == "acquire" and d.lane == "PA"
         assert "was busy" not in d.reason
+
+
+class TestOpenPoolRegionRouting:
+    """docs/97 / docs/110 Phase 3 — a class binds a free DISJOINT region pulled from
+    an OPEN pool (`TopPickablePlan`), the kernel-side "modular dynamic queue".
+
+    The host hands a `TopPickablePlanBinding` (its pool of opaque plan ids + a
+    `derive_tree` callback); `concurrency_class.project_to_ladder` expands it into
+    the `auto_pick_order` rows the arbiter ALREADY walks, and the existing
+    disjointness + budget admission does the rest — the arbiter is untouched. These
+    drive the five docs/97 §Test-obligations + NO_FREE_REGION THROUGH the projection.
+
+    The three disjoint trees (`_APPLY_TREE`/`_TAILOR_TREE`/`_DISCOVERY_TREE`) stand
+    in for the host's plan pool; the deriver maps each plan id to its tree, so the
+    only thing that can stop a 2nd/3rd grab is the budget or a real collision.
+    """
+
+    from dos import concurrency_class as _cc
+
+    _TREE_OF = {"PA": _APPLY_TREE, "PB": _TAILOR_TREE, "PC": _DISCOVERY_TREE}
+
+    def _binding(self, pool=("PA", "PB", "PC")):
+        return self._cc.TopPickablePlanBinding(
+            pool=pool, derive_tree=lambda pid: list(self._TREE_OF[pid]))
+
+    def _prio_lease(self, lane):
+        return {"lane": lane, "lane_kind": "priority", "tree": self._TREE_OF[lane],
+                "loop_ts": "20260531T1200Z"}
+
+    # --- the projection itself (pure) ----------------------------------------
+
+    def test_project_to_ladder_expands_pool_in_order(self):
+        rows = self._cc.project_to_ladder(self._binding(), "priority")
+        assert [r[0] for r in rows] == ["PA", "PB", "PC"]
+        assert all(kind == "priority" for _, kind, _ in rows)
+        assert rows[0][2] == _APPLY_TREE
+
+    def test_project_to_ladder_skips_held_and_bad_derivations(self):
+        # A held id is skipped; a deriver that throws or yields an empty tree drops
+        # that member without sinking the pool (the durability seam).
+        def derive(pid):
+            if pid == "PB":
+                raise RuntimeError("host deriver blew up on PB")
+            if pid == "PC":
+                return []  # no tree → not offerable
+            return list(self._TREE_OF[pid])
+        binding = self._cc.TopPickablePlanBinding(pool=("PA", "PB", "PC"),
+                                                  derive_tree=derive)
+        rows = self._cc.project_to_ladder(binding, "priority", skip={"PA"})
+        assert rows == []  # PA skipped, PB throws, PC empty → nothing offerable
+
+    # --- obligation 1: no-collision (N admitted bind disjoint regions) --------
+
+    def test_two_open_pool_grabs_bind_disjoint_regions(self):
+        from dos._tree import lane_trees_disjoint
+        ladder = self._cc.project_to_ladder(self._binding(), "priority")
+        first = _arb(requested_lane="", requested_kind="",
+                     auto_pick_order=ladder, class_budgets={"priority": 3})
+        assert first.outcome == "acquire"
+        live = [self._prio_lease(first.lane)]
+        # Re-project skipping the now-leased id (a real host folds the acquire back).
+        ladder2 = self._cc.project_to_ladder(self._binding(), "priority",
+                                             skip={first.lane})
+        second = _arb(requested_lane="", requested_kind="",
+                      auto_pick_order=ladder2, live_leases=live,
+                      class_budgets={"priority": 3})
+        assert second.outcome == "acquire"
+        assert second.lane != first.lane
+        assert lane_trees_disjoint(first.tree, second.tree)
+
+    # --- obligation 2: budget — the (N+1)-th refuses CLASS_BUDGET_EXHAUSTED ----
+
+    def test_open_pool_budget_exhausted_refuses(self):
+        live = [self._prio_lease("PA")]
+        ladder = self._cc.project_to_ladder(self._binding(), "priority",
+                                            skip={"PA"})
+        d = _arb(requested_lane="", requested_kind="", auto_pick_order=ladder,
+                 live_leases=live, class_budgets={"priority": 1})
+        assert d.outcome == "refuse"
+        assert "CLASS_BUDGET_EXHAUSTED" in d.reason
+        assert "priority (1/1)" in d.reason
+
+    # --- obligation 3: reachability (LSR0) — every pool plan is reachable ------
+
+    def test_every_pool_plan_is_reachable_as_leases_accumulate(self):
+        # Re-asserted here against the open-pool projection. (The host's original
+        # home for this invariant is `test_default_ladder.py`, which does NOT exist
+        # in the kernel repo — it is a host test referenced by docs/97; the kernel
+        # re-pins the reachability guarantee against the class-model rung.)
+        acquired = []
+        live = []
+        for _ in range(3):
+            ladder = self._cc.project_to_ladder(
+                self._binding(), "priority", skip=set(acquired))
+            d = _arb(requested_lane="", requested_kind="", auto_pick_order=ladder,
+                     live_leases=live, class_budgets={"priority": 3})
+            assert d.outcome == "acquire"
+            acquired.append(d.lane)
+            live.append(self._prio_lease(d.lane))
+        assert set(acquired) == {"PA", "PB", "PC"}  # every plan in the pool reached
+
+    # --- obligation 4: exclusive — a live global short-circuits the pool -------
+
+    def test_live_global_lease_blocks_the_open_pool(self):
+        # An exclusive (global) lease must refuse every other request BEFORE the
+        # open-pool walk — the pool never bypasses the exclusive gate.
+        live = [_lease("global", "global", ["**/*"])]
+        ladder = self._cc.project_to_ladder(self._binding(), "priority")
+        d = _arb(requested_lane="", requested_kind="", auto_pick_order=ladder,
+                 live_leases=live, class_budgets={"priority": 3})
+        assert d.outcome == "refuse"
+
+    # --- obligation 5: back-compat — an empty projection is byte-identical -----
+
+    def test_empty_pool_is_a_clean_ladder_exhausted_refuse(self):
+        # An empty pool → empty `auto_pick_order` rows. With no other ladder, the
+        # arbiter refuses exactly as today (no open-pool special-casing leaks in).
+        ladder = self._cc.project_to_ladder(self._binding(pool=()), "priority")
+        assert ladder == []
+
+    # --- obligation 6: NO_FREE_REGION — pool non-empty, every region overlaps --
+
+    def test_no_free_region_when_every_pool_tree_overlaps(self):
+        # One live lease whose tree overlaps EVERY pool member (a broad `agents/**`
+        # hold) → the projection yields rows, but all collide → the arbiter refuses,
+        # and the caller-side classifier re-labels it NO_FREE_REGION (distinct from
+        # the budget refuse — the budget here has room).
+        live = [_lease("broad", "cluster", ["agents/**", "job_search/**",
+                                            "templates/"])]
+        ladder = self._cc.project_to_ladder(self._binding(), "priority")
+        d = _arb(requested_lane="", requested_kind="", auto_pick_order=ladder,
+                 live_leases=live, class_budgets={"priority": 3})
+        assert d.outcome == "refuse"
+        assert "CLASS_BUDGET_EXHAUSTED" not in d.reason  # budget had room
+        # The caller classifies this generic ladder-exhausted refuse as the more
+        # specific open-pool cause.
+        assert self._cc.is_no_free_region_refuse(
+            d, projected_rows=len(ladder), budget_exhausted=False)
+
+    def test_is_no_free_region_refuse_false_on_acquire_and_budget(self):
+        # The classifier must NOT fire on an acquire, nor on a budget-caused refuse
+        # (that owns its own CLASS_BUDGET_EXHAUSTED token).
+        ladder = self._cc.project_to_ladder(self._binding(), "priority")
+        ok = _arb(requested_lane="", requested_kind="", auto_pick_order=ladder,
+                  class_budgets={"priority": 3})
+        assert ok.outcome == "acquire"
+        assert not self._cc.is_no_free_region_refuse(
+            ok, projected_rows=len(ladder), budget_exhausted=False)
+        # A budget-exhausted refuse is not a NO_FREE_REGION even with rows present.
+        live = [self._prio_lease("PA")]
+        ladder2 = self._cc.project_to_ladder(self._binding(), "priority", skip={"PA"})
+        budgeted = _arb(requested_lane="", requested_kind="", auto_pick_order=ladder2,
+                        live_leases=live, class_budgets={"priority": 1})
+        assert budgeted.outcome == "refuse"
+        assert not self._cc.is_no_free_region_refuse(
+            budgeted, projected_rows=len(ladder2), budget_exhausted=True)

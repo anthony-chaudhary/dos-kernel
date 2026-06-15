@@ -137,6 +137,21 @@ existing pure parameters.
 
 > **Status (2026-06-03): none of the three phases below is built.** The arbiter
 > mechanism they surface is built (Phase-1 of docs/97); the surfaces are not.
+>
+> **Update (2026-06-15): Phases 1-2 SHIPPED, Phase 3's kernel half SHIPPED.**
+> Phase 1 (`--class-budget KIND=N`) and Phase 2 (`[[concurrency_class]]` +
+> `dos.concurrency_class`) are built and pinned (`tests/test_concurrency_class.py`).
+> Phase 3's *kernel half* is built — the `RegionSource` model
+> (`FixedTrees`/`WholeWorkspace`/`TopPickablePlanKind` + `TopPickablePlanBinding`),
+> the `ConcurrencyClass.rank`/`region_source` fields, the `NO_FREE_REGION` refuse,
+> and the call-boundary `project_to_ladder` that expands an open pool into the
+> existing `auto_pick_order` (the arbiter signature was **kept unchanged**, the
+> seam this plan's §model chose). The full docs/97 obligation suite drives through
+> the projection (`tests/test_arbiter.py::TestOpenPoolRegionRouting`). What remains
+> is the *host half*: a reference driver that builds a `TopPickablePlanBinding`
+> from a host plan pool, and the optional lazy in-arbiter resolver — tracked as a
+> backlog issue (see Phase 3's status note below). MCP parity for the budget
+> shipped alongside (`dos_arbitrate(class_budgets=...)`).
 
 ### Phase 1 — the `--class-budget KIND=N` operator flag (the smallest reachable slice)
 
@@ -228,6 +243,24 @@ declared `priority=1` refuses the 2nd priority grab with no flag), and
 flag-overrides-declared.
 
 ### Phase 3 — lift the host "priority work" into a declared `priority` class via `TopPickablePlan`
+
+> **Status (2026-06-15): the kernel half is SHIPPED; the host half is the
+> remainder.** Built: the `RegionSource` discriminant set
+> (`FixedTrees`/`WholeWorkspace`/`TopPickablePlanKind`) plus the call-boundary
+> `TopPickablePlanBinding{pool, derive_tree}` in `dos.concurrency_class` — note
+> the design's single `TopPickablePlan(pool, derive_tree)` was **split** into a
+> TOML-declarable discriminant (`TopPickablePlanKind`, what `region_source =
+> "top_pickable_plan"` parses to) and a call-boundary binding (the callables,
+> which a frozen TOML-loadable type cannot hold). The `ConcurrencyClass.rank` /
+> `region_source` fields, the `NO_FREE_REGION` refuse, and `project_to_ladder`
+> (the host-boundary projection into the existing `auto_pick_order`) are built and
+> pinned by `tests/test_arbiter.py::TestOpenPoolRegionRouting`. The arbiter
+> signature was kept UNCHANGED — the projection seam (this plan's §model) was
+> chosen over an in-arbiter resolver. **Remaining (a backlog issue):** a reference
+> host driver that builds a `TopPickablePlanBinding` from a real plan pool +
+> `derive_tree`, and the optional lazy in-arbiter `region_sources` resolver (value
+> only for a very large pool). The soft-claim TTL reservation stays host policy as
+> written below.
 
 The first real step of the docs/97 Phase-3 lift, and the only one that touches the
 host soft-claim concept. Today the host's "priority work" is two host-side things:
