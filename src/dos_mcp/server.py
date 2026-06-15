@@ -310,6 +310,7 @@ def build_server() -> FastMCP:
         tree: list[str] | None = None,
         live_leases: list[dict[str, Any]] | None = None,
         force: bool = False,
+        class_budgets: dict[str, int] | None = None,
         workspace: str = ".",
     ) -> dict[str, Any]:
         """May a worker take this lane right now? — the pure admission kernel.
@@ -336,6 +337,21 @@ def build_server() -> FastMCP:
                 least {lane, lane_kind, tree}. Empty/omitted = nothing live.
             force: operator override — honor an explicit `lane` literally, skip
                 the disjointness refuse (still respects a live exclusive lane).
+            class_budgets: OPTIONAL per-kind concurrency-class budgets, a pure-data
+                `{lane_kind: max_concurrent}` dict — how many live leases of a
+                given KIND may be held at once. This OVERLAYS the workspace's
+                declared `[[concurrency_class]]` defaults (`dos.toml`), with the
+                explicit argument winning per kind — the SAME flag-over-config
+                precedence the CLI's `--class-budget KIND=N` has. `None` (default)
+                ⇒ just the declared defaults (none, in the generic workspace) ⇒
+                byte-identical to the pre-budget walk. REACHABILITY SCOPE: a budget
+                BITES only on the BARE auto-pick walk and only where a host supplies
+                an `auto_pick_order` pool of a budgeted kind (so the arbiter can
+                count live holders of that kind and skip an (N+1)-th) — the SAME
+                documented limitation the CLI flag has, hence true parity. A
+                directly-named or `force`d lane is never budget-gated. Per the
+                scope note on the issue, only this pure DATA dict is exposed here;
+                the callable pool / tree-deriver are NOT MCP-passable.
             workspace: the repo root whose lane taxonomy to arbitrate over
                 (default: cwd). Its `dos.toml [lanes]` is honored if present.
 
@@ -355,6 +371,17 @@ def build_server() -> FastMCP:
         req_tree = list(tree or [])
         if not req_tree and lane:
             req_tree = cfg.lanes.tree_for(lane)
+        # Class budgets: the config-declared [[concurrency_class]] set, OVERLAID by
+        # the explicit `class_budgets` argument (the explicit value wins per kind) —
+        # the SAME flag-over-config precedence the CLI's --class-budget gives, just
+        # fed as a ready-made `{kind: N}` dict instead of `KIND=N` strings (an MCP
+        # client can't pass the CLI's flag form, but it can pass pure data). The
+        # `or None` collapses an empty merge back to the no-budget sentinel, so the
+        # arbiter sees a byte-identical request to the pre-budget walk when neither
+        # the config nor the argument supplies a budget (the regression guard).
+        budgets = dict(cfg.class_budgets.as_arbiter_budgets())
+        if class_budgets:
+            budgets.update(class_budgets)
         # Scope the SELF_MODIFY guard to the kernel-source files that actually
         # exist under the SERVED workspace: a foreign repo's `**/*` lane cannot
         # edit a `src/dos/` file that isn't there, so it must not trip the guard.
@@ -372,6 +399,7 @@ def build_server() -> FastMCP:
             config=cfg,
             force=force,
             predicates=built_in_predicates(config=cfg),
+            class_budgets=budgets or None,
         ).to_dict()
         decision["interpretation"] = _interpret.arbitrate(decision)
         return decision

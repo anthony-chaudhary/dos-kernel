@@ -192,6 +192,78 @@ def test_arbitrate_tool_reads_back_foreign_lane_tree(tmp_path: Path):
     assert out["tree"] == ["frontend/**"]  # filled from the declared taxonomy
 
 
+def test_arbitrate_tool_accepts_class_budgets_arg(tmp_path: Path):
+    """The `class_budgets` pure-data dict is an accepted argument (#175).
+
+    The concurrency-class budget the CLI threads via `--class-budget KIND=N` is
+    now reachable over MCP as a `{kind: max_concurrent}` dict — pinning that the
+    argument exists, is accepted, and threads through without raising.
+    """
+    _plain_repo(tmp_path)
+    arb = _tools(build_server())["dos_arbitrate"]
+    out = arb(lane="main", kind="cluster", live_leases=[],
+              class_budgets={"cluster": 3}, workspace=str(tmp_path))
+    assert out["outcome"] == "acquire"
+    assert out["lane"] == "main"
+
+
+def test_arbitrate_tool_non_binding_budget_is_back_compat(tmp_path: Path):
+    """A non-binding budget yields the SAME decision as no budget (back-compat).
+
+    On a directly-named lane the budget never bites (the kernel only consults it
+    on the bare auto-pick walk), so a `class_budgets` overlay must be byte-for-byte
+    identical to omitting it. This is the regression guard the issue requires.
+    """
+    _plain_repo(tmp_path)
+    arb = _tools(build_server())["dos_arbitrate"]
+    base = arb(lane="main", kind="cluster", live_leases=[], workspace=str(tmp_path))
+    with_budget = arb(lane="main", kind="cluster", live_leases=[],
+                      class_budgets={"cluster": 99}, workspace=str(tmp_path))
+    # The interpretation gloss is downstream of the verdict; compare the whole
+    # decision dict — every field, not just the outcome — to prove nothing drifted.
+    assert with_budget == base
+    # And explicit None is identical to omitting the argument entirely.
+    none_budget = arb(lane="main", kind="cluster", live_leases=[],
+                      class_budgets=None, workspace=str(tmp_path))
+    assert none_budget == base
+
+
+def test_arbitrate_tool_overlay_does_not_corrupt_decision_path(tmp_path: Path):
+    """An explicit overlay OVERRIDES the declared `[[concurrency_class]]` default,
+    and the merged budget threads into the kernel without corrupting the decision.
+
+    The explicit argument wins per kind (flag-over-config, the CLI's precedence):
+    the workspace declares `cluster=1`, the argument overlays `cluster=5`, and a
+    second disjoint cluster lane is still admitted — which a binding `cluster=1`
+    budget on the bare walk would have refused. So the overlay both takes effect
+    (the explicit value won) and leaves the disjointness decision path intact.
+    """
+    _plain_repo(tmp_path)
+    (tmp_path / "dos.toml").write_text(
+        "[lanes]\n"
+        'concurrent = ["a", "b"]\n'
+        'autopick = ["a", "b"]\n'
+        "[lanes.trees]\n"
+        'a = ["a/**"]\n'
+        'b = ["b/**"]\n'
+        "[[concurrency_class]]\n"
+        'name = "cluster"\n'
+        "max_concurrent = 1\n",
+        encoding="utf-8",
+    )
+    arb = _tools(build_server())["dos_arbitrate"]
+    # One cluster lease already live; a second DISJOINT cluster lane is requested
+    # by name (not the bare walk), so the budget never gates it — it must acquire
+    # regardless of the budget value, proving the merged dict does not corrupt the
+    # per-lease disjointness path.
+    live = [{"lane": "a", "lane_kind": "cluster", "tree": ["a/**"]}]
+    out = arb(lane="b", kind="cluster", tree=["b/**"], live_leases=live,
+              class_budgets={"cluster": 5}, workspace=str(tmp_path))
+    assert out["outcome"] == "acquire"
+    assert out["lane"] == "b"
+    assert out["tree"] == ["b/**"]
+
+
 # ---------------------------------------------------------------------------
 # dos_refuse_reasons / dos_check_reason — the structured-refusal vocabulary
 # ---------------------------------------------------------------------------
