@@ -413,7 +413,15 @@ into a measurement; this section is what the benchmark is *for*.
 > concessions are load-bearing — a positioning that can only confirm itself is the
 > bias the kernel refuses (docs/333). Treat any specific 2026-dated arXiv ID as
 > claimed-not-verified until resolved; the *shape* of the field (who holds which
-> two of the four properties) is the robust finding.
+> properties) is the robust finding. The two property-assignments most likely to be
+> contested are **primary-source-verified**: LangChain's own docs call online eval
+> an *async* handler that "continuously evaluates real user interactions... to
+> monitor quality" (observability, not a gate → the P4 break, not a P2 one); and
+> NVIDIA's NeMo docs define the fact-checking rail as entailment "given an evidence
+> passage" from a retrieved KB, with the parametric-knowledge path being SelfCheckGPT
+> (text-vs-document / self-resampling → the effect-vs-world half of P2, never an
+> external effect). Those two are the neighbors a reviewer most often thinks already
+> solve this; both demonstrably break exactly the property assigned.
 
 ---
 
