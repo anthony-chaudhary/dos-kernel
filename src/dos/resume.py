@@ -47,6 +47,45 @@ uncommitted tail, which is idempotent by construction (it produced no durable
 effect, or it would be a commit). The dead run's `STEP_CLAIMED` records are treated
 exactly as `103` treats a recalled memory: a prior commitment, re-verified against
 ground truth at read time, never replayed as present fact.
+
+The reliability envelope (`docs/342 §4` P-EXACTLY-ONCE, the honest floor)
+=========================================================================
+The "idempotent by construction" claim above is true for exactly one class of
+effect, and `docs/342 §4` makes the boundary a DECLARED fact rather than an
+unstated assumption — drawing the line tight is itself the equal-caliber move
+(TCP's caliber includes *knowing exactly what it does and does not guarantee*):
+
+  * **Inside the envelope — git-resident effects.** A residual step's durable
+    effect is a git commit, which is atomic. Re-driving it re-does at most the
+    *uncommitted* tail: a step with a real durable git effect is in `verified`
+    (its SHA is in ancestry), and `resume_plan` keeps the verified prefix OUT of
+    the residual. So a re-drive never re-commits a committed step — exactly-once
+    holds for git effects, the same way TCP guarantees the byte stream.
+
+  * **Outside the envelope — non-git side effects.** The moment a step fires a
+    non-git effect *before* it commits (an external POST, a charged card, a sent
+    email, a pushed artifact), re-driving the residual is **at-least-once
+    execution** of that effect, and DOS has no Undo (`docs/114`: the ARIES third
+    phase was dropped; the lineage is forward recovery over the event-sourced
+    intent ledger, not backward recovery). DOS does NOT and cannot guarantee
+    exactly-once for an effect it never witnessed. The host owns idempotency
+    there — an idempotency key on the POST, or accepting at-least-once — exactly
+    as the application owns end-to-end exactly-once above TCP (the end-to-end
+    argument, `335 §4`).
+
+`redrive_contract` below turns this boundary from a docstring claim into a
+CHECKABLE verdict: given a `ResumePlan`, it ASSERTS the re-drive starts from a
+COMMITTED anchor — `resume_sha` is a git fossil (in ancestry) or empty (re-derive
+from HEAD), never an unverified self-reported SHA. Re-driving the residual forward
+of a committed anchor is git-idempotent because git is content-addressed (re-doing
+work already in history is a no-op / identical commit, never a doubled durable
+effect). It is the verdict-side belt to the docstring's "idempotent by
+construction": a plan whose anchor is NOT a committed fossil is an
+`ENVELOPE_BREACH`, refused, not silently re-driven from a self-report. The kernel
+still PROPOSES the residual; the contract only proves the re-drive it proposes
+restarts from ground truth, never doubling a git effect. Effects
+outside the git envelope are the host adapter's to dedup (`docs/342 §4` option 2,
+an effect-ledger with idempotency keys, is the stretch fix layered on top).
 """
 
 from __future__ import annotations
@@ -458,6 +497,155 @@ def resume_plan(
         residual=residual,
         verified=tuple(contiguous_prefix),
         already_proposed=already,
+    )
+
+
+# --------------------------------------------------------------------------
+# The re-drive contract — the docs/342 §4 P-EXACTLY-ONCE envelope, made checkable.
+# --------------------------------------------------------------------------
+
+
+class RedriveContract(str, enum.Enum):
+    """Is a `ResumePlan`'s residual SAFE to re-drive inside the git envelope? (docs/342 §4).
+
+    The verdict-side belt to the module docstring's "idempotent by construction"
+    claim. `resume_plan` PROPOSES a residual to re-drive from a resume anchor; this
+    asks whether re-driving from that anchor stays inside DOS's declared reliability
+    envelope — exactly-once for git-resident effects only. Two states, mutually
+    exclusive:
+
+      GIT_IDEMPOTENT  — the re-drive starts from a COMMITTED anchor (`resume_sha`
+                        in ancestry, or empty = re-derive from HEAD) and re-does
+                        the residual FORWARD of it. Git is content-addressed, so
+                        re-applying work past a committed fossil never doubles a
+                        durable git effect (it is a no-op / identical commit). Safe
+                        to re-drive; the envelope holds. (A re-drive may still
+                        re-fire a NON-git side effect a step took before committing
+                        — OUTSIDE the envelope and the host adapter's to dedup;
+                        this verdict speaks only to the git effect DOS witnesses.)
+      ENVELOPE_BREACH — the resume anchor is a non-empty SHA NOT in ancestry: a
+                        re-drive "from" a self-reported, uncommitted point. DOS
+                        cannot guarantee the durable git effect is not skipped or
+                        doubled, so it REFUSES — re-derive from HEAD instead. By
+                        construction `resume_plan` gates its anchor to
+                        in-ancestry-or-empty, so this fires only on a hand-built/
+                        forged plan; fail-closed is the safe direction.
+
+    `str`-valued for the `--json` token / exit-code idiom (the `Resume` shape).
+    """
+
+    GIT_IDEMPOTENT = "GIT_IDEMPOTENT"      # residual is the uncommitted tail — safe to re-drive
+    ENVELOPE_BREACH = "ENVELOPE_BREACH"    # residual re-drives a committed step — refuse
+
+    def __str__(self) -> str:  # pragma: no cover - trivial
+        return self.value
+
+
+@dataclass(frozen=True)
+class RedriveVerdict:
+    """The typed re-drive-contract verdict + the residual it adjudicated.
+
+    `contract` is the `RedriveContract`. `reason` is the operator-facing one-liner.
+    `offending_steps` carries the BREACH cause when ENVELOPE_BREACH (empty when
+    GIT_IDEMPOTENT) — the un-committed resume anchor the re-drive would start from.
+    `non_git_caveat` is always True: a GIT_IDEMPOTENT verdict guarantees only the
+    git effect is not double-done; a non-git side effect a step fired before
+    committing is outside the envelope and the host must make idempotent
+    (`docs/342 §4`). `to_dict` is the `--json` shape (the `ResumePlan.to_dict` idiom).
+    """
+
+    contract: RedriveContract
+    reason: str
+    run_id: str
+    offending_steps: tuple[str, ...] = ()
+    non_git_caveat: bool = True
+
+    @property
+    def is_git_idempotent(self) -> bool:
+        return self.contract is RedriveContract.GIT_IDEMPOTENT
+
+    def to_dict(self) -> dict:
+        return {
+            "contract": self.contract.value,
+            "reason": self.reason,
+            "run_id": self.run_id,
+            "offending_steps": list(self.offending_steps),
+            "non_git_caveat": self.non_git_caveat,
+        }
+
+
+def redrive_contract(
+    plan: ResumePlan,
+    state: LedgerState,
+    ancestry: AncestryFacts,
+    policy: ResumePolicy = DEFAULT_POLICY,
+) -> RedriveVerdict:
+    """Assert a `ResumePlan`'s residual is git-idempotent to re-drive. PURE — no I/O.
+
+    The docs/342 §4 P-EXACTLY-ONCE contract, made a checkable verdict. The bound it
+    proves is the module docstring's load-bearing safety property restated as a test:
+    **the re-drive starts from a COMMITTED anchor — `resume_sha` is in ancestry (a
+    git fossil) or empty (re-derive from HEAD), NEVER a non-ancestry self-reported
+    SHA.** Re-driving the residual *forward of a committed anchor* is git-idempotent
+    by construction: git is content-addressed, so re-applying work whose commit is
+    already in history yields the same tree (a no-op / identical commit), never a
+    doubled durable git effect. That is exactly TCP's guarantee on its own layer —
+    re-sending bytes past the acknowledged point is harmless.
+
+    Why the ANCHOR, not a per-step "is this residual step committed?" check: a step
+    that was verified but sits DOWNSTREAM of a hole (s2 committed, s1 not) is
+    correctly put back in the residual by `resume_plan` (the resume restarts from
+    before the hole). Re-driving s2 then re-applies a commit already in ancestry —
+    which is git-idempotent, NOT a breach, because git dedups identical content. The
+    real breach is re-driving from an anchor that is NOT a committed fossil, which
+    would skip the discipline of restarting from ground truth (the docs/103 disease:
+    trusting a self-reported SHA). So the contract guards the anchor.
+
+    The anchor is checked against the SAME re-adjudicated `ancestry` the resume
+    verdict used (`AncestryFacts.contains`), NEVER the agent-written record — the
+    docs/107 §5 distrust rule. `resume_plan` already gates its `resume_sha` to
+    in-ancestry-or-empty, so its own output is always GIT_IDEMPOTENT; this fires
+    `ENVELOPE_BREACH` only on a hand-built/forged plan whose anchor is an unverified
+    self-report. Fail-CLOSED: the contract is the proof, so it must catch a malformed
+    plan, not assume well-formedness.
+
+    The verdict speaks ONLY to the git effect: a GIT_IDEMPOTENT re-drive may still
+    re-fire a NON-git side effect a step took before committing (`non_git_caveat` is
+    always True). That is outside DOS's reliability envelope and the host adapter's
+    to dedup (`docs/342 §4` option 2) — the kernel does not witness the POST, so it
+    cannot and does not claim exactly-once for it. `policy` is accepted for signature
+    symmetry with `resume_plan` (a future seam); the anchor check needs none of it.
+    """
+    rid = plan.run_id or state.run_id
+    # The breach: a non-empty resume anchor that is NOT a committed fossil. Re-driving
+    # "from" a self-reported, non-ancestry SHA is the docs/103 disease — it skips the
+    # restart-from-ground-truth discipline that makes the re-drive git-idempotent. An
+    # EMPTY anchor is safe (it tells the driver to re-derive from HEAD, the honest
+    # fallback). An in-ancestry anchor is safe (a real fossil to re-drive forward of).
+    anchor = (plan.resume_sha or "").strip()
+    if anchor and not ancestry.contains(anchor):
+        return RedriveVerdict(
+            contract=RedriveContract.ENVELOPE_BREACH,
+            reason=(
+                f"resume anchor {anchor[:12]} is NOT in ancestry — re-driving from a "
+                f"self-reported, uncommitted point is outside DOS's exactly-once "
+                f"envelope (it cannot guarantee the durable git effect is not skipped "
+                f"or doubled; docs/342 §4); refusing — re-derive from HEAD instead"
+            ),
+            run_id=rid,
+            offending_steps=(anchor,),
+        )
+    return RedriveVerdict(
+        contract=RedriveContract.GIT_IDEMPOTENT,
+        reason=(
+            f"re-drive starts from a committed anchor "
+            f"({anchor[:12] + ' (in ancestry)' if anchor else 're-derive from HEAD'}) "
+            f"and re-does {len(plan.residual)} residual step(s) forward of it — "
+            f"git-idempotent (non-git side effects remain the host's to make "
+            f"idempotent, docs/342 §4)"
+        ),
+        run_id=rid,
+        offending_steps=(),
     )
 
 
