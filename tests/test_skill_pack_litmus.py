@@ -36,6 +36,10 @@ EXPECTED_SKILLS = {
     # keep-or-revert, where the kernel's `improve` verdict (not the agent's say-so)
     # decides whether each candidate change actually improved the codebase.
     "dos-self-improve",
+    # The fan-OUT analogue of dos-goal-gate: wave-launch one self-stopping goal
+    # worker per independent objective, co-launch-safe via `dos arbitrate`, with
+    # every claimed ship confirmed by `dos verify` / `commit-audit`, not narration.
+    "dos-goal-fleet",
 }
 
 # Host literals a generic skill must never name (the skill analogue of "kernel

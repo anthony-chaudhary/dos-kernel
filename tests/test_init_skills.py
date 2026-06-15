@@ -85,7 +85,7 @@ def test_init_all_copies_full_pack(tmp_path: Path):
     proc = _cli("init", "--all", str(dest))
     assert proc.returncode == 0, proc.stderr
     found = {p.parent.name for p in (dest / ".claude" / "skills").rglob("SKILL.md")}
-    assert len(found) == 12  # the full pack (7 SKP + 3 operator + dos-goal-gate + dos-self-improve)
+    assert len(found) == 13  # the full pack (7 SKP + 3 operator + dos-goal-gate + dos-self-improve + dos-goal-fleet)
 
 
 def test_init_unknown_skill_warns_and_exits_nonzero(tmp_path: Path):
