@@ -64,7 +64,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 # Windows defaults to cp1252, which crashes on the em-dash / middot the man-page
 # renderer emits. Match the spine modules' force-UTF-8 discipline.
@@ -1484,9 +1484,19 @@ def _gather_attest_readback(args: argparse.Namespace, cfg) -> "tuple[object, str
     accept_cmd = getattr(args, "accept_cmd", None)
     before = getattr(args, "before", None)
     after = getattr(args, "after", None)
+    content = getattr(args, "content", None)
 
-    if accept_cmd and (before or after):
-        return None, "", "give EITHER --accept-cmd OR --before/--after, not both"
+    _surfaces = sum(1 for s in (accept_cmd, (before or after), content) if s)
+    if _surfaces > 1:
+        return None, "", "give exactly ONE of --accept-cmd / --before+--after / --content"
+    if content:
+        # The content-diff rung (docs/192 W2→W3): '<path>@<sha>#<gold-ref>'. The driver
+        # reads the committed blob (git-authored) and diffs its CONTENT against the gold,
+        # at the rung the gold's provenance earns (capped at min(blob, gold)).
+        content_diff = _load_witness_driver("content_diff")
+        source = content_diff.ContentDiffEvidenceSource(cwd=str(cfg.paths.root))
+        facts = gather_evidence(source, content, cfg)
+        return witness_effect(claim, [facts]), content, ""
     if accept_cmd:
         os_acceptance = _load_witness_driver("os_acceptance")
         source = os_acceptance.OsAcceptanceEvidenceSource(cwd=str(cfg.paths.root))
@@ -4649,6 +4659,161 @@ def cmd_hook_marker(args: argparse.Namespace) -> int:
     )
     print(json.dumps({"decision": "block", "reason": reason}, sort_keys=True))
     return 0  # exit 0 + {"decision":"block"} is CC's "keep working" signal
+
+
+def _session_digest_stamp(cfg, session_id: str):
+    """The per-session file the orientation digest is persisted under (Part C).
+
+    A sibling of the `help-digest` stamp `_emit_help_digest` already writes, so a
+    SessionStart fired by a compaction can re-read the PRE-compact truth and
+    re-inject it. Returns a `Path`; the caller owns the I/O (and its fail-soft).
+    """
+    from dos import lane_lease as _lane_lease
+    stamp_dir = _lane_lease._journal_path(cfg).parent / "session-digest"
+    safe_sid = "".join(ch if (ch.isalnum() or ch in "-_") else "_" for ch in session_id)
+    return stamp_dir / safe_sid
+
+
+def cmd_hook_session_start(args: argparse.Namespace) -> int:
+    """A `SessionStart` hook: inject a ground-truth orientation digest (docs: plugin hooks).
+
+    Reads the host SessionStart event JSON on STDIN ({session_id, source, cwd, …}),
+    folds the workspace's cheap read-only ground truth — held lane leases + what DOS
+    already caught this session — into one `additionalContext` line so the agent
+    starts ORIENTED rather than blind (it can't collide with an in-flight lease or
+    repeat a refused move it can't see). Context-only, like PostToolUse: it CANNOT
+    block (SessionStart honors no deny). On `source == "compact"` it re-injects the
+    digest persisted before the compaction (Part C), so the orientation survives a
+    context compact. Emits nothing and exits 0 when there is nothing worth saying
+    (no leases, nothing caught) or on ANY failure (no stdin, bad JSON, an I/O
+    error) — the advisory fail-to-silent contract every DOS hook shares.
+    """
+    from dos import session_digest as _sd
+
+    started = time.monotonic()
+    debug = bool(getattr(args, "debug", False))
+
+    def _dbg(msg: str) -> None:
+        if debug:
+            print(f"[dos hook session-start] {msg}", file=sys.stderr)
+
+    # 1. Read the hook event from stdin. Any failure → emit nothing, exit 0 (we never
+    #    block a session on our own inability to read — the advisory fail-safe).
+    event: dict = {}
+    raw = ""
+    try:
+        raw = sys.stdin.read()
+    except Exception:
+        raw = ""
+    if raw.strip():
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                event = parsed
+        except (ValueError, TypeError):
+            event = {}
+
+    # 2. Resolve the workspace: explicit --workspace › the event's cwd › cwd (the
+    #    cmd_hook_marker path), so the digest reads THIS repo's leases + journal.
+    if not getattr(args, "workspace", None):
+        ev_cwd = event.get("cwd")
+        if isinstance(ev_cwd, str) and ev_cwd:
+            args.workspace = ev_cwd
+    _apply_workspace(args)
+    cfg = _config.active()
+
+    session_id = getattr(args, "session_id", None) or event.get("session_id")
+    if not (isinstance(session_id, str) and session_id.strip()):
+        session_id = ""
+    source = str(event.get("source") or "").strip().lower()
+    restored = False
+
+    # 3. The compaction re-inject path (Part C): a SessionStart fired by a compact
+    #    prefers the digest persisted BEFORE the compaction (the pre-compact truth),
+    #    so orientation survives the context loss. A missing stamp falls through to a
+    #    freshly-built digest below.
+    context: Optional[str] = None
+    if source == "compact" and session_id:
+        try:
+            stamp = _session_digest_stamp(cfg, session_id)
+            if stamp.exists():
+                saved = stamp.read_text(encoding="utf-8").strip()
+                if saved:
+                    context = _sd.mark_restored(saved)
+                    restored = True
+                    _dbg(f"restored persisted digest for compact (sid={session_id})")
+        except Exception as exc:  # noqa: BLE001 — advisory: a read fault must not crash the session
+            _dbg(f"compact-restore read error ({exc!r}) — building fresh")
+
+    # 4. Build the digest from cheap, fail-soft, read-only state. Each gather is
+    #    wrapped so any one fault drops that fact rather than crashing the hook.
+    if context is None:
+        leases: list[dict] = []
+        try:
+            from dos import lane_lease as _lane_lease
+            leases = _lane_lease.live_leases(cfg, expire_dead=True)
+        except Exception as exc:  # noqa: BLE001 — advisory fail-safe
+            _dbg(f"live_leases read error ({exc!r}) — omitting the lease leg")
+        summary = None
+        if session_id:
+            try:
+                from dos import help_summary as _help
+                from dos import lane_journal as _lane_journal
+                from dos import lane_lease as _lane_lease
+                records = _lane_journal.read_all(path=_lane_lease._journal_path(cfg))
+                summary = _help.summarize(records, holder=session_id)
+            except Exception as exc:  # noqa: BLE001 — advisory fail-safe
+                _dbg(f"help_summary read error ({exc!r}) — omitting the caught leg")
+        is_kernel = bool(getattr(getattr(cfg, "workspace", None), "is_kernel_repo", False))
+        context = _sd.build_digest(
+            leases=leases, summary=summary, is_kernel_repo=is_kernel, restored=restored)
+
+    if not context:
+        _dbg("nothing worth saying — emitting nothing")
+        _record_hook_observation(cfg, verb="session-start", outcome="no-digest",
+                                 started=started, debug=debug)
+        return 0
+
+    # 5. Persist the freshly-built digest so a later compaction can re-inject it
+    #    (skipped when we just restored one — it is already on disk). Fail-soft.
+    if not restored and session_id:
+        try:
+            stamp = _session_digest_stamp(cfg, session_id)
+            stamp.parent.mkdir(parents=True, exist_ok=True)
+            stamp.write_text(context, encoding="utf-8")
+        except Exception as exc:  # noqa: BLE001 — advisory: a stamp-write fault must not block the digest
+            _dbg(f"digest persist error ({exc!r}) — not saved for compact re-inject")
+
+    if args.json:
+        # A machine-readable surface for tooling / non-CC hosts — never the bytes CC
+        # reads. Mirrors `cmd_hook_marker --json`.
+        print(json.dumps(
+            {"digest": context, "source": source or None, "restored": restored},
+            sort_keys=True))
+        _record_hook_observation(cfg, verb="session-start", outcome="digest",
+                                 started=started, debug=debug)
+        return 0
+
+    # 6. The ONLY thing on stdout: the host's SessionStart dialect (a SESSION WARN —
+    #    context-only, never a deny). Render fail-soft: an unknown dialect, or a
+    #    driver dialect that does not yet know the SESSION moment, emits nothing
+    #    (the digest is advisory) rather than crashing the session.
+    try:
+        from dos import hook_dialect as _hd
+        verdict = _hd.HookVerdict(
+            moment=_hd.HookMoment.SESSION, action=_hd.HookAction.WARN, context=context)
+        shaped = _hd.resolve_dialect(getattr(args, "dialect", None)).render(verdict)
+    except Exception as exc:  # noqa: BLE001 — advisory: any render fault → emit nothing
+        _dbg(f"dialect render error ({exc!r}) — emitting nothing")
+        shaped = None
+    emitted = False
+    if shaped is not None:
+        print(json.dumps(shaped, sort_keys=True))
+        emitted = True
+    _record_hook_observation(cfg, verb="session-start",
+                             outcome="digest" if emitted else "render-skip",
+                             started=started, debug=debug)
+    return 0
 
 
 def cmd_hook_posttool(args: argparse.Namespace) -> int:
@@ -8894,6 +9059,12 @@ def build_parser() -> argparse.ArgumentParser:
                           "snapshot (a {key:value} JSON object the STORE wrote)")
     pat.add_argument("--after", default=None, metavar="PATH",
                      help="the AFTER state snapshot (paired with --before)")
+    pat.add_argument("--content", default=None, metavar="PATH@SHA#GOLD",
+                     help="witness via a content-diff (docs/192 W2→W3): read the "
+                          "committed blob '<path>@<sha>' and diff its CONTENT against "
+                          "'<gold-ref>' (sha256:<hex> / source:<validator>:<subj> / "
+                          "inline:<value>). Rung = min(blob, gold); a forgeable gold is "
+                          "refused belief. Mutually exclusive with the other surfaces")
     pat.add_argument("--third-party", action="store_true",
                      help="tag the state-diff snapshot rung THIRD_PARTY (a remote "
                           "store) instead of OS_RECORDED")
@@ -10241,6 +10412,50 @@ def build_parser() -> argparse.ArgumentParser:
                      help="print diagnostics to STDERR (the stdout contract stays "
                           "EXCLUSIVELY the host dialect or empty)")
     pmk.set_defaults(func=cmd_hook_marker)
+
+    pss = hsub.add_parser(
+        "session-start",
+        help="a SessionStart hook: inject a ground-truth orientation digest (held "
+             "lane leases + what DOS already caught) so the agent starts oriented, "
+             "not blind",
+        description=(
+            "Reads the host SessionStart event JSON on STDIN ({session_id, source, "
+            "cwd, …}) and folds the workspace's cheap read-only ground truth — the "
+            "live lane leases a sibling holds + what DOS already refused/advised this "
+            "session — into ONE additionalContext line, printed in the Claude-Code "
+            "SessionStart dialect {\"hookSpecificOutput\": {\"hookEventName\": "
+            "\"SessionStart\", \"additionalContext\": …}}. Context-only, like "
+            "PostToolUse: SessionStart honors no deny, so this can never block — it "
+            "ORIENTS (docs/99 advisory). The SILENCE RULE: it emits nothing when "
+            "there is nothing worth saying (no leases held, nothing caught) so an "
+            "empty session stays quiet and the signal keeps its weight. On `source "
+            "== compact` it re-injects the digest persisted before the compaction so "
+            "orientation survives a context compact (Part C); otherwise it persists "
+            "the freshly-built digest for that later re-inject. Every failure mode "
+            "(no stdin, bad JSON, an I/O error, a dialect that lacks the SESSION "
+            "moment) degrades to 'emit nothing' = a normal session start. The rich "
+            "object is available behind --json (a machine surface, not the bytes CC "
+            "reads). Wire it via `.claude/settings.json` SessionStart hooks."),
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    _add_workspace_flags(pss)
+    pss.add_argument("--session-id", default=None,
+                     help="session key the caught-this-session digest reads under and "
+                          "the compact re-inject persists under (default: the event's "
+                          "session_id on stdin)")
+    pss.add_argument("--dialect", default="claude-code",
+                     help="the host runtime whose hook envelope to emit "
+                          "(claude-code [default] / a dos.hook_dialects plugin that "
+                          "supports the SESSION moment). An unknown name, or a dialect "
+                          "without SESSION support, emits nothing (the digest is "
+                          "advisory, docs/217)")
+    pss.add_argument("--json", action="store_true",
+                     help="emit the full result object ({digest, source, restored}) "
+                          "for tooling/non-CC hosts, instead of the Claude-Code "
+                          "SessionStart dialect the default emits")
+    pss.add_argument("--debug", action="store_true",
+                     help="print diagnostics to STDERR (the stdout contract stays "
+                          "EXCLUSIVELY the host dialect or empty)")
+    pss.set_defaults(func=cmd_hook_session_start)
 
     php = hsub.add_parser(
         "posttool",

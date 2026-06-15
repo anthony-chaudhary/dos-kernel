@@ -33,6 +33,39 @@
           }
         ]
       }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/dos-hook\" stop --workspace . || python -m dos.cli hook stop --workspace ."
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "python -m dos.cli hook marker --reset --workspace ."
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/dos-hook\" session-start --workspace . || python -m dos.cli hook session-start --workspace ."
+          }
+        ]
+      }
     ]
   }
 }

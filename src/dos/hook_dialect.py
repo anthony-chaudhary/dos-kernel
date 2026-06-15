@@ -71,6 +71,7 @@ class HookMoment(enum.Enum):
     PRE = "pre"    # before a tool runs — the only moment a deny is honored
     POST = "post"  # after a tool ran — context-only (cannot block)
     STOP = "stop"  # the agent wants to stop — refuse a false done
+    SESSION = "session"  # a session is starting — inject ground-truth context (cannot block)
 
 
 class HookAction(enum.Enum):
@@ -140,7 +141,12 @@ class HookDialect(Protocol):
         ...
 
 
-_CC_EVENT = {HookMoment.PRE: "PreToolUse", HookMoment.POST: "PostToolUse", HookMoment.STOP: "Stop"}
+_CC_EVENT = {
+    HookMoment.PRE: "PreToolUse",
+    HookMoment.POST: "PostToolUse",
+    HookMoment.STOP: "Stop",
+    HookMoment.SESSION: "SessionStart",
+}
 
 
 class ClaudeCodeDialect:

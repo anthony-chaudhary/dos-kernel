@@ -72,6 +72,21 @@ def test_claude_code_post_moment_uses_post_event_name():
     assert out["hookSpecificOutput"]["hookEventName"] == "PostToolUse"
 
 
+def test_claude_code_session_moment_injects_context_under_sessionstart():
+    """A SESSION-moment warn renders the SessionStart additionalContext shape.
+
+    SessionStart honors no deny, so the digest rides the WARN path (context-only)
+    and names the SessionStart event, the same structural shape POST uses.
+    """
+    v = hd.HookVerdict(
+        moment=hd.HookMoment.SESSION, action=hd.HookAction.WARN,
+        context="DOS session orientation: 1 lane lease held (src).")
+    out = hd.resolve_dialect("claude-code").render(v)
+    assert out == {"hookSpecificOutput": {
+        "hookEventName": "SessionStart",
+        "additionalContext": "DOS session orientation: 1 lane lease held (src)."}}
+
+
 # ---------------------------------------------------------------------------
 # Golden bytes per host — a fixed DENY verdict in each runtime's grammar.
 # ---------------------------------------------------------------------------

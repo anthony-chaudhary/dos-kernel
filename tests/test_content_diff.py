@@ -308,3 +308,73 @@ def test_match_relabels_the_source_never_claims_semantic_correctness(tmp_path: P
     # It ATTESTs (the bytes ARE the fixed value) — it makes NO claim the function is correct.
     assert facts.stance is EvidenceStance.ATTESTED
     assert "==" in facts.detail  # the verdict speaks of byte-equality, not correctness
+
+
+# ---------------------------------------------------------------------------
+# The CLI boundary — `dos attest --content` routes through the driver and folds
+# via `effect_witness.witness_effect` (Phase 3 wiring).
+# ---------------------------------------------------------------------------
+
+
+def _attest_args(claim: str, content: str):
+    import argparse
+    return argparse.Namespace(
+        claim=claim, narrated="", accept_cmd=None, before=None, after=None,
+        content=content, third_party=False,
+    )
+
+
+@gitmark
+def test_attest_content_branch_confirms_a_sound_gold(tmp_path: Path, monkeypatch):
+    """`_gather_attest_readback` with --content + a correct sha256 gold → CONFIRMED."""
+    import dataclasses
+
+    import dos.config as _config
+    from dos import cli
+
+    content = b"the right value\n"
+    sha = _init_repo(tmp_path, content=content)
+    digest = hashlib.sha256(content).hexdigest()
+    cfg = dataclasses.replace(_config.active(),
+                              paths=dataclasses.replace(_config.active().paths, root=tmp_path))
+
+    verdict, surface, err = cli._gather_attest_readback(
+        _attest_args("data content is pinned", f"data.txt@{sha}#sha256:{digest}"), cfg)
+    assert err == ""
+    assert verdict is not None and verdict.verdict.value == "CONFIRMED"
+    assert verdict.believe is True
+
+
+@gitmark
+def test_attest_content_branch_floor_gold_is_unwitnessed(tmp_path: Path):
+    """An inline (forgeable) gold that matches → UNWITNESSED through the attest fold (the
+    floor refuses to CONFIRM — the agent cannot grade its own homework)."""
+    import dataclasses
+
+    import dos.config as _config
+    from dos import cli
+
+    sha = _init_repo(tmp_path, content=b"v1")
+    cfg = dataclasses.replace(_config.active(),
+                              paths=dataclasses.replace(_config.active().paths, root=tmp_path))
+
+    verdict, surface, err = cli._gather_attest_readback(
+        _attest_args("v1 is right", f"data.txt@{sha}#inline:v1"), cfg)
+    assert err == ""
+    assert verdict.verdict.value == "UNWITNESSED"
+    assert verdict.believe is False
+
+
+def test_attest_rejects_multiple_witness_surfaces():
+    """--content is mutually exclusive with --accept-cmd / --before+--after."""
+    import argparse
+
+    from dos import cli
+
+    args = argparse.Namespace(
+        claim="x", narrated="", accept_cmd="pytest -q", before=None, after=None,
+        content="a@HEAD#inline:v", third_party=False,
+    )
+    verdict, surface, err = cli._gather_attest_readback(args, None)
+    assert verdict is None
+    assert "exactly ONE" in err

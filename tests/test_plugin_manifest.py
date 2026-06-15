@@ -161,15 +161,21 @@ def _hook_commands(hooks_obj: dict, event: str) -> list[str]:
     return cmds
 
 
-def test_hooks_wire_the_three_dos_verbs():
+def test_hooks_wire_the_dos_verbs():
     hooks = _load(PLUGIN_HOOKS)
-    # Each of the three DOS lifecycle moments is wired to its shipped verb. The
-    # command runs via `python -m dos.cli` (not the bare `dos` script) so it works
-    # even when the console script isn't on the host's PATH.
+    # Each DOS lifecycle moment is wired to its shipped verb. The command runs via
+    # `python -m dos.cli` (not the bare `dos` script) so it works even when the
+    # console script isn't on the host's PATH. SubagentStop reuses `hook stop`
+    # (a subagent's false "done" is verified the same way the main agent's is);
+    # UserPromptSubmit resets the wait-marker budget on each new human prompt;
+    # SessionStart injects the ground-truth orientation digest.
     expected = {
         "PreToolUse": "hook pretool",
         "PostToolUse": "hook posttool",
         "Stop": "hook stop",
+        "SubagentStop": "hook stop",
+        "UserPromptSubmit": "hook marker",
+        "SessionStart": "hook session-start",
     }
     for event, verb in expected.items():
         cmds = _hook_commands(hooks, event)
@@ -192,7 +198,7 @@ def test_hook_verbs_are_real_cli_subcommands():
     """
     import os
     env = {**os.environ, "PYTHONPATH": str(_REPO_ROOT / "src")}
-    for verb in ("pretool", "posttool", "stop"):
+    for verb in ("pretool", "posttool", "stop", "marker", "session-start"):
         proc = subprocess.run(
             [sys.executable, "-m", "dos.cli", "hook", verb, "--help"],
             capture_output=True, text=True, env=env,
