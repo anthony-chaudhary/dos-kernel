@@ -44,6 +44,11 @@ EXPECTED_SKILLS = {
     # the EXAMPLES.md witness recipes, emit an ADDITIVE `<name>-dos` variant +
     # report. The meta-skill (a screenplay that grounds other screenplays).
     "dos-skillify",
+    # docs/347 — the predictive flip: price a PROPOSED fan-out partition BEFORE any
+    # worker launches, from the kernel's own agent-blind file-tree geometry, so a
+    # colliding plan is refused with 0 agents launched. The predictive complement
+    # to `dos arbitrate` (the reactive, one-acquire-at-a-time floor).
+    "dos-plan-price",
 }
 
 # Host literals a generic skill must never name (the skill analogue of "kernel

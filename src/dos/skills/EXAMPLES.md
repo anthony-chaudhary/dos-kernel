@@ -185,6 +185,33 @@ collision, and forcing past it re-introduces the race the lane exists to stop.
 
 ---
 
+## Recipe 2b — Price the whole fan-out BEFORE you launch it (the predictive complement)
+
+**Problem.** Recipe 2 is reactive: it refuses *one* colliding acquire *as* a worker
+reaches the turnstile. Launch a wave of N workers and the arbiter only catches a
+collision when the K-th one acquires — after K−1 workers already started and are
+mutating the tree. The wasted launches are spent before the kernel can say "no."
+
+**The move.** The proposed partition (N workers × their declared trees) is a fact
+about glob *geometry* — decidable before any worker runs, without believing any
+agent's intent, from the same `dos._tree.lane_trees_disjoint` predicate Recipe 2
+trusts. Price the whole partition up front: the collision graph, the maximal set
+that can run together (`safe_now`), and the cheapest disjoint re-partition. Launch
+the safe set (or re-partition the colliders) — refusing the bad plan with **0**
+workers launched instead of K−1. This is the [`dos-plan-price`](dos-plan-price/SKILL.md)
+screenplay (docs/347).
+
+**The rule.** Price first (predictive, advisory), then `dos arbitrate` at each
+acquire (the unforgeable floor over real leases). The price is a forward estimate
+over an agent-*declared* partition — it saves launches and surfaces collisions
+early; it does not replace the floor. **The honest gap:** there is no first-party
+`dos price-plan` verb yet (issue #178) — the screenplay shells the reference
+implementation `examples/plan_price/plan_price.py` and logs the gap, rather than
+faking a verb. Geometric, not semantic: it catches prefix-overlapping trees, not
+two disjoint trees whose intents conflict (the docs/347 §5 ceiling, shared with R2).
+
+---
+
 ## Recipe 3 — Gate the empty case by EXIT CODE, not prose (gate)
 
 **Problem.** A skill that decides "is there work to do / is it safe to proceed?"

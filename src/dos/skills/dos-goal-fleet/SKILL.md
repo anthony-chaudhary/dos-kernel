@@ -141,6 +141,17 @@ mkdir -p "$RUN_DIR"   # always mkdir -p BEFORE any `>` redirect, or the shell
 (`<host-scratch-root>` is the host's gitignored scratch dir, read from config or
 chosen by the operator — not a literal this skill names.)
 
+**Price the whole wave first (predictive — saves the wasted launches).** Before the
+per-child loop below, price the *entire* proposed partition at once: the wave's
+goals × their `expected_paths` is exactly a proposed fan-out, and pricing it up
+front tells you the collision graph and the maximal safe set to launch *before you
+spend a single launch* — instead of discovering a collision only when the K-th
+child's `arbitrate` refuses, after K−1 children already started. Run
+[`dos-plan-price`](../dos-plan-price/SKILL.md) on the wave; launch its `safe_now`
+set (or re-partition the colliders) this wave. The per-goal `arbitrate` below is
+still the unforgeable floor at acquire time — the price is the early-warning ahead
+of it, not a replacement.
+
 **Collision check — the load-bearing safety step.** Independent *goals* can still
 touch overlapping *files* if they ship code. Two same-wave children writing the
 same paths is the exact cross-pollution `dos arbitrate` exists to prevent. For

@@ -86,8 +86,9 @@ def test_init_all_copies_full_pack(tmp_path: Path):
     assert proc.returncode == 0, proc.stderr
     found = {p.parent.name for p in (dest / ".claude" / "skills").rglob("SKILL.md")}
     # the full generic pack: 7 SKP + 3 operator (promote/unstick/class-cycle) +
-    # dos-goal-gate + dos-self-improve + dos-goal-fleet + dos-skillify (docs/345).
-    assert len(found) == 14
+    # dos-goal-gate + dos-self-improve + dos-goal-fleet + dos-skillify (docs/345) +
+    # dos-plan-price (docs/347).
+    assert len(found) == 15
 
 
 def test_init_unknown_skill_warns_and_exits_nonzero(tmp_path: Path):
