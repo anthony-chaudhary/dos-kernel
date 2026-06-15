@@ -54,6 +54,14 @@ this skill uses: `lanes` / `paths.plans_glob` / `stamp` (so a converted
 `arbitrate` / `verify` step names the host's real taxonomy), and `exit_codes`
 (so a converted gate branches on `$?`, not prose).
 
+> **Want a quick score first?** `dos skillify --grade <path>` (or `--all`) runs
+> the *deterministic* part of this screenplay without an agent loop: it scans a
+> skill and reports its **DOS grounding signal** (STRONG/MODERATE/WEAK) plus the
+> belief-bits that look ungrounded, as **review candidates**. It is a static
+> estimate, NOT this skill's precise per-bit verdict — use it to triage which
+> skills are worth a full conversion pass, and to gate CI (`--check`). The
+> classification below is the precise instrument; the verb is the cheap one.
+
 ## Step 1 — Parse the source skill into claim-sites
 
 Read the source `SKILL.md` (and any supporting files / prompt it references).

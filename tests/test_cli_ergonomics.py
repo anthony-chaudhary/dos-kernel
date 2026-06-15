@@ -697,7 +697,7 @@ def test_grouped_commands_are_all_real_subparsers():
         "verify-receipt", "arbitrate", "scope-gate", "pickable", "enumerate",
         "cooldown", "reconcile", "breaker", "exec-capability", "lint", "run-id",
         "lease-lane", "lease", "journal", "resume", "rewind", "status", "trace",
-        "decisions", "top", "notify", "man", "guard", "hook", "reindex",
+        "decisions", "top", "notify", "man", "skillify", "guard", "hook", "reindex",
         "projects", "learn", "exit-codes",
     }
     missing = promised - registered

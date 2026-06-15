@@ -43,6 +43,7 @@ OPS — what needs me, what's running, what is this workspace?
     dos observe [--run RID]        the verdict journal — every adjudication, folded
     dos notify {decisions,top}     push a projection to a transport (Slack first)
     dos man {wedge,lane} [ID]      the self-describing manual over the registries
+    dos skillify --grade PATH      how well does a skill ground its claims on dos verbs?
     dos guard / hook {pretool,posttool,stop}          bind the verdict to an agent runtime
     dos doctor [--json] / lint     the workspace report; the config-integrity linter
     dos reindex / projects / learn the cross-project store, registry, and aggregates
@@ -6750,6 +6751,101 @@ def _dot_dos_facts(cfg: "_config.SubstrateConfig") -> dict:
     }
 
 
+def _skill_md_targets(args: argparse.Namespace) -> list[Path]:
+    """Resolve the SKILL.md file(s) `dos skillify` will grade: an explicit PATH
+    (a SKILL.md or a skill dir holding one), or `--all` over the shipped generic
+    pack plus any host `.claude/skills/*/SKILL.md` in the active workspace."""
+    if getattr(args, "all", False):
+        out = [Path(_skills_root()) / n / "SKILL.md" for n in _available_skills()]
+        host = _config.active().paths.root / ".claude" / "skills"
+        if host.is_dir():
+            out += sorted(host.rglob("SKILL.md"))
+        return [p for p in out if p.is_file()]
+    raw = getattr(args, "path", None)
+    if not raw:
+        return []
+    p = Path(raw)
+    if p.is_dir():
+        p = p / "SKILL.md"
+    return [p] if p.is_file() else []
+
+
+def cmd_skillify(args: argparse.Namespace) -> int:
+    """`dos skillify --grade [PATH|--all]` — score a skill's DOS grounding signal.
+
+    A read-only layer-3 helper (it shells/reads only; mints no verdict). The
+    deterministic core docs/345 §3 foretold: a static estimate of how well a
+    skill grounds its belief-bits on `dos` verbs, with the precise per-bit
+    classification deferred to the `dos-skillify` SKILL screenplay. `--grade` is
+    the only mode today; bare `dos skillify PATH` points at the SKILL."""
+    _apply_workspace(args)
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
+    if not getattr(args, "grade", False):
+        print("dos skillify converts a skill to DOS-aware via the `dos-skillify` "
+              "SKILL (the conversion screenplay).\nThis CLI verb does the "
+              "deterministic part: `dos skillify --grade <PATH|--all>` scores a "
+              "skill's DOS grounding signal.", file=sys.stderr)
+        return 2
+
+    from dos import skill_grade as _sg
+
+    targets = _skill_md_targets(args)
+    if not targets:
+        where = "--all" if getattr(args, "all", False) else (getattr(args, "path", None) or "(no path)")
+        print(f"error: no SKILL.md found for {where}", file=sys.stderr)
+        return 2
+
+    # The `dos doctor` facts the grader reads for the canonical verb names (data,
+    # not a literal) — the same exit-code contract `dos doctor --json` emits.
+    facts = {"exit_codes": _exit_code_contract()}
+    min_fraction = float(getattr(args, "min_coverage", None)
+                         or _sg._CHECK_DEFAULT_MIN_FRACTION)
+    check = bool(getattr(args, "check", False))
+    want_json = bool(getattr(args, "json", False))
+
+    grades = []
+    for md in targets:
+        name = md.parent.name
+        g = _sg.grade_skill(md.read_text(encoding="utf-8"), facts, name=name)
+        grades.append(g)
+
+    if want_json:
+        out = []
+        for g in grades:
+            d = g.to_dict()
+            if check:
+                verdict, why = _sg.check_verdict(g, min_fraction)
+                d["check"] = {"verdict": verdict, "why": why}
+            out.append(d)
+        print(json.dumps(out if len(out) != 1 else out[0], indent=2))
+    else:
+        for i, g in enumerate(grades):
+            if i:
+                print()
+            print(_sg.render_text(g))
+
+    if not check:
+        return 0
+
+    # The gate: FAIL only on a real self-certify density; sparse detection skips.
+    failed = []
+    for g in grades:
+        verdict, why = _sg.check_verdict(g, min_fraction)
+        if verdict == "fail":
+            failed.append((g.skill, why))
+    if failed:
+        print("", file=sys.stderr)
+        for skill, why in failed:
+            print(f"FAIL: {skill}: {why}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     _apply_workspace(args)
     cfg = _config.active()
@@ -11111,6 +11207,29 @@ def build_parser() -> argparse.ArgumentParser:
     pplan.add_argument("--interval", type=float, default=5.0, metavar="SEC",
                        help="live-refresh cadence in seconds (default: 5)")
     pplan.set_defaults(func=cmd_plan)
+
+    # docs/345 §3 — the deterministic core of `dos-skillify` as a verb: grade a
+    # skill's DOS grounding signal (a static estimate; the precise per-bit
+    # verdict stays in the SKILL screenplay). Read-only layer-3 helper.
+    psk = sub.add_parser("skillify",
+                         help="grade a skill's DOS grounding signal "
+                              "(`--grade <PATH|--all>`); read-only")
+    _add_workspace_flags(psk)
+    psk.add_argument("path", nargs="?",
+                     help="a SKILL.md (or a skill dir holding one) to grade")
+    psk.add_argument("--grade", action="store_true",
+                     help="score the DOS grounding signal (the only mode today)")
+    psk.add_argument("--all", action="store_true",
+                     help="grade every shipped generic skill + host .claude/skills")
+    psk.add_argument("--json", action="store_true",
+                     help="machine-readable grade(s): signal/grounded/"
+                          "review_candidates/sites")
+    psk.add_argument("--check", action="store_true",
+                     help="exit 1 if any judged skill's grounding is below the "
+                          "floor (sparse skills are skipped, never failed)")
+    psk.add_argument("--min-coverage", type=float, default=None, metavar="FRAC",
+                     help="the --check grounding floor (0..1; default 0.6)")
+    psk.set_defaults(func=cmd_skillify)
 
     pd = sub.add_parser("doctor", help="report the active workspace + taxonomy")
     _add_workspace_flags(pd)

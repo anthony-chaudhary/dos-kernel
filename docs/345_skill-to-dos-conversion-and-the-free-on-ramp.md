@@ -161,16 +161,31 @@ The procedure needs a home. Two complementary surfaces, smallest-first:
   plugin can say "make this skill DOS-aware" and the screenplay runs. It names
   no host (it reads `dos doctor --json`), so it qualifies for the SKP. **Start
   here — it ships the capability with zero new kernel code.**
-- **`dos skillify <path>` (optional CLI verb, later)** — a thin command that
-  runs Passes 0–4 deterministically for the parts that don't need a model
-  (parse claim-sites, classify the obvious self-certify patterns, emit the
-  report skeleton), leaving the prose-judgment hunks for the agent. This is the
-  on-ramp for the **free service** (§7): a one-command `dos skillify ./my-skill`
-  that works without an agent loop, in CI, headless. It is a *helper* (layer 3,
-  policy-free) — it shells the existing verbs, mints no new verdict.
+- **`dos skillify --grade <path|--all>` (the CLI verb — shipped)** — a thin
+  read-only command that runs the deterministic part: it scans a skill for
+  belief-bits and scores its **DOS grounding signal** (how many bits shell a
+  `dos` verb near their trust language vs. how many are self-certify smells), and
+  emits a per-bit report a maintainer can read without an agent loop, in CI,
+  headless. The full 5-pass *conversion* (the prose-judgment hunks) stays the
+  `dos-skillify` SKILL screenplay; the verb is the static estimate that feeds the
+  §6 benchmark and the §7 on-ramp headline. It is a *helper* (layer 3,
+  policy-free): it shells/reads only and mints **no new verdict**
+  (`src/dos/skill_grade.py` + `cmd_skillify` in `cli.py`).
+
+  Crucially, the grade is a **signal, not the model's verdict.** A static scanner
+  cannot replicate the per-bit classification (skills phrase belief-bits in ways
+  no keyword list captures, and ground them with verbs beyond a fixed claim→verb
+  map). Forcing a precise number would mean reverse-engineering the scanner to a
+  known answer — the exact bias the kernel refuses (docs/333). So the verb
+  reports STRONG/MODERATE/WEAK with the ungrounded-looking sites as **review
+  candidates** for the SKILL pass to confirm, and `--check` skips sparse
+  detection (it never punishes the scanner being blind), firing only on a real
+  self-certify density. The honesty floor of §2 is preserved: UNWITNESSABLE
+  claims and anti-pattern mentions are excluded from the denominator.
 
 Build the skill first; promote the deterministic core to a verb only once the
-skill proves the claim-site taxonomy is right.
+skill proves the claim-site taxonomy is right. The M2 dogfood (§4) proved it, so
+the grade verb is built — as a signal, with the precise verdict left to the model.
 
 ---
 
