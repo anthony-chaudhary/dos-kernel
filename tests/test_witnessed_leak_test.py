@@ -209,9 +209,10 @@ def test_render_is_plain_text_with_the_table_and_headline():
 
 def test_encode_dirname_per_char_dash_not_run_collapse():
     # Claude Code maps EACH non-alnum char to a dash; `C:\x` → `C--x` (not `C-x`).
-    enc = encode_project_dirname("C:\\work\\dos-kernel-public")
+    # (Neutral synthetic root — never a real dev-machine path; see CLAUDE.md.)
+    enc = encode_project_dirname("C:\\proj\\demo-kernel")
     # the drive colon AND the first backslash each become a dash → double dash
-    assert "C--work" in enc
+    assert "C--proj" in enc
     assert enc.replace("-", "").isalnum() or enc  # only dashes + alnum
 
 

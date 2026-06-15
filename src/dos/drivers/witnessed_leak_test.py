@@ -499,7 +499,7 @@ def encode_project_dirname(workspace: Path | str) -> str:
     Claude Code stores each project's sessions under
     `~/.claude/projects/<encoded>/`, where `<encoded>` is the absolute path with
     EACH non-alphanumeric character replaced by a single dash — runs are NOT
-    collapsed, so `C:\\work\\dos-kernel` → `C--work-dos-kernel` (the `:` and the
+    collapsed, so `C:\\proj\\demo-kernel` → `C--proj-demo-kernel` (the `:` and the
     `\\` each become a dash). HOST KNOWLEDGE — exactly why this is a driver. We
     derive it rather than guess so a scan finds the workspace's own logs.
     """
