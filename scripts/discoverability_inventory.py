@@ -202,6 +202,30 @@ ARRIVAL_QUERIES = [
      "docs/answers/aba-512-verify-ai-citations-duty.md"),
     ("a lawyer's duty to verify AI-generated case law citations",
      "docs/answers/aba-512-verify-ai-citations-duty.md"),
+    # --- fake-tests vernacular: the colloquial phrasings a developer actually
+    # types when an agent's tests are hollow. The concept is answered elsewhere
+    # in jargon; these capture the searcher's own words (the cheapest discovery
+    # win — a query with no incumbent answer). Multiple phrasings per page are
+    # deliberate: headline() dedupes by target page, so extra phrasings are free
+    # query coverage with no surface double-count.
+    ("how to stop an AI agent from making fake tests",
+     "docs/answers/stop-ai-making-fake-tests.md"),
+    ("stop my AI coding agent writing fake tests",
+     "docs/answers/stop-ai-making-fake-tests.md"),
+    ("my AI writes tests that pass but test nothing",
+     "docs/answers/ai-generated-tests-that-pass-but-test-nothing.md"),
+    ("AI generated tests that always pass and assert nothing",
+     "docs/answers/ai-generated-tests-that-pass-but-test-nothing.md"),
+    ("my AI agent mocks everything and the tests are useless",
+     "docs/answers/ai-mocks-everything-tests-are-useless.md"),
+    ("how do I tell if my AI-generated tests are real or just lying",
+     "docs/answers/are-my-ai-generated-tests-real.md"),
+    ("mutation testing vs a test-witness gate for AI-generated tests",
+     "docs/answers/mutation-testing-vs-test-witness-for-ai-tests.md"),
+    ("how to make an AI agent write tests that actually assert something",
+     "docs/answers/make-ai-write-tests-that-actually-assert.md"),
+    ("100% coverage but the AI's tests are worthless",
+     "docs/answers/coverage-is-green-but-tests-are-worthless.md"),
 ]
 
 # --- family 1: arrival files (the well-known fetch targets) -------------------

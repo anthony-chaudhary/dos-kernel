@@ -72,6 +72,13 @@ story, start at the [README](../../README.md) or the
 | Governance is why agentic AI projects get canceled — what is the missing layer? | `dos verify` / `dos arbitrate` | [governance-for-agentic-ai-projects-that-keep-getting-canceled](governance-for-agentic-ai-projects-that-keep-getting-canceled.md) |
 | How do I make any agent skill verify its own work? | `dos-skillify` / `dos verify` / `dos commit-audit` | [make-any-agent-skill-verify-its-own-work](make-any-agent-skill-verify-its-own-work.md) |
 | How do I add the DOS plugin to a private company Claude Code marketplace? | `dos doctor` / `/dos-kernel:dos-setup` | [add-the-dos-plugin-to-a-private-company-marketplace](add-the-dos-plugin-to-a-private-company-marketplace.md) |
+| How do I stop an AI agent from making fake tests? | `dos test-witness` / `dos commit-audit` | [stop-ai-making-fake-tests](stop-ai-making-fake-tests.md) |
+| My AI writes tests that pass but test nothing | `dos test-witness` | [ai-generated-tests-that-pass-but-test-nothing](ai-generated-tests-that-pass-but-test-nothing.md) |
+| My AI mocks everything and the tests are useless | `dos test-witness` | [ai-mocks-everything-tests-are-useless](ai-mocks-everything-tests-are-useless.md) |
+| How do I tell if my AI-generated tests are real or lying? | `dos test-witness` | [are-my-ai-generated-tests-real](are-my-ai-generated-tests-real.md) |
+| Mutation testing vs a test-witness gate for AI tests? | `dos test-witness` | [mutation-testing-vs-test-witness-for-ai-tests](mutation-testing-vs-test-witness-for-ai-tests.md) |
+| How do I make an AI agent write tests that actually assert something? | `dos test-witness` | [make-ai-write-tests-that-actually-assert](make-ai-write-tests-that-actually-assert.md) |
+| I have 100% coverage but the AI's tests are worthless | `dos test-witness` / `dos coverage` | [coverage-is-green-but-tests-are-worthless](coverage-is-green-but-tests-are-worthless.md) |
 
 ## How to read the numbers on these pages
 
