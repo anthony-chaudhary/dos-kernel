@@ -650,6 +650,20 @@ class SubstrateConfig:
     marker: MarkerPolicy = DEFAULT_MARKER_POLICY
     non_git_oracle: str = ""
     ci: dict = field(default_factory=dict)
+    # docs/342 M3 / docs/126 P3 / docs/114 §A3 — the BINDING completion rung.
+    # ``exec_cmd`` is a HOST-SUPPLIED acceptance command (`dos.toml [verify] exec_cmd`):
+    # when set, `verify` runs it through `drivers/os_acceptance` at the very commit the
+    # git rung matched and BINDS completion on the OS exit code — an un-authored rung an
+    # `--allow-empty` forged subject cannot clear (a non-zero exit DEMOTES the ship to
+    # NOT_SHIPPED; exit 0 mints `source='exec-attested'`). Default ``""`` = off =
+    # git-only `verify`, byte-identical (the kernel NEVER fabricates a command — where
+    # none is declared the binding default is the file-path rung, never an invented
+    # exec). ``prefer_artifact_rung`` (`dos.toml [verify] prefer_artifact_rung`) is the
+    # NO-exec binding default: when True, a ship resting only on the forgeable
+    # grep-SUBJECT is demoted (the file-path artefact rung is preferred). Default
+    # ``False`` = off = byte-identical. Both are refuse-MORE only.
+    exec_cmd: str = ""
+    prefer_artifact_rung: bool = False
 
     @property
     def root(self) -> Path:
@@ -1307,16 +1321,37 @@ def load_workspace_config(
         v_table = _load_toml_table(toml_path, "verify")
         ci_table = _load_toml_table(toml_path, "ci")
         oracle_name = cfg.non_git_oracle
+        exec_cmd = cfg.exec_cmd
+        prefer_artifact = cfg.prefer_artifact_rung
         if v_table is not None:
             raw = v_table.get("non_git_oracle", oracle_name)
             if not isinstance(raw, str):
                 raise ValueError(
                     f"[verify] non_git_oracle must be a string, got {type(raw).__name__}")
             oracle_name = raw.strip()
+            # docs/342 M3 — the host's BINDING-rung declarations. `exec_cmd` is the
+            # acceptance command `verify` runs through `os_acceptance` and binds the
+            # ship on; `prefer_artifact_rung` is the no-exec stricter default. Both are
+            # inline scalars (a string + a bool), so they validate here and degrade to
+            # base on a missing key the same way `non_git_oracle` does.
+            raw_exec = v_table.get("exec_cmd", exec_cmd)
+            if not isinstance(raw_exec, str):
+                raise ValueError(
+                    f"[verify] exec_cmd must be a string, got {type(raw_exec).__name__}")
+            exec_cmd = raw_exec.strip()
+            raw_pref = v_table.get("prefer_artifact_rung", prefer_artifact)
+            if not isinstance(raw_pref, bool):
+                raise ValueError(
+                    f"[verify] prefer_artifact_rung must be a bool, got {type(raw_pref).__name__}")
+            prefer_artifact = raw_pref
         ci = dict(ci_table) if ci_table is not None else cfg.ci
-        return oracle_name, ci
-    _verify_ci = _layer("verify", _load_verify_ci, (cfg.non_git_oracle, cfg.ci))
-    cfg = dataclasses.replace(cfg, non_git_oracle=_verify_ci[0], ci=_verify_ci[1])
+        return oracle_name, ci, exec_cmd, prefer_artifact
+    _verify_ci = _layer(
+        "verify", _load_verify_ci,
+        (cfg.non_git_oracle, cfg.ci, cfg.exec_cmd, cfg.prefer_artifact_rung))
+    cfg = dataclasses.replace(
+        cfg, non_git_oracle=_verify_ci[0], ci=_verify_ci[1],
+        exec_cmd=_verify_ci[2], prefer_artifact_rung=_verify_ci[3])
     return cfg
 
 

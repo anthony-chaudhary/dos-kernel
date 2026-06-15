@@ -274,6 +274,178 @@ def _apply_non_git_rung(
 
 
 # ---------------------------------------------------------------------------
+# The BINDING completion rung (docs/342 M3 / docs/126 Phase 3 / docs/114 §A3).
+#
+# `_apply_non_git_rung` above is an ADVISORY upgrade: a RED CI verdict withholds the
+# accountability upgrade but the ship STANDS (git is the necessary gate; CI is layered
+# on top). That is right for CI-of-the-whole-repo, where a red unrelated check should
+# not un-ship a phase. But docs/342 M3 names a different, sharper hole: the DEFAULT
+# binding rung in many flows is `grep-subject` — the commit SUBJECT the agent typed —
+# and an `--allow-empty` right-SHA commit clears it with zero work shipped (docs/335
+# §3.2, docs/138 "Where truth is still forgeable"). The fix docs/114 §A3 prescribes is
+# to make the BINDING verify rung EXECUTION-GROUNDED *where a host supplies an exec
+# command*: the kernel launches the command, the OS records the exit code, and the
+# completion decision binds on THAT — a signal the judged agent did not author.
+#
+# So this fold is BINDING, not advisory: an OS_RECORDED REFUTED (the host's exec
+# command exited non-zero at the very commit the git rung matched) DEMOTES a
+# `shipped=True` verdict to `shipped=False` (NOT_SHIPPED). The OS authored the exit
+# code; the forged subject said "done"; the exit code disagrees, and the un-authored
+# witness wins. This is the P-CHECK witness.
+#
+# It stays refuse-MORE only, in BOTH directions of the §1 invariant:
+#   * it can DEMOTE a ship (shipped=True → False) when an accountable witness refutes;
+#   * it can NEVER PROMOTE (shipped=False → True) — a non-shipped git verdict has no
+#     commit for the exec rung to be green ABOUT, so an ATTEST on a `shipped=False`
+#     verdict is a no-op (mirrors `_apply_non_git_rung`'s shipped-gate).
+# And it binds ONLY on the NON-FORGEABLE rung: a forgeable-floor (AGENT_AUTHORED)
+# `EvidenceFacts` — a pasted "it passed", the agent's own stdout — can neither demote
+# nor upgrade (the `believe_under_floor` floor discipline, restated for the ship bit).
+# This is what keeps the binding rung *un-authored*: only the OS's / a third party's
+# record moves the verdict.
+#
+# CONFORMANCE, not correctness (docs/183 / Rice): a green exit code proves the host's
+# declared check passed, NOT that the work is right (green-on-wrong-tests is still
+# forgeable — docs/85). The exec rung binds the COMPLETION SIGNAL to something the
+# agent didn't author; it makes no claim the work is good.
+#
+# The exec command is HOST-SUPPLIED driver policy (`dos.toml [verify] exec_cmd`,
+# gathered through the `drivers/os_acceptance` source at the `cmd_verify` boundary).
+# The kernel never fabricates a command: where no exec command is declared, this fold
+# is never reached, and the no-exec binding default is the file-path artefact rung
+# (`_prefer_artifact_over_subject`), never an invented exec.
+# ---------------------------------------------------------------------------
+
+_EXEC_REFUTE_DEMOTE_MARKER = (
+    "[ship_oracle: DEMOTED — host exec/acceptance rung REFUTED at this commit "
+    "(OS-recorded exit non-zero); the un-authored completion check disagrees with "
+    "the commit subject — NOT_SHIPPED (docs/342 M3 / docs/126 P3)]"
+)
+# Stamped onto a verdict UPGRADED by a passing exec rung — the binding, un-authored
+# accountability mint (the OS exit code, not the agent's narration, certifies it).
+_EXEC_ATTEST_SOURCE = "exec-attested"
+# The source a demoted verdict carries — distinct so a log/audit can see the exec rung
+# (not a soak/release-bump demotion) reversed the ship.
+_EXEC_REFUTE_SOURCE = "exec-refuted"
+
+
+def _apply_exec_rung(
+    verdict: "ShipVerdict",
+    exec_facts: "object | None",
+) -> "ShipVerdict":
+    """Fold a host-supplied EXECUTION rung onto a git ship-verdict — BINDING, un-authored.
+
+    `exec_facts` is an already-gathered `dos.evidence.EvidenceFacts` (the boundary ran
+    `drivers/os_acceptance` over the host's `[verify] exec_cmd` and handed the result
+    in — the kernel stays pure and driver-free, the `git_delta`/non-git-rung rule). The
+    fold, refuse-MORE only:
+
+      * `None` → identity (no exec command declared → gate OFF → byte-identical).
+      * `verdict.shipped is False` → identity (the §1 invariant: no commit to bind on,
+        so an ATTEST manufactures nothing; the exec rung never promotes).
+      * exec_facts on the FORGEABLE floor (`accountability.is_agent_authored`) →
+        identity (a self-authored "it passed" is not the un-authored rung this binds
+        on — the `believe_under_floor` floor, restated for the ship bit).
+      * NON-FORGEABLE **REFUTED** (OS-recorded exit non-zero) → DEMOTE to
+        `shipped=False`, `source='exec-refuted'`, the demote marker appended. The
+        P-CHECK witness: the OS exit code disagrees with the (forgeable) subject.
+      * NON-FORGEABLE **ATTESTED** (exit 0) → keep `shipped=True`, upgrade `source` to
+        `'exec-attested'` (the un-authored binding mint), the why appended.
+      * NON-FORGEABLE **NO_SIGNAL** (command missing / timeout / un-parseable / no
+        record) → identity (fail-safe: an inability to RUN the check is never a
+        refutation — degrade to the git answer, never a fabricated demote).
+
+    PURE — the facts were gathered at the boundary; this only folds the already-decided
+    stance into the ship bit. The accountability + stance fields are read defensively
+    so a malformed facts object degrades to identity rather than crashing `verify`."""
+    if exec_facts is None or not verdict.shipped:
+        return verdict
+    # Read the gathered facts defensively (duck-typed: an EvidenceFacts, but never
+    # trust the shape blindly — a malformed object must degrade to identity, not crash).
+    acct = getattr(exec_facts, "accountability", None)
+    is_forgeable = bool(getattr(acct, "is_agent_authored", True))
+    reachable = bool(getattr(exec_facts, "reachable", False))
+    stance = getattr(getattr(exec_facts, "stance", None), "value", "")
+    why = str(getattr(exec_facts, "detail", "") or "").strip()
+    # Only a reached, NON-FORGEABLE witness binds — the un-authored-rung discipline.
+    if is_forgeable or not reachable:
+        return verdict
+    if stance == "REFUTED":
+        marker = _EXEC_REFUTE_DEMOTE_MARKER + (f" {why}" if why else "")
+        return dataclasses.replace(
+            verdict,
+            shipped=False,
+            source=_EXEC_REFUTE_SOURCE,
+            summary=(verdict.summary + " " if verdict.summary else "") + marker,
+        )
+    if stance == "ATTESTED":
+        new_summary = verdict.summary
+        if why:
+            new_summary = (new_summary + " " if new_summary else "") + why
+        return dataclasses.replace(
+            verdict, source=_EXEC_ATTEST_SOURCE, summary=new_summary)
+    # NO_SIGNAL / unknown stance → the git verdict, untouched (fail-safe).
+    return verdict
+
+
+# ---------------------------------------------------------------------------
+# The no-exec binding DEFAULT: prefer the file-path artefact rung over grep-subject
+# (docs/342 M3 / docs/114 §A3: "the file-path rung … should be the preferred default
+# over the subject match").
+#
+# Where a host supplies NO exec command, the strongest un-authored rung available is
+# the file-path (artefact/diff) rung — a commit cannot lie about which files it
+# touched (`_NONFORGEABLE_GREP_RUNGS`). The grep-SUBJECT rung rests on the commit
+# subject the agent typed, which an `--allow-empty -m '<stamp>'` forges. So the no-exec
+# binding default PREFERS the artefact rung: a `grep-artifact` ship passes; a
+# `grep-subject`-ONLY ship is not a *binding* completion (it is attribution, docs/114
+# §A3) and is demoted to not-yet-bound.
+#
+# This is OPT-IN host policy (`dos.toml [verify] prefer_artifact_rung`), default OFF →
+# identity → byte-identical to today (the gate-OFF convention this module uses
+# everywhere; it keeps every existing grep-subject ship and the whole suite unchanged
+# until a host turns the stricter binding default on). refuse-MORE only: it can only
+# demote a forgeable-subject ship, never promote anything.
+# ---------------------------------------------------------------------------
+
+_SUBJECT_NOT_BOUND_MARKER = (
+    "[ship_oracle: DEMOTED — binding default prefers the file-path artefact rung; "
+    "this ship rests only on the (forgeable) commit subject, not on the files it "
+    "touched or a host exec rung — NOT a binding completion (docs/342 M3 / docs/114 §A3)]"
+)
+
+
+def _prefer_artifact_over_subject(
+    verdict: "ShipVerdict",
+    *,
+    enabled: bool,
+) -> "ShipVerdict":
+    """Demote a `grep-subject`-only ship when the host turns on the artefact-preferred
+    binding default and no exec rung was available.
+
+    Refuse-MORE, opt-in, the gate-OFF convention:
+      * `enabled is False` → identity (default OFF → byte-identical to today).
+      * a non-shipped verdict, or a ship on ANY rung other than the bare forgeable
+        `grep-subject` (`registry`, `grep-artifact`, `ci-green`, `exec-attested`, …) →
+        identity. The file-path artefact rung is thereby PREFERRED: it passes unchanged
+        while a subject-only ship is demoted.
+      * a `shipped=True, source='grep-subject'` ship → DEMOTE to `shipped=False` with
+        the not-bound marker (the binding default does not bind on the agent-authored
+        subject alone).
+
+    PURE — branches only on `verdict.shipped` + `verdict.source`."""
+    if not enabled or not verdict.shipped:
+        return verdict
+    if verdict.source != "grep-subject":
+        return verdict
+    return dataclasses.replace(
+        verdict,
+        shipped=False,
+        summary=(verdict.summary + " " if verdict.summary else "") + _SUBJECT_NOT_BOUND_MARKER,
+    )
+
+
+# ---------------------------------------------------------------------------
 # State loading (the only I/O paths)
 # ---------------------------------------------------------------------------
 

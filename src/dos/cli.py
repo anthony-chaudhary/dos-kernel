@@ -1333,6 +1333,39 @@ def _gather_non_git_rung(cfg, sha: str):
     return NonGitRung(source="ci-green", reason=reason, state=state or "NO_SIGNAL")
 
 
+def _gather_exec_rung(cfg, sha: str):
+    """Run the host's `[verify] exec_cmd` through `os_acceptance` → an `EvidenceFacts`.
+
+    docs/342 M3 / docs/126 Phase 3 — the BINDING completion rung. When the workspace
+    declares an acceptance/test command, `verify` launches it and reads the OS exit
+    code (an un-authored rung), then `oracle._apply_exec_rung` BINDS the ship on that
+    code: a non-zero exit DEMOTES a forged-subject `shipped=True` to NOT_SHIPPED. The
+    ONE subprocess lives in the driver's `gather` (resolved BY NAME, never a static
+    import — the kernel names no driver), exactly as `_gather_non_git_rung` resolves
+    `ci_status`. The `subject` handed to the source IS the command (the os_acceptance
+    contract); `sha` is accepted to mirror `_gather_non_git_rung`'s signature and is
+    not needed by the source (the host's command witnesses the effect, not a SHA).
+
+    Fail-safe to None: an unreadable/missing driver, or any failure, leaves the git
+    verdict as-is rather than crashing `verify` — `gather_evidence` itself degrades a
+    raising/missing command to a NO_SIGNAL fact, which `_apply_exec_rung` then passes
+    through byte-identical (never a fabricated demote)."""
+    cmd = (getattr(cfg, "exec_cmd", "") or "").strip()
+    if not cmd:
+        return None
+    try:
+        os_acceptance = _load_witness_driver("os_acceptance")
+    except ValueError:
+        # The driver is not installed — fail-safe: leave the git verdict as-is rather
+        # than crash `verify` on a mis-declared `[verify] exec_cmd`.
+        return None
+    from dos.evidence import gather_evidence
+    source = os_acceptance.OsAcceptanceEvidenceSource(cwd=str(cfg.paths.root))
+    # `gather_evidence` is the fail-safe wrapper: a raising/timing-out/missing command
+    # degrades to a NO_SIGNAL fact, never a fabricated attestation or refutation.
+    return gather_evidence(source, cmd, cfg)
+
+
 def cmd_verify(args: argparse.Namespace) -> int:
     _apply_workspace(args)
     from dos import oracle
@@ -1353,6 +1386,23 @@ def cmd_verify(args: argparse.Namespace) -> int:
         rung = _gather_non_git_rung(cfg, verdict.sha)
         if rung is not None:
             verdict = oracle._apply_non_git_rung(verdict, rung)
+    # docs/342 M3 / docs/126 P3 — the BINDING completion rung. Where the host declares
+    # an exec/acceptance command (`[verify] exec_cmd`), `verify` runs it through
+    # `os_acceptance` and BINDS the ship on the OS exit code (an un-authored rung): a
+    # non-zero exit DEMOTES a forged-subject `shipped=True` to NOT_SHIPPED, exit 0 mints
+    # `source='exec-attested'`. Gated on `verdict.shipped` (the §1 invariant: no commit
+    # to bind on → nothing to demote/upgrade) and `--no-ci` (the same fast-path opt-out
+    # the CI rung honors). Where NO exec command is declared, the no-exec binding default
+    # is `prefer_artifact_rung`: a ship resting only on the forgeable grep-SUBJECT is
+    # demoted so the file-path artefact rung is the preferred binding default (docs/114
+    # §A3). Both default OFF → byte-identical. The exec rung takes precedence — an
+    # un-authored OS exit code is a stronger binding than the artefact-vs-subject grade.
+    if verdict.shipped and not getattr(args, "no_ci", False):
+        if (getattr(cfg, "exec_cmd", "") or "").strip():
+            exec_facts = _gather_exec_rung(cfg, (verdict.sha or "").strip())
+            verdict = oracle._apply_exec_rung(verdict, exec_facts)
+        elif getattr(cfg, "prefer_artifact_rung", False):
+            verdict = oracle._prefer_artifact_over_subject(verdict, enabled=True)
     # Output goes through the renderer seam (RND). `--output` selects the named
     #   (full prose: docs/CLI.md § "Output goes through the renderer seam (RND). `--output` sele")
     colorize = (
