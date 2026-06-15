@@ -109,6 +109,22 @@ workspace configs keep working until they migrate).
 > `dos arbitrate --class-budget K=N` flag, no `dos.toml` declaration). Surfacing it
 > is its own slice (see [[the safe-vs-phased split in the 2026-06-03 notes pass]]);
 > Phases 2–3 remain as written below.
+>
+> **Update (2026-06-15): the operator surface + the type model + the routing now
+> ship.** The `--class-budget K=N` flag and the `[[concurrency_class]]` `dos.toml`
+> declaration shipped (docs/110 Phases 1-2, `dos.concurrency_class`). The
+> `ConcurrencyClass` fields (`rank`, `region_source`) and the `RegionSource` types
+> shipped — `FixedTrees` / `WholeWorkspace` / `TopPickablePlanKind` plus the
+> call-boundary `TopPickablePlanBinding` (the single design `TopPickablePlan(pool,
+> derive_tree)` was split into a TOML-declarable discriminant + a call-boundary
+> binding holding the callables). The `TopPickablePlan` priority-region routing
+> ships as `concurrency_class.project_to_ladder` — the host projects its open pool
+> into the existing `auto_pick_order` and the unchanged arbiter does the
+> disjointness + budget admission; the `NO_FREE_REGION` refuse (this doc's §model)
+> is declared. The full §Test-obligations set drives through the projection
+> (`tests/test_arbiter.py::TestOpenPoolRegionRouting`). What remains is the host
+> driver wiring + the optional lazy in-arbiter resolver — see docs/110 Phase 3's
+> status note.
 
 **Phase 1 — the class registry + the `priority` class, behind the old behavior.**
 Add `ConcurrencyClass` + `RegionSource` to `dos.arbiter`/`config`. Synthesize the
