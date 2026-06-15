@@ -290,6 +290,7 @@ ci_status = "dos.drivers.ci_status:CiStatusSource"          # GREEN/RED/PENDING/
 os_acceptance = "dos.drivers.os_acceptance:OsAcceptanceEvidenceSource"  # the acceptance-command exit code (OS_RECORDED)
 paste_log = "dos.drivers.paste_log:PasteLogSource"          # operator-pasted text — the AGENT_AUTHORED floor (a JUDGE hint)
 citation_resolve = "dos.drivers.citation_resolve:CitationResolveSource"  # legal cite resolves in a reporter (THIRD_PARTY, docs/277/279)
+content_diff = "dos.drivers.content_diff:ContentDiffEvidenceSource"  # blob CONTENT vs a gold — the W2→W3 climb (rung capped at min(blob,gold), docs/192)
 
 # The cross-vendor hook INSTALL specs (docs/221) — the install-side sibling of the
 # dialect renderers above: where/how `dos init --hooks <host>` wires the DOS hooks
