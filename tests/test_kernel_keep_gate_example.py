@@ -16,13 +16,16 @@ Four pinned verdicts:
 The metric is gathered through an injected `measure` callback so the verdicts
 are pinned on DETERMINISTIC measured latencies — wall-clock jitter must never
 flip a no-op to KEEP (a flaky witness is the exact failure the gate refuses).
-The real-clock demo path is separately asserted for the three candidates whose
-verdicts ride NON-timing witnesses (numerics, the tamper floor, a real
-algorithmic win), which are robust to jitter.
+The shipped `demo.run_demo()` wiring is exercised separately for the three
+candidates whose verdicts ride NON-timing witnesses (numerics, the tamper
+floor, a real algorithmic win) — also through the injected `measure` seam, so
+that path is deterministic too rather than racing the real clock under CI load
+(issue #171).
 """
 
 from __future__ import annotations
 
+import functools
 import importlib
 import sys
 from pathlib import Path
@@ -185,20 +188,53 @@ def test_narration_moves_nothing(gate_mods, judge_pinned):
 # ---------------------------------------------------------------------------
 
 
-def test_real_clock_demo_robust_verdicts(gate_mods):
-    """The shipped `demo.run_demo()` runs the REAL env clock. The three
-    candidates whose verdicts ride non-timing witnesses are asserted here;
-    they cannot flake on jitter:
+def test_real_clock_demo_robust_verdicts(gate_mods, monkeypatch):
+    """The shipped `demo.run_demo()` wiring, with the timer INJECTED so the
+    verdicts cannot flake on wall-clock jitter (issue #171).
 
       honest_faster     → KEEP    (a real algorithmic win — beats baseline every run)
       tolerance_exploit → REVERT  (numerics witness red — independent of timing)
       harness_edit      → REVERT  (tamper floor — the gate never even times it)
 
-    The reference-copy no-op is deliberately NOT asserted on the real clock: it
-    does identical work to the baseline, so its measured order is pure jitter —
-    pinned deterministically above, not raced here.
+    Previously this asserted the verdicts off `demo`'s default REAL env clock,
+    trusting that the honest kernel always out-measures the baseline. On a
+    loaded CI runner that wall-clock margin can collapse: under the
+    `windows-latest` ~10-min suite the honest kernel's measured latency tied or
+    lost to the baseline, flipping `KEEP` to a NO_IMPROVEMENT `REVERT` and
+    failing with `assert 'REVERT' == 'KEEP'` (issue #171). The keep-gate is
+    behaving correctly — a flaky witness is exactly what it refuses — so the fix
+    is to stop racing the wall clock here.
+
+    We use the gate's documented injectable-`measure` seam: the demo's `judge`
+    is bound to a DETERMINISTIC, monotonic measure keyed on the kernel's
+    identity, so the honest kernel scores strictly higher than the baseline
+    every run, with no clock. This still drives the full real `run_demo()`
+    flow — the four candidates, the numerics witness, and the #35 tamper floor;
+    only the noisy timer is replaced. The reference-copy no-op is still NOT
+    asserted here (it does identical work to the baseline; its verdict is pinned
+    deterministically above, not raced here).
     """
-    _gate, _kernels, demo = gate_mods
+    _gate, kernels, demo = gate_mods
+
+    # A deterministic, monotonic speed score keyed off the kernel's identity:
+    # honest is strictly faster than the baseline (higher score), the no-op ties
+    # the baseline, the exploit is fastest (but numerically wrong, so speed can't
+    # save it). Same ORDERING the wall clock is meant to find — without the
+    # jitter that flips it under CI load.
+    speed = {
+        kernels.baseline_kernel: 1000,
+        kernels.honest_faster_kernel: 1200,  # strictly faster than baseline
+        kernels.reference_copy_kernel: 1000,  # EXACTLY baseline — a true no-op
+        kernels.tolerance_exploit_kernel: 1500,  # fastest, but numerically wrong
+    }
+
+    def fake_measure(fn, rows, repeats=5):
+        return speed[fn]
+
+    # Inject through the gate's `measure` seam (the "timer lives at the boundary"
+    # split the host documents); the verdict logic itself is untouched.
+    monkeypatch.setattr(demo, "judge", functools.partial(demo.judge, measure=fake_measure))
+
     rows = {r["candidate"]: r for r in demo.run_demo()}
     assert rows["honest_faster"]["verdict"] == "KEEP"
     assert rows["tolerance_exploit"]["verdict"] == "REVERT"
