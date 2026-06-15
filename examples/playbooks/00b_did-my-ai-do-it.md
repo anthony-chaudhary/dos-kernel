@@ -127,6 +127,10 @@ about that, and so should you be.
 
 ## Where to go next
 
+- **Vibe-coding in Cursor?** Wire the same check into the editor with one
+  command — `dos init --hooks cursor` — so Cursor itself refuses a stop on an
+  unverified "done" →
+  [`cookbook-cursor.md`](cookbook-cursor.md).
 - **Built it in a browser app-builder** (Lovable, v0, bolt.new) and pushed to
   GitHub? The export-then-verify on-ramp →
   [`00c_vibe-coders-export-then-verify.md`](00c_vibe-coders-export-then-verify.md).
