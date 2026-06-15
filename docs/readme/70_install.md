@@ -40,29 +40,21 @@ its own install location, so the ground truth stays legible as the codebase
 grows. (The full separation contract — mechanism in the package, policy in the
 workspace's `dos.toml` — is in **[CLAUDE.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/CLAUDE.md)**.)
 
-For most repos that one `dos.toml` is the whole policy surface — but when your
-lanes must be *computed* (from runtime state, an env var, a monorepo manifest)
-rather than listed, or you add a provider-backed JUDGE, you write a small
-**driver** instead: a `dos/drivers/<host>.py` exposing a `LaneTaxonomy` constant +
-a `<host>_config` factory, loaded by name via `dos --driver <host>` and never
-imported by the kernel. Copy [`dos/drivers/workshop.py`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/src/dos/drivers/workshop.py)
-as the template; the full driver/plugin map is in **[docs/HACKING.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/HACKING.md)**.
+For most repos that one `dos.toml` is the whole policy surface. When your lanes
+must be *computed* rather than listed, or you add a provider-backed JUDGE, you
+write a small **driver** instead — loaded by name, never imported by the kernel;
+the driver/plugin map and a copy-me template are in
+**[docs/HACKING.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/HACKING.md)**.
 
 ### Claude Code plugin — hooks + MCP + skills in one install
 
 If you drive a fleet with Claude Code, the lowest-friction way to bind the
 verdict to the runtime is the bundled plugin under
-[`claude-plugin/`](https://github.com/anthony-chaudhary/dos-kernel/tree/master/claude-plugin) — it packages all three runtime surfaces at
-once:
-
-- the **hooks** (`PreToolUse` → deny a structurally-refused call · `PostToolUse` →
-  re-surface a stalled tool stream · `Stop` → refuse to stop on an unverified
-  claim) — all fail-safe (they emit nothing and exit 0 on any error, so they never
-  break a turn);
-- the **MCP server** (`dos_verify` / `dos_arbitrate` / `dos_commit_audit` /
-  `dos_refuse_reasons` … as tools the model calls directly);
-- the **generic skill pack** (the domain-free dispatch screenplays), namespaced as
-  `/dos-kernel:dos-next-up`, `/dos-kernel:dos-dispatch`, …
+[`claude-plugin/`](https://github.com/anthony-chaudhary/dos-kernel/tree/master/claude-plugin) — it packages all three runtime surfaces
+at once: the **hooks** (`PreToolUse` deny · `PostToolUse` sensor · `Stop` verify,
+all fail-safe), the **MCP server** (`dos_verify` / `dos_arbitrate` / … as tools
+the model calls), and the **generic skill pack** (the domain-free dispatch
+screenplays, namespaced `/dos-kernel:dos-next-up`, …):
 
 ```bash
 # 1. The plugin ships JSON + markdown; the brains ship as the pip package, so

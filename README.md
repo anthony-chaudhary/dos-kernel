@@ -464,13 +464,13 @@ run (every number, hash, and ID is a verbatim read-off — never a hand-typed
 dramatization):
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/benchmark/agentprocessbench/writeadmit/gate-moment.svg" alt="The DOS write-admission gate catching a real over-claim. A live gemini-2.5-pro agent on a tau2 airline task reports 'You are all set! Your reservation number is HATHAT' — a confident write the agent authored. The witness is the environment DB-hash the agent wrote zero bytes of: gold hash 9f2c…gold vs the agent's resulting hash 4b7e…actual, so db_match = False — the booking it swore it made is not in the database. The gate verdict: a confident write REFUTED by an OS_RECORDED witness → GATE BLOCK, the phantom never reaches the next agent. Result across two models: J = 10 of 120 over-claims caught and blocked off the DB-hash, 9 of 9 honest writes admitted, zero correct work blocked, an identical 8.3% over-claim rate on the mid model and the strong one." width="100%">
+  <img src="https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/benchmark/agentprocessbench/writeadmit/gate-moment.svg" alt="The DOS write-admission gate catching a real over-claim: a live agent reports a booking it never made, the environment DB-hash (gold vs. actual) shows the booking is not in the database, and the gate BLOCKS the confident-but-false write before it reaches the next agent. The numbers are in the bullets and caption." width="100%">
   <br>
   <sub><em><strong>It catches the lie and blocks it.</strong> A confident booking, refuted by the DB-hash the agent couldn't author, blocked before a downstream agent inherits the phantom. <a href="https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/agentprocessbench/writeadmit/gate_visual.html">Step through it locally</a> (an HTML walkthrough — clone and open in a browser; GitHub shows its source).</em></sub>
 </p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/benchmark/agentprocessbench/writeadmit/f2-moment.svg" alt="The DOS coordination payoff: a stale write clobbering a cancellation, then prevented. Two live agents act on one shared reservation NM1VX1, each having planned its tool-calls against the same original state, neither aware of the other. A1 cancels the reservation (DB-hash a3f1…afterA1). Under naive replay, A2's add-bag — computed on the original active state — blindly re-activates the reservation and adds a bag, silently overwriting A1's cancellation (composed hash 77c2…naive, a real lost update). Under the arbiter, dos.arbiter leases the region reservations/NM1VX1 to A1, refuses A2's overlapping lease, and A2 re-plans against the post-A1 cancelled state and correctly declines — the DB-hash matches the serialized-correct value and no update is lost. Across six natural conflict pairs drawn from the real task distribution, J = 4 of 6 clobbers were structurally prevented off the DB-hash." width="100%">
+  <img src="https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/benchmark/agentprocessbench/writeadmit/f2-moment.svg" alt="The DOS coordination payoff: two live agents act on one shared reservation, neither aware of the other. Under naive replay the second agent's stale write silently overwrites the first's cancellation — a real lost update. Under the arbiter, the region is leased to the first agent, the second's overlapping lease is refused, it re-plans against the true post-cancellation state, and no update is lost. The numbers are in the bullets and caption." width="100%">
   <br>
   <sub><em><strong>It prevents the collision.</strong> A stale add-bag clobbers a cancellation under naive replay; the arbiter serializes the two agents on the same region so neither overwrites the other. <a href="https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/agentprocessbench/writeadmit/f2_visual.html">Step through it locally</a> (an HTML walkthrough — clone and open in a browser).</em></sub>
 </p>
@@ -786,29 +786,21 @@ its own install location, so the ground truth stays legible as the codebase
 grows. (The full separation contract — mechanism in the package, policy in the
 workspace's `dos.toml` — is in **[CLAUDE.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/CLAUDE.md)**.)
 
-For most repos that one `dos.toml` is the whole policy surface — but when your
-lanes must be *computed* (from runtime state, an env var, a monorepo manifest)
-rather than listed, or you add a provider-backed JUDGE, you write a small
-**driver** instead: a `dos/drivers/<host>.py` exposing a `LaneTaxonomy` constant +
-a `<host>_config` factory, loaded by name via `dos --driver <host>` and never
-imported by the kernel. Copy [`dos/drivers/workshop.py`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/src/dos/drivers/workshop.py)
-as the template; the full driver/plugin map is in **[docs/HACKING.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/HACKING.md)**.
+For most repos that one `dos.toml` is the whole policy surface. When your lanes
+must be *computed* rather than listed, or you add a provider-backed JUDGE, you
+write a small **driver** instead — loaded by name, never imported by the kernel;
+the driver/plugin map and a copy-me template are in
+**[docs/HACKING.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/HACKING.md)**.
 
 ### Claude Code plugin — hooks + MCP + skills in one install
 
 If you drive a fleet with Claude Code, the lowest-friction way to bind the
 verdict to the runtime is the bundled plugin under
-[`claude-plugin/`](https://github.com/anthony-chaudhary/dos-kernel/tree/master/claude-plugin) — it packages all three runtime surfaces at
-once:
-
-- the **hooks** (`PreToolUse` → deny a structurally-refused call · `PostToolUse` →
-  re-surface a stalled tool stream · `Stop` → refuse to stop on an unverified
-  claim) — all fail-safe (they emit nothing and exit 0 on any error, so they never
-  break a turn);
-- the **MCP server** (`dos_verify` / `dos_arbitrate` / `dos_commit_audit` /
-  `dos_refuse_reasons` … as tools the model calls directly);
-- the **generic skill pack** (the domain-free dispatch screenplays), namespaced as
-  `/dos-kernel:dos-next-up`, `/dos-kernel:dos-dispatch`, …
+[`claude-plugin/`](https://github.com/anthony-chaudhary/dos-kernel/tree/master/claude-plugin) — it packages all three runtime surfaces
+at once: the **hooks** (`PreToolUse` deny · `PostToolUse` sensor · `Stop` verify,
+all fail-safe), the **MCP server** (`dos_verify` / `dos_arbitrate` / … as tools
+the model calls), and the **generic skill pack** (the domain-free dispatch
+screenplays, namespaced `/dos-kernel:dos-next-up`, …):
 
 ```bash
 # 1. The plugin ships JSON + markdown; the brains ship as the pip package, so
