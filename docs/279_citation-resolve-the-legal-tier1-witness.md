@@ -118,6 +118,37 @@ denominator. Headline shape (frozen sample):
   be flagged. If the sample's real cites fail to resolve, the floor is breached and the
   result says so.
 
+### 4.1 The LIVE-at-scale arm (the frozen→live conversion) — shipped, run is operator-gated
+
+The §2 "what a live corpus would add" — *scale + recency, not a different mechanism* —
+is now **built and provable offline**, so the only thing between the frozen number and
+a real-world one is a (free) token a human supplies:
+
+- **`benchmark/legalcite/corpus.py`** scales the labeled set from n=18 to **n≈166**:
+  the documented *Mata* fabrications + ~110 deterministic synth perturbations (a real
+  cite's volume/page moved to a plausible non-existent neighbour — auditable by
+  inspection, never an invented "real" case) + ~50 publicly-auditable landmark real
+  cites. Grow the REAL set further from **live** ground truth via the operator
+  `--harvest` path (the `snapshot.py` pattern), never a hand-asserted cite.
+- **`benchmark/legalcite/live_corpus.py`** is the batch runner: it calls the shipped
+  `resolve()` per cite against the live `/citation-lookup/` endpoint, with rate-limit
+  pacing, resumable checkpointing, and a **three-way DETECT / FALSE-FIRE / ABSTAIN**
+  accounting (ABSTAIN excluded from both rate denominators — "could not tell" is never
+  a pass nor a flag). A `--transport recorded` mode runs the *same code path* over
+  committed reporter bytes with zero network, so the runner is fully tested offline
+  (`tests/test_legalcite_live.py`): parity with the frozen verdicts, the §3 collision
+  caught through the live path, the ABSTAIN column, and checkpoint/resume.
+- **Why the live run is operator-gated, not self-run:** the live arm needs a
+  `COURTLISTENER_TOKEN` only a human holds, and a self-certified "live number" without
+  the token would be a fabricated measurement — the exact thing this witness exists to
+  refuse. So `RESULTS.md`'s LIVE section ships stamped **PENDING-OPERATOR-RUN**; the
+  one command that fills it is in `benchmark/legalcite/RUNBOOK.md`. The mechanism is
+  shipped; the number lands when the token-holder runs it.
+
+This is the docs/277 §6 #1 experiment moved from **DESIGNED** to **MEASURABLE-at-scale
+in one credentialed command** — the cheapest, highest-credibility step from a
+frozen-sample proof toward a real-world validation.
+
 ---
 
 ## 5. Layering — kernel untouched

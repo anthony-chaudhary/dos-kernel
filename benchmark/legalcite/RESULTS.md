@@ -65,6 +65,48 @@ when `COURTLISTENER_TOKEN` is set, falling back to `/search/` and **abstaining**
 (NO_SIGNAL) on no-token/timeout/rate-limit — never a fabricated RESOLVED. We do **not**
 narrate that "it would scale" — we report the sample (n=18) and name the path to more.
 
+## LIVE at-scale (operator-run) — PENDING-OPERATOR-RUN
+
+> **Status: PENDING.** The mechanism for the at-scale live run is **shipped and
+> tested offline** — `corpus.py` (n≈166 labeled cites: 52 publicly-auditable real +
+> 4 documented *Mata* + ~110 generated synth perturbations) and `live_corpus.py`
+> (the batch runner that calls the shipped `resolve()` against the live
+> `/citation-lookup/` endpoint, with rate-limit pacing, resumable checkpointing, and
+> a three-way DETECT / FALSE-FIRE / **ABSTAIN** accounting). What is missing is a
+> **credential only a human holds** — a free `COURTLISTENER_TOKEN`. An agent must
+> not self-certify a live number it could not run, so this block stays PENDING until
+> a token-holder fills it in. **No number is claimed here that was not measured.**
+
+The offline proof that the live code path is correct (same path, recorded reporter
+bytes, zero network/token):
+
+```text
+$ python -m benchmark.legalcite.live_corpus --transport recorded
+  REAL cites:          52  (8 reachable, 44 abstained)
+  FABRICATED cites:   114  (114 reachable, 0 abstained)
+  DETECT recall    = 114/114 = 100.0%   (fabrications flagged, over REACHABLE)
+  FALSE-FIRE rate  = 0/8 = 0.0%         (real cites wrongly flagged, over REACHABLE)
+  ABSTAIN          = 44                 (no recorded bytes offline — excluded from both rates)
+  ✓ FALSE-FIRE FLOOR HELD (0% over reachable)
+```
+
+The 44 offline ABSTAINs are honest: with no recorded bytes for the extra landmark
+cites, the runner says "could not tell" rather than vouch — exactly what a missing
+token does live. **With a token, those 44 become reachable and the denominators grow.**
+
+To produce the real-world number, run the one command in
+[`RUNBOOK.md`](RUNBOOK.md) and replace this block with the headline (template):
+
+```text
+LIVE — captured <DATE>, CourtListener /citation-lookup/ (token), kernel <SHA>
+  REAL cites reachable:        <n>   ABSTAIN: <n>
+  FABRICATED cites reachable:  <n>   ABSTAIN: <n>
+  DETECT recall   = <d>/<n> = <pct>%   (over REACHABLE)
+  FALSE-FIRE rate = <f>/<n> = <pct>%   (over REACHABLE)
+```
+
+State ABSTAIN separately; never fold it into either rate; never report an unrun number.
+
 ## One bug found and fixed during the run (the honest part)
 
 The first replay showed a **12.5% false-fire** — Obergefell (the one real cite carrying

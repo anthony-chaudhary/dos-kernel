@@ -1,0 +1,181 @@
+{
+  "_meta": {
+    "purpose": "Offline canned API verdicts for benchmark.legalcite.live_corpus --transport recorded. Real-cite clusters + documented-fabrication reads are the FROZEN bytes Free Law Project authored (frozen_corpus.json, 2026-06-09); the two __*_DEMO__ keys are synthetic demonstrators the test references by key.",
+    "derived_from": "frozen_corpus.json (2026-06-09); regenerate via _gen_recorded.py"
+  },
+  "records": {
+    "576 U.S. 644": {
+      "reachable": true,
+      "cluster": {
+        "name": "Obergefell v. Hodges",
+        "citations": [
+          "192 L. Ed. 2d 609",
+          "135 S. Ct. 2584",
+          "2015 U.S. LEXIS 4250",
+          "576 U.S. 644"
+        ],
+        "opinion_text": "\n\n\n  Justice KENNEDY delivered the opinion of the Court.\n \n\n  The Constitution promises libertyto all within its reach, a liberty that includes certain specific rights that allow persons, within a lawful realm, to define and express their identity. The petitioners in these cases seek to find that liberty by marrying someone of the same sex and having their marriages deemed lawful on the same te"
+      }
+    },
+    "539 U.S. 558": {
+      "reachable": true,
+      "cluster": {
+        "name": "Lawrence v. Texas",
+        "citations": [
+          "156 L. Ed. 2d 508",
+          "123 S. Ct. 2472",
+          "539 U.S. 558",
+          "2003 U.S. LEXIS 5013"
+        ],
+        "opinion_text": "\n*562Justice Kennedy\ndelivered the opinion of the Court.\nLiberty protects the person from unwarranted government intrusions into a dwelling or other private places. In our tradition the State is not omnipresent in the home. And there are other spheres of our lives and existence, outside the home, where the State should not be a dominant presence. Freedom "
+      }
+    },
+    "384 U.S. 436": {
+      "reachable": true,
+      "cluster": {
+        "name": "Miranda v. Arizona",
+        "citations": [
+          "16 L. Ed. 2d 694",
+          "86 S. Ct. 1602",
+          "384 U.S. 436",
+          "1966 U.S. LEXIS 2817",
+          "10 Ohio Misc. 9",
+          "36 Ohio Op. 2d 237",
+          "10 A.L.R. 3d 974"
+        ],
+        "opinion_text": "\nMr. Justice Clark,\ndissenting in Nos. 759, 760, and 761, and concurring in the result in No. 584.\nIt is with regret that I find it necessary to write in these cases. However, I am unable to join the majority because its opinion goes too far on too little, while my dissenting brethren do not go quite far enough. Nor can I join in the Court’s criticism of the present practices of "
+      }
+    },
+    "163 U.S. 537": {
+      "reachable": true,
+      "cluster": {
+        "name": "Plessy v. Ferguson",
+        "citations": [
+          "163 U.S. 537",
+          "16 S. Ct. 1138",
+          "41 L. Ed. 256",
+          "1896 U.S. LEXIS 3390"
+        ],
+        "opinion_text": "\r\n163 U.S. 537 (1896)\r\nPLESSY\r\nv.\r\nFERGUSON.\r\nNo. 210.\r\nSupreme Court of United States.\r\nArgued April 13, 1896.\r\nDecided May 18, 1896.\r\nERROR TO THE SUPREME COURT OF THE STATE OF LOUISIANA.\r\n*540 Mr. A.W. Tourgee and Mr. S.F. Phillips for plaintiff in error. Mr. F.D. McKenney was on Mr. Phi"
+      }
+    },
+    "5 U.S. 137": {
+      "reachable": true,
+      "cluster": {
+        "name": "Marbury v. Madison",
+        "citations": [
+          "5 U.S. 137",
+          "2 L. Ed. 60",
+          "1 Cranch 137",
+          "1803 U.S. LEXIS 352"
+        ],
+        "opinion_text": "\n5 U.S. 137 (____)\n1 Cranch 137\nWILLIAM MARBURY\nv.\nJAMES MADISON, SECRETARY OF STATE OF THE UNITED STATES.\nSupreme Court of United States.\n\n*153 Opinion of the Court.\nAt the last term on the affidavits then read and filed with the clerk, a rule was granted in this case, requiring the secretary of state to show cause "
+      }
+    },
+    "410 U.S. 113": {
+      "reachable": true,
+      "cluster": {
+        "name": "Roe v. Wade",
+        "citations": [
+          "35 L. Ed. 2d 147",
+          "93 S. Ct. 705",
+          "410 U.S. 113",
+          "1973 U.S. LEXIS 159"
+        ],
+        "opinion_text": "\nMr. Justice Stewart,\nconcurring.\nIn 1963, this Court, in Ferguson v. Skrupa, 372 U. S. 726, purported to sound the death knell for the doctrine of substantive due process, a doctrine under which many-state laws had in the past been held to violate the Fourteenth Amendment. As Mr. Justice Black’s opinion for the Court in Skrupa put it: “We have returned to the original constitutiona"
+      }
+    },
+    "531 U.S. 98": {
+      "reachable": true,
+      "cluster": {
+        "name": "Bush v. Gore",
+        "citations": [
+          "148 L. Ed. 2d 388",
+          "121 S. Ct. 525",
+          "531 U.S. 98",
+          "2000 U.S. LEXIS 8430"
+        ],
+        "opinion_text": "\nJustice Souter,\nwith whom Justice Breyer joins, and and with whom whom Justice Stevens and Justice Ginsburg join as to all but Part III,\ndissenting.\nThe Court should not have reviewed either Bush v. Palm Beach County Canvassing 13d., ante, p. 70 (per curiam), or this case, and should not have stopped Florida’s attempt to recount all undervote ballots, see "
+      }
+    },
+    "558 U.S. 310": {
+      "reachable": true,
+      "cluster": {
+        "name": "Citizens United v. Federal Election Commission",
+        "citations": [
+          "175 L. Ed. 2d 753",
+          "130 S. Ct. 876",
+          "558 U.S. 310",
+          "2010 U.S. LEXIS 766",
+          "22 Fla. L. Weekly Fed. S 73",
+          "78 U.S.L.W. 4078",
+          "187 L.R.R.M. (BNA) 2961",
+          "159 Lab. Cas. (CCH) 10,166"
+        ],
+        "opinion_text": "\n*318Justice Kennedy\ndelivered the opinion of the Court.\nFederal law prohibits corporations and unions from using their general treasury funds to make independent expendi*319tures for speech defined as an “electioneering communication” or for speech expressly advocating the election or defeat of a "
+      }
+    },
+    "925 F.3d 1339": {
+      "reachable": true,
+      "cluster": null
+    },
+    "772 F.3d 1278": {
+      "reachable": true,
+      "cluster": null
+    },
+    "92 F.3d 1074": {
+      "reachable": true,
+      "cluster": {
+        "name": "Grilli v. Metropolitan Life Insurance Company",
+        "citations": [
+          "92 F.3d 1074"
+        ],
+        "opinion_text": "92 F.3d 1074\n    Peter J. GRILLI, Special Master,Julio Gonzalez-Roel, et al.;  Ronald Coulter;  AnissaCoulter, Appellants,Sherry Horton, et al., Plaintiffs-Appellees,v.METROPOLITAN LIFE INSURANCE COMPANY, INC., Rick Urso, Defendants,W. R. Cunningham, et al., Claimants.\n    Nos. 94-3328 and 94-3468 to 94-3470.\n    United States Court of Appeals,Eleventh Circuit.\n    "
+      }
+    },
+    "556 F.2d 713": {
+      "reachable": true,
+      "cluster": null
+    },
+    "576 U.S. 645": {
+      "reachable": true,
+      "cluster": null
+    },
+    "539 U.S. 559": {
+      "reachable": true,
+      "cluster": null
+    },
+    "384 U.S. 999": {
+      "reachable": true,
+      "cluster": null
+    },
+    "999 U.S. 113": {
+      "reachable": true,
+      "cluster": null
+    },
+    "163 F.3d 537": {
+      "reachable": true,
+      "cluster": null
+    },
+    "5 U.S. 1370": {
+      "reachable": true,
+      "cluster": null
+    },
+    "__ABSTAIN_DEMO__": {
+      "reachable": false,
+      "detail": "demo: rate-limited (ABSTAIN)"
+    },
+    "__MISMATCH_DEMO__": {
+      "reachable": true,
+      "cluster": {
+        "name": "Obergefell v. Hodges",
+        "citations": [
+          "__MISMATCH_DEMO__",
+          "576 U.S. 644"
+        ],
+        "opinion_text": "The Court holds that the Fourteenth Amendment requires marriage equality nationwide.",
+        "text_is_full": true
+      }
+    }
+  }
+}

@@ -96,6 +96,12 @@ _GYM = Prereq(GYM, "benchmark/enterpriseops/enterpriseops-gym",
 _AGENTDIFF = Prereq(DATASET, "AGENT_DIFF_ROOT",
                     "clone agent-diff as a sibling (default ../agent-diff) or set AGENT_DIFF_ROOT; "
                     "the frozen dry-run reads its dataset + the real assertion engine ($0, no backend)")
+# A free CourtListener (Free Law Project) API token for the legalcite LIVE arm. The
+# driver prefers the purpose-built /citation-lookup/ endpoint when this is set; without
+# it every cite ABSTAINs (no fabricated verdict — the honest floor). Free to obtain.
+_COURTLISTENER = Prereq(API_KEY, "COURTLISTENER_TOKEN",
+                        "get a free token at courtlistener.com/help/api/rest/ and "
+                        "export COURTLISTENER_TOKEN=... (see benchmark/legalcite/RUNBOOK.md)")
 
 
 BENCHMARKS: Dict[str, BenchSpec] = {
@@ -408,6 +414,24 @@ BENCHMARKS: Dict[str, BenchSpec] = {
                             "REAL citation_resolve.classify(); report DETECT recall + FALSE-FIRE "
                             "over a stated denominator; the false-fire floor is the exit gate",
                        prereqs=()),
+            Entrypoint("live_recorded",
+                       ["benchmark.legalcite.live_corpus", "--transport", "recorded", "--json"],
+                       cost="free",
+                       does="$0 OFFLINE proof of the LIVE runner: the scaled corpus (n=hundreds) "
+                            "through the SAME live code path, but over a committed recorded "
+                            "transport (frozen reporter bytes) — zero network/token; exercises "
+                            "the three-way DETECT/FALSE-FIRE/ABSTAIN accounting + the exit gate",
+                       prereqs=()),
+            Entrypoint("live",
+                       ["benchmark.legalcite.live_corpus", "--json",
+                        "--min-interval", "{min_interval}", "--out", "{out}"],
+                       cost="paid",
+                       does="the REAL-WORLD run: the scaled corpus through the shipped resolve() "
+                            "against the LIVE CourtListener reporter — converts docs/277 §6 #1 "
+                            "from DESIGNED to MEASURED-at-scale. Needs a (free) token; paces "
+                            "itself for the rate limit and checkpoints to --out (resumable)",
+                       prereqs=(_COURTLISTENER,),
+                       defaults={"min_interval": "13", "out": "live_results.json"}),
         ),
     ),
     # -------------------------------------------------------------------- iot_tier
