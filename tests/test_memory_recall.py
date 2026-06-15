@@ -324,3 +324,80 @@ def test_interpret_gloss_for_each_verdict():
         assert word in g.upper()
     # an unknown verdict degrades to a hedge, never silence
     assert mr.interpret({"verdict": "???"}).strip()
+
+
+# ---------------------------------------------------------------------------
+# Outcome-driven retirement (docs/350) — the EARNS-ITS-PLACE sweep. The sibling
+# of recall's staleness sweep: it folds host-measured contribution through the
+# pure `retire.classify` leaf and PROPOSES (never deletes). Distinct from
+# staleness — a memory can be true and still no longer earn its place.
+# ---------------------------------------------------------------------------
+
+
+def _retire_pol():
+    from dos import retire
+    return retire.RetirePolicy(min_contribution=1, min_trials=5)
+
+
+def test_retire_sweep_ranks_retire_first_and_proposes():
+    """RETIRE rows lead, then PROBATION, then KEEP — and every row is a proposal."""
+    from dos import retire
+    contributions = {
+        "good": retire.RetireEvidence(contribution=42, trials=30),
+        "dead": retire.RetireEvidence(contribution=0, trials=30),
+        "new": retire.RetireEvidence(contribution=0, trials=2),
+    }
+    props = mr.retire_sweep(contributions, policy=_retire_pol())
+    verdicts = [p.verdict.verdict for p in props]
+    # ranked RETIRE → PROBATION → KEEP
+    assert verdicts == [retire.Retire.RETIRE, retire.Retire.PROBATION, retire.Retire.KEEP]
+    by_name = {p.mem_name: p for p in props}
+    assert by_name["dead"].verdict.verdict is retire.Retire.RETIRE
+    assert by_name["new"].verdict.verdict is retire.Retire.PROBATION
+    assert by_name["good"].verdict.verdict is retire.Retire.KEEP
+    # every RETIRE is an ARCHIVE PROPOSAL, never a delete — the docs/103 §6 stance
+    assert "propose-archive" in by_name["dead"].action
+    assert "human" in by_name["dead"].action.lower()
+
+
+def test_retire_sweep_leaves_unmeasured_memories_untouched():
+    """A memory with no measured contribution gets NO proposal — abstain on silence.
+
+    The host measures contribution (it is host policy); a memory absent from the
+    map is never retired on silence (the abstain-first default at sweep scale)."""
+    from dos import retire
+    props = mr.retire_sweep(
+        {"measured": retire.RetireEvidence(contribution=0, trials=30)},
+        policy=_retire_pol(),
+    )
+    names = {p.mem_name for p in props}
+    assert names == {"measured"}  # only the one we supplied evidence for
+
+
+def test_retire_sweep_proposal_to_dict_shape():
+    """The `dos decisions`-facing JSON shape: memory id + verdict facts + action."""
+    from dos import retire
+    props = mr.retire_sweep(
+        {"dead": retire.RetireEvidence(contribution=0, trials=30, narrated="my pitch")},
+        policy=_retire_pol(),
+    )
+    d = props[0].to_dict()
+    assert d["memory"] == "dead"
+    assert d["verdict"] == "RETIRE"
+    assert d["retire_cause"] == "underperformed"
+    assert "action" in d
+    # the item's self-pitch rides for the operator but is parsed for nothing
+    assert d["evidence"]["narrated"] == "my pitch"
+
+
+def test_retire_sweep_over_cap_action_names_the_cap():
+    """An OVER_CAP retire's action explains it is a cap eviction, not a demerit."""
+    from dos import retire
+    props = mr.retire_sweep(
+        {"marginal": retire.RetireEvidence(contribution=10, trials=40,
+                                           active_count=51, is_marginal=True)},
+        policy=retire.RetirePolicy(min_contribution=1, min_trials=5, max_active=50),
+    )
+    p = props[0]
+    assert p.verdict.retire_cause is retire.RetireCause.OVER_CAP
+    assert "cap" in p.action.lower()

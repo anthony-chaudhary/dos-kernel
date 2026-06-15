@@ -89,7 +89,7 @@ from pathlib import Path
 from typing import Optional
 
 from dos import config as _config
-from dos import git_delta, oracle
+from dos import git_delta, oracle, retire
 
 # git probes are boundary I/O — cap them so a pathological repo can't hang a
 # recall sweep. Matches the 10s bound `git_delta` and the doctor calls use.
@@ -1473,6 +1473,95 @@ def sweep(
     rank = {Recall.RECALL_STALE: 0, Recall.RECALL_UNVERIFIABLE: 1, Recall.RECALL_FRESH: 2}
     out.sort(key=lambda v: (rank.get(v.verdict, 9), v.evidence.mem_name))
     return out
+
+
+# ---------------------------------------------------------------------------
+# Outcome-driven retirement (docs/350) — the EARNS-ITS-PLACE sweep, the sibling
+# of `sweep()` above. `sweep` asks "is each memory still TRUE?" (staleness, the
+# docs/103 recall gate); this asks "does each memory still EARN ITS PLACE?"
+# (the docs/350 library-drift fix). Orthogonal: a memory can be perfectly true and
+# have stopped contributing. Both fold the same store through a PURE kernel leaf
+# and PROPOSE — neither ever deletes.
+#
+# The split that keeps the layering honest: the recall sweep can MEASURE its own
+# evidence (a git probe, a working-tree grep — the driver owns that I/O). The
+# CONTRIBUTION metric cannot live here — what "contribution" means (a success-rate
+# delta, VERIFIED-uses minus harmful-uses, …) is HOST policy, exactly as the
+# `improve` work-metric is. So this sweep takes the per-memory `RetireEvidence` the
+# host already measured and folds it through `retire.classify`; the driver names no
+# metric, it only routes the verdict into a proposal. A memory the host supplies no
+# evidence for is left untouched (no evidence ⇒ no proposal — the abstain-first
+# default, never a retire on silence).
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class RetireProposal:
+    """One memory's retirement verdict, as a PROPOSAL for a human (never a delete).
+
+    The retirement counterpart to a STALE `RecallVerdict` row: `mem_name` is the
+    store id, `verdict` is the typed `retire.RetireVerdict`, and `action` is the
+    one-line unblock the operator routes (the `dos decisions` surface). Like the
+    recall driver's STALE handling (docs/103 §6) and `liveness` (docs/82), a RETIRE
+    is a proposal to archive/drop the item — the kernel adjudicates, a human
+    disposes; nothing here `rm`s a memory.
+    """
+
+    mem_name: str
+    verdict: retire.RetireVerdict
+    action: str
+
+    def to_dict(self) -> dict:
+        return {
+            "memory": self.mem_name,
+            **self.verdict.to_dict(),
+            "action": self.action,
+        }
+
+
+def retire_sweep(
+    contributions: dict[str, "retire.RetireEvidence"],
+    *,
+    policy: "Optional[retire.RetirePolicy]" = None,
+) -> list[RetireProposal]:
+    """Fold each memory's host-measured contribution → RETIRE proposals. PURE.
+
+    `contributions` maps a memory id to the `RetireEvidence` the HOST measured for
+    it (the contribution metric is host policy — the driver names none). Each is
+    folded through `retire.classify`; a RETIRE becomes a `RetireProposal` an
+    operator reviews. A memory absent from `contributions` is left untouched — no
+    measured evidence means no proposal (the abstain-first default; we never retire
+    on silence). Ranked RETIRE → PROBATION → KEEP so the rows needing attention
+    lead, like `sweep`.
+
+    Read-only and proposal-only: it removes nothing, edits no store. The wired
+    caller surfaces the RETIRE rows via `dos decisions`; a human disposes.
+    """
+    pol = policy if policy is not None else retire.DEFAULT_POLICY
+    out: list[RetireProposal] = []
+    for mem_name, ev in contributions.items():
+        v = retire.classify(ev, pol)
+        out.append(RetireProposal(mem_name=mem_name, verdict=v,
+                                  action=_retire_action(v)))
+    rank = {retire.Retire.RETIRE: 0, retire.Retire.PROBATION: 1, retire.Retire.KEEP: 2}
+    out.sort(key=lambda p: (rank.get(p.verdict.verdict, 9), p.mem_name))
+    return out
+
+
+def _retire_action(v: "retire.RetireVerdict") -> str:
+    """The one-line operator unblock for a retirement verdict (the `dos_promote`
+    derived-action idiom). PURE presentation; routes a proposal, never an edit."""
+    if v.verdict is retire.Retire.RETIRE:
+        if v.retire_cause is retire.RetireCause.OVER_CAP:
+            return ("propose-archive — the library is over its cap and this is the "
+                    "marginal member; archive it to keep retrieval focused (a human "
+                    "confirms; the kernel never deletes)")
+        return ("propose-archive — measured contribution is below the floor; archive "
+                "or rewrite the item (a human confirms; the kernel never deletes)")
+    if v.verdict is retire.Retire.PROBATION:
+        return ("keep-on-trial — too few measured uses to judge; gather more before "
+                "any retire decision (the witness-ceiling)")
+    return "keep — the item still earns its place; no action"
 
 
 # ---------------------------------------------------------------------------
