@@ -38,6 +38,11 @@ story, start at the [README](../../README.md) or the
 | What does "true" mean for an AI agent's verdict? | `dos verify` | [what-is-truth-for-an-ai-agent-verdict](what-is-truth-for-an-ai-agent-verdict.md) |
 | How do I combine a deterministic check, an LLM judge, and a human reviewer? | `dos verify` | [the-trust-ladder-oracle-judge-human](the-trust-ladder-oracle-judge-human.md) |
 | Why should "no" be a first-class, verifiable primitive in an agent system? | `dos refuse-reasons` / `dos verify` | [refusal-as-a-first-class-primitive-for-agents](refusal-as-a-first-class-primitive-for-agents.md) |
+| How do I stop an AI agent from editing CI config to skip failing tests? | `dos commit-audit` / `dos scope-gate` | [stop-an-agent-editing-ci-to-skip-tests](stop-an-agent-editing-ci-to-skip-tests.md) |
+| How do I block an out-of-lane file write before the agent makes it (PreToolUse)? | `dos arbitrate` | [block-an-out-of-lane-file-write-at-pretooluse](block-an-out-of-lane-file-write-at-pretooluse.md) |
+| How do agents prove to each other that work actually landed? | `dos status` / `dos verify` | [agent-to-agent-proof-that-work-landed](agent-to-agent-proof-that-work-landed.md) |
+| AI agents that game SWE-bench — how do I catch benchmark cheating? | `dos reward` / `dos commit-audit` | [ai-agents-that-game-swe-bench-benchmark-cheating](ai-agents-that-game-swe-bench-benchmark-cheating.md) |
+| Deterministic pre-commit hook vs an agent skill — which actually enforces? | `dos commit-audit` (exit code) | [deterministic-hook-vs-agent-skill-which-enforces](deterministic-hook-vs-agent-skill-which-enforces.md) |
 
 ## How to read the numbers on these pages
 
