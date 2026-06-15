@@ -48,6 +48,12 @@ story, start at the [README](../../README.md) or the
 | How do I detect a runaway AI agent before it burns the token budget? | `dos liveness` / `dos breaker` | [detect-a-runaway-agent-before-it-burns-the-budget](detect-a-runaway-agent-before-it-burns-the-budget.md) |
 | How do I scavenge a stalled agent's lease without killing a live one? | `dos liveness` / `dos reap` | [scavenge-a-stalled-lease-without-killing-a-live-one](scavenge-a-stalled-lease-without-killing-a-live-one.md) |
 | How do I keep an AI self-improvement loop from keeping bad changes? | `dos improve` | [keep-a-self-improvement-loop-from-keeping-bad-changes](keep-a-self-improvement-loop-from-keeping-bad-changes.md) |
+| My AI agent claimed it fixed the bug, but it didn't | `dos verify` / `dos commit-audit` | [agent-claimed-it-fixed-the-bug-but-it-didnt](agent-claimed-it-fixed-the-bug-but-it-didnt.md) |
+| CI passed but the feature isn't there — how do I catch that? | `dos verify` / `dos test-witness` | [ci-passed-but-the-feature-isnt-there](ci-passed-but-the-feature-isnt-there.md) |
+| How do I audit AI-generated commits across a repo? | `dos commit-audit` | [audit-which-commits-were-ai-and-did-they-ship](audit-which-commits-were-ai-and-did-they-ship.md) |
+| Two Claude Code agents on one branch keep clobbering each other — how do I fix it? | `dos arbitrate` | [two-claude-code-agents-on-one-branch](two-claude-code-agents-on-one-branch.md) |
+| How do I make an agent's "done" mean a checkable effect, not a sentence? | `dos verify` (stop hook) | [make-agent-done-mean-a-checkable-effect](make-agent-done-mean-a-checkable-effect.md) |
+| Can I trust an AI coding agent's pull request? | `dos commit-audit` / `dos verify` | [can-i-trust-a-coding-agents-pull-request](can-i-trust-a-coding-agents-pull-request.md) |
 
 ## How to read the numbers on these pages
 
