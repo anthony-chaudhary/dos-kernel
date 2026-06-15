@@ -81,6 +81,31 @@ def test_scan_then_rescan_yields_zero_new(ledger, monkeypatch):
     assert len(ss.read_ledger(ledger)) == 3
 
 
+def test_issue_title_and_body_describe_the_same_set(ledger, monkeypatch, capsys):
+    """The issue title's count must match the body's item list — both describe
+    this cycle's items (`today`). Regression for the same-day bug where the title
+    counted only freshly-fetched items ("0 new") while the body re-rendered all
+    of today (a 70-item body under a "0 new" title)."""
+    import json as _json
+    # seed scan: 3 items; then a manual web add the same day.
+    monkeypatch.setattr(ss, "gather", lambda topics, since: _fixture_items())
+    ss.main(["--scan", "--stamp", "2026-06-15", "--ledger", str(ledger)])
+    ss.main(["--add-manual", "--source", "web", "--id", "https://w/1",
+             "--title", "a web hit", "--stamp", "2026-06-15", "--ledger", str(ledger)])
+    capsys.readouterr()
+    # re-scan the same day: fetch returns the SAME 3 (all seen) → 0 fresh, but the
+    # cycle is the 4 items recorded today; title and body agree on 4.
+    ss.main(["--scan", "--stamp", "2026-06-15", "--ledger", str(ledger), "--json"])
+    out = _json.loads(capsys.readouterr().out)
+    assert out["cycle_items"] == 4    # 3 seed + 1 manual = all of today
+    assert out["fetched_new"] == 0    # nothing freshly fetched on the re-run
+    assert "4 item(s) this cycle" in out["issue_title"]
+    # the body lists exactly those 4 — same set as the title's count.
+    today = [r for r in ss.read_ledger(ledger) if r.get("scanned") == "2026-06-15"]
+    body = ss.render_issue_body(today, stamp="2026-06-15", digest_rel="d.md")
+    assert "4** new item(s)" in body or "found **4**" in body
+
+
 # ---------------------------------------------------------------------------
 # Offline degradation — every fetcher returns [] when its source raises.
 # ---------------------------------------------------------------------------

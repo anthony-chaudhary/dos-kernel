@@ -685,11 +685,16 @@ def main(argv: list[str] | None = None) -> int:
     fetched = gather(TOPICS, since)
     fresh = new_items(fetched, seen_ids(rows))
     append_items(fresh, stamp=stamp, path=ledger_path)
-    # the digest for today is every item scanned today (lets --add-manual extend it).
+    # A "cycle" is one scan date. The issue and its title BOTH describe the items
+    # recorded for this cycle (`today`) — same set, so the title's count can never
+    # contradict the body's list. (The earlier bug: the title counted only this
+    # invocation's fresh FETCHES while the body re-rendered all of `today`, so a
+    # same-day re-run carrying manual adds posted "0 new" over a full body.) The
+    # digest is the same `today` set, so --add-manual extends both across runs.
     today = [r for r in read_ledger(ledger_path) if r.get("scanned") == stamp]
     digest = _write_digest(today, stamp=stamp)
     digest_rel = digest.relative_to(REPO).as_posix()
-    title = f"SOTA scan {stamp}: {len(fresh)} new item(s)"
+    title = f"SOTA scan {stamp}: {len(today)} item(s) this cycle"
     body = render_issue_body(today, stamp=stamp, digest_rel=digest_rel)
 
     if args.open_issue:
@@ -700,12 +705,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.json:
         print(json.dumps({
-            "stamp": stamp, "since": since, "new": len(fresh),
+            "stamp": stamp, "since": since,
+            "cycle_items": len(today), "fetched_new": len(fresh),
             "fetched": len(fetched), "digest": digest_rel,
             "issue_title": title,
         }, indent=2, sort_keys=True))
     else:
-        print(f"scan {stamp}: {len(fresh)} new of {len(fetched)} fetched "
+        print(f"scan {stamp}: {len(today)} item(s) this cycle "
+              f"({len(fresh)} freshly fetched of {len(fetched)}) "
               f"(since {since or 'beginning'}) → {digest_rel}")
         print()
         print("--- issue body ---")
