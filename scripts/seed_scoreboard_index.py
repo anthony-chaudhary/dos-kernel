@@ -83,6 +83,14 @@ render_page = _sp.render_page
 load_sweep = _sp.load_sweep
 Refusal = _sp.Refusal
 
+# The reader-facing index wording lives in one place (scripts/scoreboard_copy.py)
+# — the same module the per-repo renderer pulls from, so both surfaces speak with
+# one voice and a copy edit touches one file.
+_copy_spec = importlib.util.spec_from_file_location(
+    "scoreboard_copy", REPO / "scripts" / "scoreboard_copy.py")
+copy = importlib.util.module_from_spec(_copy_spec)
+_copy_spec.loader.exec_module(copy)
+
 # The §4 mechanical floor's closed exclusion vocabulary. A candidate that fails
 # the floor folds to exactly one of these — the same closed-set discipline the
 # kernel applies to refusals.
@@ -324,53 +332,28 @@ def render_index(published: list[str], *, audited: int, withheld: int,
     page that publishes its own verdict whatever it is (the docs/311 P1
     self-grades-first rule). Everything not published is a NUMBER (§2 — a
     withheld repo is never named)."""
-    L = []
-    L.append("# DOS drift scoreboard — the per-repo index")
-    L.append("")
-    L.append("> The seeded pages below each graded **CLEAN** — zero claim-vs-diff")
-    L.append("> over-claims surviving adjudication over the page's pinned commit")
-    L.append("> range. The page is the receipt. Drift is a claim-vs-diff mismatch,")
-    L.append("> **never** a correctness, honesty, or intent grade.")
-    L.append("")
-    repo_noun = "repository" if audited == 1 else "repositories"
-    page_noun = "page" if len(published) == 1 else "pages"
-    L.append(f"**Coverage (as of {rendered}):** {audited} {repo_noun} audited, "
-             f"{len(published)} {page_noun} published clean, {withheld} withheld "
-             "(aggregate-only — a non-clean or unadjudicated verdict is never a "
-             "named page, [docs/311](../311_scoreboard-per-repo-index-plan.md) "
-             "§2).")
-    L.append("")
+    # The reading order: hook → what a drift is → the pages (self first,
+    # promoted; then the clean ones, framed as earned) → the fine print (the
+    # ethics line, the deeper links, and the withheld count as a NUMBER). Every
+    # string comes from scoreboard_copy so the wording is editable in one place.
+    L = [copy.index_hook(), "", copy.drift_explainer(), ""]
+
     if self_page:
-        org, name = self_page.split("/", 1)
-        L.append("## Page #1 — the auditor's own repo")
-        L.append("")
-        L.append(f"- [{self_page}]({org}/{name}.md) — we grade ourselves first, "
-                 "and publish our own verdict with its receipts whatever it says "
-                 "(the self tier, not held to the seeded CLEAN-only bar).")
-        L.append("")
-    L.append("## Published pages (seeded — clean verdicts)")
+        L += [copy.index_self_section(self_page), ""]
+
+    L.append(copy.index_clean_section_intro())
     L.append("")
     if published:
         for full in published:
             org, name = full.split("/", 1)
             L.append(f"- [{full}]({org}/{name}.md)")
     else:
-        L.append("_(none yet — the seed run publishes here once the corpus sweep "
-                 "runs and the operator publishes to Pages, #98)_")
+        L.append(copy.index_clean_empty_placeholder())
     L.append("")
-    L.append("## How to read this")
-    L.append("")
-    L.append("- **[Methodology](methodology.md)** — what the witness reads, what "
-             "it abstains on, the corpus floor, and where the auditor has been "
-             "wrong.")
-    L.append("- **[Aggregate report](report-2026-06.md)** — the population "
-             "drift rate, denominators everywhere, identity-stripped.")
-    L.append("- **Your repo graded clean and you want the page claimed (badge + "
-             "machine `verdict.json`)?** See the methodology's registration "
-             "section. A contested flag → the §3 correction path.")
-    L.append("")
-    L.append("> The kernel is the part that doesn't believe the agents.")
-    L.append("")
+
+    # The fine print carries the withheld count as a count (§2 — never a name).
+    L += [copy.index_fine_print(audited=audited, withheld=withheld), ""]
+    L += [copy.INDEX_TAGLINE, ""]
     return "\n".join(L)
 
 

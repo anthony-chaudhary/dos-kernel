@@ -1,0 +1,26 @@
+{
+  "commits": 28,
+  "checkable": 22,
+  "abstained": 6,
+  "witnessed": 22,
+  "unwitnessed": 0,
+  "drift_rate": 0.0,
+  "by_kind": {
+    "code_effect": {
+      "unwitnessed": 0,
+      "witnessed": 21,
+      "abstain": 0
+    },
+    "doc": {
+      "unwitnessed": 0,
+      "witnessed": 1,
+      "abstain": 0
+    },
+    "none": {
+      "unwitnessed": 0,
+      "witnessed": 0,
+      "abstain": 6
+    }
+  },
+  "unwitnessed_shas": []
+}

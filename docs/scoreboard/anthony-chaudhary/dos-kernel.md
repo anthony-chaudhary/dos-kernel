@@ -1,12 +1,15 @@
 # anthony-chaudhary/dos-kernel — drift scoreboard
 
-> **DRIFT REPORTED — 3 unwitnessed of 129 checkable claims (2.3%, adjudicated).**
+> **We found 3 drifts — 3 of 129 checkable commit messages claim something the diff doesn't show (2.3%).**
 > All three are convention-driven empty re-stamp commits; the receipts are
 > below. This is **page #1 of the index, the self-grade**: the scoreboard
 > names no other repository before publishing its own verdict, and ours is
-> deliberately not airbrushed to zero. Schema and grade vocabulary:
-> [docs/311](../../311_scoreboard-per-repo-index-plan.md). Drift is a
-> claim-vs-diff mismatch — **never** a correctness, honesty, or intent grade.
+> deliberately not airbrushed to zero. A drift is a commit whose subject
+> claims something its own diff doesn't show — an empty commit that says
+> "fixed it", a "tests pass" that deletes the test. A drift is a
+> message-vs-diff mismatch — **never** a correctness, honesty, or intent
+> grade. Schema and grade vocabulary:
+> [docs/311](../../311_scoreboard-per-repo-index-plan.md).
 
 ## As of
 
@@ -21,7 +24,7 @@
 
 ## The verdict
 
-| Commits | Checkable | Witnessed | Unwitnessed (raw) | Abstained | Raw rate | Adjudicated |
+| Commits | Checkable | Backed by the diff | Drifted (raw) | Skipped | Raw rate | Final grade |
 |---|---|---|---|---|---|---|
 | 203 | 129 | 126 | 3 | 74 | 2.3% | **3 of 129 (2.3%)** |
 
@@ -31,14 +34,14 @@ fire-narrowing landed in the auditor — `86f437f`, in this same range — the
 sweep carried additional artifact fires; that history, hand-adjudicated, is
 in the [methodology's false-positive section](../methodology.md).)
 
-## By claim kind
+## By kind of claim
 
-| Kind | Witnessed | Unwitnessed | Abstained |
+| Kind of claim | Backed by the diff | Drifted | Skipped |
 |---|---|---|---|
-| `code_effect` | 25 | 0 | 0 |
-| `test` | 5 | 0 | 0 |
-| `doc` | 96 | 3 | 0 |
-| `none` (no checkable claim) | — | — | 74 |
+| `fix / add / remove` (code) | 25 | 0 | 0 |
+| `tests` | 5 | 0 | 0 |
+| `docs` | 96 | 3 | 0 |
+| no checkable claim (skipped) | — | — | 74 |
 
 ## The receipts — every flag, adjudicated
 

@@ -28,20 +28,80 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import re
 import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 SITE_BASE = "https://anthony-chaudhary.github.io/dos-kernel"
+BLOB_BASE = "https://github.com/anthony-chaudhary/dos-kernel/blob/master"
 
-# Reuse the incident builder's template + helpers — one theme, one link rule,
-# no second copy to drift. (scripts/ is not a package; load by path.)
+# Reuse the incident builder's TEMPLATE + text helpers (one theme), but NOT its
+# link rewriter: that one resolves every repo-relative .md against docs/incidents/,
+# which sends a scoreboard page's `<org>/<name>.md` link to a dead
+# docs/incidents/<org>/<name>.md blob URL. The scoreboard has its own link shape
+# (per-repo pages are HTML siblings; methodology/report/311 are blob-only), so it
+# gets its own rewriter below. (scripts/ is not a package; load by path.)
 _spec = importlib.util.spec_from_file_location(
     "build_incident_pages", REPO / "scripts" / "build_incident_pages.py")
 _inc = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_inc)
 
+import html  # noqa: E402
+import re  # noqa: E402  (re is also imported at module top; explicit for the rewriter)
 import markdown  # noqa: E402  (dev-only dep, imported after the path shim)
+
+
+def _rewrite_scoreboard_link(href: str, *, src_dir: Path, built: set[str]) -> str:
+    """Rewrite one Markdown link from a scoreboard page for the Pages site.
+
+    Resolution is relative to ``src_dir`` (the directory of the source .md), which
+    is what a relative link in that file actually means. Targets:
+
+    - in-page anchors, absolute URLs, mailto: unchanged.
+    - a `.md` that resolves to a BUILT scoreboard page (in ``built``, the set of
+      docs-relative .md paths we render) → its `.html` URL under ``/scoreboard/``,
+      so per-repo pages and the index cross-link as live HTML.
+    - any other repo-relative path (methodology.md, report-2026-06.md, ../311_*.md
+      — none of which have a /scoreboard/ HTML twin) → the GitHub blob URL, so the
+      link still works off the rendered page instead of 404-ing.
+    """
+    if href.startswith("#") or re.match(r"^[a-z]+://", href) or href.startswith("mailto:"):
+        return href
+
+    path_part, _, anchor = href.partition("#")
+    anchor = f"#{anchor}" if anchor else ""
+
+    # Resolve the link against the source file's directory, then make it
+    # repo-relative (posix) so it can be compared / turned into a URL.
+    try:
+        target = (src_dir / path_part).resolve()
+        rel = target.relative_to(REPO).as_posix()
+    except ValueError:
+        # escaped the repo — leave it untouched rather than emit a broken URL.
+        return href
+
+    # A built scoreboard page → its HTML sibling under the site.
+    if rel in built:
+        docs_rel = Path(rel).relative_to("docs/scoreboard")
+        if docs_rel.name == "README.md":
+            site_rel = "scoreboard/index.html"
+        else:
+            site_rel = "scoreboard/" + docs_rel.with_suffix(".html").as_posix()
+        return f"{SITE_BASE}/{site_rel}{anchor}"
+
+    # Everything else is blob-only (no /scoreboard/ HTML twin exists).
+    return f"{BLOB_BASE}/{rel}{anchor}"
+
+
+def _rewrite_scoreboard_html(body_html: str, *, src_dir: Path,
+                             built: set[str]) -> str:
+    def repl(m: "re.Match[str]") -> str:
+        quote, href = m.group(1), m.group(2)
+        new = _rewrite_scoreboard_link(href, src_dir=src_dir, built=built)
+        return f'href={quote}{html.escape(new, quote=True)}{quote}'
+
+    return re.sub(r'href=(["\'])(.*?)\1', repl, body_html)
 
 
 def _scoreboard_md(root: Path) -> list[Path]:
@@ -65,6 +125,10 @@ def _out_rel(md_path: Path, root: Path) -> str:
 
 def render(root: Path, out_dir: Path, date: str) -> list[str]:
     pages = _scoreboard_md(root)
+    # The set of pages we actually render, as docs-relative posix paths — the
+    # rewriter promotes a link to its .html twin only for these (everything else
+    # is blob-only, so it never invents a missing HTML target).
+    built = {p.relative_to(root).as_posix() for p in pages}
     written: list[str] = []
     for md_path in pages:
         md_text = md_path.read_text(encoding="utf-8")
@@ -73,14 +137,11 @@ def render(root: Path, out_dir: Path, date: str) -> list[str]:
         desc = _inc._description(md_text)
         body_html = markdown.markdown(
             md_text, extensions=["tables", "fenced_code", "sane_lists"])
-        # Reuse the incident link-rewriter (sibling .md → .html, repo paths →
-        # blob URLs, anchors/abs left alone), but anchored at docs/scoreboard/
-        # so a relative link like methodology.md / org/name.md resolves to its
-        # real scoreboard path, not docs/incidents/ (which would 404). The
-        # scoreboard pages link ../311_*.md, methodology.md, sibling
-        # org/name.md — all handled.
-        body_html = _inc._rewrite_html_links(
-            body_html, set(), base_rel_dir="docs/scoreboard")
+        # Scoreboard-aware link rewrite: cross-links between built pages become
+        # live HTML; methodology/report/311 (no /scoreboard/ HTML twin) become
+        # GitHub blob URLs. Links resolve relative to THIS page's directory.
+        body_html = _rewrite_scoreboard_html(
+            body_html, src_dir=md_path.parent, built=built)
         out_rel = _out_rel(md_path, root)
         canonical = f"{SITE_BASE}/{out_rel}"
         # Provenance line (the sync rule: edit the markdown, re-render, never

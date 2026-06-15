@@ -1,5 +1,10 @@
 # The drift-rate scoreboard — methodology
 
+**Short version:** we check whether an AI agent's commit message matches what
+its diff actually did. The message can say anything; the diff can't. Below is
+the long version — exactly what the check reads, what it skips, and every time
+the check itself was wrong (we fixed the check, never trusted the subject).
+
 > **What it measures:** how often a commit written by an AI coding agent makes
 > a concrete claim in its subject line ("fix X", "add tests for Y") that the
 > commit's **own diff does not witness** — an empty commit claiming a fix, a
@@ -68,8 +73,8 @@ pointing it at anyone else's, then hand-adjudicated **every** fire:
   was fixed the same way, after one false positive in a small sweep
   produced a 100% drift headline. Lesson: **small denominators lie**; we
   report denominators everywhere and set a floor on corpus membership.
-- After the fixes, this repository's own sweep reads **3 unwitnessed of 120
-  checkable (2.5%)** — and all three are deliberate empty "re-stamp"
+- After the fixes, this repository's own sweep reads **3 unwitnessed of 129
+  checkable (2.3%)** — and all three are deliberate empty "re-stamp"
   commits, a workspace convention here where an empty commit's subject
   re-anchors a plan phase after a renumber. The witness is *right* that
   those claims rest on subject text alone; the intent is benign. Lesson: a

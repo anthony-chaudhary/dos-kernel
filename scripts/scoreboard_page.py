@@ -39,10 +39,19 @@ against ``--out`` (the P3 freshness loop's verification mode).
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import sys
 import textwrap
 from pathlib import Path
+
+# The reader-facing wording lives in one place (scripts/scoreboard_copy.py) so a
+# copy edit never means touching render logic. Loaded by path — scripts/ is not a
+# package, the same shim the seed orchestrator uses to load this module.
+_copy_spec = importlib.util.spec_from_file_location(
+    "scoreboard_copy", Path(__file__).resolve().parent / "scoreboard_copy.py")
+copy = importlib.util.module_from_spec(_copy_spec)
+_copy_spec.loader.exec_module(copy)
 
 # Canonical prose width. Every wrapped paragraph — body or blockquote — wraps
 # its CONTENT at this width; the page is byte-reproducible because the wrap is
@@ -71,14 +80,10 @@ _AUDITOR_REPO = "anthony-chaudhary/dos-kernel"
 _AUDITOR_URL = f"https://github.com/{_AUDITOR_REPO}"
 
 # Standard prose every page carries (the §4 drift-is-not-deception line lives
-# beside the number, not in a footnote; the relative links hold for every
-# page at docs/scoreboard/<org>/<repo>.md depth).
-_HEADLINE_TAIL = (
-    "Schema and grade vocabulary: "
-    "[docs/311](../../311_scoreboard-per-repo-index-plan.md). Drift is a "
-    "claim-vs-diff mismatch — **never** a correctness, honesty, or intent "
-    "grade."
-)
+# beside the number, not in a footnote; the relative links hold for every page
+# at docs/scoreboard/<org>/<repo>.md depth). Sourced from scoreboard_copy so the
+# wording is editable in one place.
+_HEADLINE_TAIL = copy.page_headline_tail()
 _REPRODUCE_TAIL = (
     "A newer auditor over the same pinned range may count differently as "
     "fire-narrowing continues (each narrowing is a public issue, e.g. "
@@ -271,21 +276,18 @@ def render_page(sweep: dict, meta: dict) -> tuple[str, str]:
     notes = meta.get("notes", {}) or {}
     checkable = int(sweep["checkable"])
 
-    # -- §5.1 the headline: derived, with n of m inline ---------------------
+    # -- §5.1 the headline: derived, with n of m inline. The wording lives in
+    # scoreboard_copy; only the table cell (adjudicated_cell) is derived here.
+    pct = f"{confirmed / checkable:.1%}" if (state == DRIFT and checkable) else ""
+    pending = sum(1 for _, r in matched
+                  if r is None or r["ruling"] == "UNADJUDICATED")
+    headline = copy.page_headline(state, confirmed=confirmed,
+                                  checkable=checkable, pct=pct, pending=pending)
     if state == DRIFT:
-        pct = f"{confirmed / checkable:.1%}"
-        headline = (f"**DRIFT REPORTED — {confirmed} unwitnessed of "
-                    f"{checkable} checkable claims ({pct}, adjudicated).**")
         adjudicated_cell = f"**{confirmed} of {checkable} ({pct})**"
     elif state == CLEAN:
-        headline = (f"**CLEAN — 0 confirmed unwitnessed of {checkable} "
-                    "checkable claims.**")
         adjudicated_cell = f"**0 of {checkable} (0.0%)**"
     else:
-        pending = sum(1 for _, r in matched
-                      if r is None or r["ruling"] == "UNADJUDICATED")
-        headline = (f"**RAW-ONLY — NO GRADE — {pending} flag(s) not yet "
-                    f"adjudicated of {checkable} checkable claims.**")
         adjudicated_cell = "**no grade — adjudication incomplete**"
 
     lines: list[str] = []
@@ -295,6 +297,11 @@ def render_page(sweep: dict, meta: dict) -> tuple[str, str]:
     quote_tail = " ".join(
         part for part in (notes.get("headline"), _HEADLINE_TAIL) if part)
     lines.extend(_fill_quote(quote_tail).splitlines())
+
+    # A CLEAN page makes "clean" concrete: show the shape that WOULD have
+    # flagged, so green reads as earned, not as "nothing happened".
+    if state == CLEAN:
+        lines += ["", copy.clean_passed_block()]
 
     # -- §5.2 the as-of block ------------------------------------------------
     commits_cell = str(sweep["commits"])
@@ -320,9 +327,8 @@ def render_page(sweep: dict, meta: dict) -> tuple[str, str]:
         "",
         "## The verdict",
         "",
-        "| Commits | Checkable | Witnessed | Unwitnessed (raw) | Abstained "
-        "| Raw rate | Adjudicated |",
-        "|---|---|---|---|---|---|---|",
+        copy.VERDICT_TABLE_HEADER,
+        copy.VERDICT_TABLE_RULE,
         f"| {sweep['commits']} | {checkable} | {sweep['witnessed']} "
         f"| {sweep['unwitnessed']} | {sweep['abstained']} | {raw_rate} "
         f"| {adjudicated_cell} |",
@@ -336,18 +342,18 @@ def render_page(sweep: dict, meta: dict) -> tuple[str, str]:
     kinds += sorted(k for k in by_kind if k not in _KIND_ORDER)
     lines += [
         "",
-        "## By claim kind",
+        "## By kind of claim",
         "",
-        "| Kind | Witnessed | Unwitnessed | Abstained |",
-        "|---|---|---|---|",
+        copy.BY_KIND_HEADER,
+        copy.BY_KIND_RULE,
     ]
     for kind in kinds:
         row = by_kind[kind]
         if kind == "none":
-            lines.append(f"| `none` (no checkable claim) | — | — "
+            lines.append(f"| {copy.kind_label('none')} | — | — "
                          f"| {row['abstain']} |")
         else:
-            lines.append(f"| `{kind}` | {row['witnessed']} "
+            lines.append(f"| {copy.kind_label(kind)} | {row['witnessed']} "
                          f"| {row['unwitnessed']} | {row['abstain']} |")
 
     # -- §5.5 the receipts: one row per raw flag ------------------------------
