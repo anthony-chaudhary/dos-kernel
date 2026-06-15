@@ -340,3 +340,10 @@ benchmark/enterpriseops/_verify_witness_claim.py
 
 # scoreboard HTML render staging (copied onto gh-pages, never tracked on master)
 /site-scoreboard/
+
+# SOTA scanner cycle output (scripts/sota_scan.py). The TRACKED surface is the
+# script + docs/sota/README.md; the per-cycle dedup ledger and dated digests are
+# generated, machine-local data (the durable output is the GitHub issue). Never
+# tracked — same rule as the scoreboard run-output above.
+/docs/sota/seen.jsonl
+/docs/sota/digest-*.md
