@@ -291,6 +291,7 @@ os_acceptance = "dos.drivers.os_acceptance:OsAcceptanceEvidenceSource"  # the ac
 paste_log = "dos.drivers.paste_log:PasteLogSource"          # operator-pasted text — the AGENT_AUTHORED floor (a JUDGE hint)
 citation_resolve = "dos.drivers.citation_resolve:CitationResolveSource"  # legal cite resolves in a reporter (THIRD_PARTY, docs/277/279)
 content_diff = "dos.drivers.content_diff:ContentDiffEvidenceSource"  # blob CONTENT vs a gold — the W2→W3 climb (rung capped at min(blob,gold), docs/192)
+provider_ledger = "dos.drivers.provider_ledger:ProviderLedgerEvidenceSource"  # external-effect vs a different-principal ledger — the THIRD_PARTY band (docs/261)
 
 # The cross-vendor hook INSTALL specs (docs/221) — the install-side sibling of the
 # dialect renderers above: where/how `dos init --hooks <host>` wires the DOS hooks
