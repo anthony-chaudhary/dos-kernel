@@ -187,6 +187,21 @@ ARRIVAL_QUERIES = [
      "docs/answers/governance-for-agentic-ai-projects-that-keep-getting-canceled.md"),
     ("how to make any agent skill verify its own work",
      "docs/answers/make-any-agent-skill-verify-its-own-work.md"),
+    # --- legal AEO: the 2026 fabricated-citation / sanction wave. Multiple
+    # phrasings per page are deliberate — headline() dedupes by target page, so
+    # extra phrasings are free query coverage with no surface double-count.
+    ("how to catch fabricated legal citations inside my AI agent before filing",
+     "docs/answers/catch-fabricated-legal-citations-in-my-ai-agent.md"),
+    ("MCP tool to verify case law a legal AI agent generated",
+     "docs/answers/catch-fabricated-legal-citations-in-my-ai-agent.md"),
+    ("how to avoid getting sanctioned for AI-hallucinated legal citations",
+     "docs/answers/largest-ai-hallucination-sanction-how-to-avoid.md"),
+    ("what is the largest AI hallucination sanction and how to avoid one",
+     "docs/answers/largest-ai-hallucination-sanction-how-to-avoid.md"),
+    ("does ABA Opinion 512 require me to verify AI-generated citations",
+     "docs/answers/aba-512-verify-ai-citations-duty.md"),
+    ("a lawyer's duty to verify AI-generated case law citations",
+     "docs/answers/aba-512-verify-ai-citations-duty.md"),
 ]
 
 # --- family 1: arrival files (the well-known fetch targets) -------------------
