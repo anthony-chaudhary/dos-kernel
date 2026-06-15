@@ -4,24 +4,24 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>JuliusBrussee/caveman — drift scoreboard — DOS</title>
-  <meta name="description" content="CLEAN — 0 confirmed unwitnessed of 49 checkable claims.">
+  <meta name="description" content="Clean — every one of 49 checkable commit messages matched its diff.">
   <link rel="canonical" href="https://anthony-chaudhary.github.io/dos-kernel/scoreboard/JuliusBrussee/caveman.html">
   <meta property="og:type" content="article">
   <meta property="og:title" content="JuliusBrussee/caveman — drift scoreboard">
-  <meta property="og:description" content="CLEAN — 0 confirmed unwitnessed of 49 checkable claims.">
+  <meta property="og:description" content="Clean — every one of 49 checkable commit messages matched its diff.">
   <meta property="og:url" content="https://anthony-chaudhary.github.io/dos-kernel/scoreboard/JuliusBrussee/caveman.html">
   <meta property="og:image" content="https://opengraph.githubassets.com/1/anthony-chaudhary/dos-kernel">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="JuliusBrussee/caveman — drift scoreboard">
-  <meta name="twitter:description" content="CLEAN — 0 confirmed unwitnessed of 49 checkable claims.">
+  <meta name="twitter:description" content="Clean — every one of 49 checkable commit messages matched its diff.">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
     "@type": "TechArticle",
     "headline": "JuliusBrussee/caveman \u2014 drift scoreboard",
-    "description": "CLEAN \u2014 0 confirmed unwitnessed of 49 checkable claims.",
+    "description": "Clean \u2014 every one of 49 checkable commit messages matched its diff.",
     "url": "https://anthony-chaudhary.github.io/dos-kernel/scoreboard/JuliusBrussee/caveman.html",
-    "datePublished": "2026-06-13",
+    "datePublished": "2026-06-14",
     "author": { "@type": "Person", "name": "Anthony Chaudhary", "url": "https://github.com/anthony-chaudhary" },
     "isPartOf": { "@type": "WebSite", "url": "https://anthony-chaudhary.github.io/dos-kernel/" }
   }
@@ -74,11 +74,19 @@
   <code>scripts/build_incident_pages.py</code>, never hand-edited.</p>
 <h1>JuliusBrussee/caveman — drift scoreboard</h1>
 <blockquote>
-<p><strong>CLEAN — 0 confirmed unwitnessed of 49 checkable claims.</strong>
-Schema and grade vocabulary:
-<a href="https://github.com/anthony-chaudhary/dos-kernel/blob/master/311_scoreboard-per-repo-index-plan.md">docs/311</a>. Drift is a
-claim-vs-diff mismatch — <strong>never</strong> a correctness, honesty, or intent grade.</p>
+<p><strong>Clean — every one of 49 checkable commit messages matched its diff. 0 drifts.</strong>
+A drift is a commit whose subject claims something its own diff doesn't show
+— an empty commit that says "fixed it", a "tests pass" that deletes the
+test. A drift is a message-vs-diff mismatch — <strong>never</strong> a correctness,
+honesty, or intent grade. Schema and grade vocabulary:
+<a href="https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/311_scoreboard-per-repo-index-plan.md">docs/311</a>.</p>
 </blockquote>
+<h3>What a drift would have looked like (this repo had none)</h3>
+<blockquote>
+<p><strong>would flag:</strong> <code>fix: handle null user</code> → touched 0 files<br />
+<strong>would flag:</strong> <code>test: all green</code> → deleted test lines, added none</p>
+</blockquote>
+<p>Neither happened here. Every "fix / add / remove" commit touched a real source file; every "tests" commit touched a real test file. That's what clean means — <strong>not "nothing happened", but every checkable claim backed by the diff.</strong></p>
 <h2>As of</h2>
 <table>
 <thead>
@@ -120,11 +128,11 @@ claim-vs-diff mismatch — <strong>never</strong> a correctness, honesty, or int
 <tr>
 <th>Commits</th>
 <th>Checkable</th>
-<th>Witnessed</th>
-<th>Unwitnessed (raw)</th>
-<th>Abstained</th>
+<th>Backed by the diff</th>
+<th>Drifted (raw)</th>
+<th>Skipped</th>
 <th>Raw rate</th>
-<th>Adjudicated</th>
+<th>Final grade</th>
 </tr>
 </thead>
 <tbody>
@@ -139,37 +147,37 @@ claim-vs-diff mismatch — <strong>never</strong> a correctness, honesty, or int
 </tr>
 </tbody>
 </table>
-<h2>By claim kind</h2>
+<h2>By kind of claim</h2>
 <table>
 <thead>
 <tr>
-<th>Kind</th>
-<th>Witnessed</th>
-<th>Unwitnessed</th>
-<th>Abstained</th>
+<th>Kind of claim</th>
+<th>Backed by the diff</th>
+<th>Drifted</th>
+<th>Skipped</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>code_effect</code></td>
+<td><code>fix / add / remove</code> (code)</td>
 <td>32</td>
 <td>0</td>
 <td>0</td>
 </tr>
 <tr>
-<td><code>test</code></td>
+<td><code>tests</code></td>
 <td>2</td>
 <td>0</td>
 <td>0</td>
 </tr>
 <tr>
-<td><code>doc</code></td>
+<td><code>docs</code></td>
 <td>15</td>
 <td>0</td>
 <td>0</td>
 </tr>
 <tr>
-<td><code>none</code> (no checkable claim)</td>
+<td>no checkable claim (skipped)</td>
 <td>—</td>
 <td>—</td>
 <td>16</td>
@@ -190,11 +198,11 @@ fire-narrowing continues (each narrowing is a public issue, e.g. #79/#81);
 the as-of block above is what this page graded, with what.</p>
 <h2>Corrections</h2>
 <p>A contested flag gets re-adjudicated and the page re-rendered (the
-<a href="https://github.com/anthony-chaudhary/dos-kernel/blob/master/311_scoreboard-per-repo-index-plan.md">docs/311</a> §3 path). Until the
+<a href="https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/311_scoreboard-per-repo-index-plan.md">docs/311</a> §3 path). Until the
 <code>scoreboard-correction</code> template ships (docs/311 P4), open a plain issue
 naming this page and the SHA. Methodology — what the witness reads, what it
 abstains on, where it has been wrong:
-<a href="https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/methodology.md">docs/scoreboard/methodology.md</a>.</p>
+<a href="https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/scoreboard/methodology.md">docs/scoreboard/methodology.md</a>.</p>
   <footer>
     <p>DOS — the Dispatch Operating System. Open source under the
     <a href="https://github.com/anthony-chaudhary/dos-kernel/blob/master/LICENSE">MIT license</a>.

@@ -4,24 +4,24 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>anthony-chaudhary/dos-kernel — drift scoreboard — DOS</title>
-  <meta name="description" content="DRIFT REPORTED — 3 unwitnessed of 129 checkable claims (2.3%, adjudicated).">
+  <meta name="description" content="We found 3 drifts — 3 of 129 checkable commit messages claim something the diff doesn't show (2.3%).">
   <link rel="canonical" href="https://anthony-chaudhary.github.io/dos-kernel/scoreboard/anthony-chaudhary/dos-kernel.html">
   <meta property="og:type" content="article">
   <meta property="og:title" content="anthony-chaudhary/dos-kernel — drift scoreboard">
-  <meta property="og:description" content="DRIFT REPORTED — 3 unwitnessed of 129 checkable claims (2.3%, adjudicated).">
+  <meta property="og:description" content="We found 3 drifts — 3 of 129 checkable commit messages claim something the diff doesn't show (2.3%).">
   <meta property="og:url" content="https://anthony-chaudhary.github.io/dos-kernel/scoreboard/anthony-chaudhary/dos-kernel.html">
   <meta property="og:image" content="https://opengraph.githubassets.com/1/anthony-chaudhary/dos-kernel">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="anthony-chaudhary/dos-kernel — drift scoreboard">
-  <meta name="twitter:description" content="DRIFT REPORTED — 3 unwitnessed of 129 checkable claims (2.3%, adjudicated).">
+  <meta name="twitter:description" content="We found 3 drifts — 3 of 129 checkable commit messages claim something the diff doesn't show (2.3%).">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
     "@type": "TechArticle",
     "headline": "anthony-chaudhary/dos-kernel \u2014 drift scoreboard",
-    "description": "DRIFT REPORTED \u2014 3 unwitnessed of 129 checkable claims (2.3%, adjudicated).",
+    "description": "We found 3 drifts \u2014 3 of 129 checkable commit messages claim something the diff doesn't show (2.3%).",
     "url": "https://anthony-chaudhary.github.io/dos-kernel/scoreboard/anthony-chaudhary/dos-kernel.html",
-    "datePublished": "2026-06-13",
+    "datePublished": "2026-06-14",
     "author": { "@type": "Person", "name": "Anthony Chaudhary", "url": "https://github.com/anthony-chaudhary" },
     "isPartOf": { "@type": "WebSite", "url": "https://anthony-chaudhary.github.io/dos-kernel/" }
   }
@@ -74,13 +74,16 @@
   <code>scripts/build_incident_pages.py</code>, never hand-edited.</p>
 <h1>anthony-chaudhary/dos-kernel — drift scoreboard</h1>
 <blockquote>
-<p><strong>DRIFT REPORTED — 3 unwitnessed of 129 checkable claims (2.3%, adjudicated).</strong>
+<p><strong>We found 3 drifts — 3 of 129 checkable commit messages claim something the diff doesn't show (2.3%).</strong>
 All three are convention-driven empty re-stamp commits; the receipts are
 below. This is <strong>page #1 of the index, the self-grade</strong>: the scoreboard
 names no other repository before publishing its own verdict, and ours is
-deliberately not airbrushed to zero. Schema and grade vocabulary:
-<a href="https://github.com/anthony-chaudhary/dos-kernel/blob/master/311_scoreboard-per-repo-index-plan.md">docs/311</a>. Drift is a
-claim-vs-diff mismatch — <strong>never</strong> a correctness, honesty, or intent grade.</p>
+deliberately not airbrushed to zero. A drift is a commit whose subject
+claims something its own diff doesn't show — an empty commit that says
+"fixed it", a "tests pass" that deletes the test. A drift is a
+message-vs-diff mismatch — <strong>never</strong> a correctness, honesty, or intent
+grade. Schema and grade vocabulary:
+<a href="https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/311_scoreboard-per-repo-index-plan.md">docs/311</a>.</p>
 </blockquote>
 <h2>As of</h2>
 <table>
@@ -123,11 +126,11 @@ claim-vs-diff mismatch — <strong>never</strong> a correctness, honesty, or int
 <tr>
 <th>Commits</th>
 <th>Checkable</th>
-<th>Witnessed</th>
-<th>Unwitnessed (raw)</th>
-<th>Abstained</th>
+<th>Backed by the diff</th>
+<th>Drifted (raw)</th>
+<th>Skipped</th>
 <th>Raw rate</th>
-<th>Adjudicated</th>
+<th>Final grade</th>
 </tr>
 </thead>
 <tbody>
@@ -146,38 +149,38 @@ claim-vs-diff mismatch — <strong>never</strong> a correctness, honesty, or int
 artifact, so adjudication removed nothing. (Before the #79/#81
 fire-narrowing landed in the auditor — <code>86f437f</code>, in this same range — the
 sweep carried additional artifact fires; that history, hand-adjudicated, is
-in the <a href="https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/methodology.md">methodology's false-positive section</a>.)</p>
-<h2>By claim kind</h2>
+in the <a href="https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/scoreboard/methodology.md">methodology's false-positive section</a>.)</p>
+<h2>By kind of claim</h2>
 <table>
 <thead>
 <tr>
-<th>Kind</th>
-<th>Witnessed</th>
-<th>Unwitnessed</th>
-<th>Abstained</th>
+<th>Kind of claim</th>
+<th>Backed by the diff</th>
+<th>Drifted</th>
+<th>Skipped</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>code_effect</code></td>
+<td><code>fix / add / remove</code> (code)</td>
 <td>25</td>
 <td>0</td>
 <td>0</td>
 </tr>
 <tr>
-<td><code>test</code></td>
+<td><code>tests</code></td>
 <td>5</td>
 <td>0</td>
 <td>0</td>
 </tr>
 <tr>
-<td><code>doc</code></td>
+<td><code>docs</code></td>
 <td>96</td>
 <td>3</td>
 <td>0</td>
 </tr>
 <tr>
-<td><code>none</code> (no checkable claim)</td>
+<td>no checkable claim (skipped)</td>
 <td>—</td>
 <td>—</td>
 <td>74</td>
@@ -239,11 +242,11 @@ fire-narrowing continues (each narrowing is a public issue, e.g. #79/#81);
 the as-of block above is what this page graded, with what.</p>
 <h2>Corrections</h2>
 <p>A contested flag gets re-adjudicated and the page re-rendered (the
-<a href="https://github.com/anthony-chaudhary/dos-kernel/blob/master/311_scoreboard-per-repo-index-plan.md">docs/311</a> §3 path). Until the
+<a href="https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/311_scoreboard-per-repo-index-plan.md">docs/311</a> §3 path). Until the
 <code>scoreboard-correction</code> template ships (docs/311 P4), open a plain issue
 naming this page and the SHA. Methodology — what the witness reads, what it
 abstains on, where it has been wrong:
-<a href="https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/methodology.md">docs/scoreboard/methodology.md</a>.</p>
+<a href="https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/scoreboard/methodology.md">docs/scoreboard/methodology.md</a>.</p>
   <footer>
     <p>DOS — the Dispatch Operating System. Open source under the
     <a href="https://github.com/anthony-chaudhary/dos-kernel/blob/master/LICENSE">MIT license</a>.
