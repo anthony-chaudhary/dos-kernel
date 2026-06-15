@@ -29,6 +29,10 @@ story, start at the [README](../../README.md) or the
 | How do I verify a quoted holding actually appears in the cited opinion? | `citation-resolve` (MCP) | [verify-a-quoted-holding-appears-in-the-opinion](verify-a-quoted-holding-appears-in-the-opinion.md) |
 | My recalled agent memory is stale or wrong — how do I re-verify it? | `recall` (MCP) | [recalled-agent-memory-is-stale-how-to-reverify](recalled-agent-memory-is-stale-how-to-reverify.md) |
 | How do I prove a phase or feature actually shipped from git history? | `dos verify` | [prove-a-phase-shipped-from-git-history](prove-a-phase-shipped-from-git-history.md) |
+| How do I do lease-based file locking to coordinate parallel coding agents? | `dos arbitrate` / `dos lease-lane` | [lease-based-file-locking-for-parallel-agents](lease-based-file-locking-for-parallel-agents.md) |
+| How do I verify what a subagent claims before folding its output? | `dos verify` / `dos commit-audit` | [verify-what-a-subagent-claims-before-folding](verify-what-a-subagent-claims-before-folding.md) |
+| Reward hacking in LLM coding agents — how do I measure and prevent it? | `dos reward` / `dos improve` | [reward-hacking-in-llm-coding-agents](reward-hacking-in-llm-coding-agents.md) |
+| Why can't I trust an AI model to judge its own work? | `dos verify` / `dos improve` | [why-you-cant-trust-a-model-to-judge-its-own-work](why-you-cant-trust-a-model-to-judge-its-own-work.md) |
 
 ## How to read the numbers on these pages
 
