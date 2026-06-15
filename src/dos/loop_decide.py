@@ -71,7 +71,7 @@ import enum
 from dataclasses import dataclass, replace
 from typing import Optional
 
-from dos import breaker
+from dos import breaker, improve
 from dos.gate_classify import (
     GATE_HARD,
     GATE_MODES,
@@ -575,6 +575,34 @@ class LoopState:
                              benign-drain breaker). Set in 5c on a DRAIN that routes
                              to /replan; cleared on any non-DRAIN outcome. Not a
                              stop signal on its own.
+      ratchet              — docs/351: the OPTIONAL in-flight `improve.CandidateVerdict`
+                             (the OUTER RATCHET) the caller gathered for THIS iteration
+                             via `dos improve` over its witnessed net gain — env-authored
+                             facts (the reconcile-VERIFIED ship-count rising, suite green,
+                             truth clean), NEVER the loop's "I shipped" self-report. Like
+                             `liveness`/`completion` it is in-flight EVIDENCE the caller
+                             re-gathers each iteration, not carried counter state —
+                             `decide()` is pure and may not run `dos improve` itself. It
+                             lives here so RSI is first-class across the loops without a
+                             new leaf: `improve.classify` already IS the outer-ratchet
+                             verdict, and this is the FOURTH instance of the
+                             optional-in-flight-evidence pattern (the sibling of
+                             `liveness`/`completion`/`pickability`/`cooldown`). `decide()`
+                             STOPs with `StopReason.NOT_RATCHETING` when the verdict is
+                             `improve.Candidate.ESCALATE` — N iterations in a row with no
+                             witnessed net gain (the breaker fired INSIDE `improve`), i.e.
+                             the loop is running but not improving (the spinning-while-
+                             narrating-progress failure that WORSENS with optimization
+                             steps). A KEEP never stops; a lone REVERT is one breaker tick
+                             carried by `improve`, not a stop. The verdict is read
+                             VERBATIM (the loop adds NO second judgement — the docs/138
+                             non-forgeability carried end-to-end). **Opt-in**: `None` (the
+                             default) skips the rung entirely → BYTE-IDENTICAL to the
+                             pre-docs/351 loop, the same conservative default as
+                             `liveness`. (`improve` is a SIBLING kernel import — the
+                             litmus is "no host, no I/O", not "no sibling import", and
+                             `decide()` stays pure: it READS a verdict value, never
+                             computes one.)
     """
 
     iteration: int = 1
@@ -602,6 +630,7 @@ class LoopState:
     descendant_progress: Optional[DescendantProgress] = None
     consecutive_adopt_wait: int = 0
     max_adopt_wait: int = 2
+    ratchet: Optional[improve.CandidateVerdict] = None
 
     def __post_init__(self) -> None:
         if self.gate_mode not in GATE_MODES:
@@ -636,6 +665,7 @@ class StopReason(str, enum.Enum):
     PICK_COOLDOWN = "pick-cooldown"            # docs/207 §3: the next unit was attempted-and-didn't-move inside the cooldown window AND nothing fresher is offerable — re-dispatching it would re-storm; honest-STOP + surface the cooled unit (the anti-churn breaker; the ~5%-shipping re-pick storm)
     BENIGN_DRAIN = "benign-drain"              # FQ-509-sibling (QWD): K consecutive UNPRODUCTIVE /replans, each bracketed by a DRAIN, on the same lane — the lane is genuinely drained but BENIGN (every phase already shipped/in-flight, nothing to refill). The drained-twice rung never arms (an UNPRODUCTIVE /replan is not a refill attempt, FQ-240), so without this rung the loop spins DRAIN→/replan→DRAIN→/replan to the iteration cap (~$11+/55min for 0 refill). Stop instead + surface (re-scope or wait for the in-flight phases to settle). The benign-drain analogue of DRAINED_TWICE: that one is "a PRODUCTIVE /replan still couldn't refill"; this is "the /replans are all UNPRODUCTIVE because there is nothing left to refill."
     REPLAN_STALLED = "replan-stalled"          # #506 / docs/258: K consecutive UNPRODUCTIVE /replans regardless of WHY (the broader sibling of BENIGN_DRAIN). MEASURED: /replan is 45% of all loop wall-clock and 43% of replan iters STALL (0 refill) — a 53-turn replan that refilled nothing even though commits landed (so the gate was NOT a DRAIN, which is exactly the case BENIGN_DRAIN's `last_gate_was_drain` bracket deliberately ignores). BENIGN_DRAIN = "lane empty"; REPLAN_STALLED = "/replan keeps doing costly nothing." Trips on the Kth unproductive REPLAN_DONE ITSELF (default K=2). The FIRST loop_decide rung expressed through the `dos.breaker` primitive rather than a hand-written inline counter.
+    NOT_RATCHETING = "not-ratcheting"          # docs/351: the OUTER ratchet. The caller gathered an `improve.CandidateVerdict` (via `dos improve`) over THIS iteration's witnessed net gain — env-authored facts (reconcile-VERIFIED ships rising, suite green, truth clean), never the loop's "I shipped" self-report. An `improve` ESCALATE maps here: N iterations in a row with NO witnessed net gain (the breaker fired INSIDE `improve`). The loop is running but producing no witnessed progress — the "spinning, narrating progress while net-shipping nothing real" failure the +31.4pp-over-steps reward-hacking result names. A single REVERT is one breaker tick, not a stop. The library-sibling of this rung is `retire`/docs/350; the verdict is taken VERBATIM from `improve` (the loop adds no second judgement — the docs/138 non-forgeability carried end-to-end). Checked in the SPINNING ground-truth tier (after COMPLETE, which beats it; SPINNING wins the reason when both fire).
 
     # PERMANENT legacy alias — same object as BLOCKED, so any un-migrated
     # `is StopReason.WEDGE` keeps working (mirrors GateVerdict.WEDGE).
@@ -789,6 +819,16 @@ def decide(state: LoopState, outcome: IterationOutcome) -> LoopDecision:
                          not a spin) and BEFORE the outcome block (ground truth
                          overrides the SHIPPED self-report). Opt-in: `None`
                          liveness skips this rung entirely → byte-identical.
+      4a. NOT_RATCHETING → stop (docs/351): if `state.ratchet` (an
+                         `improve.CandidateVerdict` the caller gathered via
+                         `dos improve` over this iteration's witnessed net gain)
+                         ESCALATEd, the loop has run N iterations in a row with no
+                         witnessed net gain — running but not improving (the OUTER
+                         ratchet, RSI first-class across the loops). Same
+                         ground-truth tier as SPINNING (checked just after it, so
+                         SPINNING wins the reason when both fire); the verdict is
+                         read VERBATIM. A KEEP / lone REVERT never stops. Opt-in:
+                         `None` skips it → byte-identical.
       4b. PICK_HELD_INVARIANT → stop (docs/168 §5): if `state.pickability` is HELD
                          by a re-dispatch-invariant reason (DRAFT_CLASS /
                          OPERATOR_GATED / SOAK_OPEN / DEPENDENCY_UNMET), the next
@@ -849,9 +889,17 @@ def decide(state: LoopState, outcome: IterationOutcome) -> LoopDecision:
     pick = state.pickability
     cool = state.cooldown
     dprog = state.descendant_progress
+    # The outer-ratchet verdict (docs/351) is gathered and cleared the SAME way and
+    # for the SAME reason as `liveness`/`completion`: it is in-flight EVIDENCE the
+    # caller re-gathers each iteration (it ran `dos improve` over this iteration's
+    # witnessed net gain — reconcile-VERIFIED ships rising, suite green, truth clean)
+    # and handed the verdict in. It is NOT carried counter state, so a stale verdict
+    # must not survive into the next iteration's `state`; with it cleared up front,
+    # every path that does NOT stop on it is byte-identical to the pre-docs/351 loop.
+    rat = state.ratchet
     state = replace(
         state, liveness=None, completion=None, convergence=None, pickability=None,
-        cooldown=None, descendant_progress=None,
+        cooldown=None, descendant_progress=None, ratchet=None,
     )
 
     # 1. LAUNCH_FAILED — the subprocess never produced a valid init envelope.
@@ -1037,6 +1085,57 @@ def decide(state: LoopState, outcome: IterationOutcome) -> LoopDecision:
                 "commits and 0 lane events since it started; stopping on "
                 "ground-truth evidence rather than burning the iteration budget "
                 "narrating motion it is not making"
+            ),
+        )
+
+    # 4a. NOT_RATCHETING (docs/351) — the OUTER RATCHET, RSI made first-class across
+    #     the loops. If the caller gathered an `improve.CandidateVerdict` for THIS
+    #     iteration's witnessed net gain (it ran `dos improve` over env-authored facts
+    #     — reconcile-VERIFIED ships rising, suite green, truth clean — NEVER the
+    #     loop's "I shipped" self-report) and that verdict ESCALATEd, the loop has run
+    #     N iterations in a row producing NO witnessed net gain: it is running but not
+    #     improving — the "spinning, narrating progress while net-shipping nothing
+    #     real" failure the reward-hacking literature names (it WORSENS with steps:
+    #     +31.4pp over 10→100 optimization steps), and the reason the witness must
+    #     gate EVERY kept iteration, not run once. Stop and surface — the breaker
+    #     already fired INSIDE `improve` (its ESCALATE IS the streak), so this is the
+    #     RSI bottleneck handed back to a human, by construction.
+    #
+    #     The verdict is read VERBATIM — the loop adds NO second judgement. That is
+    #     what carries the docs/138 non-forgeability end-to-end: the stop bit is a
+    #     pure function of facts the loop did not author (the `improve` keep-gate's
+    #     four env-authored facts). A loop that learns to narrate "great progress"
+    #     gains zero stop-avoidance, because the claim is not in the decision.
+    #
+    #     A single REVERT does NOT stop here — it is one breaker tick (mirrors how a
+    #     single UNCLEAR does not stop but the streak does; `improve` carries the
+    #     count, ESCALATE is the streak reaching the cap). KEEP never stops.
+    #
+    #     Placement is load-bearing and mirrors SPINNING (the sibling ground-truth
+    #     rung): AFTER the not-a-fault stops + COMPLETE (a provably-finished run is
+    #     not "not ratcheting" — COMPLETE beats it, the docs/280 precedent), and in
+    #     the same tier as SPINNING. SPINNING is checked FIRST, so when BOTH fire
+    #     (a run landing 0 delta AND escalating the ratchet — the same disease) the
+    #     ground-truth git-delta reason wins; NOT_RATCHETING is the composed-verdict
+    #     reason for the case SPINNING did not already name. BEFORE the pick rungs +
+    #     the outcome block (the ratchet pre-empts the iteration's self-report — the
+    #     same "ground truth beats the SHIPPED token" precedence SPINNING has).
+    #
+    #     Opt-in / byte-identical: `rat is None` (the default) skips this rung
+    #     entirely, so an un-migrated caller gets the pre-docs/351 behavior exactly.
+    #     Only an ESCALATE stops; KEEP and a lone REVERT fall through unchanged.
+    if rat is not None and rat.verdict is improve.Candidate.ESCALATE:
+        return LoopDecision(
+            action=_STOP,
+            next_state=state,
+            stop_reason=StopReason.NOT_RATCHETING,
+            surface=True,
+            reason=(
+                "the outer ratchet (dos improve) ESCALATEd — the loop has run too "
+                "many iterations in a row with no witnessed net gain (suite/truth/"
+                "measured-progress, not the loop's self-report), so it is running "
+                "but not improving; stopping and handing the judgment back to a "
+                "human rather than spinning. " + rat.reason
             ),
         )
 

@@ -784,6 +784,141 @@ class TestLivenessSelfStop:
         assert d.stop_reason == ld.StopReason.SPINNING
 
 
+class TestOuterRatchetSelfStop:
+    """docs/351: the OUTER RATCHET — RSI first-class across the loops. The loop
+    self-stops with NOT_RATCHETING when the in-flight `improve.CandidateVerdict` it
+    was given ESCALATEd: N iterations in a row with no witnessed net gain (the
+    breaker fired INSIDE `improve`), i.e. running-but-not-improving. The verdict is
+    read VERBATIM — the loop adds no second judgement (the docs/138 non-forgeability
+    carried end-to-end). KEEP / a lone REVERT never stop. Opt-in: no verdict →
+    byte-identical to the pre-docs/351 loop. The fourth instance of the
+    optional-in-flight-evidence pattern (sibling of `liveness`).
+    """
+
+    @staticmethod
+    def _escalate():
+        from dos import improve
+        # consecutive_reverts == max → ESCALATE on a no-op (green/clean, flat metric)
+        return improve.classify(
+            improve.CandidateEvidence(
+                suite_passed=True, truth_clean=True, work=0, baseline_work=0,
+                consecutive_reverts=3, narrated="loud progress claim"),
+            improve.ImprovePolicy(max_consecutive_reverts=3))
+
+    @staticmethod
+    def _revert():
+        from dos import improve
+        # a single no-op REVERT, breaker not open (1 of 3)
+        return improve.classify(
+            improve.CandidateEvidence(
+                suite_passed=True, truth_clean=True, work=0, baseline_work=0,
+                consecutive_reverts=0, narrated=""),
+            improve.ImprovePolicy(max_consecutive_reverts=3))
+
+    @staticmethod
+    def _keep():
+        from dos import improve
+        return improve.classify(
+            improve.CandidateEvidence(
+                suite_passed=True, truth_clean=True, work=5, baseline_work=0,
+                consecutive_reverts=0, narrated=""),
+            improve.ImprovePolicy(max_consecutive_reverts=3))
+
+    def test_escalate_stops_not_ratcheting_even_on_healthy_shipped(self):
+        # THE core case: an ESCALATE ratchet verdict stops with NOT_RATCHETING even
+        # when this iteration's outcome was a healthy SHIPPED — the ground-truth
+        # ratchet beats the SHIPPED self-report (the +31.4pp-over-steps failure: N
+        # "SHIPPED" iters that net-ship nothing real).
+        from dos import improve
+        rat = self._escalate()
+        assert rat.verdict is improve.Candidate.ESCALATE
+        state = ld.LoopState(iteration=3, max_iterations=10, ratchet=rat)
+        outcome = ld.IterationOutcome(
+            kind=ld.OutcomeKind.SHIPPED, packet_judge="SHIPPED-CLEAN", ship_count=2)
+        d = ld.decide(state, outcome)
+        assert d.action == "stop"
+        assert d.stop_reason == ld.StopReason.NOT_RATCHETING
+        assert d.surface is True
+
+    def test_reason_is_taken_verbatim_from_improve(self):
+        # Non-forgeability carried end-to-end: the rung's reason embeds the improve
+        # verdict's own reason (the loop adds no second judgement). The forgeable
+        # `narrated` ("loud progress claim") never appears — improve parsed it for
+        # nothing, so it cannot ride into the stop.
+        rat = self._escalate()
+        d = ld.decide(ld.LoopState(iteration=3, max_iterations=10, ratchet=rat),
+                      ld.IterationOutcome(kind=ld.OutcomeKind.SHIPPED,
+                                          packet_judge="SHIPPED-CLEAN", ship_count=1))
+        assert rat.reason in d.reason
+        assert "loud progress claim" not in d.reason
+
+    def test_lone_revert_does_not_stop(self):
+        # A single REVERT (breaker not open) is one tick, NOT a stop — it produces
+        # the SAME decision as no ratchet verdict at all, over every outcome kind.
+        rat = self._revert()
+        from dos import improve
+        assert rat.verdict is improve.Candidate.REVERT
+        for kind, outcome in _OUTCOME_BY_KIND.items():
+            none_state = ld.LoopState(iteration=2, max_iterations=10)
+            rev_state = ld.LoopState(iteration=2, max_iterations=10, ratchet=rat)
+            assert ld.decide(none_state, outcome) == ld.decide(rev_state, outcome), (
+                f"a lone REVERT changed the decision for {kind} (it must not)")
+
+    def test_keep_does_not_stop(self):
+        # A KEEP ratchet verdict never stops — same decision as no verdict.
+        rat = self._keep()
+        from dos import improve
+        assert rat.verdict is improve.Candidate.KEEP
+        for kind, outcome in _OUTCOME_BY_KIND.items():
+            none_state = ld.LoopState(iteration=2, max_iterations=10)
+            keep_state = ld.LoopState(iteration=2, max_iterations=10, ratchet=rat)
+            assert ld.decide(none_state, outcome) == ld.decide(keep_state, outcome), (
+                f"a KEEP changed the decision for {kind} (it must not)")
+
+    def test_no_ratchet_verdict_is_byte_identical(self):
+        # The opt-in / behavior-preservation proof: over EVERY OutcomeKind, decide()
+        # is identical whether `ratchet` is the default (unset) or explicitly None.
+        for kind, outcome in _OUTCOME_BY_KIND.items():
+            base = ld.LoopState(iteration=2, max_iterations=10)
+            explicit_none = ld.LoopState(iteration=2, max_iterations=10, ratchet=None)
+            assert ld.decide(base, outcome) == ld.decide(explicit_none, outcome), (
+                f"{kind} is not byte-identical between default and ratchet=None")
+
+    def test_ratchet_verdict_never_survives_into_next_state(self):
+        # In-flight evidence, not carried state: the verdict is cleared up front, so
+        # it never lingers in a returned next_state (terminal or continuing).
+        rat = self._keep()  # KEEP continues, so next_state is meaningful
+        d = ld.decide(ld.LoopState(iteration=2, max_iterations=10, ratchet=rat),
+                      ld.IterationOutcome(kind=ld.OutcomeKind.SHIPPED,
+                                          packet_judge="SHIPPED-CLEAN", ship_count=1))
+        assert d.next_state.ratchet is None
+
+    def test_complete_beats_not_ratcheting(self):
+        # Precedence: a provably-FINISHED run is not "not ratcheting". COMPLETE is
+        # checked before the ratchet rung, so it wins even when the ratchet ESCALATEd.
+        from dos.completion import Completion, CompletionVerdict
+        comp = CompletionVerdict(state=Completion.COMPLETE, reason="all units verified",
+                                 run_id="r-test")
+        state = ld.LoopState(iteration=3, max_iterations=10,
+                             ratchet=self._escalate(), completion=comp)
+        d = ld.decide(state, ld.IterationOutcome(
+            kind=ld.OutcomeKind.SHIPPED, packet_judge="SHIPPED-CLEAN", ship_count=1))
+        assert d.action == "stop"
+        assert d.stop_reason == ld.StopReason.COMPLETE
+
+    def test_spinning_wins_the_reason_over_ratchet(self):
+        # Precedence: when SPINNING and the ratchet-ESCALATE both fire (the same
+        # disease — a run landing 0 delta AND escalating), the ground-truth git-delta
+        # reason wins. SPINNING is checked first.
+        from dos.liveness import Liveness
+        state = ld.LoopState(iteration=3, max_iterations=10,
+                             ratchet=self._escalate(), liveness=Liveness.SPINNING)
+        d = ld.decide(state, ld.IterationOutcome(
+            kind=ld.OutcomeKind.SHIPPED, packet_judge="SHIPPED-CLEAN", ship_count=1))
+        assert d.action == "stop"
+        assert d.stop_reason == ld.StopReason.SPINNING
+
+
 class TestDescendantProgressAdoptWait:
     """FQ-509: a parent `-p` that PARKED while a descendant it spawned is still
     committing the registered picks lands as UNCLEAR (the ancestry check ran the
