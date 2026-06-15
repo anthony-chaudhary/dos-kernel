@@ -34,6 +34,117 @@ to "no budget" which would let the class run unbounded).
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Callable, Union
+
+
+# ---------------------------------------------------------------------------
+# RegionSource — how a free region of a concurrency class is PRODUCED (docs/97
+# §model). Two halves, kept apart on purpose:
+#
+#   * the TOML-declared half (frozen, pure data, NO callables) — the discriminant
+#     a `[[concurrency_class]]` row's `region_source = "..."` string parses to.
+#     A frozen dataclass that a host declares in `dos.toml`, so it carries no
+#     host pool and no callback.
+#   * the call-boundary half (`TopPickablePlanBinding`) — carries the host's
+#     actual pool list + `derive_tree` callback, handed to the projection at the
+#     call boundary exactly as `auto_pick_order` / `pick_oracle` / `rank_key` are
+#     handed to `arbiter.arbitrate` today. A callback structurally cannot live in
+#     a frozen TOML-loadable dataclass, so the two halves are separate types.
+#
+# The kernel owns the TYPES and the disjointness+budget admission; the host owns
+# the pool CONTENTS. None of these types names a host lane/plan/cluster — Law 1
+# (kernel imports no host) holds: `name`/`pool`/`kind` are opaque strings and
+# `derive_tree` an opaque callback.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class FixedTrees:
+    """A closed menu of named regions — clusters / named lanes (docs/97 §model).
+
+    `trees` is a tuple of `(label, tree)` pairs (tuple-of-tuples so the dataclass
+    stays `frozen`-hashable; `as_dict()` projects back to `{label: [globs]}`). This
+    is what `[lanes.trees]` already is — declared here only so the closed
+    `RegionSource` set is complete; the arbiter resolves a `FixedTrees` region via
+    the EXISTING cluster/named ladder, not a second resolver."""
+
+    trees: tuple[tuple[str, tuple[str, ...]], ...] = ()
+
+    def as_dict(self) -> dict[str, list[str]]:
+        """`{label: [globs]}` — the menu as the taxonomy's `[lanes.trees]` shape."""
+        return {label: list(globs) for label, globs in self.trees}
+
+
+@dataclass(frozen=True)
+class WholeWorkspace:
+    """The coarsest lock — the whole tree, one holder (docs/97 §model).
+
+    The `exclusive` class's region source (`global`/`orchestration`). No fields:
+    the region IS the workspace. Declared for completeness; the arbiter already
+    enforces the run-alone semantics via the exclusive-lane path."""
+
+
+@dataclass(frozen=True)
+class TopPickablePlanKind:
+    """The DISCRIMINANT for an open-pool priority region source (docs/97 §model).
+
+    Carries NO host data — it is only the marker a `[[concurrency_class]]` row's
+    `region_source = "top_pickable_plan"` string parses to. The actual open pool +
+    `derive_tree` callback are supplied at the CALL boundary as a
+    `TopPickablePlanBinding`, never declared in TOML (a callback cannot be TOML
+    data). This separation is what keeps the kernel free of host names: the class
+    declares THAT its region comes from an open pool; the host supplies WHICH plans
+    and HOW to derive their trees."""
+
+
+# The closed `RegionSource` discriminant set — the TOML-declarable kinds.
+RegionSourceKind = Union[FixedTrees, WholeWorkspace, TopPickablePlanKind]
+
+# The string a `[[concurrency_class]]` row uses to name an open-pool source. The
+# fixed/exclusive kinds are resolved by the existing ladder, so only the open-pool
+# kind needs a declarable discriminant string today.
+_REGION_SOURCE_STRINGS: dict[str, Callable[[], RegionSourceKind]] = {
+    "top_pickable_plan": TopPickablePlanKind,
+    "fixed_trees": FixedTrees,
+    "whole_workspace": WholeWorkspace,
+}
+
+
+def region_source_from_string(value: str | None) -> RegionSourceKind | None:
+    """Parse a `region_source` discriminant string to a `RegionSourceKind`.
+
+    `None`/empty → `None` (the class has no declared region source — its kind is
+    already resolved by the existing ladder, the back-compat default). An unknown
+    string RAISES (a typo'd discriminant is a host mistake worth surfacing, the
+    loud-on-malformed sibling-seam discipline). The fixed/exclusive kinds parse to
+    their empty form; the host fills a `FixedTrees`' menu separately if it uses one."""
+    if not value:
+        return None
+    key = str(value).strip().lower()
+    ctor = _REGION_SOURCE_STRINGS.get(key)
+    if ctor is None:
+        raise ValueError(
+            f"concurrency_class.region_source {value!r} is not a known kind; "
+            f"known kinds are {sorted(_REGION_SOURCE_STRINGS)}"
+        )
+    return ctor()
+
+
+@dataclass(frozen=True)
+class TopPickablePlanBinding:
+    """The call-boundary inputs for an open-pool priority region source.
+
+    Carries the HOST data a `TopPickablePlanKind` class needs at admission time:
+    `pool` — the opaque plan ids the host offers (a tuple of strings, never
+    inspected by the kernel beyond identity), and `derive_tree` — a callback the
+    host supplies that maps one plan id to its repo-relative file tree (globs).
+    Both are handed to `project_to_ladder` (below) at the call boundary, exactly as
+    `auto_pick_order` is handed to `arbiter.arbitrate` today. NOT frozen-required
+    and NOT TOML-loadable — it holds a callable. The kernel names no host: `pool`
+    members and the derived globs are opaque strings."""
+
+    pool: tuple[str, ...]
+    derive_tree: Callable[[str], list[str]]
 
 
 @dataclass(frozen=True)
@@ -44,10 +155,21 @@ class ConcurrencyClass:
     opaque workspace data. `max_concurrent` is a non-negative int — 0 means "admit
     none of this kind" (a valid, if drastic, throttle); a negative value is a
     declaration error.
+
+    `rank` (docs/97 §model) is the auto-pick ladder order — lower walks first; it
+    lets a host order classes (e.g. a `priority` class ahead of `maintenance`)
+    when it projects them into the ladder. `region_source` (docs/97 §model) is the
+    declared discriminant for HOW a free region of this class is produced — `None`
+    (the back-compat default) means "this kind is already on the existing ladder";
+    a `TopPickablePlanKind` means "an open pool supplies the region" (the host
+    hands the pool + derive_tree at the call boundary). Both default so every
+    existing `ConcurrencyClass(name, max_concurrent)` construction is byte-identical.
     """
 
     name: str
     max_concurrent: int
+    rank: int = 0
+    region_source: RegionSourceKind | None = None
 
     def __post_init__(self) -> None:
         if not self.name:
@@ -61,6 +183,11 @@ class ConcurrencyClass:
             raise ValueError(
                 f"concurrency_class[{self.name!r}].max_concurrent must be ≥ 0, "
                 f"got {self.max_concurrent}"
+            )
+        if not isinstance(self.rank, int) or isinstance(self.rank, bool):
+            raise ValueError(
+                f"concurrency_class[{self.name!r}].rank must be an int, "
+                f"got {type(self.rank).__name__}"
             )
 
 
@@ -113,10 +240,17 @@ class ClassBudgets:
                     f"[[concurrency_class]] entry {i} needs both `name` and "
                     f"`max_concurrent` (got keys {sorted(item)})"
                 )
-            # ConcurrencyClass.__post_init__ validates the value shapes (name
-            # non-empty, max_concurrent a non-negative int).
+            # Optional docs/97 §model fields: `rank` (ladder order, default 0) and
+            # `region_source` (the discriminant string, default None = "already on
+            # the ladder"). `region_source_from_string` raises on an unknown kind
+            # (loud-on-malformed); ConcurrencyClass.__post_init__ validates name /
+            # max_concurrent / rank shapes.
             out.append(ConcurrencyClass(
-                name=str(item["name"]), max_concurrent=item["max_concurrent"]))
+                name=str(item["name"]),
+                max_concurrent=item["max_concurrent"],
+                rank=item.get("rank", 0),
+                region_source=region_source_from_string(item.get("region_source")),
+            ))
         return cls(tuple(out))
 
 

@@ -48,6 +48,74 @@ def test_zero_budget_is_valid():
     assert cc.ConcurrencyClass(name="x", max_concurrent=0).max_concurrent == 0
 
 
+# ── docs/97 §model: rank + region_source fields (back-compat defaulted) ──────
+
+
+def test_rank_and_region_source_default_to_back_compat():
+    # The two new fields default so every existing two-arg construction is unchanged.
+    c = cc.ConcurrencyClass(name="priority", max_concurrent=3)
+    assert c.rank == 0 and c.region_source is None
+
+
+def test_rank_rejects_bool():
+    # bool is an int subclass; `rank = true` in toml is a declaration error.
+    with pytest.raises(ValueError):
+        cc.ConcurrencyClass(name="p", max_concurrent=1, rank=True)
+
+
+def test_rank_rejects_non_int():
+    with pytest.raises(ValueError):
+        cc.ConcurrencyClass(name="p", max_concurrent=1, rank="2")
+
+
+def test_region_source_kind_is_carried():
+    c = cc.ConcurrencyClass(
+        name="priority", max_concurrent=3, rank=4,
+        region_source=cc.TopPickablePlanKind())
+    assert c.rank == 4
+    assert isinstance(c.region_source, cc.TopPickablePlanKind)
+
+
+# ── docs/97 §model: RegionSource discriminant + parse ───────────────────────
+
+
+def test_region_source_from_string_known_kinds():
+    assert isinstance(cc.region_source_from_string("top_pickable_plan"),
+                      cc.TopPickablePlanKind)
+    assert isinstance(cc.region_source_from_string("fixed_trees"), cc.FixedTrees)
+    assert isinstance(cc.region_source_from_string("whole_workspace"),
+                      cc.WholeWorkspace)
+
+
+def test_region_source_from_string_none_is_none():
+    # No declared source → None = "this kind is already on the existing ladder".
+    assert cc.region_source_from_string(None) is None
+    assert cc.region_source_from_string("") is None
+
+
+def test_region_source_from_string_unknown_raises():
+    # A typo'd discriminant is loud-on-malformed, not a silent drop.
+    with pytest.raises(ValueError):
+        cc.region_source_from_string("magic_pool")
+
+
+def test_region_source_from_string_is_case_insensitive():
+    assert isinstance(cc.region_source_from_string("Top_Pickable_Plan"),
+                      cc.TopPickablePlanKind)
+
+
+def test_fixed_trees_as_dict_roundtrips():
+    ft = cc.FixedTrees((("api", ("api/**",)), ("worker", ("worker/**", "lib/**"))))
+    assert ft.as_dict() == {"api": ["api/**"], "worker": ["worker/**", "lib/**"]}
+
+
+def test_top_pickable_plan_binding_carries_pool_and_callback():
+    b = cc.TopPickablePlanBinding(pool=("PA", "PB"),
+                                  derive_tree=lambda pid: [f"{pid.lower()}/**"])
+    assert b.pool == ("PA", "PB")
+    assert b.derive_tree("PA") == ["pa/**"]
+
+
 # ── as_arbiter_budgets + from_table ─────────────────────────────────────────
 
 
@@ -93,6 +161,31 @@ def test_from_table_rejects_entry_missing_keys():
 def test_from_table_rejects_non_table_entry():
     with pytest.raises(ValueError):
         cc.ClassBudgets.from_table(["priority=3"])  # a string, not a table
+
+
+def test_from_table_reads_rank_and_region_source():
+    arr = [{
+        "name": "priority", "max_concurrent": 3, "rank": 4,
+        "region_source": "top_pickable_plan",
+    }]
+    b = cc.ClassBudgets.from_table(arr)
+    (c,) = b.classes
+    assert c.rank == 4
+    assert isinstance(c.region_source, cc.TopPickablePlanKind)
+    # The budget projection is unchanged by the new fields.
+    assert b.as_arbiter_budgets() == {"priority": 3}
+
+
+def test_from_table_rank_and_region_source_default_when_absent():
+    # An entry with only name+max_concurrent keeps the back-compat defaults.
+    (c,) = cc.ClassBudgets.from_table([{"name": "p", "max_concurrent": 1}]).classes
+    assert c.rank == 0 and c.region_source is None
+
+
+def test_from_table_rejects_unknown_region_source():
+    with pytest.raises(ValueError):
+        cc.ClassBudgets.from_table(
+            [{"name": "p", "max_concurrent": 1, "region_source": "bogus"}])
 
 
 # ── parse_cli_budgets (the --class-budget flag) ─────────────────────────────
