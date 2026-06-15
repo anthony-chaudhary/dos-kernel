@@ -54,11 +54,46 @@ actually fetched, or explicitly added — never a promise the script can't keep.
 Every digest row is a **lead to triage, not a verified fact** — verify before
 acting (the kernel's own rule: don't believe the report, check the effect).
 
+## The roll-up — the clean "most important items" view
+
+A full scan can surface dozens of items. The roll-up is the human view: the most
+important items, **ranked**, with the long tail collapsed to a count.
+
+```bash
+python scripts/sota_scan.py --rollup            # latest scan's items, ranked
+python scripts/sota_scan.py --rollup --top 12   # show more before the tail count
+python scripts/sota_scan.py --rollup --all      # rank the whole ledger, not just the latest scan
+```
+
+Importance is a small, defensible heuristic over data we already have — a
+per-source base weight (research and agent-surfaced items lead), a log-damped
+popularity term (a 5000★ repo outranks a 50★ one without one mega-repo swamping
+the list), and a freshness nudge for items from the latest scan day. It is a
+**relevance hint for ordering, never a claim of fact** — the same rule as the
+suggested actions.
+
+### Single key: `r`
+
+On Windows, `scripts/r.ps1` is the one-keystroke roll-up. Dot-source it once and
+then just press `r`:
+
+```powershell
+. .\scripts\r.ps1     # defines the function `r` for this session (dot + space)
+r                     # ← the single key — prints the roll-up
+r -Top 12             # same knobs as --rollup
+r -All
+```
+
+To get `r` in every new shell, add that dot-source line (with this file's full
+path) to your `$PROFILE`. Run directly without defining the function with
+`pwsh scripts/r.ps1`.
+
 ## Running it
 
 ```bash
 python scripts/sota_scan.py --scan                 # fetch, dedup, write digest, print issue body
 python scripts/sota_scan.py --scan --open-issue    # ...and post the issue (leak-gated)
+python scripts/sota_scan.py --rollup               # the clean ranked roll-up (single key `r`)
 python scripts/sota_scan.py --status               # per-source counts over the ledger
 python scripts/sota_scan.py --scan --stamp 2026-06-15   # pin the date (deterministic)
 ```

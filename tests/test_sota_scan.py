@@ -236,3 +236,79 @@ def test_ledger_rows_are_lf_terminated(ledger, monkeypatch):
     raw = ledger.read_bytes()
     assert b"\r\n" not in raw
     assert raw.endswith(b"\n")
+
+
+# ---------------------------------------------------------------------------
+# Roll-up — the clean "most important items" view + the importance ranker.
+# ---------------------------------------------------------------------------
+def test_importance_orders_by_source_then_popularity():
+    # a high-star repo beats a low-star repo; arXiv (high base) beats a 0-pt
+    # reddit post; popularity is log-damped so it can't swamp the base weight.
+    big_repo = ss._item("github", "gh:a/b", "big", "u", score=10000, date="2026-06-10")
+    small_repo = ss._item("github", "gh:c/d", "small", "u", score=10, date="2026-06-10")
+    paper = ss._item("arxiv", "arxiv:1", "paper", "u", date="2026-06-10")
+    chatter = ss._item("reddit", "reddit:x", "thread", "u", date="2026-06-10")
+    assert ss.importance(big_repo) > ss.importance(small_repo)
+    assert ss.importance(paper) > ss.importance(chatter)
+
+
+def test_importance_gives_freshness_boost():
+    fresh = ss._item("hn", "hn:1", "t", "u", score=50, date="2026-06-15")
+    stale = ss._item("hn", "hn:2", "t", "u", score=50, date="2026-01-01")
+    assert ss.importance(fresh, today="2026-06-15") > ss.importance(stale, today="2026-06-15")
+
+
+def test_rank_items_is_stable_and_deterministic():
+    items = _fixture_items()
+    a = [it["id"] for it in ss.rank_items(items, today="2026-06-15")]
+    b = [it["id"] for it in ss.rank_items(list(reversed(items)), today="2026-06-15")]
+    assert a == b  # order is a function of the items, not their input order
+
+
+def test_rollup_shows_top_and_collapses_tail():
+    items = [
+        ss._item("github", f"gh:r{i}", f"repo {i}", f"https://x/{i}",
+                 score=100 * (i + 1), date="2026-06-15")
+        for i in range(10)
+    ]
+    out = ss.render_rollup(items, stamp="2026-06-15", top=3)
+    assert "10 item(s) tracked" in out
+    assert " 1. " in out and " 3. " in out  # top 3 numbered
+    assert " 4. " not in out                # 4th is in the tail, not listed
+    assert "and 7 more" in out              # tail collapsed to a count
+    # the highest-star repo (repo 9, 1000★) leads; the lowest (repo 0) is in
+    # the collapsed tail, so it is NOT shown by title at all.
+    assert "repo 9" in out
+    assert "repo 0" not in out
+
+
+def test_rollup_empty_is_graceful():
+    out = ss.render_rollup([], stamp="2026-06-15")
+    assert "Nothing tracked yet" in out
+
+
+def test_rollup_cli_defaults_to_latest_scan(ledger, monkeypatch):
+    # two scans on different days; --rollup (no --all) shows only the latest day.
+    monkeypatch.setattr(ss, "gather", lambda topics, since: _fixture_items())
+    ss.main(["--scan", "--stamp", "2026-06-08", "--ledger", str(ledger)])
+    extra = [ss._item("hn", "hn:newday", "fresh story", "u", score=300, date="2026-06-15")]
+    monkeypatch.setattr(ss, "gather", lambda topics, since: extra)
+    ss.main(["--scan", "--stamp", "2026-06-15", "--ledger", str(ledger)])
+
+    rc = ss.main(["--rollup", "--ledger", str(ledger), "--json"])
+    assert rc == 0
+    rc = ss.main(["--rollup", "--all", "--ledger", str(ledger), "--json"])
+    assert rc == 0  # --all path runs over the whole ledger
+
+
+def test_rollup_json_carries_importance_and_tail(ledger, monkeypatch, capsys):
+    import json as _json
+    monkeypatch.setattr(ss, "gather", lambda topics, since: _fixture_items())
+    ss.main(["--scan", "--stamp", "2026-06-15", "--ledger", str(ledger)])
+    capsys.readouterr()  # drain the --scan output so we only read the rollup JSON
+    ss.main(["--rollup", "--top", "1", "--ledger", str(ledger), "--json"])
+    out = _json.loads(capsys.readouterr().out)
+    assert out["tracked"] == 3
+    assert len(out["top"]) == 1
+    assert out["tail"] == 2
+    assert "importance" in out["top"][0]

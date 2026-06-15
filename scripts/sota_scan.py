@@ -377,6 +377,85 @@ def _group(items: list[dict]) -> dict[str, list[dict]]:
     return g
 
 
+# ---------------------------------------------------------------------------
+# Importance — the roll-up's ranker. A small, defensible score over data we
+# ALREADY have (no extra fetch, fully testable). It decides WHICH items are
+# "the most important" so the roll-up can show those and collapse the tail.
+#
+# It is a relevance HEURISTIC, never a claim of fact — the same honesty rule as
+# suggest_action(). The weights say only "surface this one first", not "this is
+# true / good".
+# ---------------------------------------------------------------------------
+# Per-source base weight: what the source itself signals. Research (arXiv) and an
+# item the AGENT explicitly surfaced (web) lead — a human/agent already judged it
+# relevant. Repos and HN earn their rank mostly from their own score (stars/pts);
+# Reddit is discussion context.
+_SOURCE_WEIGHT = {"arxiv": 60, "web": 55, "github": 30, "hn": 25, "reddit": 15}
+
+
+def importance(item: dict, *, today: str = "") -> float:
+    """A rank score for one item. Higher = surface sooner. Pure over the item.
+
+    base(source) + a log-damped popularity term (so a 5000★ repo outranks a 50★
+    one without a single mega-repo swamping everything) + a small boost for an
+    item from the most recent scan date. Deterministic; no clock, no network.
+    """
+    import math
+
+    score = float(_SOURCE_WEIGHT.get(item.get("source", ""), 10))
+    pop = int(item.get("score", 0) or 0)
+    if pop > 0:
+        score += 12.0 * math.log10(pop + 1)  # 100★→24, 1k★→36, 10k★→48
+    # freshness: an item dated on/after the latest scan day gets a nudge.
+    if today and (item.get("date") or "") >= today:
+        score += 8.0
+    return round(score, 3)
+
+
+def rank_items(items: list[dict], *, today: str = "") -> list[dict]:
+    """Items sorted most-important first. Ties break by date then id so the
+    order is stable (a re-run yields the same roll-up)."""
+    return sorted(
+        items,
+        key=lambda it: (-importance(it, today=today),
+                        it.get("date", ""), it.get("id", "")),
+    )
+
+
+def render_rollup(items: list[dict], *, stamp: str, top: int = 8) -> str:
+    """The clean user roll-up: the `top` most important items overall, then the
+    rest collapsed to a per-source tail count. The single-key `r` view."""
+    L = [f"# DOS SOTA roll-up — {stamp}", ""]
+    if not items:
+        L.append("Nothing tracked yet. Run `python scripts/sota_scan.py --scan` first.")
+        L.append("")
+        return "\n".join(L)
+    ranked = rank_items(items, today=stamp)
+    head, tail = ranked[:top], ranked[top:]
+    L.append(f"{len(items)} item(s) tracked — the {len(head)} most important first:")
+    L.append("")
+    for i, it in enumerate(head, 1):
+        src = _SOURCE_LABEL.get(it["source"], it["source"])
+        score = f" · {it['score']}★/pts" if it["score"] else ""
+        meta = " · ".join(x for x in (it.get("date", ""), it.get("topic", "")) if x)
+        title = it["title"] or it["url"]
+        L.append(f"{i:>2}. [{src}{score}] {title}")
+        L.append(f"    {it['url']}")
+        L.append(f"    → {suggest_action(it)}" + (f"   ({meta})" if meta else ""))
+        L.append("")
+    if tail:
+        by_src: dict[str, int] = {}
+        for it in tail:
+            by_src[it["source"]] = by_src.get(it["source"], 0) + 1
+        parts = [f"{by_src[s]} {_SOURCE_LABEL.get(s, s)}"
+                 for s in _SOURCE_ORDER if s in by_src]
+        L.append(f"…and {len(tail)} more: " + ", ".join(parts) + ".")
+        L.append("Full list: `python scripts/sota_scan.py --status` "
+                 "or the digest under docs/sota/.")
+        L.append("")
+    return "\n".join(L)
+
+
 def render_digest(items: list[dict], *, stamp: str) -> str:
     L = [f"# DOS SOTA scan — {stamp}", ""]
     if not items:
@@ -526,10 +605,16 @@ def main(argv: list[str] | None = None) -> int:
                    help="fetch every source, dedup, write the digest, print the issue body (default)")
     g.add_argument("--status", action="store_true",
                    help="per-source counts over the whole ledger")
+    g.add_argument("--rollup", action="store_true",
+                   help="the clean roll-up: the most important items, ranked (the single-key `r` view)")
     g.add_argument("--add-manual", action="store_true",
                    help="feed one agent-gathered item (e.g. a WebSearch hit) into the ledger + digest")
     ap.add_argument("--open-issue", action="store_true",
                     help="with --scan, also gh-issue-create the body (leak-gated)")
+    ap.add_argument("--top", type=int, default=8,
+                    help="(--rollup) how many top items to show before collapsing the tail (default 8)")
+    ap.add_argument("--all", dest="roll_all", action="store_true",
+                    help="(--rollup) rank the WHOLE ledger, not just the latest scan's items")
     ap.add_argument("--stamp", help="scan date (default: today UTC) — injectable for determinism")
     ap.add_argument("--since", help="recency floor YYYY-MM-DD (default: last recorded scan date)")
     ap.add_argument("--ledger", help="ledger path (default: docs/sota/seen.jsonl)")
@@ -568,6 +653,24 @@ def main(argv: list[str] | None = None) -> int:
         today = [r for r in read_ledger(ledger_path) if r.get("scanned") == stamp]
         _write_digest(today, stamp=stamp)
         print(f"added: {args.item_id}")
+        return 0
+
+    if args.rollup:
+        # default: roll up the latest scan's items (freshest, most actionable);
+        # --all ranks the whole ledger. The stamp shown is the latest scan date.
+        latest = last_stamp(rows)
+        scope = rows if args.roll_all else [r for r in rows if r.get("scanned") == latest]
+        roll_stamp = stamp if args.stamp else (latest or stamp)
+        if args.json:
+            ranked = rank_items(scope, today=roll_stamp)
+            top = ranked[: args.top]
+            print(json.dumps({
+                "stamp": roll_stamp, "tracked": len(scope),
+                "top": [dict(it, importance=importance(it, today=roll_stamp)) for it in top],
+                "tail": len(ranked) - len(top),
+            }, indent=2, sort_keys=True))
+        else:
+            print(render_rollup(scope, stamp=roll_stamp, top=args.top))
         return 0
 
     if args.status:
