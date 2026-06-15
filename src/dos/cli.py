@@ -2742,6 +2742,56 @@ def cmd_improve(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# retire  (the library-retention gate — does this memory/skill still EARN ITS PLACE?)
+#   (full prose: docs/350; the third leaf of the keep-only-what-a-witness-confirms
+#    family — the outcome-driven-retirement fix for "Library Drift")
+_RETIRE_EXITS = ExitMap(
+    {"KEEP": 0, "RETIRE": 3, "PROBATION": 4},
+    unknown=5,  # a future verdict the CLI hasn't caught up to — non-zero, distinct.
+    syscall="retire",  # docs/262 P2 — auto-record when observing
+)
+_RETIRE_EXIT_CONTRACT_ERROR = _RETIRE_EXITS.contract_error
+
+
+def cmd_retire(args: argparse.Namespace) -> int:
+    """Decide whether a remembered item still earns its place (docs/350, RET).
+
+    The outcome-driven-retirement counterpart to `cmd_improve`: it reads
+    ENV-AUTHORED facts (the measured contribution, the trial count, the library
+    size) — never the item's own self-description — and returns KEEP / RETIRE /
+    PROBATION. A RETIRE is a PROPOSAL for a human, never an autonomous delete.
+
+    Detail: docs/350.
+    """
+    _apply_workspace(args)
+    from dos import retire
+
+    try:
+        policy = retire.RetirePolicy(
+            min_contribution=args.min_contribution if args.min_contribution is not None
+            else retire.DEFAULT_POLICY.min_contribution,
+            min_trials=args.min_trials if args.min_trials is not None
+            else retire.DEFAULT_POLICY.min_trials,
+            max_active=args.max_active if args.max_active is not None
+            else retire.DEFAULT_POLICY.max_active,
+        )
+        evidence = retire.RetireEvidence(
+            contribution=args.contribution,
+            trials=args.trials,
+            active_count=args.active_count,
+            is_marginal=args.is_marginal,
+            narrated=args.narrated or "",
+        )
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return _RETIRE_EXIT_CONTRACT_ERROR
+
+    verdict = retire.classify(evidence, policy)
+
+    return _RETIRE_EXITS.emit(args, verdict, verdict.verdict.value)
+
+
+# ---------------------------------------------------------------------------
 # merge-gate  (the worktree-merge admission floor — may this branch MERGE?)
 #   (full prose: docs/327 — the COMMIT half of a worktree transaction)
 _MERGE_GATE_EXITS = ExitMap(
@@ -7012,6 +7062,7 @@ def _exit_code_contract() -> dict:
         "efficiency-trend": _EFFICIENCY_TREND_EXITS.contract(),
         "work-account": _WORK_ACCOUNT_EXITS.contract(),
         "improve": _IMPROVE_EXITS.contract(),
+        "retire": _RETIRE_EXITS.contract(),
         "breaker": _BREAKER_EXITS.contract(),
         "exec-capability": _EXEC_CAPABILITY_EXITS.contract(),
         "hook-exit": _HOOK_EXIT_EXITS.contract(),
@@ -8555,6 +8606,38 @@ Needs nothing else — no git, no plan, no journal, no clock (the verdict is pur
 driver does the I/O). Advisory: it reports KEEP/REVERT/ESCALATE, it executes no merge or
 checkout. The verdict IS the exit code: 0 KEEP, 3 REVERT, 4 ESCALATE, 2 contract error."""
 
+_HELP_RETIRE = """does this memory/skill still EARN ITS PLACE? the library-retention gate (docs/350).
+
+USE THIS WHEN: an agent has a growing library of remembered lessons / learned skills and
+you must decide whether ONE item should stay or be retired. The failure mode is "Library
+Drift": an un-gated library that only ever ADDS (never retires) drops the agent BELOW its
+no-skill baseline, because dead/weak items dilute retrieval. This is the outcome-driven-
+retirement gate — the third leaf of the keep-only-what-a-witness-confirms family (after
+`improve`), aimed at the library over time. It asks "does it still EARN ITS PLACE?", a
+DIFFERENT question from "is it still TRUE?" (that is the recall gate, dos memory recall).
+
+Feed it the facts the driver MEASURED — every one authored by the ENVIRONMENT, none by
+the item (the docs/138 invariant that makes the retain-bit non-forgeable):
+  dos retire --contribution 42 --trials 30                          →  KEEP, exit 0
+  dos retire --contribution 0  --trials 30                          →  RETIRE (underperformed), exit 3
+  dos retire --contribution 0  --trials 2                           →  PROBATION (thin), exit 4
+  dos retire --contribution 10 --trials 40 --active-count 51 \\
+             --max-active 50 --is-marginal                          →  RETIRE (over-cap), exit 3
+
+KEEP requires enough measured trials (>= --min-trials) AND a contribution that clears the
+floor (>= --min-contribution) AND staying within the active cap. Thin evidence
+(trials < --min-trials) is PROBATION, NEVER retire — the witness-ceiling honesty (don't
+retire a good item on evidence too thin to witness; a wrongly-retired skill is an
+irreversible loss). An over-cap marginal member is retired even if it clears the floor.
+
+NON-FORGEABILITY (docs/138): --narrated is the item's own self-description, carried for
+the operator and parsed for NOTHING — it cannot move RETIRE → KEEP. The only lever is the
+env-measured --contribution. RETIRE is a PROPOSAL for a human, never an autonomous delete.
+
+Needs nothing else — no store read, no clock (the verdict is pure; the driver does the
+I/O). Advisory: it reports KEEP/RETIRE/PROBATION, it deletes nothing. The verdict IS the
+exit code: 0 KEEP, 3 RETIRE, 4 PROBATION, 2 contract error."""
+
 _HELP_MERGE_GATE = """may this worktree branch MERGE? the worktree-merge admission floor (docs/327).
 
 USE THIS WHEN: an agent finished work in an ISOLATED worktree and you must decide whether
@@ -9539,6 +9622,58 @@ def build_parser() -> argparse.ArgumentParser:
                            "next_consecutive_reverts, reason, evidence}")
     _add_output_flag(pimp)
     pimp.set_defaults(func=cmd_improve)
+
+    # retire (docs/350) — the library-retention gate; the third leaf of the
+    # keep-only-what-a-witness-confirms family (after improve), aimed at the agent's
+    # growing library of remembered lessons / learned skills. The outcome-driven-
+    # retirement fix for "Library Drift" (un-gated accumulation drops agents below
+    # baseline). A RETIRE is a PROPOSAL for a human, never an autonomous delete.
+    pret = sub.add_parser(
+        "retire",
+        help="the library-retention gate: does this memory/skill still EARN ITS "
+             "PLACE (KEEP/RETIRE/PROBATION)?",
+        description=_HELP_RETIRE,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    _add_workspace_flags(pret)
+    # The env-MEASURED contribution — the only lever; the item's own pitch is not read.
+    pret.add_argument("--contribution", type=int, default=0, metavar="UNITS",
+                      help="the env-measured net effect of THIS item in YOUR unit (a "
+                           "success-rate delta, VERIFIED-uses minus harmful-uses, …). "
+                           "KEEP needs this >= --min-contribution. May be negative")
+    pret.add_argument("--trials", type=int, default=0, metavar="N",
+                      help="how many times the item was used / measured (a count). Below "
+                           "--min-trials ⇒ PROBATION (never retire on a thin witness)")
+    pret.add_argument("--active-count", dest="active_count", type=int, default=0,
+                      metavar="N",
+                      help="the library's current active size, for the bounded-cap rung "
+                           "(only matters under an armed --max-active)")
+    pret.add_argument("--is-marginal", dest="is_marginal", action="store_true",
+                      help="this item is the caller-ranked marginal lowest-contribution "
+                           "member an over-cap eviction would drop (only meaningful when "
+                           "--active-count > --max-active)")
+    pret.add_argument("--min-contribution", dest="min_contribution", type=int,
+                      default=None, metavar="UNITS",
+                      help="the contribution floor an item must clear to KEEP (default 1: "
+                           "an item must have made SOME measured positive difference)")
+    pret.add_argument("--min-trials", dest="min_trials", type=int, default=None,
+                      metavar="N",
+                      help="the trial floor below which the verdict is PROBATION, never "
+                           "RETIRE (default 5; the witness-ceiling — don't retire on thin "
+                           "evidence). Must be >= 1")
+    pret.add_argument("--max-active", dest="max_active", type=int, default=None,
+                      metavar="N",
+                      help="the bounded active-cap: over this size the marginal "
+                           "lowest-contribution member is RETIRE(OVER_CAP) even if it "
+                           "clears the floor (default 0 = DISABLED; size never forces a retire)")
+    pret.add_argument("--narrated", type=str, default=None, metavar="TEXT",
+                      help="the item's own self-description — carried for the operator "
+                           "surface and parsed for NOTHING (it cannot move RETIRE→KEEP; "
+                           "docs/138)")
+    pret.add_argument("--json", action="store_true",
+                      help="machine-readable verdict {verdict, retire_cause, reason, "
+                           "evidence}")
+    _add_output_flag(pret)
+    pret.set_defaults(func=cmd_retire)
 
     # merge-gate (docs/327) — the worktree-merge admission floor; the COMMIT half of
     # a worktree transaction, the floor-only sibling of `improve` (no metric, so a
