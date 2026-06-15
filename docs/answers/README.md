@@ -43,6 +43,11 @@ story, start at the [README](../../README.md) or the
 | How do agents prove to each other that work actually landed? | `dos status` / `dos verify` | [agent-to-agent-proof-that-work-landed](agent-to-agent-proof-that-work-landed.md) |
 | AI agents that game SWE-bench — how do I catch benchmark cheating? | `dos reward` / `dos commit-audit` | [ai-agents-that-game-swe-bench-benchmark-cheating](ai-agents-that-game-swe-bench-benchmark-cheating.md) |
 | Deterministic pre-commit hook vs an agent skill — which actually enforces? | `dos commit-audit` (exit code) | [deterministic-hook-vs-agent-skill-which-enforces](deterministic-hook-vs-agent-skill-which-enforces.md) |
+| How do I detect when an agent self-edited its CLAUDE.md / AGENTS.md? | `dos commit-audit` | [detect-a-self-edited-claude-md-instruction-file](detect-a-self-edited-claude-md-instruction-file.md) |
+| Is there an open-source alternative to paid AI legal citation checkers? | `citation-resolve` (MCP) | [open-source-ai-legal-citation-checker](open-source-ai-legal-citation-checker.md) |
+| How do I detect a runaway AI agent before it burns the token budget? | `dos liveness` / `dos breaker` | [detect-a-runaway-agent-before-it-burns-the-budget](detect-a-runaway-agent-before-it-burns-the-budget.md) |
+| How do I scavenge a stalled agent's lease without killing a live one? | `dos liveness` / `dos reap` | [scavenge-a-stalled-lease-without-killing-a-live-one](scavenge-a-stalled-lease-without-killing-a-live-one.md) |
+| How do I keep an AI self-improvement loop from keeping bad changes? | `dos improve` | [keep-a-self-improvement-loop-from-keeping-bad-changes](keep-a-self-improvement-loop-from-keeping-bad-changes.md) |
 
 ## How to read the numbers on these pages
 

@@ -59,7 +59,7 @@ correctness" would be the over-claim this benchmark is written to avoid.
 - [`benchmark/legalcite/RESULTS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/legalcite/RESULTS.md) — the fabricated-citation detection study.
 - [`docs/80`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/80_mcp-server-surface.md) — the MCP tool surface (`citation-resolve` and the others).
 - [`benchmark/BENCHMARKS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/BENCHMARKS.md) — every benchmark, with a $0 offline arm.
-- [How to verify an agent actually committed code](how-to-verify-an-ai-agent-actually-committed-code.md) — the same evidence-not-narration rule on git.
+- [Open-source alternative to paid AI legal citation checkers](open-source-ai-legal-citation-checker.md) — the same tool, framed as buy-vs-build.
 - [FAQ: Does DOS need an LLM or an API key?](../FAQ.md#does-dos-need-an-llm-or-an-api-key)
 
 > The kernel is the part that doesn't believe the agents.
