@@ -54,6 +54,12 @@ story, start at the [README](../../README.md) or the
 | Two Claude Code agents on one branch keep clobbering each other — how do I fix it? | `dos arbitrate` | [two-claude-code-agents-on-one-branch](two-claude-code-agents-on-one-branch.md) |
 | How do I make an agent's "done" mean a checkable effect, not a sentence? | `dos verify` (stop hook) | [make-agent-done-mean-a-checkable-effect](make-agent-done-mean-a-checkable-effect.md) |
 | Can I trust an AI coding agent's pull request? | `dos commit-audit` / `dos verify` | [can-i-trust-a-coding-agents-pull-request](can-i-trust-a-coding-agents-pull-request.md) |
+| How do I enforce that an agent actually ran the tests it claims it ran? | `dos test-witness` / `dos coverage` | [enforce-that-an-agent-ran-the-tests-it-claims](enforce-that-an-agent-ran-the-tests-it-claims.md) |
+| How do I catch an agent that fakes tool calls or fabricates output? | `dos verify` / `dos commit-audit` | [catch-an-agent-that-fakes-tool-calls-or-output](catch-an-agent-that-fakes-tool-calls-or-output.md) |
+| The last-writer-wins problem in multi-agent shared memory — how do I stop it? | `dos arbitrate` | [last-writer-wins-multi-agent-shared-memory](last-writer-wins-multi-agent-shared-memory.md) |
+| How do I prevent context poisoning from an agent's own prior outputs? | `recall` (MCP) | [prevent-context-poisoning-from-an-agents-own-outputs](prevent-context-poisoning-from-an-agents-own-outputs.md) |
+| How do I coordinate multiple AI agents without a central orchestrator? | `dos arbitrate` | [multi-agent-coordination-without-a-central-orchestrator](multi-agent-coordination-without-a-central-orchestrator.md) |
+| How do I build a builder-validator chain that separates the generator from the evaluator? | `dos verify` / `dos commit-audit` | [builder-validator-chain-separate-generator-from-evaluator](builder-validator-chain-separate-generator-from-evaluator.md) |
 
 ## How to read the numbers on these pages
 
