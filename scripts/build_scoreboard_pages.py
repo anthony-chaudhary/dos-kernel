@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
-import re
 import sys
 from pathlib import Path
 
@@ -75,9 +74,13 @@ def render(root: Path, out_dir: Path, date: str) -> list[str]:
         body_html = markdown.markdown(
             md_text, extensions=["tables", "fenced_code", "sane_lists"])
         # Reuse the incident link-rewriter (sibling .md → .html, repo paths →
-        # blob URLs, anchors/abs left alone). The scoreboard pages link
-        # ../311_*.md, ../methodology.md, sibling org/name.md — all handled.
-        body_html = _inc._rewrite_html_links(body_html, set())
+        # blob URLs, anchors/abs left alone), but anchored at docs/scoreboard/
+        # so a relative link like methodology.md / org/name.md resolves to its
+        # real scoreboard path, not docs/incidents/ (which would 404). The
+        # scoreboard pages link ../311_*.md, methodology.md, sibling
+        # org/name.md — all handled.
+        body_html = _inc._rewrite_html_links(
+            body_html, set(), base_rel_dir="docs/scoreboard")
         out_rel = _out_rel(md_path, root)
         canonical = f"{SITE_BASE}/{out_rel}"
         # Provenance line (the sync rule: edit the markdown, re-render, never

@@ -181,3 +181,53 @@ def test_readme_embeds_the_self_badge():
     readme = (_REPO_ROOT / "README.md").read_text(encoding="utf-8")
     assert ("docs/scoreboard/anthony-chaudhary/dos-kernel/badge.json"
             in unquote(readme))
+
+
+# ---------------------------------------------------------------------------
+# The rendered Pages links — a relative scoreboard link must resolve under
+# docs/scoreboard/, NEVER docs/incidents/. The page builder reuses the incident
+# link-rewriter, which once anchored every repo-relative path at docs/incidents/
+# regardless of which surface it served, so the scoreboard index shipped 7 dead
+# blob links (docs/incidents/<org>/<repo>.md → 404). This pins the anchor.
+# ---------------------------------------------------------------------------
+
+def _build_scoreboard_pages():
+    import importlib.util as _ilu
+    path = _REPO_ROOT / "scripts" / "build_scoreboard_pages.py"
+    spec = _ilu.spec_from_file_location("build_scoreboard_pages", path)
+    mod = _ilu.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_scoreboard_links_resolve_under_scoreboard_not_incidents(tmp_path):
+    import re
+    bsp = _build_scoreboard_pages()
+    bsp.render(_REPO_ROOT, tmp_path, "2026-06-14")
+    index = (tmp_path / "scoreboard" / "index.html").read_text(encoding="utf-8")
+    hrefs = re.findall(r'href="([^"]+)"', index)
+    blob = [h for h in hrefs if "/blob/master/docs/" in h]
+    # The relative markdown links became GitHub blob URLs — and the four per-repo
+    # pages + methodology + report must all land under docs/scoreboard/.
+    for needle in ("anthony-chaudhary/dos-kernel.md", "JuliusBrussee/caveman.md",
+                   "farion1231/cc-switch.md", "kenn-io/roborev.md",
+                   "unslothai/unsloth.md", "methodology.md", "report-2026-06.md"):
+        want = f"/blob/master/docs/scoreboard/{needle}"
+        assert any(want in h for h in blob), f"missing correct link for {needle}"
+    # The regression itself: nothing under docs/incidents/ — that path is the bug.
+    assert not any("/blob/master/docs/incidents/" in h for h in blob), \
+        "scoreboard links must not resolve into docs/incidents/ (the shipped bug)"
+
+
+def test_incident_links_still_anchor_at_incidents(tmp_path):
+    """The shared rewriter's default base is unchanged: an incident page's
+    repo-relative link still resolves under docs/incidents/, not scoreboard/."""
+    import importlib.util as _ilu
+    path = _REPO_ROOT / "scripts" / "build_incident_pages.py"
+    spec = _ilu.spec_from_file_location("build_incident_pages", path)
+    inc = _ilu.module_from_spec(spec)
+    spec.loader.exec_module(inc)
+    # `<slug>.md` for a real incident slug resolves against docs/incidents/.
+    slug = "two-agents-overwrote-each-others-work.md"
+    out = inc._rewrite_link(slug, set())  # empty known-slugs → blob URL form
+    assert out.endswith(f"/blob/master/docs/incidents/{slug}")

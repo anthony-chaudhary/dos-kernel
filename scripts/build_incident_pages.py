@@ -139,12 +139,17 @@ def _slugs(incidents_dir: Path) -> list[Path]:
     )
 
 
-def _rewrite_link(href: str, known_slugs: set[str]) -> str:
+def _rewrite_link(href: str, known_slugs: set[str], base_rel_dir: str = INCIDENTS_REL_DIR) -> str:
     """Rewrite one Markdown link target for the Pages site.
 
     - in-page anchors and absolute URLs: unchanged
-    - sibling incident `<slug>.md[#anchor]`: → `<slug>.html[#anchor]`
+    - sibling page `<slug>.md[#anchor]` (a known slug): → `<slug>.html[#anchor]`
     - any other repo-relative path: → absolute GitHub blob URL
+
+    ``base_rel_dir`` is the repo-relative directory the source Markdown lives in
+    (``docs/incidents`` for incident pages, ``docs/scoreboard`` for scoreboard
+    pages). Repo-relative links resolve against it, so the same rewriter serves
+    both surfaces without sending one's links into the other's directory.
     """
     if href.startswith("#") or re.match(r"^[a-z]+://", href) or href.startswith("mailto:"):
         return href
@@ -152,25 +157,28 @@ def _rewrite_link(href: str, known_slugs: set[str]) -> str:
     path_part, _, anchor = href.partition("#")
     anchor = f"#{anchor}" if anchor else ""
 
-    # Sibling incident page (same directory, a known slug).
+    # Sibling page (same directory, a known slug).
     if "/" not in path_part and path_part.endswith(".md"):
         stem = path_part[:-3]
         if stem in known_slugs:
             return f"{stem}.html{anchor}"
 
-    # Everything else is repo-relative; resolve against docs/incidents/ and
+    # Everything else is repo-relative; resolve against the source directory and
     # point at the GitHub blob view so the link still works off-site.
-    resolved = (Path(INCIDENTS_REL_DIR) / path_part).resolve().relative_to(
-        Path(INCIDENTS_REL_DIR).resolve().parents[1]
+    resolved = (Path(base_rel_dir) / path_part).resolve().relative_to(
+        Path(base_rel_dir).resolve().parents[1]
     )
     rel = str(resolved).replace("\\", "/")
     return f"{REPO_RAW_BASE}/{rel}{anchor}"
 
 
-def _rewrite_html_links(body_html: str, known_slugs: set[str]) -> str:
+def _rewrite_html_links(body_html: str, known_slugs: set[str],
+                        base_rel_dir: str = INCIDENTS_REL_DIR) -> str:
     def repl(m: re.Match[str]) -> str:
         quote, href = m.group(1), m.group(2)
-        return f'href={quote}{html.escape(_rewrite_link(href, known_slugs), quote=True)}{quote}'
+        return (f'href={quote}'
+                f'{html.escape(_rewrite_link(href, known_slugs, base_rel_dir), quote=True)}'
+                f'{quote}')
 
     return re.sub(r'href=(["\'])(.*?)\1', repl, body_html)
 
