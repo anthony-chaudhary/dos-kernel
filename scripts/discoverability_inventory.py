@@ -82,6 +82,40 @@ ARRIVAL_QUERIES = [
      "docs/answers/what-replaced-tokens-burned-as-the-metric-for-ai-agents.md"),
     ("how to measure verified outcomes instead of token usage",
      "docs/answers/what-replaced-tokens-burned-as-the-metric-for-ai-agents.md"),
+    # --- AEO expansion (docs/325): the flagship long-tail, each a weak-incumbent
+    # query mapped onto one verb + one real evidence file. New distinct answer
+    # pages; headline() dedupes by target page so these raise both the captured
+    # count and the distinct-page count honestly.
+    ("how to verify an AI coding agent actually committed code instead of just saying it did",
+     "docs/answers/how-to-verify-an-ai-agent-actually-committed-code.md"),
+    ("my AI agent said all tests pass but the app is still broken",
+     "docs/answers/ai-agent-said-tests-pass-but-app-is-broken.md"),
+    ("how do I know if my AI agent's commit message matches what it actually changed",
+     "docs/answers/does-the-commit-message-match-what-changed.md"),
+    ("how to verify a cited legal case actually exists before filing",
+     "docs/answers/how-to-verify-a-cited-legal-case-exists.md"),
+    ("how to verify a quoted holding actually appears in the cited opinion",
+     "docs/answers/verify-a-quoted-holding-appears-in-the-opinion.md"),
+    ("how to make an AI agent prove it did the work instead of self-certifying done",
+     "docs/answers/make-an-agent-prove-the-work-not-self-certify.md"),
+    ("my AI agent deleted my tests to make the build pass",
+     "docs/answers/ai-agent-deleted-my-tests-to-pass-the-build.md"),
+    ("how to refuse an agent action with a structured reason instead of free text",
+     "docs/answers/refuse-an-agent-action-with-a-structured-reason.md"),
+    ("how to catch an empty commit allow-empty shipped fake done",
+     "docs/answers/catch-allow-empty-shipped-fake-done.md"),
+    ("recalled AI agent memory is stale or wrong how to re-verify it",
+     "docs/answers/recalled-agent-memory-is-stale-how-to-reverify.md"),
+    ("how to prove a phase or feature actually shipped from git history",
+     "docs/answers/prove-a-phase-shipped-from-git-history.md"),
+    ("lease-based file locking to coordinate parallel coding agents",
+     "docs/answers/lease-based-file-locking-for-parallel-agents.md"),
+    ("how to verify what a subagent claims before folding its output",
+     "docs/answers/verify-what-a-subagent-claims-before-folding.md"),
+    ("reward hacking in LLM coding agents how to measure and prevent",
+     "docs/answers/reward-hacking-in-llm-coding-agents.md"),
+    ("why you can't trust an AI model to judge its own work",
+     "docs/answers/why-you-cant-trust-a-model-to-judge-its-own-work.md"),
 ]
 
 # --- family 1: arrival files (the well-known fetch targets) -------------------
