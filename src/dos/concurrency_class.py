@@ -286,3 +286,83 @@ def parse_cli_budgets(pairs: list[str] | None) -> dict[str, int]:
             raise ValueError(f"--class-budget {raw!r}: N must be ≥ 0, got {n}")
         out[kind] = n
     return out
+
+
+# ---------------------------------------------------------------------------
+# The call-boundary projection — turn an OPEN pool into `auto_pick_order` rows
+# (docs/97 / docs/110 Phase 3). This is the "modular dynamic queue" primitive:
+# the host hands a `TopPickablePlanBinding` (its pool of plan ids + a `derive_tree`
+# callback), this expands it into the exact `[(plan_id, kind, tree)]` ladder the
+# arbiter already walks, and `arbiter.arbitrate(auto_pick_order=<rows>,
+# class_budgets={kind: N})` does the disjointness + budget admission unchanged.
+#
+# The arbiter signature does NOT change — `auto_pick_order` is already an open,
+# host-supplied list (docs/110 §model). So a class whose region comes from an open
+# pool is N anonymous holders, each bound to a DISJOINT region at grab time, gated
+# by the existing budget — not a fixed batch. The kernel names no host: `kind` and
+# every `pool` member are opaque strings, `derive_tree` an opaque callback.
+# ---------------------------------------------------------------------------
+
+
+def project_to_ladder(
+    binding: TopPickablePlanBinding,
+    kind: str,
+    *,
+    skip: "frozenset[str] | set[str] | None" = None,
+) -> list[tuple[str, str, list[str]]]:
+    """Expand an open pool into `auto_pick_order` rows — one per pool member.
+
+    For each plan id in ``binding.pool`` (in pool order — the host's ranking), call
+    ``binding.derive_tree(pid)`` and emit a ``(pid, kind, tree)`` row. BEST-EFFORT,
+    mirroring the arbiter's own `_picks`/`_safe_rank` posture: a member is SKIPPED
+    when ``derive_tree`` raises, returns an empty tree, or its id is in ``skip``
+    (e.g. ids already leased). PURE apart from calling the host's ``derive_tree`` —
+    it does no disjointness check itself; the arbiter does that over the rows. ``kind``
+    is the lane-kind the rows lease under (the same key ``class_budgets`` is keyed
+    on), so the budget gate bites on this pool. Returns the rows in pool order; the
+    arbiter (optionally via a ``rank_key``) chooses among the disjoint ones."""
+    skip_set = set(skip or ())
+    rows: list[tuple[str, str, list[str]]] = []
+    for pid in binding.pool:
+        if pid in skip_set:
+            continue
+        try:
+            tree = list(binding.derive_tree(pid) or [])
+        except Exception:
+            # A host deriver that throws on one plan must not sink the whole pool —
+            # drop that member and keep the others reachable (the durability seam).
+            continue
+        if not tree:
+            continue
+        rows.append((pid, kind, tree))
+    return rows
+
+
+# The marker an open-pool caller substitutes for the arbiter's generic
+# ladder-exhausted refuse when the pool produced rows but every one overlapped a
+# live lease. Kept here (next to `project_to_ladder`) so the caller-side
+# re-labeling and the projection stay one concept; the arbiter is untouched.
+NO_FREE_REGION_TOKEN = "NO_FREE_REGION"
+
+
+def is_no_free_region_refuse(
+    decision: object, *, projected_rows: int, budget_exhausted: bool
+) -> bool:
+    """True iff an open-pool arbitrate refused because no DISJOINT region remained.
+
+    The arbiter, handed a non-empty `auto_pick_order` whose every row collides with a
+    live lease, returns its generic ladder-exhausted refuse — correct, but an open
+    pool wants the more specific `NO_FREE_REGION` (the pool is full of contended
+    regions, not empty of work). This classifier lets the CALLER re-label without
+    touching the arbiter: a refuse, where the projection produced ≥1 row AND the
+    cause was NOT the class budget (that has its own `CLASS_BUDGET_EXHAUSTED`
+    token). PURE — reads only the decision's outcome + the two counts the caller
+    already holds."""
+    outcome = getattr(decision, "outcome", None)
+    if outcome is None and isinstance(decision, dict):
+        outcome = decision.get("outcome")
+    if outcome != "refuse":
+        return False
+    if budget_exhausted:
+        return False  # CLASS_BUDGET_EXHAUSTED owns that case
+    return projected_rows > 0
