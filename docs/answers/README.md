@@ -71,6 +71,7 @@ story, start at the [README](../../README.md) or the
 | How do I use a hidden test split to stop agents overfitting the visible tests? | `dos improve` / `dos reward` | [hidden-test-split-to-stop-agents-overfitting](hidden-test-split-to-stop-agents-overfitting.md) |
 | Governance is why agentic AI projects get canceled — what is the missing layer? | `dos verify` / `dos arbitrate` | [governance-for-agentic-ai-projects-that-keep-getting-canceled](governance-for-agentic-ai-projects-that-keep-getting-canceled.md) |
 | How do I make any agent skill verify its own work? | `dos-skillify` / `dos verify` / `dos commit-audit` | [make-any-agent-skill-verify-its-own-work](make-any-agent-skill-verify-its-own-work.md) |
+| How do I add the DOS plugin to a private company Claude Code marketplace? | `dos doctor` / `/dos-kernel:dos-setup` | [add-the-dos-plugin-to-a-private-company-marketplace](add-the-dos-plugin-to-a-private-company-marketplace.md) |
 
 ## How to read the numbers on these pages
 

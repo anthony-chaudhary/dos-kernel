@@ -28,6 +28,7 @@ job or an agent loop can gate on it directly.
 - [DOS and the alternatives](https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/docs/ALTERNATIVES.md): how DOS relates to eval platforms, framework guardrails, Temporal, in-toto, and plain CI — what each does well, and when NOT to use DOS
 - [Quickstart](https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/docs/QUICKSTART.md): five minutes, hand-typed, every line real output
 - [Install](https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/docs/INSTALL.md): the full matrix — pip, uv, pipx, WSL, the MCP extra
+- [Private company marketplace](https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/docs/PRIVATE-MARKETPLACE.md): host the DOS plugin in your own internal Claude Code registry — the four private plugin-source shapes, shipping the pip prerequisite to the fleet, strictKnownMarketplaces lockdown, air-gapped seeding, and the private-repo auth gotcha
 
 ## The kernel
 

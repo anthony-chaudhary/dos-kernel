@@ -42,6 +42,15 @@ To test a local clone before publishing, point Claude Code at this directory:
 claude --plugin-dir ./claude-plugin
 ```
 
+### Private / company marketplace
+
+Distributing DOS through your **own** internal marketplace — a private repo with
+a pinned plugin source — instead of the public one above? The end-to-end
+playbook (the four private `source` shapes, shipping the `dos-kernel` pip
+prerequisite to the fleet, `strictKnownMarketplaces` lockdown, air-gapped
+seeding, and the private-repo auth gotcha) is
+[docs/PRIVATE-MARKETPLACE.md](../docs/PRIVATE-MARKETPLACE.md).
+
 ### Claude Cowork
 
 Cowork runs the same Claude Code agent harness, and plugins (skills + MCP) work

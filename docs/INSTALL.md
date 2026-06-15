@@ -235,6 +235,13 @@ already uses and wires them all — or by name (`--hooks claude-code`, `cursor`,
 [docs/221](221_the-cross-vendor-hook-installer.md), and
 [docs/303](303_hooks-auto-detection-plan.md).
 
+**Distributing DOS through a private company registry instead?** If your team
+hosts its own Claude Code marketplace (a private repo with a pinned plugin
+source) rather than adding the public one, the end-to-end playbook —
+all four private `source` shapes, shipping the pip prerequisite to the fleet,
+the `strictKnownMarketplaces` lockdown, air-gapped seeding, and the private-repo
+auth gotcha — is [PRIVATE-MARKETPLACE.md](PRIVATE-MARKETPLACE.md).
+
 ---
 
 ## Verify the install
