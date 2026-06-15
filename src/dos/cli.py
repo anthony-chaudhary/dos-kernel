@@ -2138,6 +2138,178 @@ def cmd_arbitrate(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# accounts — the seat-pool seam over the vendored account-switcher driver.
+#   A fan-out (the dos-goal-fleet skill's Step 0/Step 3) needs ONE number — how
+#   many worker seats can run concurrently right now — and the per-seat launch
+#   env. Account rotation names a vendor (CLAUDE_CONFIG_DIR / setup-token), so the
+#   logic lives in `dos.drivers.account_switcher` (the driver tier IS the home for
+#   vendor names); this CLI is a thin read-only reader over it, exactly as the
+#   other vendor-naming verbs (model-reroute, notify) route through their drivers.
+#   Fail-open: no roster / no probe → an empty or assume-serving pool, never a crash.
+def _load_account_switcher():
+    """Resolve the account-switcher DRIVER by name — never a static import (the
+    watchdog/model-reroute idiom: the kernel CLI reaches a driver lazily via
+    importlib so the no-kernel-module-imports-a-driver litmus holds, and a missing
+    optional driver fails with a clean message rather than an import crash)."""
+    import importlib
+
+    try:
+        return importlib.import_module("dos.drivers.account_switcher")
+    except ModuleNotFoundError as e:  # pragma: no cover - the driver ships in-tree
+        if (e.name or "") in ("dos.drivers.account_switcher", "dos.drivers"):
+            raise ValueError(
+                "the account-switcher driver (dos.drivers.account_switcher) is not "
+                "installed; `dos accounts` needs it — reinstall the package") from None
+        raise
+
+
+def _accounts_roster(args):
+    """(accounts, policy) from the active roster — driver-resolved, fail-open."""
+    _sw = _load_account_switcher()
+    return _sw.load_roster(getattr(args, "accounts_file", None))
+
+
+def _account_to_dict(acct) -> dict:
+    return {"name": acct.name, "config_dir": acct.config_dir,
+            "email": acct.email, "enabled": acct.enabled}
+
+
+def _accounts_no_roster_hint(args) -> str:
+    _sw = _load_account_switcher()
+    path = _sw.accounts_file_path(getattr(args, "accounts_file", None))
+    return (f"no accounts in roster ({path}) — run `dos accounts scaffold` to "
+            "propose one from the isolated config dirs on this host, then save it")
+
+
+def cmd_accounts(args: argparse.Namespace) -> int:
+    _apply_workspace(args)
+    _sw = _load_account_switcher()
+    verb = getattr(args, "accounts_cmd", None)
+    as_json = bool(getattr(args, "json", False))
+
+    if verb == "scaffold":
+        # Read-only PROPOSAL: detect isolated `~/.claude-*` config dirs that carry
+        # a setup-token or creds, and PRINT the roster YAML the operator can save.
+        # Writing real config-dir paths is the operator's action (same discipline
+        # as `dos resume` — propose, never execute), so this never touches disk.
+        from pathlib import Path
+        import glob as _glob
+        home = Path("~").expanduser()
+        found = []
+        for d in sorted(_glob.glob(str(home / ".claude-*"))):
+            p = Path(d)
+            if not p.is_dir():
+                continue
+            has_tok = (p / ".oauth-token").is_file()
+            has_creds = (p / ".credentials.json").is_file()
+            if not (has_tok or has_creds):
+                continue
+            # Derive a short roster name from the dir suffix (.claude-<name>).
+            name = p.name[len(".claude-"):] or p.name
+            found.append((name, str(p), "setup-token" if has_tok else "login"))
+        if as_json:
+            print(json.dumps({
+                "detected": [{"name": n, "config_dir": c, "via": v}
+                             for n, c, v in found],
+                "count": len(found),
+            }, indent=2))
+            return 0
+        if not found:
+            return _fail("no enrolled isolated config dirs found under ~/.claude-*",
+                         hint="enroll one with `claude setup-token` into an isolated "
+                              "CLAUDE_CONFIG_DIR, then re-run scaffold")
+        print("# proposed roster — save to ~/.claude/accounts.yaml (or set "
+              "CLAUDE_ACCOUNTS_FILE).")
+        print("# real config-dir paths are host-local: NEVER commit this file.")
+        print("accounts:")
+        for n, c, v in found:
+            print(f"  - name: {n}")
+            print(f"    config_dir: {c}   # enrolled via {v}")
+        print("rotation:")
+        print("  order: by_reset")
+        print("  near_cap_util: 0.9")
+        return 0
+
+    accounts, policy = _accounts_roster(args)
+
+    if verb == "list":
+        states = [_sw.account_state(a, near_cap_util=policy.near_cap_util)
+                  for a in accounts]
+        if as_json:
+            print(json.dumps({
+                "accounts": [{**_account_to_dict(s.account), "kind": s.kind,
+                              "creds_present": s.creds_present, "detail": s.detail}
+                             for s in states],
+                "count": len(states),
+            }, indent=2))
+            return 0
+        if not states:
+            return _fail("no accounts in roster",
+                         hint=_accounts_no_roster_hint(args))
+        for s in states:
+            print(f"{s.account.name:<24} {s.kind:<14} {s.detail}")
+        return 0
+
+    if verb == "pool":
+        # The serving pool — the exact SERVING number Step 0 reads. Fail-open: an
+        # un-probed enrolled account counts as serving (no network here).
+        pool = _sw.serving_pool(accounts, policy=policy)
+        if as_json:
+            print(json.dumps({
+                "serving": len(pool),
+                "pool": [_account_to_dict(a) for a in pool],
+            }, indent=2))
+            return 0
+        if not pool:
+            return _fail("SERVING=0 (no serving account)",
+                         hint=_accounts_no_roster_hint(args)
+                         if not accounts else
+                         "every enrolled account is walled or needs enrollment — "
+                         "see `dos accounts list`")
+        print(f"SERVING={len(pool)}")
+        for a in pool:
+            print(f"  {a.name}")
+        return 0
+
+    if verb == "seats":
+        n = int(getattr(args, "n", 0) or 0)
+        seats = _sw.allocate_seats(accounts, n, policy=policy)
+        if as_json:
+            print(json.dumps({
+                "requested": n,
+                "seats": [_account_to_dict(a) for a in seats],
+            }, indent=2))
+            return 0
+        if not seats:
+            return _fail(f"no seats allocatable for n={n}",
+                         hint=_accounts_no_roster_hint(args))
+        for i, a in enumerate(seats):
+            print(f"seat {i}: {a.name}")
+        return 0
+
+    if verb == "env":
+        name = getattr(args, "name", "")
+        match = next((a for a in accounts if a.name == name), None)
+        if match is None:
+            return _fail(f"no account named {name!r} in roster",
+                         hint="run `dos accounts list` to see roster names")
+        try:
+            env = _sw.env_for(match)
+        except _sw.OriginError as e:
+            return _fail(str(e))
+        if as_json:
+            print(json.dumps({"name": name, "env": env}, indent=2))
+            return 0
+        # Shell-source-able lines (POSIX); a host launcher splices these per child.
+        for k, v in env.items():
+            print(f'{k}={v}')
+        return 0
+
+    return _fail(f"unknown accounts subcommand: {verb!r}",
+                 hint="one of: list, pool, seats, env, scaffold")
+
+
+# ---------------------------------------------------------------------------
 # scope-gate  (docs/102 §5 — the BINDING pre-effect scope gate: may this
 #   (full prose: docs/CLI.md § "scope-gate  (docs/102 §5 — the BINDING pre-effect scope gate")
 _SCOPE_GATE_EXITS = ExitMap(
@@ -10268,6 +10440,50 @@ def build_parser() -> argparse.ArgumentParser:
     _add_output_flag(pa)
     _add_explain_flag(pa)
     pa.set_defaults(func=cmd_arbitrate)
+
+    # accounts — the seat-pool seam. A fan-out reads `dos accounts pool` for the
+    # SERVING number (how many worker seats run concurrently) and `dos accounts
+    # seats`/`env` for the per-seat launch overrides. Backed by the vendored
+    # account-switcher driver; fail-open with no roster. Read-only throughout
+    # (scaffold PROPOSES a roster, the operator saves it).
+    pacc = sub.add_parser(
+        "accounts",
+        help="seat pool over the account switcher (pool/list/seats/env/scaffold)")
+    _add_workspace_flags(pacc)
+    accsub = pacc.add_subparsers(dest="accounts_cmd", required=True)
+
+    def _acc_common(p):
+        _add_workspace_flags(p)
+        p.add_argument("--accounts-file", default=None,
+                       help="roster YAML (default: $CLAUDE_ACCOUNTS_FILE or "
+                            "~/.claude/accounts.yaml)")
+        p.add_argument("--json", action="store_true", help="emit JSON")
+
+    apl = accsub.add_parser("pool", help="the serving pool + SERVING=<n> (Step 0)")
+    _acc_common(apl)
+    apl.set_defaults(func=cmd_accounts)
+
+    ali = accsub.add_parser("list", help="every roster account + folded state")
+    _acc_common(ali)
+    ali.set_defaults(func=cmd_accounts)
+
+    ase = accsub.add_parser(
+        "seats", help="allocate_seats(N): per-seat account list a wave indexes")
+    _acc_common(ase)
+    ase.add_argument("--n", type=int, required=True, help="number of worker seats")
+    ase.set_defaults(func=cmd_accounts)
+
+    aen = accsub.add_parser(
+        "env", help="env_for(<name>): CLAUDE_CONFIG_DIR (+token) to launch as a seat")
+    _acc_common(aen)
+    aen.add_argument("--name", required=True, help="roster account name")
+    aen.set_defaults(func=cmd_accounts)
+
+    asc = accsub.add_parser(
+        "scaffold",
+        help="PROPOSE a roster from enrolled ~/.claude-* dirs (read-only)")
+    _acc_common(asc)
+    asc.set_defaults(func=cmd_accounts)
 
     # scope-gate (docs/102 §5) — the BINDING pre-effect scope gate. Asks the same
     #   (full prose: docs/CLI.md § "scope-gate (docs/102 §5) — the BINDING pre-effect scope gate")
