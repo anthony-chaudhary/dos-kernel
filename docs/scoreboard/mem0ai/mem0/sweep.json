@@ -1,0 +1,34 @@
+{
+  "repo": "mem0ai/mem0",
+  "commits_scanned": 2295,
+  "attributed_commits": 77,
+  "markers": {
+    "claude": 77
+  },
+  "summary": {
+    "commits": 77,
+    "checkable": 66,
+    "abstained": 11,
+    "witnessed": 66,
+    "unwitnessed": 0,
+    "drift_rate": 0.0,
+    "by_kind": {
+      "none": {
+        "unwitnessed": 0,
+        "witnessed": 0,
+        "abstain": 11
+      },
+      "code_effect": {
+        "unwitnessed": 0,
+        "witnessed": 56,
+        "abstain": 0
+      },
+      "doc": {
+        "unwitnessed": 0,
+        "witnessed": 10,
+        "abstain": 0
+      }
+    },
+    "unwitnessed_shas": []
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "schema": "dos-scoreboard-page/v1",
+  "repo": "mem0ai/mem0",
+  "tier": "seeded",
+  "rendered": "2026-06-15",
+  "attribution": "agent-attributed commits only (the closed marker set, docs/scoreboard/methodology.md \u00a73); a human commit is never audited here",
+  "auditor": "dos-kernel 0.26.0",
+  "range": {
+    "base_sha": "2b82ff695fd1596eb1d31bbb5210ef7ee46fca96",
+    "head_sha": "b55c51e0049f6fb8dbf4f39b3405e80de905ab22",
+    "commits_note": "77 attributed commits audited"
+  },
+  "records": []
+}

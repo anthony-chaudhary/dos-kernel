@@ -1,0 +1,43 @@
+{
+  "repo": "assistant-ui/assistant-ui",
+  "commits_scanned": 3462,
+  "attributed_commits": 136,
+  "markers": {
+    "claude": 119,
+    "copilot": 12,
+    "cursor": 1,
+    "devin": 2,
+    "jules": 2
+  },
+  "summary": {
+    "commits": 136,
+    "checkable": 79,
+    "abstained": 57,
+    "witnessed": 79,
+    "unwitnessed": 0,
+    "drift_rate": 0.0,
+    "by_kind": {
+      "code_effect": {
+        "unwitnessed": 0,
+        "witnessed": 41,
+        "abstain": 0
+      },
+      "none": {
+        "unwitnessed": 0,
+        "witnessed": 0,
+        "abstain": 57
+      },
+      "doc": {
+        "unwitnessed": 0,
+        "witnessed": 37,
+        "abstain": 0
+      },
+      "test": {
+        "unwitnessed": 0,
+        "witnessed": 1,
+        "abstain": 0
+      }
+    },
+    "unwitnessed_shas": []
+  }
+}

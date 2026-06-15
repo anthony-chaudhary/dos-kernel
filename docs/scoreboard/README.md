@@ -17,7 +17,7 @@ dos commit-audit --sweep --workspace . BASE..HEAD
 
 That is the exact same check, on your history — before you trust the next "done". No account, no upload, no one named.
 
-> Across **15 repos** audited here — AI agents wrote about **3%** of recent commits — and **every one** of the concrete claims those commits made was backed by the commit's own diff.
+> Across **18 repos** audited here — AI agents wrote about **4%** of recent commits — and **every one** of the concrete claims those commits made was backed by the commit's own diff.
 
 ## What "backed by the diff" means
 
@@ -57,9 +57,12 @@ What differs between them is how much of the repo the AI built and which agents 
 | [JuliusBrussee/caveman](JuliusBrussee/caveman.md) | 32% | claude 65 | 49 | 100% |
 | [getzep/graphiti](getzep/graphiti.md) | 15% | claude 127 | 66 | 100% |
 | [pydantic/pydantic-ai](pydantic/pydantic-ai.md) | 9% | claude 188 · devin 7 · copilot 4 · … | 139 | 100% |
+| [openai/codex](openai/codex.md) | 5% | codex 331 · claude 10 · copilot 3 | 155 | 100% |
 | [exo-explore/exo](exo-explore/exo.md) | 4% | claude 99 · cursor 1 · jules 1 | 67 | 100% |
 | [OpenInterpreter/open-interpreter](OpenInterpreter/open-interpreter.md) | 4% | codex 240 · claude 10 · copilot 3 | 118 | 100% |
+| [assistant-ui/assistant-ui](assistant-ui/assistant-ui.md) | 4% | claude 119 · copilot 12 · devin 2 · … | 79 | 100% |
 | [crewAIInc/crewAI](crewAIInc/crewAI.md) | 3% | devin 51 · claude 29 · aider 3 · … | 69 | 100% |
+| [mem0ai/mem0](mem0ai/mem0.md) | 3% | claude 77 | 66 | 100% |
 | [agno-agi/agno](agno-agi/agno.md) | 3% | claude 159 · copilot 7 · aider 1 · … | 103 | 100% |
 | [charmbracelet/crush](charmbracelet/crush.md) | 3% | crush 86 · copilot 9 · claude 1 | 50 | 100% |
 | [farion1231/cc-switch](farion1231/cc-switch.md) | 2% | claude 40 · copilot 1 · cursor 1 | 30 | 100% |
@@ -78,6 +81,6 @@ What differs between them is how much of the repo the AI built and which agents 
 - **[The live roll-up](rollup.md)** — the published set above, folded into one aggregate by `scripts/scoreboard_rollup.py`. Every number is derived from the committed per-repo data, reproducible offline.
 - **Want your repo listed?** Clean or not, it's opt-in and you see the result before it publishes. See the methodology's registration section.
 
-The pages above are the 15 repos we've audited and named. Another 20 repos were checked but not named — a non-clean or unadjudicated verdict is reported only as a count, never as a named page ([docs/311](../311_scoreboard-per-repo-index-plan.md) §2).
+The pages above are the 18 repos we've audited and named. Another 34 repos were checked but not named — a non-clean or unadjudicated verdict (or too few checkable claims to be a real signal) is reported only as a count, never as a named page ([docs/311](../311_scoreboard-per-repo-index-plan.md) §2).
 
 > The kernel is the part that doesn't believe the agents.

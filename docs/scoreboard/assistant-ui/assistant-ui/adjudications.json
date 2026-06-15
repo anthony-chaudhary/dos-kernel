@@ -1,0 +1,14 @@
+{
+  "schema": "dos-scoreboard-page/v1",
+  "repo": "assistant-ui/assistant-ui",
+  "tier": "seeded",
+  "rendered": "2026-06-15",
+  "attribution": "agent-attributed commits only (the closed marker set, docs/scoreboard/methodology.md \u00a73); a human commit is never audited here",
+  "auditor": "dos-kernel 0.26.0",
+  "range": {
+    "base_sha": "3964b8d7a3453d261427b781f9f48197741e5db0",
+    "head_sha": "9f376b7ca1f4bd83ee3b6926b62fe34bac1273ef",
+    "commits_note": "136 attributed commits audited"
+  },
+  "records": []
+}
