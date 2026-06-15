@@ -122,6 +122,7 @@ your job title, and every section hands off to the one above it.
 
 | You're asking… | Start at | Then |
 |---|---|---|
+| *"I vibe-code with an AI — did it actually do what it said?"* | ["Did my AI actually do it?" in 30 seconds](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/00b_did-my-ai-do-it.md) — one command on your own repo | the [plain-words version](#the-plain-words-version) of why it works |
 | *"What is this, in plain words, and why should my team care?"* | [the plain-words version](#the-plain-words-version), just below — no code | hand the [60-second demo](#try-it-in-60-seconds) to whoever runs your agents |
 | *"Show me it working, fast."* | [Try it in 60 seconds](#try-it-in-60-seconds) | [what goes wrong in a fleet](#what-goes-wrong-in-a-fleet) without it |
 | *"I already run agents — how do I wire the verdict into **my** stack?"* | [How you plug it in](#how-you-plug-it-in) | [the MCP lie detector](#give-your-agent-a-lie-detector-mcp) · [Install](#install) |
@@ -1285,9 +1286,16 @@ from the long README:
 ```bash
 pip install -e ".[dev,mcp]"       # editable + the test/lint toolchain (exactly what CI installs)
 python -m pytest -q               # the full kernel suite — must stay green (~4,900 tests, ~4–5 min)
+python scripts/dev.py fast        # the inner loop: pytest -m "not slow" (skips the ~150s of heavies)
+python scripts/dev.py verify-self # doctor --check + a real SHIPPED/NOT_SHIPPED round-trip (the CI smoke)
 dos doctor --workspace .          # what IS this workspace? (the config seam, made visible)
 ruff check src/dos src/dos_mcp    # lint exactly as CI does (the wider tree is NOT lint-clean — don't "fix" it)
 ```
+
+`scripts/dev.py` (`test` / `fast` / `lint` / `verify-self` / `all`) mirrors the CI
+steps so green-local implies green-CI. Use `fast` while editing one module — it
+skips the `@pytest.mark.slow` heavies (the poisoned-pool replays + the real-install
+suite); the full `pytest -q` is still the pre-commit gate.
 
 **Two traps that bite an agent here.** (1) A bare `pip install -e .` deliberately
 installs only PyYAML — `pytest` comes from the `[dev]` extra, so the suite command
@@ -5802,6 +5810,128 @@ esac
 The default map is the universal convention (`0` ok, `2` blocking, any other
 non-zero a non-blocking warning); a fleet declares its own in `dos.toml`
 `[hook_exit]` so `exit 3 = DEFER` org-wide is data, not a code change.
+
+---
+
+## Recipe 4 — Windsurf (and Warp, Zed): the hook-less editor, for a vibe coder
+
+> **In plain words:** if you vibe-code in Windsurf (or Warp, or Zed) and the AI
+> says a feature is done, this recipe makes the editor check that claim against
+> your code's history instead of taking the AI's word. These editors can't take
+> the auto-wiring that Cursor and Claude Code do — so you run one command and
+> read whether it comes back green ("shipped") or red ("not yet"). It's for a
+> vibe coder living in one of those editors.
+
+> **No auto-wiring here — the command's result is the verdict.** Windsurf, Warp,
+> and Zed can't take the `dos init --hooks <host>` wiring that Cursor and Claude
+> Code do: there is no place for DOS to plug into and block the AI mid-step. Do
+> not look for a hooks install for these editors — there isn't one, and a recipe
+> that promised one would be lying. What these editors *can* do is run a command
+> in a terminal and read its exit code (the small number a command leaves behind
+> — `0` good, anything else a problem). That is the whole exit-code tier (the
+> framing and the soundness argument above apply verbatim), and it is enough: the
+> `dos` process authors the verdict, not the in-editor agent it's judging.
+
+If you're a vibe coder shipping in Windsurf and your Cascade agent just told you
+the feature is done, here is how to make the editor check that claim against git
+evidence instead of taking the agent's word. Two moves: a check you (or the
+agent) can run, and a rule that points the agent at it before it says "done."
+
+### 1. The check — red is "not yet," green is "shipped"
+
+Open Windsurf's terminal (or wire it as a Windsurf **workflow**, below) and run
+the did-it-ship check (DOS calls this the *verify* verdict) on the step the
+agent claimed. The exit code — the small number a command leaves behind — *is*
+the answer: `0` shipped, `1` not shipped:
+
+```bash
+# did the phase the agent claimed actually land in git history?
+dos verify --workspace . docs/126 P1
+# SHIPPED docs/126 P1 8a7a259 (via grep-subject)   → exit 0   (real run, this repo)
+# NOT_SHIPPED docs/999 NEVER (via none)            → exit 1   (nothing in history backs the claim)
+```
+
+Two equally hook-less checks for a vibe coder who isn't stamping numbered
+phases:
+
+```bash
+# "the agent committed — does its commit message match what the diff did?"
+dos commit-audit --workspace . HEAD     # exit 0 clean · 1 an unwitnessed claim · 2 unreadable ref
+```
+
+`dos verify` answers "did this ship?"; `commit-audit` answers "does this commit's
+*subject* match its *diff*?" — both from git, neither from the agent's narration.
+(See the exit-code table at the top of this page and the
+[verb table in the README](README.md#the-verbs-by-the-question-they-answer)
+for the full contracts.)
+
+> **Why not `dos complete`?** `dos complete` needs a `--run-id` and a declared
+> intent ledger to compute `residual = declared − verified`; a vibe coder in
+> Windsurf has neither. `dos verify` (one phase) and `dos commit-audit` (the
+> last commit) are the no-setup checks for this seam — use them.
+
+### 2. The Windsurf workflow — `/verify` in the editor
+
+Windsurf reads `/`-invokable workflows from `.windsurf/workflows/*.md`. Drop this
+in and type `/verify` in Cascade; the red/green is the exit code:
+
+```md
+<!-- .windsurf/workflows/verify.md -->
+---
+description: Check a claimed phase against git evidence — exit code is the verdict
+---
+
+Run `dos verify --workspace . docs/<plan> <phase>` in the terminal.
+- exit 0 → SHIPPED, the claim is witnessed in git history.
+- exit 1 → NOT_SHIPPED, history does not back the claim — keep working.
+No hooks are involved; the `dos` process authors the verdict, not the agent.
+```
+
+### 3. The rule — make the agent run it before it claims done
+
+Windsurf reads project rules from `.windsurf/rules/*.md` (the modern form) or a
+plain `.windsurfrules` file at the repo root (the legacy form). Either keeps the
+honesty gate in the agent's context. Copy-pasteable, modern form:
+
+```md
+<!-- .windsurf/rules/dos-verify.md -->
+---
+trigger: always_on
+---
+
+# Don't claim done on your own say-so
+
+Before telling me a numbered phase is complete, run in the terminal:
+`dos verify --workspace . docs/<plan> <phase>`
+- exit code 0 → it shipped; you may say done.
+- exit code 1 → it did NOT ship; keep working, do not claim done.
+
+Before claiming a commit does what its message says, run:
+`dos commit-audit --workspace . HEAD`   (exit 0 = clean, exit 1 = the subject overclaims the diff).
+
+There are NO DOS hooks in this editor — the exit code is the verdict. Read it,
+don't narrate around it.
+```
+
+Legacy single-file form (same content, plain text at the repo root) for an older
+Windsurf or a team that hasn't migrated:
+
+```text
+# .windsurfrules
+Before claiming a numbered phase is done, run `dos verify --workspace . docs/<plan> <phase>`
+in the terminal: exit 0 = shipped (you may say done), exit 1 = not shipped (keep working).
+Before claiming a commit matches its message, run `dos commit-audit --workspace . HEAD`:
+exit 0 = clean, exit 1 = the subject overclaims the diff.
+No DOS hooks exist in this editor — the exit code is the verdict.
+```
+
+That's the whole on-ramp: no hook adapter, no MCP client, no `dos init`. The
+agent runs a command; you (and it) read the exit code; a green is a witnessed
+ship and a red is "not yet." For the gentler, non-coder framing of the same
+idea — "Probably yes" / "Not yet" instead of exit codes — see
+[`00_non-coder-verdict-in-15-minutes.md`](00_non-coder-verdict-in-15-minutes.md)
+and the front door
+[`00b_did-my-ai-do-it.md`](00b_did-my-ai-do-it.md).
 
 ---
 

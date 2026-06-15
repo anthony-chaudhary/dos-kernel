@@ -41,6 +41,10 @@ import pytest
 
 import dos
 
+# Heavy (real pip/uv/uvx installs into fresh venvs, ~3-7s/test) — excluded from
+# the `dev.py fast` inner loop, still run in full CI. See pyproject [tool.pytest].
+pytestmark = pytest.mark.slow
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 VERSION = dos.__version__
 

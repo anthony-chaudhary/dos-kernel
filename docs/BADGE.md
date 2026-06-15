@@ -6,6 +6,10 @@
 
 [![verified by DOS](https://img.shields.io/badge/verified%20by-DOS-2ea44f)](https://github.com/anthony-chaudhary/dos-kernel)
 
+> **Just caught your AI in a lie and want to *share* it?** This page is the
+> badge you wear after. The shareable-moment on-ramp — how to make your own
+> caught-lie screenshot and post it — is **[docs/SHARE.md](SHARE.md)**.
+
 ## What it means
 
 A repo wearing this badge **runs `dos verify` in its ship-gate** — every claim

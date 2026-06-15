@@ -12,8 +12,12 @@ perimeter:
   * the hook emits the admit as ALLOW-with-note (`additionalContext`, never a
     silent pass) and journals a distinct `override-admit` decision;
   * the arm path itself is write-DENIED for agents even inside an armed
-    window (a window must not extend itself), and there is no arm verb —
-    `dos override` offers status/disarm only.
+    window (a window must not extend itself);
+  * docs/328 Phase 2: an `arm` verb exists, but it is INERT headless — it
+    writes the window only behind an interactivity gate (both streams ttys +
+    an explicit y/N) a non-interactive agent shell cannot satisfy, so the
+    docs/296 asymmetry holds (anyone may disarm, only an interactive human
+    arms). `suggest` remains print-only.
 """
 from __future__ import annotations
 
@@ -276,14 +280,97 @@ def test_cli_status_disarmed_then_armed_then_disarm(tmp_path):
     assert rc == 1
 
 
-def test_cli_offers_no_arm_subcommand(tmp_path):
-    """The asymmetry is the security property: anyone may disarm, only the
-    human arms (by hand, on the file). An `arm` subcommand must not exist."""
+def test_cli_arm_exists_but_refuses_headless_LITMUS(tmp_path, monkeypatch):
+    """docs/328 Phase 2: the `arm` verb now EXISTS, but the asymmetry is unchanged
+    — only an INTERACTIVE human arms. Driven through main() with captured (non-tty)
+    streams — exactly an agent's shell — `arm` must REFUSE (exit 2, refused
+    'not-a-tty'), write NOTHING, and leave the window disarmed. This is the
+    load-bearing security property: no headless arm path exists."""
+    # main() drives through _cli_override_streams, whose StringIO streams are not
+    # ttys; belt-and-suspenders, force the gate False so the test does not depend
+    # on the capture's isatty behavior.
+    from dos import cli
+    monkeypatch.setattr(cli, "_require_interactive_operator", lambda: False)
+    stdout, stderr, rc = _cli_override_streams(
+        tmp_path, "arm", "--reason", "agent tried to self-arm", "--minutes", "20")
+    assert rc == 2
+    body = json.loads(stderr)  # the refusal is on stderr
+    assert body["armed"] is False and body["refused"] == "not-a-tty"
+    assert not ovr.arm_path(tmp_path).exists()  # wrote nothing
+    out, rc2 = _cli_override(tmp_path, "status")
+    assert rc2 == 1 and json.loads(out)["armed"] is False
+
+
+def test_cli_arm_interactive_writes_a_reader_acceptable_window(tmp_path, monkeypatch):
+    """The positive path: an interactive operator (gate True + confirm 'y') arms
+    the window. The file round-trips through read_override and status reports it
+    armed. The bytes are UTF-8 with NO BOM — the #148 win: written from this
+    process, never via a PowerShell `>` redirect."""
+    from dos import cli
+    monkeypatch.setattr(cli, "_require_interactive_operator", lambda: True)
+    monkeypatch.setattr(cli, "_confirm_interactive", lambda prompt: True)
+    stdout, stderr, rc = _cli_override_streams(
+        tmp_path, "arm", "src/dos/arbiter.py", "--reason", "fix #118",
+        "--minutes", "25")
+    assert rc == 0
+    body = json.loads(stdout)
+    assert body["armed"] is True and body["reason"] == "fix #118"
+    assert body["scope"] == ["src/dos/arbiter.py"]
+    # The window is real: read_override parses it, status reports armed.
+    facts = ovr.read_override(tmp_path)
+    assert facts is not None and facts.reason == "fix #118"
+    out, rc2 = _cli_override(tmp_path, "status")
+    assert rc2 == 0 and json.loads(out)["armed"] is True
+    # #148 win: the on-disk bytes are NOT a UTF-8 or UTF-16 BOM.
+    raw = ovr.arm_path(tmp_path).read_bytes()
+    assert raw[:3] != b"\xef\xbb\xbf"        # not UTF-8 BOM
+    assert raw[:2] not in (b"\xff\xfe", b"\xfe\xff")  # not UTF-16 BOM
+
+
+def test_cli_arm_declined_confirm_writes_nothing(tmp_path, monkeypatch):
+    """Gate True but the operator answers 'n' at the confirm — no window, exit 1."""
+    from dos import cli
+    monkeypatch.setattr(cli, "_require_interactive_operator", lambda: True)
+    monkeypatch.setattr(cli, "_confirm_interactive", lambda prompt: False)
+    stdout, stderr, rc = _cli_override_streams(
+        tmp_path, "arm", "--reason", "changed my mind", "--minutes", "10")
+    assert rc == 1
+    assert json.loads(stderr)["declined"] is True
+    assert not ovr.arm_path(tmp_path).exists()
+
+
+def test_cli_arm_offers_no_yes_or_force_bypass(tmp_path):
+    """No agent-reachable bypass: argparse must reject --yes and --force on arm
+    (either would be the non-interactive arm path docs/296 forbids)."""
     import pytest
+    from dos import cli
+    for bypass in ("--yes", "--force"):
+        with pytest.raises(SystemExit) as exc:
+            cli.main(["override", "--workspace", str(tmp_path), "arm",
+                      "--reason", "x", bypass])
+        assert exc.value.code != 0
+
+
+def test_cli_arm_requires_a_reason(tmp_path, monkeypatch):
+    """--reason is required even for an interactive arm (it lands in the audit note)."""
+    import pytest
+    from dos import cli
+    monkeypatch.setattr(cli, "_require_interactive_operator", lambda: True)
     with pytest.raises(SystemExit) as exc:
-        from dos import cli
-        cli.main(["override", "arm", "--workspace", str(tmp_path)])
+        cli.main(["override", "--workspace", str(tmp_path), "arm"])
     assert exc.value.code != 0
+
+
+def test_cli_arm_does_not_touch_the_hook_perimeter(tmp_path):
+    """The perimeter deny on agent TOOL writes to .dos/override/ is a DIFFERENT
+    guard and stays intact: even after the arm verb exists, a Write tool call
+    targeting the arm file is still denied (a window must not extend itself)."""
+    cfg = _kernel_cfg(tmp_path)
+    _arm(tmp_path, until="2099-01-01T00:00:00Z", reason="open window")
+    dialect, outcome = prt.decide(
+        _event("Write", {"file_path": ".dos/override/self-modify.toml"}), cfg)
+    assert outcome["decision"] == "deny"
+    assert outcome["reason_class"] == "SELF_MODIFY"
 
 
 # ==========================================================================

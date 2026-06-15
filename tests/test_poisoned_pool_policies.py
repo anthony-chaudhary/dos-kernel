@@ -21,6 +21,12 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
+# Heavy (deterministic re-runs of the run2 orchestrator, ~30s/test) — excluded
+# from the `dev.py fast` inner loop, still run in full CI. See pyproject.
+pytestmark = pytest.mark.slow
+
 _BENCH = str(Path(__file__).resolve().parents[1] / "benchmark")
 if _BENCH not in sys.path:
     sys.path.insert(0, _BENCH)

@@ -31,6 +31,7 @@ from smartphone_tier.tiers import default_tiers, trajectories_for  # noqa: E402
 from smartphone_tier.harness import (  # noqa: E402
     fires_dangle, fires_loop, fires_mint, fold_tier, run_sweep,
 )
+from smartphone_tier.real_corpus import DEFAULT_CSV, run_real_corpus  # noqa: E402
 
 
 def test_recoverable_fraction_is_monotone_falling():
@@ -127,3 +128,102 @@ def test_kernel_verdict_not_reimplemented():
     direct = classify_stop(StopEvidence(final_turn_text=t.final_turn,
                                         results_after_turn=t.results_after)).is_dangling
     assert fires_dangle(t) == direct is True
+
+
+# ---------------------------------------------------------------------------
+# The MEASUREMENT (docs/341 §4) — the real Toolathlon replay corpus, not the
+# synthetic pre-registration. The honest counterweight to the synthetic curve.
+# ---------------------------------------------------------------------------
+import os  # noqa: E402
+
+import pytest  # noqa: E402
+
+_HAS_CSV = os.path.isfile(DEFAULT_CSV)
+_needs_csv = pytest.mark.skipif(not _HAS_CSV, reason="committed replay CSV not present")
+
+
+@_needs_csv
+def test_real_corpus_direction_holds():
+    """On REAL data the thesis direction holds: recoverable fraction is non-increasing
+    from the weakest capability tier to the strongest."""
+    res = run_real_corpus()
+    fr = [t.recoverable_fraction for t in res.tiers]
+    assert len(fr) >= 3
+    for i in range(len(fr) - 1):
+        assert fr[i] >= fr[i + 1] - 1e-9
+    assert res.source.startswith("real:")
+
+
+@_needs_csv
+def test_real_corpus_level_is_modest_not_eighty_percent():
+    """The honesty pin: the REAL weak-end recoverable fraction is FAR below the
+    synthetic 80% — single digits to low double digits. If this ever reads ~80%, the
+    real reader has silently drifted toward the synthetic shape (the failure we are
+    guarding against)."""
+    real = run_real_corpus()
+    syn = run_sweep()
+    real_weak = real.tiers[0].recoverable_fraction
+    syn_weak = syn.tiers[0].recoverable_fraction
+    assert real_weak < 0.30, f"real weak-end {real_weak:.0%} is implausibly high"
+    assert real_weak < syn_weak - 0.30, (
+        f"the real measurement ({real_weak:.0%}) is supposed to be much lower than the "
+        f"synthetic pre-registration ({syn_weak:.0%}) — the whole point of measuring")
+
+
+@_needs_csv
+def test_real_corpus_recall_matches_paper_ceiling():
+    """The overall real recall (recovered / all failures) is the paper's low-single-digit
+    ceiling, not a large number — a cross-check against the published detector table."""
+    res = run_real_corpus()
+    tot_fail = sum(t.n_failed for t in res.tiers)
+    tot_rec = sum(t.recoverable for t in res.tiers)
+    overall = tot_rec / tot_fail
+    assert 0.02 < overall < 0.12, f"overall real recall {overall:.1%} off the paper ceiling"
+
+
+# ---------------------------------------------------------------------------
+# The on-device tool-caller ladder (docs/341 §3a) — REAL Qwen2.5 runs, committed as
+# fixtures so the rising edge of the inverted-U reproduces at $0 (no model needed).
+# ---------------------------------------------------------------------------
+_REC = os.path.join(_BENCH, "smartphone_tier", "_recordings")
+_HAS_LADDER = os.path.isdir(os.path.join(_REC, "q05")) and os.path.isdir(os.path.join(_REC, "q15"))
+_needs_ladder = pytest.mark.skipif(not _HAS_LADDER, reason="committed on-device fixtures not present")
+
+
+@_needs_ladder
+def test_ondevice_ladder_recoverability_RISES_with_competence():
+    """The corrected finding (docs/341 §3a): among REAL small tool-calling models, the
+    DOS-recoverable fraction RISES with size/competence — the OPPOSITE of the naive
+    'weaker = more recoverable' guess. A bigger tool-tuned model reads-before-it-writes,
+    so when it mints a fake id the detector has a corpus to refute it against; the 0.5B
+    model skips the reads and mints into an empty corpus (uncatchable)."""
+    from smartphone_tier.harness import run_recordings
+    q05 = run_recordings(os.path.join(_REC, "q05")).tiers[0]
+    q15 = run_recordings(os.path.join(_REC, "q15")).tiers[0]
+    # 0.5B is in the detector blind spot; 1.5B is catchable — recoverability RISES.
+    assert q05.recoverable_fraction < q15.recoverable_fraction
+    assert q05.recoverable_fraction == 0.0   # skips reads -> empty corpus -> MINT abstains
+    assert q15.recoverable_fraction >= 0.5   # reads first -> minted id refuted -> MINT fires
+    # the catch is the MINT detector (a hallucinated id on a real mutating call).
+    assert q15.fail_fire["mint"] > 0
+
+
+@_needs_ladder
+def test_ondevice_mint_is_the_real_failure_shape():
+    """The 1.5B catch is a genuine minted-FK: a user_id arg that appears in NO env blob,
+    on a real mutating call, after the model did the reads. This is the arg_provenance
+    target produced by a real on-device tool-caller — folded by the live kernel."""
+    import json
+    from dos.arg_provenance import (
+        CorpusSource, EnvBlob, PriorResults, ToolArg, ToolCall, classify_call,
+    )
+    rec = json.load(open(os.path.join(_REC, "q15", "assign-incident_0.json"), encoding="utf-8"))
+    assert rec["mutating_call"] is not None and rec["env_blobs"], "fixture lost its mint surface"
+    tool, args = rec["mutating_call"]
+    call = ToolCall(tool_name=tool,
+                    args=tuple(ToolArg(name=k, value=v) for k, v in args.items()),
+                    is_mutating=True)
+    prior = PriorResults(blobs=tuple(EnvBlob(text=b, source=CorpusSource.TOOL_RESULT)
+                                     for b in rec["env_blobs"]))
+    # the kernel itself says: do not believe this call (an id was minted from nowhere).
+    assert classify_call(call, prior).believe is False

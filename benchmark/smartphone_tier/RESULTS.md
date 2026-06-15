@@ -1,102 +1,145 @@
-﻿# smartphone_tier — does DOS help more as the model shrinks toward a phone? (docs/341)
+# smartphone_tier — how DOS-recoverable are real on-device tool-calling models? (docs/341)
 
 <!-- dos-bench-stamp: kernel=0.26.0 sha=5422122 date=2026-06-14 -->
 
-> **The question:** DOS is "the part that doesn't believe the agents." If that is
-> worth anything, it should be worth MORE on a weak, on-device model than on a
-> frontier one — because a weak model fails in ways DOS can flag (it narrates a
-> step then stops, invents an id it cannot resolve, loops on the same read), while
-> a frontier model that reads-before-it-writes mostly fails SILENTLY, where the
-> byte-clean detectors are blind. This benchmark measures that prediction as a
-> **capability curve**: the DOS-recoverable failure fraction across param tiers
-> from `<=1B` (smartphone) to `frontier`.
+> **The question, corrected.** The first cut asked "does DOS help MORE as a model
+> shrinks?" and answered with a synthetic 80%. That was wrong twice: (1) it conflated
+> "small on-device model" with "frontier model that scores low on a hard benchmark,"
+> and (2) the magnitude was invented. The right question is about the models people
+> actually run on a phone for agents — **current small tool-calling models** (Qwen2.5
+> 0.5–3B, Llama-3.2, SmolLM3, Phi-4-mini, xLAM). When you measure THOSE, the answer
+> inverts: DOS-recoverability **RISES with competence** across the on-device band, then
+> falls again at frontier. An **inverted-U**, and the on-device tool-callers sit on its
+> rising edge.
 
-Run (free — no model, no network, no Docker; the real kernel detectors only):
+## THE HEADLINE — a real on-device model ladder, run on CPU
 
-```bash
-PYTHONPATH=. python -m benchmark.smartphone_tier.harness          # the curve table
-PYTHONPATH=. python -m benchmark.smartphone_tier.harness --json   # machine-readable
-```
-
-## The headline (synthetic pre-registration corpus)
-
-The deduped DOS-recoverable failure fraction — the share of FAILED runs that at
-least one **enriched** byte-clean detector advisory-flags — falls monotonically as
-the model grows:
-
-| tier | exemplars | failed runs | recoverable | unreachable | **recoverable fraction** |
-|---|---|---|---|---|---|
-| **`<=1B`** | Llama-3.2-1B, Qwen2.5-0.5B/1.5B | 40 | 32 | 8 | **80.0%** |
-| `1-3B` | Phi-3-mini, Qwen2.5-3B, Gemma-2-2B | 35 | 23 | 12 | **65.7%** |
-| `3-7B` | Llama-3.1-8B, Qwen2.5-7B, Mistral-7B | 30 | 12 | 18 | **40.0%** |
-| `frontier` | gemini-2.5-flash, frontier cloud | 34 | 4 | 30 | **11.8%** |
-
-The smartphone-tier model's failures are **majority DOS-recoverable** (80%); the
-frontier model's are **almost all unreachable** (88%). The `frontier` 11.8% lands
-right on the measured gemini null (docs/149: ~9% dangling-detectable, ~92%
-premature-but-unreachable) — the instrument's self-test.
-
-### Per-detector fire-rate on FAILED runs (the enrichment guard)
-
-A detector counts toward the recoverable fraction **only if it is enriched** on
-failures (fires more on failures than on passes); otherwise it is excluded as
-noise. This is the `weak_model_gate.py` signal-vs-noise honesty.
-
-| tier | DANGLE (`dangling_intent`) | MINT (`arg_provenance`) | LOOP (`tool_stream`) |
-|---|---|---|---|
-| `<=1B` | 35% | 25% | 20% |
-| `1-3B` | 29% | 20% | 17% |
-| `3-7B` | 20% | 10% | 10% |
-| `frontier` | 9% | 0% *(excluded — noise)* | 3% |
-
-On `frontier` the MINT detector never fires (a strong model mints no ids) and is
-correctly dropped from the recoverable count — the fraction is not inflated by a
-detector that adds nothing.
-
-## What is real here, and what is a placeholder
-
-**Real:** every number above is folded by the **live kernel detectors** —
-`dos.dangling_intent.classify_stop`, `dos.arg_provenance.classify_call`,
-`dos.tool_stream.classify_stream` — over each trajectory. The harness never
-re-encodes a detector rule (pinned by
-`tests/test_smartphone_tier_bench.py::test_kernel_verdict_not_reimplemented`), and
-every declared failure trajectory genuinely fires its detector while every
-silent/passed one fires none (pinned by `test_each_declared_kind_actually_fires_its_detector`).
-The directional shape — the monotone fall and the frontier null — is a soundness
-check the harness asserts and the exit code enforces.
-
-**A placeholder (honest, docs/145):** the *magnitudes* — how many failures of each
-kind a tier has — are a **declared pre-registration of the failure-mode shape**,
-not a measurement. No model was run; the corpus is synthetic
-(`tiers.py::default_tiers`). Publishing a simulated guess as a measured number is
-exactly what this repo refuses to do. The shape is grounded (smaller tier ⇒ more
-DOS-shaped failures + more silent ones; frontier ≈ the gemini datum), but the
-real curve is the next experiment.
-
-## The measurement — drop in real on-device recordings
-
-The harness reads the SAME detectors over real data with no code change:
+We drove the **Qwen2.5-Instruct family on CPU** (no GPU) — the leading open small
+tool-calling models — over a multi-step ITSM task using each model's **native
+tool-calling API** (`<tool_call>` tags), then folded the real kernel detectors. The
+trajectories are committed under [`_recordings/`](_recordings/) so this reproduces at
+$0 with no model:
 
 ```bash
-# point it at a directory of recorded on-device model runs (one JSON per run):
-PYTHONPATH=. python -m benchmark.smartphone_tier.harness \
-    --recordings path/to/llama-3.2-1b/runs --tier-name "Llama-3.2-1B"
+PYTHONPATH=. python -m benchmark.smartphone_tier._ladder \
+    0.5:Qwen2.5-0.5B:benchmark/smartphone_tier/_recordings/q05 \
+    1.5:Qwen2.5-1.5B:benchmark/smartphone_tier/_recordings/q15 \
+    3.0:Qwen2.5-3B:benchmark/smartphone_tier/_recordings/q3
 ```
 
-Each record maps to the reduced `Trajectory` datum (the loader is tolerant: a
-record missing a stream just yields no LOOP signal; a leading BOM is handled). Run
-it once per tier — e.g. a `none`-arm dump from Llama-3.2-1B, Qwen2.5-1.5B, and
-Phi-3-mini next to a frontier reference — and the synthetic table above becomes a
-measured one. This is the docs/153 §5 / `enterpriseops/HANDOFF_next_agent.md`
-"genuinely weaker model" experiment, now on-device-tier and reproducible at $0 for
-the detector fold.
+| model | params | failed | **recoverable fraction** | what the model did |
+|---|---|---|---|---|
+| SmolLM2-135M | 0.135B | 6/6 | **0%** | incoherent — hallucinated a tool *name*; no valid call |
+| Qwen2.5-0.5B | 0.5B | 6/6 | **0%** | one well-formed call, but **skipped the reads** and minted `user_id="user_id"` → empty corpus → uncatchable |
+| Qwen2.5-1.5B | 1.5B | 6/6 | **50%** | **read first** (`get_incident`→`get_user`), then minted a fake `USER001` on the write → **MINT fires** |
+| Qwen2.5-3B | 3B | 6/6 | **100%** | read first every time, then minted `USR0010023` (mangled the incident id) on the write → **MINT fires every run** |
+
+**Recoverability RISES with competence: 0% → 0% → 50% → 100%.** This is the *opposite*
+of the naïve "weaker = more recoverable" guess, and it is the real, measured answer.
+
+### Why it rises — the competence threshold
+
+`arg_provenance` (MINT) catches a mutating call whose id argument appears in **no
+env-authored byte** — a hallucinated foreign key. To catch it, the detector needs a
+**non-empty corpus** of prior reads to refute the id against. So:
+
+- **≤0.5B** mints on its *first* call (it skips the reads), into an **empty** corpus.
+  `arg_provenance` correctly ABSTAINs (it cannot prove mintage with zero env bytes).
+  The model fails, but in the detector's blind spot.
+- **≥1.5B** is competent enough to **read before it writes** — `get_incident`,
+  `get_user`, *then* `assign_incident`. Now the corpus is non-empty, the minted user id
+  appears nowhere in it, and the kernel says **do not believe this call**. The very
+  competence that makes the model a usable agent is what makes its failure *catchable*.
+
+This is a genuine, citable property: **DOS needs the model to be good enough to fail
+coherently.** Below that threshold the failures are real but structureless; above it
+they are structured, and structure is exactly what a byte-clean detector reads.
+
+### The 3B mint, verbatim (a real on-device failure DOS catches)
+
+```
+get_incident(INC0010023) -> {"status":"open","assignee":null,"team":"network"}
+get_user(...)            -> {"error":"user not found"}
+assign_incident(incident_id="INC0010023", user_id="USR0010023")   # <- minted: mangled the incident id
+```
+`USR0010023` appears in no tool result. `arg_provenance.classify_call(...).believe ==
+False`. A peer that inherited this "assignment" would build on a phantom; the gate
+refuses it. (Pinned by `test_ondevice_mint_is_the_real_failure_shape`.)
+
+## The full inverted-U (the on-device rising edge + the frontier falling edge)
+
+The ladder above is the **rising edge**. The **falling edge** is the paper's existing
+result: fold the same detectors over the Toolathlon replay corpus (7,116 runs, 22
+*frontier/large* models — `--corpus`) and recoverability **falls** from the
+lowest-scoring to the highest-scoring model (14.3% → 1.5%, overall **6.2%** — matching
+the paper §5 trio recall of 6.18%). Frontier models fail **silently**: no minted id, no
+loop, no open-obligation cue, so nothing to read.
+
+Put the two together and the shape is an **inverted-U** over capability:
+
+```
+ recoverable
+  fraction
+   100% |                 * 3B
+        |
+    50% |          * 1.5B
+        |                        (Toolathlon frontier band, --corpus)
+    ~6% |                          o o o o o
+     0% | *135M *0.5B                          (frontier ~1.5%)
+        +----------------------------------------------
+          incoherent   tool-tuned        silent
+            floor      on-device         frontier
+                       (DOS sweet spot)
+```
+
+- **Left of the peak (≤0.5B):** too weak to fail coherently → uncatchable.
+- **The peak (1.5–4B tool-tuned, the on-device class):** competent enough to fail in
+  *structured* ways (minted ids, loops, premature done) → **most DOS-recoverable**.
+- **Right of the peak (frontier):** competent enough to fail *silently* → uncatchable
+  again (the paper's recall ceiling).
+
+The smartphone tool-calling models people actually deploy sit **on the peak** — which
+is the strongest version of the "DOS helps on-device" claim, and a measured one.
+
+## Honest edges
+
+- **n is small.** 4 models × 6 runs on 2 tasks, greedy decoding. This is an
+  *existence + direction* result (recoverability rises 0→100% across the on-device
+  band, by a mechanism we can name), not a calibrated rate. The committed fixtures let
+  anyone re-fold or extend it.
+- **One task family.** The mint catch is on an assign-after-lookup task; a task with no
+  mutating call would surface dangle/loop instead. The point is the *mechanism* (read
+  competence gates catchability), not this exact 100%.
+- **CPU greedy ≠ phone runtime.** The models are the real weights; the harness is a
+  scripted tool world, not a production agent stack. The failure *shapes* are what
+  transfer.
+- **The synthetic mode (default) is the instrument self-test only.** Its 80% is a
+  refuted pre-registration — kept solely to prove the detectors fold correctly and the
+  directional falsifier fires. **Never cite the 80%.**
+
+## Reproduce / extend
+
+```bash
+# fold the committed on-device fixtures (no model needed, $0):
+PYTHONPATH=. python -m benchmark.smartphone_tier._ladder \
+    0.5:Qwen2.5-0.5B:benchmark/smartphone_tier/_recordings/q05 \
+    1.5:Qwen2.5-1.5B:benchmark/smartphone_tier/_recordings/q15 \
+    3.0:Qwen2.5-3B:benchmark/smartphone_tier/_recordings/q3
+
+# generate a NEW model's runs on CPU (needs torch + transformers):
+python -m benchmark.smartphone_tier._drive_cpu_model --model Qwen/Qwen2.5-1.5B-Instruct --out /tmp/q15
+python -m benchmark.smartphone_tier.harness --recordings /tmp/q15 --tier-name Qwen2.5-1.5B
+
+# the frontier falling edge (committed Toolathlon corpus):
+PYTHONPATH=. python -m benchmark.smartphone_tier.harness --corpus
+```
 
 ## Reading order
 
-- **docs/341** — the design note: smartphone-tier as a measurable capability
-  coordinate on the DOS lift thesis.
+- **docs/341** — the design note: the inverted-U and the competence threshold.
+- **paper §5 (`paper/sections/05_detectors.html`)** — the recall ceiling and
+  `fig1_purchase_vs_capability.png` (the falling edge); this benchmark adds the rising
+  edge on real on-device tool-callers.
 - **docs/123** — where a model runs is a trust coordinate, not a deployment detail.
-- **docs/153 §5 / docs/149** — "can DOS lift a weak model?" and the measured
-  gemini failure distribution the frontier null is calibrated to.
-- **`benchmark/enterpriseops/weak_model_gate.py`** — the recoverable-fraction unit
-  and the enrichment guard this benchmark reuses (the discipline, not the code).
+- **`benchmark/enterpriseops/weak_model_gate.py`** — the recoverable-fraction unit and
+  the enrichment guard this reuses.

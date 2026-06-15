@@ -368,6 +368,17 @@ dos_mcp = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Registered markers (an unregistered marker warns; CI does not error on warnings
+# today, but register them so `-m "not slow"` is a first-class contract). `slow`
+# tags the heavy modules — hypothesis property families, the wheel/binary build
+# tests, the broad subprocess CLI sweeps — that dominate wall-clock. The inner
+# loop (`python scripts/dev.py fast`) runs `-m "not slow"`; CI and a pre-commit
+# gate still run the WHOLE suite (slow included). Marking a test `slow` removes it
+# from the fast loop, never from the real gate.
+markers = [
+    "slow: a heavy test excluded from the `dev.py fast` inner loop (still run in full CI)",
+    "fast: an explicitly-fast unit (informational; the inner loop is `-m 'not slow'`)",
+]
 
 # ---------------------------------------------------------------------------
 # Lint + type gate (run in CI — see .github/workflows/ci.yml). The point is to

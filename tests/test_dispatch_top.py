@@ -776,3 +776,112 @@ class TestSelfModifyBanner:
         empty = T.snapshot(default_config(_git_repo(tmp_path / "e", commits=("s",))),
                            verify=lambda p, ph: False, now=NOW)
         assert empty.to_dict()["self_modify_block"] is None
+
+
+# ---------------------------------------------------------------------------
+# docs/328 Phase 2 — the `dos top` press-'a'-to-approve key. The TUI half of the
+# sudo-like arm: it WRITES the window, but only from an interactive operator
+# (run_top's isatty floor + _poll_keypress yielding no key headless + a y/N
+# re-confirm), reusing the SAME cli._arm_write as the CLI verb.
+# ---------------------------------------------------------------------------
+class _FakeLive:
+    """A minimal stand-in for rich.live.Live — records stop/start so _tui_arm's
+    drop-out-of-the-alternate-screen dance is observable without a real terminal."""
+    def __init__(self):
+        self.stopped = 0
+        self.started = 0
+    def stop(self):
+        self.stopped += 1
+    def start(self, refresh=False):
+        self.started += 1
+
+
+def _block_frame(target="pkg/widget.py", armed=False):
+    """A Frame carrying just a SelfModifyBlock — all _tui_arm reads."""
+    blk = T.SelfModifyBlock(ts=_iso(5), age_ms=5 * 60 * 1000,
+                            target=target, armed=armed)
+    return T.Frame(workspace="w", now_iso="t", self_modify_block=blk)
+
+
+class TestTuiApproveKey:
+    def test_poll_keypress_no_tty_returns_none_after_sleeping(self, monkeypatch):
+        """The headless gate: with stdin not a tty, _poll_keypress just waits and
+        returns None — so the live loop is behaviour-identical to time.sleep, and
+        an agent's piped `dos top` can never produce the 'a' key."""
+        monkeypatch.setattr(TUI.sys.stdin, "isatty", lambda: False, raising=False)
+        slept = []
+        monkeypatch.setattr(TUI.time, "sleep", lambda s: slept.append(s))
+        # Force the POSIX branch deterministically (skip msvcrt if present).
+        monkeypatch.setitem(__import__("sys").modules, "msvcrt", None)
+        assert TUI._poll_keypress(0.01) is None
+
+    def test_tui_arm_noop_when_no_block(self, tmp_path):
+        cfg = default_config(_git_repo(tmp_path, commits=("s",)))
+        frame = T.Frame(workspace="w", now_iso="t", self_modify_block=None)
+        live = _FakeLive()
+        assert TUI._tui_arm(cfg, frame, live) is False
+        assert live.stopped == 0  # never even dropped the screen
+
+    def test_tui_arm_noop_when_already_armed(self, tmp_path):
+        cfg = default_config(_git_repo(tmp_path, commits=("s",)))
+        live = _FakeLive()
+        assert TUI._tui_arm(cfg, _block_frame(armed=True), live) is False
+
+    def test_tui_arm_noop_when_not_interactive(self, tmp_path, monkeypatch):
+        """Belt-and-suspenders: even handed a fresh block, _tui_arm refuses when
+        the interactivity gate is False — and writes nothing."""
+        from dos import cli, override_facts as ovr
+        cfg = default_config(_git_repo(tmp_path, commits=("s",)))
+        monkeypatch.setattr(cli, "_require_interactive_operator", lambda: False)
+        live = _FakeLive()
+        assert TUI._tui_arm(cfg, _block_frame(), live) is False
+        assert not ovr.arm_path(cfg.paths.root).exists()
+
+    def test_tui_arm_interactive_writes_window_scoped_to_target(self, tmp_path, monkeypatch):
+        """The positive path: interactive + confirm 'y' arms a window scoped to the
+        blocked target, via the shared cli._arm_write (read_override round-trips)."""
+        from dos import cli, override_facts as ovr
+        cfg = default_config(_git_repo(tmp_path, commits=("s",)))
+        monkeypatch.setattr(cli, "_require_interactive_operator", lambda: True)
+        monkeypatch.setattr(cli, "_confirm_interactive", lambda prompt: True)
+        live = _FakeLive()
+        assert TUI._tui_arm(cfg, _block_frame(target="pkg/widget.py"), live) is True
+        assert live.stopped == 1 and live.started == 1  # dropped + restored the screen
+        facts = ovr.read_override(cfg.paths.root)
+        assert facts is not None
+        assert facts.scope == ("pkg/widget.py",)          # least-privilege scope
+        assert "pkg/widget.py" in facts.reason            # auto-filled reason
+
+    def test_tui_arm_declined_writes_nothing(self, tmp_path, monkeypatch):
+        from dos import cli, override_facts as ovr
+        cfg = default_config(_git_repo(tmp_path, commits=("s",)))
+        monkeypatch.setattr(cli, "_require_interactive_operator", lambda: True)
+        monkeypatch.setattr(cli, "_confirm_interactive", lambda prompt: False)
+        live = _FakeLive()
+        assert TUI._tui_arm(cfg, _block_frame(), live) is False
+        assert live.started == 1  # screen restored even on decline
+        assert not ovr.arm_path(cfg.paths.root).exists()
+
+    def test_run_top_non_tty_never_enters_keypress_loop(self, tmp_path, capsys):
+        """The structural floor (unchanged from Phase 1): a non-tty stdout returns
+        the plain frame WITHOUT entering the live/keypress loop at all."""
+        cfg = default_config(_git_repo(tmp_path, commits=("s",)))
+        rc = TUI.run_top(cfg, once=False)   # capsys stdout is not a tty
+        assert rc == 0 and "LANES" in capsys.readouterr().out
+
+    def test_renderable_surfaces_arm_hint_only_when_armable(self):
+        """The 'a' key is advertised only when there is a fresh, not-yet-armed
+        block; a quiet or already-armed screen never shows the arm hint."""
+        import importlib
+        if importlib.util.find_spec("rich") is None:
+            import pytest
+            pytest.skip("rich not installed — panel render is the [tui] extra")
+        from rich.console import Console
+        def _render_to_text(frame):
+            out = Console(width=100, file=__import__("io").StringIO())
+            out.print(TUI._renderable_for(frame))
+            return out.file.getvalue()
+        armable = _render_to_text(_block_frame(armed=False))
+        assert "'a' arm" in armable and "press 'a'" in armable
+        quiet = _render_to_text(T.Frame(workspace="w", now_iso="t"))
+        assert "'a' arm" not in quiet and "press 'a'" not in quiet

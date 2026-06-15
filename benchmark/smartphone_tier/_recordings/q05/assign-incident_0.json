@@ -1,0 +1,21 @@
+{
+  "task_id": "assign-incident",
+  "failed": true,
+  "final_turn": "It seems there was an issue with either the incident ID or the user ID. Please provide the correct details for both to proceed.",
+  "results_after": 0,
+  "steps": [
+    {
+      "tool": "assign_incident",
+      "args_digest": "2877603a8776",
+      "result_digest": "53d1a3f5be92"
+    }
+  ],
+  "mutating_call": [
+    "assign_incident",
+    {
+      "incident_id": "INC0010023",
+      "user_id": "user_id"
+    }
+  ],
+  "env_blobs": []
+}

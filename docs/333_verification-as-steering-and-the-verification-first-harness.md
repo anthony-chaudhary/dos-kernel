@@ -524,7 +524,41 @@ center is open-loop on the axis that matters most as the horizon grows.
 
 ---
 
-## 6. The synthesis (one paragraph)
+## 6. Outsider corroboration: someone built this loop under real pain
+
+The control-loop framing here is not a DOS idea reaching for company. An
+outsider built the exact same loop — setpoint, thermostat, sensor — and named
+it in the same words, without ever hearing of DOS. When Anthropic's Fable 5 was
+suspended and work snapped back to Opus 4.8, a developer (u/coolreddy, repo
+[`Poorna-Repos/opus-fable-mode`](https://github.com/Poorna-Repos/opus-fable-mode))
+mined his own session logs, measured how Opus's working style differed from
+Fable's, and built a three-layer rig to steer Opus back toward it: a rule block
+that sets the target, a per-turn hook that re-asserts it, and a script that
+reads his logs and checks whether Opus is converging on the target. That is a
+closed control loop, built from need, not theory. Someone in real pain reached
+for *this exact shape* — which is the strongest sign the shape is right. The
+pieces map straight onto §1's vocabulary:
+
+| §1 control element | This note's term | `opus-fable-mode`'s piece |
+|---|---|---|
+| Setpoint | the spec / goal | the 8-rule "governor" block |
+| Actuator re-assert | the harness | the `UserPromptSubmit` re-injection hook |
+| **Sensor / feedback** | **the verifier** | **`leak_test.py`** (the convergence check) |
+| Error signal | claim-vs-truth | `abs(post − target) < abs(pre − target)` per metric |
+
+The one place his loop falls short is the one place DOS exists to fix: his
+sensor reads the agent's *own output text* (word counts, opener words), which
+the agent can move to target without doing better work — a forgeable signal. The
+fix is the whole DOS point: keep the loop, swap the sensor for one whose reading
+the agent did not author. The full read of his repo, the forgeability argument,
+and the author-disjoint sensor it points at are
+[`339`](339_opus-fable-mode-steering-loop-and-the-witnessed-sensor.md). For this
+note the point is narrower and stronger: the control-loop frame is what people
+build when they actually try to steer an agent over time.
+
+---
+
+## 7. The synthesis (one paragraph)
 
 A long-horizon agent is a plant that drifts by reading its own past output as
 ground truth, so it is steerable only by a feedback signal whose author is not the
@@ -550,7 +584,7 @@ the only distinction that survives.
 
 ---
 
-## 7. See also
+## 8. See also
 
 - [`102_when-to-trust-an-agent.md`](102_when-to-trust-an-agent.md) — the trust law
   (structure / prior commitments / cheap-yes); §3's commit-vs-report asymmetry is

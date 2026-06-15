@@ -106,6 +106,7 @@ your job title, and every section hands off to the one above it.
 
 | You're asking… | Start at | Then |
 |---|---|---|
+| *"I vibe-code with an AI — did it actually do what it said?"* | ["Did my AI actually do it?" in 30 seconds](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/00b_did-my-ai-do-it.md) — one command on your own repo | the [plain-words version](#the-plain-words-version) of why it works |
 | *"What is this, in plain words, and why should my team care?"* | [the plain-words version](#the-plain-words-version), just below — no code | hand the [60-second demo](#try-it-in-60-seconds) to whoever runs your agents |
 | *"Show me it working, fast."* | [Try it in 60 seconds](#try-it-in-60-seconds) | [what goes wrong in a fleet](#what-goes-wrong-in-a-fleet) without it |
 | *"I already run agents — how do I wire the verdict into **my** stack?"* | [How you plug it in](#how-you-plug-it-in) | [the MCP lie detector](#give-your-agent-a-lie-detector-mcp) · [Install](#install) |

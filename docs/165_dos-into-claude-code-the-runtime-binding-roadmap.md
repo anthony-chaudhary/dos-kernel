@@ -252,6 +252,97 @@ the Python-speed fallback is entirely acceptable (the latency argument that forc
 `pretool`/`posttool` native does not bind here — this went native for parity and
 double-count-safety, not speed).
 
+## 3.6. The re-injection hook — a UserPromptSubmit primitive against salience decay
+
+*Added 2026-06-14. §3 mapped every Stop-family seam but left **UserPromptSubmit**
+unused for anything but the rejected self-cert trap (§5.1). This records the one
+sound, general use of that seam: re-printing a standing directive every turn.
+Source pattern: docs/339 §5.1 — the `opus-fable-mode` re-injection hook
+(`reinject.sh`), an outsider's independently-built fix for the same problem DOS hits
+in its own CLAUDE.md.*
+
+**The problem it fixes.** A standing directive — a line in `CLAUDE.md`, a governor
+rule, a working-discipline note — is read once at session start, then **fades in
+salience as the session grows**. The system prompt is fixed at the top, but the
+agent's attention sits at the live end of a long, growing transcript; by turn 40 a
+turn-0 directive is far away and weakly weighted. The agent drifts back to its
+default texture (for Opus: padding medium-length prose, narrating itself, hedging) —
+not because it was told not to, but because the telling decayed. This is the
+salience-decay problem docs/336 names from the legibility side and docs/339 §5.1
+measures from the behavioral side.
+
+**The mechanism.** A **UserPromptSubmit** hook re-prints the standing directives on
+**every** turn. Its exit-0 stdout becomes context the model sees right before it
+acts (§1a: "exit-0 stdout becomes context"), so the directive lands at the *live end*
+of the transcript every time — fresh, not faded. It is a **thermostat**: the
+directive is the setpoint, and the hook re-asserts it each turn so drift never
+accumulates. It blocks nothing (`{"decision":"block"}` would erase the prompt — never
+use it here); it only injects. So it is OBSERVE/WARN by construction and dodges the
+−9pp BLOCK-disruption trap (§0).
+
+**The worked snippet.** Same shell-command shape as the bundled hooks
+(`claude-plugin/hooks/hooks.json`): a `UserPromptSubmit` entry whose command prints
+the directive block to stdout and exits 0. The directives live in one file the hook
+`cat`s, so editing the setpoint is a one-file edit, not a hook edit:
+
+```jsonc
+// claude-plugin/hooks/hooks.json — a UserPromptSubmit entry
+"UserPromptSubmit": [
+  {
+    "hooks": [
+      {
+        "type": "command",
+        "shell": "bash",
+        // print the standing directives, then exit 0 so stdout becomes context.
+        // Fail-safe: a missing file prints nothing and still exits 0 (|| true) —
+        // the hook never breaks a turn, the same discipline as the other DOS hooks.
+        "command": "cat \"${CLAUDE_PROJECT_DIR}/.dos/governor.md\" 2>/dev/null || true"
+      }
+    ]
+  }
+]
+```
+
+`.dos/governor.md` holds the few lines worth re-asserting — short, because every
+turn pays their token cost. A minimal example:
+
+```text
+STANDING DIRECTIVES (re-asserted every turn — these decay otherwise):
+- Prefer tool calls over prose: when a call settles the question, make it — don't
+  narrate what you're about to do. Act, then report the result.
+- Write plainly: short common words, short sentences, one idea at a time.
+- In tool work, lead with the result; act, don't narrate.
+```
+
+For a non-plugin host the identical entry goes in `.claude/settings.json` under
+`hooks.UserPromptSubmit` — `dos init --with-hooks` (§3 Tier 1) is the natural place
+to scaffold it, byte-identical to the plugin form.
+
+**Where DOS's OWN directives need this.** DOS already carries standing governor
+directives that are exactly the decay-prone kind — they are setpoints with no
+thermostat today:
+
+| Standing directive | Where it lives | Why it decays |
+|---|---|---|
+| "Prefer tool calls over prose" | `CLAUDE.md` (HIGH-PRIORITY block) | added to fight Opus's narrate-don't-act texture; the longer the session, the more the agent reverts to prose |
+| "Write plainly — short words, short sentences" | `CLAUDE.md` + `AGENTS.md` (operator directive) | a style setpoint; drift back to dense prose is gradual and unflagged |
+| "Commit only the lane you worked / never `git add -A`" | `CLAUDE.md` working discipline | a safety rule the agent must re-apply at *every* commit, late in a session when the rule is most distant |
+
+Each is a line read once and then left to fade. The re-injection hook is the cheap,
+general fix: put the two or three load-bearing directives in `.dos/governor.md`,
+wire the `UserPromptSubmit` entry above, and they arrive fresh on every turn instead
+of decaying to a turn-0 memory.
+
+**The honest caveat — this steers the *narration*, not the disposition.** Re-asserting
+"prefer tool calls over prose" makes the directive present; it does not make the
+agent's underlying behavior better, only more-likely-aligned-to-the-text. That is the
+docs/339 §3 forgeable-sensor lesson applied to the *actuator*: the re-injection hook
+is a stronger setpoint, but the loop is only trustworthy if its **sensor** reads a
+non-forgeable effect (a landed commit, a verified claim — the §3 PostTool / Stop
+verdicts), not the agent's own re-aligned words. Use this primitive to keep the
+setpoint fresh; close the loop with an author-disjoint sensor, not by trusting that
+the freshly-injected directive was obeyed.
+
 ---
 
 ## 4. The one-install story

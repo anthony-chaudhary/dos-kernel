@@ -266,11 +266,13 @@ def run_recordings(recordings_dir: str, tier_name: str = "recorded") -> SweepRes
 # Rendering — always-on ASCII (the forge_arena idiom); --json for machines.
 # ---------------------------------------------------------------------------
 def render_ascii(res: SweepResult) -> str:
+    is_real = res.source != "synthetic"
     lines: List[str] = []
     lines.append("smartphone_tier (docs/341) — does the DOS-recoverable failure fraction")
     lines.append("RISE as the model shrinks toward on-device / smartphone size?")
-    lines.append(f"  source: {res.source}   (synthetic = a DECLARED pre-registration, "
-                 "not a measurement)")
+    kind = ("a MEASUREMENT over real recorded runs" if is_real
+            else "a DECLARED pre-registration, not a measurement")
+    lines.append(f"  source: {res.source}   ({kind})")
     lines.append("")
     lines.append("  tier        failed  recoverable  unreachable  recoverable-fraction")
     lines.append("  ----        ------  -----------  -----------  --------------------")
@@ -296,10 +298,16 @@ def render_ascii(res: SweepResult) -> str:
         lines.append("  !! the recoverable fraction is NOT non-increasing toward frontier —")
         lines.append("     the directional prediction (docs/341 §3) does not hold on this corpus.")
     lines.append("")
-    lines.append("  the honest caption: the magnitudes above are a SYNTHETIC pre-registration")
-    lines.append("  of the failure-mode shape (docs/145). Point --recordings at on-device model")
-    lines.append("  dumps (Llama-3.2-1B / Qwen2.5-1.5B / Phi-3-mini) to fold the SAME real kernel")
-    lines.append("  detectors over real data — that is the measurement.")
+    if is_real:
+        lines.append("  this is the MEASUREMENT: the direction holds (recoverable fraction falls as")
+        lines.append("  capability rises), but the weak-end LEVEL is modest (~14%), far below the")
+        lines.append("  synthetic pre-registration's 80%. The detectors are right when they fire but")
+        lines.append("  fire on only a small, shrinking slice of failures (the paper's recall ceiling).")
+    else:
+        lines.append("  the honest caption: the magnitudes above are a SYNTHETIC pre-registration")
+        lines.append("  of the failure-mode shape (docs/145) — and the REAL measurement (--corpus)")
+        lines.append("  comes out far lower (~14% at the weak end, not 80%). Run --corpus for the")
+        lines.append("  measured curve; point --recordings at on-device dumps for a new model.")
     return "\n".join(lines)
 
 
@@ -311,11 +319,18 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--recordings", default="",
                    help="a directory of recorded on-device model runs (one JSON per run); "
                         "fold the SAME detectors over real data instead of the synthetic corpus")
+    p.add_argument("--corpus", action="store_true",
+                   help="the MEASUREMENT: fold the committed Toolathlon replay rows "
+                        "(22 real models) into the capability curve, instead of the "
+                        "synthetic pre-registration (docs/341 §4)")
     p.add_argument("--tier-name", default="recorded",
                    help="label for the recordings tier (default: recorded)")
     args = p.parse_args(argv)
 
-    if args.recordings:
+    if args.corpus:
+        from .real_corpus import run_real_corpus
+        res = run_real_corpus()
+    elif args.recordings:
         res = run_recordings(args.recordings, tier_name=args.tier_name)
     else:
         res = run_sweep()
@@ -329,10 +344,11 @@ def main(argv: Optional[List[str]] = None) -> int:
             pass
         print(render_ascii(res))
 
-    # Exit non-zero if the synthetic sweep is not sound (a real-recordings run reports
-    # the curve but never fails the directional check — a measurement may legitimately
-    # come out any shape; the falsifier is only meaningful on the declared corpus).
-    if args.recordings:
+    # Exit non-zero only on the synthetic sweep's directional falsifier. A real
+    # measurement (--corpus / --recordings) reports the curve but never fails the
+    # check — a measurement may legitimately come out any shape; the falsifier is
+    # only meaningful on the declared corpus.
+    if args.corpus or args.recordings:
         return 0
     return 0 if res.sound() else 1
 

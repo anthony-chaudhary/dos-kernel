@@ -29,6 +29,10 @@ import sys
 
 import pytest
 
+# Heavy (spawns a live vendor CLI probe per case, ~5s) — excluded from the
+# `dev.py fast` inner loop, still run in full CI. See pyproject [tool.pytest].
+pytestmark = pytest.mark.slow
+
 from dos.drivers import llm_judge
 
 

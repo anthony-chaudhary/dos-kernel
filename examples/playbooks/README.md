@@ -41,6 +41,10 @@ Start with the onboarding quickstart, then jump to your archetype:
 0. **[`00_non-coder-verdict-in-15-minutes.md`](00_non-coder-verdict-in-15-minutes.md)** —
    the smallest adoption move: turn on `--output plain` so a non-coder gets an
    honest "Probably yes" / "Not yet" verdict on what an agent claimed it built.
+   The 30-second front door is **[`00b_did-my-ai-do-it.md`](00b_did-my-ai-do-it.md)**;
+   built it in a **browser app-builder** (Lovable / v0 / bolt.new)? The
+   export-then-verify on-ramp is
+   **[`00c_vibe-coders-export-then-verify.md`](00c_vibe-coders-export-then-verify.md)**.
 1. **[`01_onboard-a-repo.md`](01_onboard-a-repo.md)** — 10 minutes from `pip install`
    to your first verified ship, on *any* repo. Read this first.
 2. Your archetype playbook (table above).
@@ -61,9 +65,22 @@ Start with the onboarding quickstart, then jump to your archetype:
    that refuses the (N+1)th chamber (`CLASS_BUDGET_EXHAUSTED`), and a false "the
    soak passed" claim REFUTED from the instrument's thermal capture, not the
    campaign log. Static fixtures — no physical hardware.
+7. **[`10_two-hosts-one-gate.md`](10_two-hosts-one-gate.md)** — the *cross-host*
+   proof: **two independent agent hosts, one gate, one WAL.** Host A (Claude Code)
+   books a lane in the shared lease WAL; host B (Cursor) races on the same region
+   and is refused by the **same `dos apply` gate reading the same WAL**, with no
+   collision check re-implemented on the B side. The existence proof behind the
+   P-SPOKEN property (docs/342 M5 / docs/340 §3.1: own the shared verbs). Runnable:
+   `sh examples/playbooks/two_hosts_one_gate.sh`.
 
 ## Four cookbooks (recipes, not walkthroughs)
 
+- **[`cookbook-cursor.md`](cookbook-cursor.md)** — vibe-coding in **Cursor**?
+  One command — `dos init --hooks cursor` — wires the three DOS hooks into
+  Cursor's own `.cursor/hooks.json` (deny a refused call, re-surface a stalled
+  stream, refuse a stop on an unverified "done"), plus a copy-pasteable
+  `.cursor/rules/*.mdc` that tells the in-editor agent to run `dos verify`
+  before it claims a feature shipped. The Cursor on-ramp.
 - **[`cookbook-fleet-frameworks.md`](cookbook-fleet-frameworks.md)** — already
   running a fleet through **LangGraph, CrewAI, AutoGen, or the OpenAI / Claude
   Agents SDKs**? Each framework has a believe-the-agent point (a conditional
@@ -82,9 +99,11 @@ Start with the onboarding quickstart, then jump to your archetype:
   integration tier: **any environment that runs a command** reads a `dos` verb's
   exit code, no hook adapter and no MCP client required. Recipes for **aider**
   (a kernel verdict inside its auto-fix loop, one flag), a **git pre-push** gate,
-  and a **generic command step** for any runner the Action and GitLab template
+  a **generic command step** for any runner the Action and GitLab template
   don't reach (Jenkins, Make, `package.json`, a bespoke CLI agent on a hook-less
-  host). The honest tier for Windsurf / Warp / Zed today.
+  host), and a **Windsurf** on-ramp (a `/verify` workflow + a `.windsurfrules`
+  snippet — no hooks, the exit code is the verdict). The honest tier for
+  Windsurf / Warp / Zed today.
 
 ## Runnable example workspaces
 

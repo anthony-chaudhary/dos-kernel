@@ -31,6 +31,10 @@ from pathlib import Path
 
 import pytest
 
+# Heavy (manifest audits over real-weights fixtures, ~15-30s/test) — excluded from
+# the `dev.py fast` inner loop, still run in full CI. See pyproject [tool.pytest].
+pytestmark = pytest.mark.slow
+
 _BENCH = str(Path(__file__).resolve().parents[1] / "benchmark")
 if _BENCH not in sys.path:
     sys.path.insert(0, _BENCH)

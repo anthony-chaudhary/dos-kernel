@@ -1,0 +1,17 @@
+{
+  "task_id": "lookup-and-report",
+  "failed": true,
+  "final_turn": "The incident with ID INC0010023 is currently open and has not been assigned yet. It belongs to the network team.",
+  "results_after": 0,
+  "steps": [
+    {
+      "tool": "get_incident",
+      "args_digest": "652d99047073",
+      "result_digest": "e0b4026a1457"
+    }
+  ],
+  "mutating_call": null,
+  "env_blobs": [
+    "{\"status\": \"open\", \"assignee\": null, \"team\": \"network\"}"
+  ]
+}

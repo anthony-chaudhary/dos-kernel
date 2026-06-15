@@ -19,6 +19,12 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
+# Heavy (full bench replay over planted bugs + reference fixes) — excluded from
+# the `dev.py fast` inner loop, still run in full CI. See pyproject [tool.pytest].
+pytestmark = pytest.mark.slow
+
 # benchmark/ on sys.path (matches `python -m benchmark.poisoned_pool.run` and
 # the witness_ladder test convention).
 _BENCH = str(Path(__file__).resolve().parents[1] / "benchmark")

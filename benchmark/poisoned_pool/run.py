@@ -30,7 +30,7 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from . import harness
+from . import harness, lineage
 from .tasks import BugTask, all_tasks, heldout_tasks, task_by_id, train_tasks
 
 BESIDE = Path(__file__).resolve().parent
@@ -83,17 +83,28 @@ def _sample_exemplars(pool: List[Dict], gen: int, arm: str, cfg: Dict) -> List[D
 
 
 def _emit_generation(run_dir: Path, state: Dict) -> List[str]:
-    """Write prompt files for the current generation; return the pending ids."""
+    """Write prompt files for the current generation; return the pending ids.
+
+    Records the exemplar EDGE as it is drawn: the exemplars are sampled per
+    (gen, arm) BATCH (one draw seeds every trajectory in the batch), so the
+    lineage parent set is a batch fact. `state["exemplars"]["{gen}.{arm}"]`
+    holds the traj_ids of the admitted pool entries that conditioned the batch
+    — the direct parents the lineage fold walks up to the gen-0 roots. Arm B /
+    gen 0 conditions on the empty pool, so its batch records `[]`: the roots.
+    Without this the edge was computed, rendered into the prompt, and dropped.
+    """
     cfg = state["config"]
     gen = state["current_gen"]
     arms = ["B"] if gen == 0 else ["S", "W"]
     out_dir = run_dir / "prompts" / f"gen{gen}"
     out_dir.mkdir(parents=True, exist_ok=True)
+    exemplar_edges: Dict[str, List[str]] = state.setdefault("exemplars", {})
     pending: List[str] = []
     for arm in arms:
         # Arm B (generation 0) conditions on the empty pool — exemplars = [].
         pool = [] if arm == "B" else state["pools"][arm]
         exemplars = _sample_exemplars(pool, gen, arm, cfg)
+        exemplar_edges[f"{gen}.{arm}"] = [e["traj_id"] for e in exemplars]
         for tid in _batch_ids(gen, arm, cfg):
             task = task_by_id(tid.task_id)
             (out_dir / f"{tid}.md").write_text(
@@ -145,7 +156,8 @@ def init_run(run_dir: Path, *, gens: int = 4, k_train: int = 2, k_eval: int = 2,
 # ingest — adjudicate one generation's completions, update pools, emit next
 # ---------------------------------------------------------------------------
 
-def _adjudicate_one(tid: harness.TrajId, raw: str, missing: bool) -> Dict:
+def _adjudicate_one(tid: harness.TrajId, raw: str, missing: bool,
+                    exemplar_ids: Optional[List[str]] = None) -> Dict:
     task = task_by_id(tid.task_id)
     patch, claim = (None, None) if missing else harness.parse_completion(raw)
     readback = harness.run_witness(task, patch)
@@ -157,6 +169,11 @@ def _adjudicate_one(tid: harness.TrajId, raw: str, missing: bool) -> Dict:
         "witness_confirmed": confirmed,
         "witness_stance": readback.stance.value,
         "witness_detail": readback.detail,
+        # The lineage parent edge: the traj_ids of the admitted exemplars that
+        # conditioned this trajectory's prompt (a batch fact — every row in the
+        # batch shares it). `[]` for a gen-0 / arm-B root. The lineage fold walks
+        # these up to the gen-0 roots; an old row missing the key reads as `[]`.
+        "exemplar_ids": list(exemplar_ids or []),
     }
     if tid.arm in ("S", "B"):
         row["armS_admit"] = harness.self_admit(claim) and tid.kind == "train"
@@ -200,13 +217,15 @@ def ingest_run(run_dir: Path, *, allow_missing: bool = False) -> Dict:
             f"{len(missing)} completion(s) missing for gen{gen} "
             f"(first: {missing[0]}); supply them or pass --allow-missing")
 
+    exemplar_edges: Dict[str, List[str]] = state.get("exemplars", {})
     rows: List[Dict] = []
     for tid_s in state["pending"]:
         tid = harness.TrajId.parse(tid_s)
         path = comp_dir / f"{tid_s}.md"
         is_missing = not path.exists()
         raw = "" if is_missing else path.read_text(encoding="utf-8", errors="replace")
-        rows.append(_adjudicate_one(tid, raw, is_missing))
+        parents = exemplar_edges.get(f"{tid.gen}.{tid.arm}", [])
+        rows.append(_adjudicate_one(tid, raw, is_missing, parents))
 
     # Pool updates — train rows only; eval rows are measured, never admitted.
     for r in rows:
@@ -401,6 +420,10 @@ def report_run(run_dir: Path, *, write_beside: bool = False,
             if line.strip():
                 rows.append(json.loads(line))
     results["rows"] = rows
+    # The lineage channel: per-root credit folded from the recorded exemplar
+    # edges (a no-op `lineage_recorded: false` on pre-channel artifacts). Pure
+    # read over the rows already loaded — changes no existing curve or metric.
+    results["lineage"] = lineage.lineage_report(rows)
     # Markdown file mirrors the canonical RESULTS.md casing; the json keeps the
     # lowercase basename (results.json / results_run2.json).
     md_name = ("RESULTS.md" if basename == "results"
