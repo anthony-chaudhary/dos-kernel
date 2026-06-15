@@ -206,14 +206,14 @@ keep). Six things this note does not claim:
 - **The rework number is illustrative, not calibrated.** `_expected_rework` is one unit per
   colliding pair — transparent and monotone in contention, deliberately not a dollar model.
   The experiment proves the price is *computable from geometry before launch* and *monotone in
-  contention*; calibrating it against real rework cost is unbuilt (issue below).
+  contention*; calibrating it against real rework cost is unbuilt (issue #179).
 - **The max-independent-set core is brute-force.** Exact for the small N a real fan-out has
   (tens), but exponential past ~30 agents; a kernel verb needs a greedy/branch-and-bound bound.
-  Named in the code and filed as an issue.
+  Named in the code and filed as issue #180.
 - **This is an experiment, not a shipped kernel verb.** It lives in `examples/`, imports the
   kernel, and is pinned by tests — it is a *proof of the flip*, not `dos price-plan`. Promoting
   it to a real picker-family verb (`pickable`/`enumerate` already live near this seam) is the
-  follow-on, filed below. A vision note that claimed the verb shipped would be the exact
+  follow-on, filed as issue #178. A vision note that claimed the verb shipped would be the exact
   self-report this kernel exists to refuse.
 - **Predictive does not mean correct.** The price tells you a plan will *collide*, never that
   a non-colliding plan is *right*. Correctness is still the suite's job
