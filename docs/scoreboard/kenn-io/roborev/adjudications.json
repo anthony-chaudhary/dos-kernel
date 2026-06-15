@@ -1,0 +1,14 @@
+{
+  "schema": "dos-scoreboard-page/v1",
+  "repo": "kenn-io/roborev",
+  "tier": "seeded",
+  "rendered": "2026-06-13",
+  "attribution": "agent-attributed commits only (the closed marker set, docs/scoreboard/methodology.md §3); a human commit is never audited here",
+  "auditor": "dos-kernel 0.26.0",
+  "range": {
+    "base_sha": "1aacb414133734f7d9c78014b17b74a8e6b72083",
+    "head_sha": "473c539e80f5e62a19141a840785786725aa79d7",
+    "commits_note": "150 attributed commits audited"
+  },
+  "records": []
+}

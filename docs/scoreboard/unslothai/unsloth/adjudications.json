@@ -1,0 +1,14 @@
+{
+  "schema": "dos-scoreboard-page/v1",
+  "repo": "unslothai/unsloth",
+  "tier": "seeded",
+  "rendered": "2026-06-13",
+  "attribution": "agent-attributed commits only (the closed marker set, docs/scoreboard/methodology.md §3); a human commit is never audited here",
+  "auditor": "dos-kernel 0.26.0",
+  "range": {
+    "base_sha": "1e2ba1b1d280604869bfdadca665f4a659a7e609",
+    "head_sha": "8febe2ca8f3797094f9742882cb96a7f67ddde4c",
+    "commits_note": "28 attributed commits audited"
+  },
+  "records": []
+}

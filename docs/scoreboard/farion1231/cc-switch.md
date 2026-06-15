@@ -1,9 +1,18 @@
 # farion1231/cc-switch — drift scoreboard
 
-> **CLEAN — 0 confirmed unwitnessed of 30 checkable claims.**
-> Schema and grade vocabulary:
-> [docs/311](../../311_scoreboard-per-repo-index-plan.md). Drift is a
-> claim-vs-diff mismatch — **never** a correctness, honesty, or intent grade.
+> **Clean — every one of 30 checkable commit messages matched its diff. 0 drifts.**
+> A drift is a commit whose subject claims something its own diff doesn't show
+> — an empty commit that says "fixed it", a "tests pass" that deletes the
+> test. A drift is a message-vs-diff mismatch — **never** a correctness,
+> honesty, or intent grade. Schema and grade vocabulary:
+> [docs/311](../../311_scoreboard-per-repo-index-plan.md).
+
+### What a drift would have looked like (this repo had none)
+
+> **would flag:** `fix: handle null user` → touched 0 files  
+> **would flag:** `test: all green` → deleted test lines, added none
+
+Neither happened here. Every "fix / add / remove" commit touched a real source file; every "tests" commit touched a real test file. That's what clean means — **not "nothing happened", but every checkable claim backed by the diff.**
 
 ## As of
 
@@ -18,17 +27,17 @@
 
 ## The verdict
 
-| Commits | Checkable | Witnessed | Unwitnessed (raw) | Abstained | Raw rate | Adjudicated |
+| Commits | Checkable | Backed by the diff | Drifted (raw) | Skipped | Raw rate | Final grade |
 |---|---|---|---|---|---|---|
 | 41 | 30 | 30 | 0 | 11 | 0.0% | **0 of 30 (0.0%)** |
 
-## By claim kind
+## By kind of claim
 
-| Kind | Witnessed | Unwitnessed | Abstained |
+| Kind of claim | Backed by the diff | Drifted | Skipped |
 |---|---|---|---|
-| `code_effect` | 29 | 0 | 0 |
-| `doc` | 1 | 0 | 0 |
-| `none` (no checkable claim) | — | — | 11 |
+| `fix / add / remove` (code) | 29 | 0 | 0 |
+| `docs` | 1 | 0 | 0 |
+| no checkable claim (skipped) | — | — | 11 |
 
 ## The receipts — every flag, adjudicated
 

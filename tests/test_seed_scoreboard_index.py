@@ -200,8 +200,9 @@ def test_index_lists_published_only_withheld_is_a_count():
                            rendered="2026-06-13")
     assert "good/repo" in idx          # the clean page is named + linked
     assert "[good/repo](good/repo.md)" in idx
-    assert "2 withheld" in idx         # withheld is reported as a NUMBER
-    assert "3 repositories audited" in idx
+    # withheld is reported as a NUMBER in the fine print, never as a name (§2).
+    assert "Another 2 repos were checked but not named" in idx
+    assert "the 3 repos we've audited and named" in idx
 
 
 def test_index_never_names_a_withheld_repo():
@@ -217,13 +218,16 @@ def test_index_never_names_a_withheld_repo():
 
 def test_index_self_page_is_a_distinct_section_not_under_clean():
     # page #1 (the auditor's own repo) publishes its own verdict whatever it is;
-    # it is NOT listed under the seeded CLEAN-only section.
+    # it is promoted as its own "start here" section, NOT listed under the
+    # seeded CLEAN-only section.
     idx = ssi.render_index([], audited=1, withheld=0, rendered="2026-06-13",
                            self_page="anthony-chaudhary/dos-kernel")
-    assert "Page #1" in idx
+    assert "the auditor grades itself" in idx
     assert "anthony-chaudhary/dos-kernel" in idx
-    # the seeded section is honest that it is empty until the corpus run publishes
+    # the clean section is honest that it is empty until the corpus run publishes
     assert "none yet" in idx
+    # the self-page heading appears before the clean-section heading (promoted)
+    assert idx.index("the auditor grades itself") < idx.index("came back clean")
 
 
 # ---------------------------------------------------------------------------
@@ -322,6 +326,6 @@ def test_write_index_commits_self_tier_only_never_foreign_names(tmp_path, monkey
     assert "big-org/foo" not in written
     assert "other-org/bar" not in written
     # the coverage count reflects the self-page only (1), not the foreign 9 —
-    # and reads grammatically.
-    assert "1 repository audited" in written
-    assert "9 repositories" not in written
+    # and reads grammatically (singular "repo", §2 count-not-name).
+    assert "the 1 repo we've audited and named" in written
+    assert "9 repos we've audited" not in written
