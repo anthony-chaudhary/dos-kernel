@@ -18,6 +18,12 @@ story, start at the [README](../../README.md) or the
 | Do AI coding agents lie about what they shipped? | `dos verify` / `dos commit-audit` | [do-ai-coding-agents-lie-about-what-they-shipped](do-ai-coding-agents-lie-about-what-they-shipped.md) |
 | How do I add a guardrail to a coding agent with no plugin/hook system? | `dos commit-audit` (exit code) | [how-to-add-a-guardrail-to-a-coding-agent-with-no-plugin-system](how-to-add-a-guardrail-to-a-coding-agent-with-no-plugin-system.md) |
 | What replaced tokens-burned as the metric for AI agents? | `dos verify` / `dos efficiency` / `dos reward` | [what-replaced-tokens-burned-as-the-metric-for-ai-agents](what-replaced-tokens-burned-as-the-metric-for-ai-agents.md) |
+| How do I verify an agent actually committed code instead of just saying it did? | `dos verify` | [how-to-verify-an-ai-agent-actually-committed-code](how-to-verify-an-ai-agent-actually-committed-code.md) |
+| My AI agent said "all tests pass" but the app is still broken | `dos test-witness` / `dos coverage` | [ai-agent-said-tests-pass-but-app-is-broken](ai-agent-said-tests-pass-but-app-is-broken.md) |
+| How do I know if my agent's commit message matches what it changed? | `dos commit-audit` | [does-the-commit-message-match-what-changed](does-the-commit-message-match-what-changed.md) |
+| How do I verify a cited legal case actually exists before filing? | `citation-resolve` (MCP) / `dos doctor` | [how-to-verify-a-cited-legal-case-exists](how-to-verify-a-cited-legal-case-exists.md) |
+| How do I make an agent prove it did the work instead of self-certifying done? | `dos improve` / `dos verify` | [make-an-agent-prove-the-work-not-self-certify](make-an-agent-prove-the-work-not-self-certify.md) |
+| My AI agent deleted my tests to make the build pass | `dos test-witness` / `dos commit-audit` | [ai-agent-deleted-my-tests-to-pass-the-build](ai-agent-deleted-my-tests-to-pass-the-build.md) |
 
 ## How to read the numbers on these pages
 
