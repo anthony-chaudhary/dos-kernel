@@ -314,6 +314,34 @@ answer text can move it reject→accept — a forgeable read-back is structurall
 ignored (`believe_under_floor`). PURE, no I/O; the claim extractor and the
 witness are the host's.
 
+### `provider_limit`
+The **heal-taxonomy** for a model/provider failure (docs/272 neighborhood): a
+PURE `classify(error_text) -> ProviderLimit` over the SHAPE of the failure
+sentence, never a model roster. It separates the bucket every other quota class
+conflates — a specific MODEL being down (`MODEL_UNAVAILABLE`, transient) or
+policy-pulled (`MODEL_SUSPENDED`, escalate-don't-reroute, the issue #140 case) —
+from an account-budget window (`USAGE_WINDOW` / `HARD_QUOTA`) and provider
+overload (`TRANSIENT_OVERLOAD`), because the *heal* differs: a model-down reroutes
+to a sibling; a usage window waits it out. Names no model — the kernel knows the
+shape of "X is currently unavailable / suspended", not the roster. The job repo's
+`agents/quota/claude_max.py` carries the same split (its `MODEL_UNAVAILABLE`
+class + model-down markers) so consumer and kernel agree on what a model-down is.
+
+### `model_health`
+The **per-MODEL fleet-death rollup** (the "which model is down across the
+children and grandchildren" projection). A PURE fold over already-adjudicated
+`result_state` verdicts (`fold_model_health`) plus a boundary reader that walks
+ONE session JSONL, builds the sub-agent tree by `parentUuid`, assigns each agent
+a DEPTH (main=0, child=1, grandchild=2, …), and attributes every
+`MODEL_UNAVAILABLE` death to the model NAME parsed (purely, best-effort) from its
+own error text — a fact the agents cannot forge in their favor (the byte-author
+floor). Mints ZERO new labels; reuses `provider_limit` for the suspension cue so
+the two never drift. ADVISORY (PDP, not PEP): it REPORTS which model is down +
+`reroute_targets`; it never re-dispatches (the live-model roster is host policy).
+This is the kernel half of the "safe heterogeneous-fleet model migration" Fable-5
+concept (`dispatch-os-fable5-and-the-frontier-step.md` §2.3); the forge proof that
+the floor still catches a *stronger* model as a judge is docs/272.
+
 ### `commit_audit`
 The byte-author≠claimant split aimed at a **single commit**: the subject is
 authored by whoever wrote the message (forgeable); the files the commit touched
@@ -609,6 +637,7 @@ edit to one is never an edit to the substrate:
 | `hook_exit()` | `dos.hook_exit` | the **shell-hook exit-code classifier** (docs/226) — "a plain script exited N; which intervention is that?" `classify_exit -> OBSERVE/WARN/BLOCK/DEFER` (0 = proceed, 2 = BLOCK, other non-zero = WARN). The cheapest integration surface; fail-safe (unknown non-zero → WARN). Advisory. CLI: `dos hook-exit --code N` (PASS 0 / BLOCK 3 / WARN 4 / DEFER 5 / OBSERVE 6). |
 | `resume` | `dos.resume`, `dos.intent_ledger` (durability: `dos.durable_schema`; evidence reader: `dos.resume_evidence`) | the **third ARIES phase** (docs/107) — "a run died/paused mid-flight; how far did the *fossils* say it got, and what is the residual?" `liveness`'s FORWARD sibling. `resume_plan -> RESUMABLE/COMPLETE/DIVERGED/UNRESUMABLE` over a `run_id`-keyed intent ledger; MINTS the re-entry SHA off the non-forgeable rung, PROPOSES (never executes) the re-dispatch. Phases 1–5 shipped; bench (P6) future. |
 | `reward()` | `dos.reward` (join: `dos.effect_witness` → `dos.evidence`) | the **reward-set admission verdict** (docs/230/234) — "may a fine-tune *train* on this trajectory?" The on-ramp that puts the deterministic floor *inside a training loop*: `admit(claim_present, readbacks) -> ACCEPT / REJECT_POISON / ABSTAIN / NO_CLAIM`. `effect_witness`'s lab-facing consumer — a self-judged sampler banks every "resolved" claim as a positive (training the policy to over-claim more); this purges the poison a non-forgeable witness REFUTES (the dispreferred DPO member). The **non-distillable label**: the accept bit is a pure function of the witness the agent authors zero bytes of, so no answer text can move it reject→accept (inherits `believe_under_floor`; a forgeable read-back is structurally ignored). PURE, no I/O, names no host (the claim extractor + witness are the host's). Advisory. CLI: `dos reward --claim --witness {confirm,refute,none} [--forgeable]` (ACCEPT 0 / REJECT_POISON 3 / ABSTAIN 4 / NO_CLAIM 5). |
+| `model_health()` / `model_reroute` | `dos.model_health`, `dos.provider_limit` (driver: `dos.drivers.model_reroute`) | the **per-MODEL fleet-death rollup + reroute heal** (docs/272 neighborhood) — "which model is down across the children and grandchildren, and what do I route AWAY from?" `model_health` is a PURE fold over already-adjudicated `result_state` death verdicts + a boundary reader that walks ONE session JSONL, builds the sub-agent tree by `parentUuid` depth, and attributes each `MODEL_UNAVAILABLE` death to the model NAME parsed from its own (un-forgeable) error text. `provider_limit` is the heal-taxonomy that splits a MODEL being down/suspended from an account-budget window. ADVISORY (PDP): it REPORTS `reroute_targets`; the `model_reroute` DRIVER (the only home for a model roster) PROPOSES a sibling and ESCALATEs a policy-suspended model (#140) — neither launches a worker. The kernel half of the safe heterogeneous-fleet migration story; the floor-still-catches-a-stronger-model proof is docs/272. CLI: `dos model-health --session T` (healthy 0 / model_down 3) · `dos model-reroute --roster …` (healed 0 / escalate 5). |
 | `refuse(reason_class)` | `dos.wedge_reason`, `dos.picker_oracle` (vocabulary: `dos.reasons`) | **structured refusal** — a closed reason vocabulary, simultaneously emittable, verifiable, refusable. The reason set is `SubstrateConfig.reasons` (a `dos.reasons.ReasonRegistry`, base `BASE_REASONS`), declarable per-workspace in `dos.toml` `[reasons]`. |
 | `lease()` / `arbitrate()` | `dos.arbiter` | the **pure admission kernel** — `arbitrate(request, live_leases, config) -> decision`, state-in / decision-out, no I/O. |
 | `spawn()` / `reap()` | `dos.run_id`, `dos.lane_journal` | the **correlation spine** (sortable, lineage-carrying run-ids) + the lease **write-ahead log**. |

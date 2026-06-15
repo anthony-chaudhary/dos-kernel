@@ -48,6 +48,10 @@ OPS — what needs me, what's running, what is this workspace?
     dos doctor [--json] / lint     the workspace report; the config-integrity linter
     dos reindex / projects / learn the cross-project store, registry, and aggregates
 
+MODEL HEALTH — which model is down across the fleet; migrate safely
+    dos model-health --session T    which MODEL died across the descendants (child/grandchild/…)
+    dos model-reroute --roster …    propose re-dispatch to a sibling (ESCALATEs a suspended model)
+
 (`dos <verb> --help` for a verb's flags and its "USE THIS WHEN" body. The list
 above is curated; `dos --help` shows the full registered set too.)
 
