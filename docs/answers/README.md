@@ -60,6 +60,12 @@ story, start at the [README](../../README.md) or the
 | How do I prevent context poisoning from an agent's own prior outputs? | `recall` (MCP) | [prevent-context-poisoning-from-an-agents-own-outputs](prevent-context-poisoning-from-an-agents-own-outputs.md) |
 | How do I coordinate multiple AI agents without a central orchestrator? | `dos arbitrate` | [multi-agent-coordination-without-a-central-orchestrator](multi-agent-coordination-without-a-central-orchestrator.md) |
 | How do I build a builder-validator chain that separates the generator from the evaluator? | `dos verify` / `dos commit-audit` | [builder-validator-chain-separate-generator-from-evaluator](builder-validator-chain-separate-generator-from-evaluator.md) |
+| What is a trust substrate for a fleet of autonomous AI agents? | `dos verify` / `dos arbitrate` | [trust-substrate-for-a-fleet-of-autonomous-agents](trust-substrate-for-a-fleet-of-autonomous-agents.md) |
+| Why does my AI agent ignore the rules in CLAUDE.md — how do I make them stick? | `dos commit-audit` (exit code) | [why-does-my-agent-ignore-the-rules-in-claude-md](why-does-my-agent-ignore-the-rules-in-claude-md.md) |
+| How do I detect a no-op commit from an agent? | `dos commit-audit` | [detect-a-no-op-commit-from-an-agent](detect-a-no-op-commit-from-an-agent.md) |
+| How do I verify an LLM didn't hallucinate a function or API that doesn't exist? | `dos test-witness` / `dos commit-audit` | [verify-an-llm-didnt-hallucinate-a-function-or-api](verify-an-llm-didnt-hallucinate-a-function-or-api.md) |
+| How do I use a hidden test split to stop agents overfitting the visible tests? | `dos improve` / `dos reward` | [hidden-test-split-to-stop-agents-overfitting](hidden-test-split-to-stop-agents-overfitting.md) |
+| Governance is why agentic AI projects get canceled — what is the missing layer? | `dos verify` / `dos arbitrate` | [governance-for-agentic-ai-projects-that-keep-getting-canceled](governance-for-agentic-ai-projects-that-keep-getting-canceled.md) |
 
 ## How to read the numbers on these pages
 
