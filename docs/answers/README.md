@@ -33,6 +33,11 @@ story, start at the [README](../../README.md) or the
 | How do I verify what a subagent claims before folding its output? | `dos verify` / `dos commit-audit` | [verify-what-a-subagent-claims-before-folding](verify-what-a-subagent-claims-before-folding.md) |
 | Reward hacking in LLM coding agents — how do I measure and prevent it? | `dos reward` / `dos improve` | [reward-hacking-in-llm-coding-agents](reward-hacking-in-llm-coding-agents.md) |
 | Why can't I trust an AI model to judge its own work? | `dos verify` / `dos improve` | [why-you-cant-trust-a-model-to-judge-its-own-work](why-you-cant-trust-a-model-to-judge-its-own-work.md) |
+| How do I catch fabricated figures in an agent's financial model output? | `formula_recompute` / `dos doctor` | [catch-fabricated-figures-in-agent-financial-output](catch-fabricated-figures-in-agent-financial-output.md) |
+| Which on-device agent models can a guardrail actually recover from a bad action? | `dos commit-audit` / `dos verify` | [which-on-device-agent-models-are-recoverable](which-on-device-agent-models-are-recoverable.md) |
+| What does "true" mean for an AI agent's verdict? | `dos verify` | [what-is-truth-for-an-ai-agent-verdict](what-is-truth-for-an-ai-agent-verdict.md) |
+| How do I combine a deterministic check, an LLM judge, and a human reviewer? | `dos verify` | [the-trust-ladder-oracle-judge-human](the-trust-ladder-oracle-judge-human.md) |
+| Why should "no" be a first-class, verifiable primitive in an agent system? | `dos refuse-reasons` / `dos verify` | [refusal-as-a-first-class-primitive-for-agents](refusal-as-a-first-class-primitive-for-agents.md) |
 
 ## How to read the numbers on these pages
 
