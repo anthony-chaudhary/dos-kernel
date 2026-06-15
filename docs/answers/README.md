@@ -22,6 +22,9 @@ story, start at the [README](../../README.md) or the
 | My AI agent said "all tests pass" but the app is still broken | `dos test-witness` / `dos coverage` | [ai-agent-said-tests-pass-but-app-is-broken](ai-agent-said-tests-pass-but-app-is-broken.md) |
 | How do I know if my agent's commit message matches what it changed? | `dos commit-audit` | [does-the-commit-message-match-what-changed](does-the-commit-message-match-what-changed.md) |
 | How do I verify a cited legal case actually exists before filing? | `citation-resolve` (MCP) / `dos doctor` | [how-to-verify-a-cited-legal-case-exists](how-to-verify-a-cited-legal-case-exists.md) |
+| How do I catch fabricated legal citations inside my AI agent? | `citation-resolve` (MCP / exit code) | [catch-fabricated-legal-citations-in-my-ai-agent](catch-fabricated-legal-citations-in-my-ai-agent.md) |
+| How do I avoid an AI-citation sanction? | `citation-resolve` (MCP) / `dos doctor` | [largest-ai-hallucination-sanction-how-to-avoid](largest-ai-hallucination-sanction-how-to-avoid.md) |
+| Does ABA Opinion 512 require me to verify AI-generated citations? | `citation-resolve` (MCP) / `dos doctor` | [aba-512-verify-ai-citations-duty](aba-512-verify-ai-citations-duty.md) |
 | How do I make an agent prove it did the work instead of self-certifying done? | `dos improve` / `dos verify` | [make-an-agent-prove-the-work-not-self-certify](make-an-agent-prove-the-work-not-self-certify.md) |
 | My AI agent deleted my tests to make the build pass | `dos test-witness` / `dos commit-audit` | [ai-agent-deleted-my-tests-to-pass-the-build](ai-agent-deleted-my-tests-to-pass-the-build.md) |
 | How do I refuse an agent action with a structured reason instead of free text? | `dos refuse-reasons` / `dos check-reason` | [refuse-an-agent-action-with-a-structured-reason](refuse-an-agent-action-with-a-structured-reason.md) |
@@ -66,6 +69,7 @@ story, start at the [README](../../README.md) or the
 | How do I verify an LLM didn't hallucinate a function or API that doesn't exist? | `dos test-witness` / `dos commit-audit` | [verify-an-llm-didnt-hallucinate-a-function-or-api](verify-an-llm-didnt-hallucinate-a-function-or-api.md) |
 | How do I use a hidden test split to stop agents overfitting the visible tests? | `dos improve` / `dos reward` | [hidden-test-split-to-stop-agents-overfitting](hidden-test-split-to-stop-agents-overfitting.md) |
 | Governance is why agentic AI projects get canceled — what is the missing layer? | `dos verify` / `dos arbitrate` | [governance-for-agentic-ai-projects-that-keep-getting-canceled](governance-for-agentic-ai-projects-that-keep-getting-canceled.md) |
+| How do I make any agent skill verify its own work? | `dos-skillify` / `dos verify` / `dos commit-audit` | [make-any-agent-skill-verify-its-own-work](make-any-agent-skill-verify-its-own-work.md) |
 
 ## How to read the numbers on these pages
 
