@@ -635,45 +635,26 @@ honest caveat, carried on the install note itself: the Cowork app doesn't
 *fire* hooks yet — anthropics/claude-code#63360 — so until that closes,
 Cowork's working DOS surface is the advisory one above.)
 
-Under the installer sits a pluggable dialect seam: the verdict is decided
-once, then rendered into whatever JSON shape the host parses
-([docs/217](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/217_the-cross-vendor-hook-dialect-seam.md)) — so a runtime the
-installer doesn't cover yet can still consume the same hooks. A sixth shipped
-dialect speaks **Hermes**: `dos hook pretool --dialect hermes` emits the
-`{"decision": "block", "reason": …}` object Hermes' `pre_tool_call` shell hook
-reads (wire it in `cli-config.yaml`). A new host's dialect is a driver, never a
-kernel edit.
+Under the installer sits a pluggable **dialect seam**: the verdict is decided
+once, then rendered into whatever JSON shape each host parses — so a host the
+installer doesn't cover yet (a seventh dialect speaks **Hermes**) is a driver,
+never a kernel edit. Its honest flip side: a host with *no* hook seam gets *no*
+dialect. ByteDance's **Trae** ships no user-scriptable hook system, so DOS binds
+it **advisory-only** (MCP + a verify-before-"done" rule + the skills) and
+`dos init --hooks trae` fails loud rather than writing an invented envelope Trae
+would never read — fake enforcement is the exact failure the seam prevents.
+([docs/217](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/217_the-cross-vendor-hook-dialect-seam.md) ·
+[docs/294](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/294_trae-advisory-only-the-host-with-no-hook-seam.md))
 
-The flip side of that honesty: a host with **no** hook seam gets **no** dialect.
-ByteDance's **Trae** was proved out and ships no user-scriptable hook system in
-its personal/international editions (no lifecycle events, no deny/allow stdout
-contract; its CN-enterprise edition announced one on 2026-06-09 with no
-published grammar yet), so DOS binds to it advisory-only — the MCP server in
-`.trae/mcp.json` (read alike by IDE-mode Agent, SOLO mode, and TRAE CLI), a
-verify-before-"done" rule in `.trae/rules/project_rules.md`, the generic
-skills in `.trae/skills/` — and `dos init --hooks trae` fails loud rather than
-writing config Trae would never read
-([docs/294](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/294_trae-advisory-only-the-host-with-no-hook-seam.md)).
-An invented envelope would be fake enforcement, which is the exact failure the
-dialect seam exists to prevent.
-
-Because these hooks run on *every* tool call, the core kernel logic on the hot
-path is reimplemented in native Go — a `dos-hook` binary that ports the actual
-decision predicates (the conjunctive-only lease-admission and
-prefix-disjointness floor, the `verify()` grep rung, self-modify, the marker
-budget, the WAL) rather than just shelling out to Python. It serves the
-per-call verdict in ~10 ms — 16–43× faster than shelling
-`python -m dos.cli hook …` (~0.25–0.8 s, dominated by interpreter cold-start) —
-and is byte-identical to the Python kernel on the gated decision (the docs/124
-parity contract, pinned by Go parity tests). It owns the common fast path and
-falls back to the always-available Python verb for anything it doesn't yet
-serve, so a machine without the binary degrades cleanly with no wiring change
-([docs/125](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/125_go-hook-fastpath-build-plan.md),
-[docs/270](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/270_go-hook-fastpath-benchmarks.md)). You don't build it
-yourself: the per-platform wheels bundle the binary, so a wheel install gets
-the native fast path with no Go toolchain — and any platform without a bundled
-binary (including a plain source install) just runs the pure-Python path
-([docs/286](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/286_shipping-the-go-binary-through-pypi-per-platform-wheels.md)).
+Because these hooks run on *every* tool call, the hot-path predicates are
+reimplemented in a native Go `dos-hook` binary — byte-identical to the Python
+kernel on the gated decision (the docs/124 parity contract) but ~16–43× faster
+(~10 ms vs. interpreter cold-start), bundled in the per-platform wheels with a
+clean fall-back to the always-available pure-Python path on any platform without
+it ([docs/124](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/124_the-go-core-build-plan-and-the-parity-contract.md),
+[docs/125](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/125_go-hook-fastpath-build-plan.md),
+[docs/270](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/270_go-hook-fastpath-benchmarks.md),
+[docs/286](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/286_shipping-the-go-binary-through-pypi-per-platform-wheels.md)).
 
 ### …and when your host has neither (the exit-code tier)
 
@@ -849,90 +830,39 @@ with the source are in **[claude-plugin/README.md](https://github.com/anthony-ch
 
 ## CLI
 
-One `dos` entrypoint over the syscalls (see [QUICKSTART.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/QUICKSTART.md) for
-a runnable tour of the core ones):
+One `dos` entrypoint over the syscalls. Here are the dozen verbs you reach for
+first (see [QUICKSTART.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/QUICKSTART.md) for
+a runnable tour) — the **full reference, every verb grouped, is
+[docs/CLI-REFERENCE.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/CLI-REFERENCE.md)**:
 
 ```bash
-# --- the syscalls ---
+# --- the core verdicts ---
 dos verify PLAN PHASE                  # truth: did (plan,phase) ship? (works with no plan)
 dos commit-audit [REF] [--sweep]       # truth: does a commit's SUBJECT match its own diff? (--sweep = drift rate over a range)
-dos verify-result --transcript T       # fold-site witness: did a subagent's terminal record DIE (harness 429/quota)? (exit 3 = DEAD)
-dos coverage --declared N              # fan-out coverage: how many of N declared workers REALLY returned a result vs died?
 dos liveness --run-id R --start-sha S  # temporal: ADVANCING / SPINNING / STALLED?
-dos resume --run-id R                  # the resume verdict: replay a run's intent ledger, re-verify against git, PROPOSE the continuation
-dos complete --run-id R [--diverged]   # completion verdict: is the WHOLE declared job done? (residual = declared − verified)
-dos rewind --run-id R [--fire SIGNAL]  # conversation-rewind verdict: PROPOSE excising dead-end turns (never truncates)
-dos status --run-id R                  # the folded fact: one fail-closed digest of a run (liveness + verified progress + lease)
-dos arg-provenance --tool T --args J [--new-key K]  # did the model MINT this id/FK, or RESOLVE it from env bytes? (exit 0 believe / 3 UNSUPPORTED)
-dos arbitrate --lane L --kind K --leases '[…]'   # admission: may a lane start without collision? (decision only — journals nothing; hold via lease-lane)
-dos scope-gate --lane L [--staged]     # binding pre-effect scope gate: may this PROPOSED write land in its lane? (ALLOW/REFUSE)
-dos lease {acquire,release,status} OWNER         # the cross-process archive lock
-dos lease-lane {acquire,release,heartbeat,live}  # durable lane lease over the pure arbiter (write-back to the WAL)
-dos run-id mint PROCESS                # mint a correlation run-id
-dos id-alloc {allocate,peek} SCOPE     # atomically allocate a never-reused, monotonic id for a scope
-dos journal {tail,replay,seq,compact}  # the lane write-ahead log
-dos halt --handle H                    # the reap verb: emit the stop-plan for a live run/lease
-dos pickable / enumerate / cooldown / reconcile  # picker substrate: anything pickable? why-not? tried recently? did the claim hold?
+dos status --run-id R                  # one fail-closed digest of a run (liveness + verified progress + lease)
+dos resume --run-id R                  # replay a run's intent ledger, re-verify against git, PROPOSE the continuation
 
-# --- workspace & inspection ---
+# --- admission (let a lane in, or refuse the collision) ---
+dos arbitrate --lane L --kind K --leases '[…]'   # may a lane start without collision? (decision only)
+dos scope-gate --lane L [--staged]     # binding pre-effect scope gate: may this PROPOSED write land? (ALLOW/REFUSE)
+
+# --- workspace & live projections ---
 dos init [DIR]                         # scaffold a dos.toml workspace config
 dos doctor [--json] [--check]          # report the active workspace + taxonomy + predicates
-dos lint [--strict] [--json]           # dead policy in this workspace's own dos.toml? (unreachable lanes, dangling refs)
-dos man {wedge,lane} [ID]              # the self-describing manual over the registries
-dos exit-codes [VERB]                  # print the verdict-IS-the-exit-code table (all verbs or one)
-dos gate PACKET                        # typed empty-packet verdict (LIVE/DRAIN/STALE-STAMP/…)
-dos judge wedge RUN_TS                 # adjudicate a no-pick verdict (deterministic)
-dos judge-eval --judge N --cases C     # score a JUDGE-rung adjudicator against labelled claims
-dos overlap-eval --policy P --cases C  # score an overlap scorer by false-admit rate (the disjointness backtest)
-dos intervention-eval --cases C        # score an intervention policy by NET task delta (not verdict accuracy)
-dos tool-stream-eval --cases C         # score a stall-reader policy by NET recovery (not detection accuracy)
-dos precursor-gate-eval --cases C      # score a precursor grammar by recall vs false-refute waste
-dos memory {recall,verify}             # re-verify recalled agent-memory at read time (RECALL_FRESH/STALE/UNVERIFIABLE)
-dos health --lane L                    # pre-dispatch lane-health gate (overlap + recurring-blocker → route)
-dos scout                              # pre-dispatch chooser: pick the next activity before leasing a lane
-dos trace RUN_ID                       # walk one run across spine + intent ledger + WAL + git, joined by run_id
-
-# --- agent-host binding (Claude Code / MCP) ---
-dos guard [--verify-on-stop] -- CMD…   # wrap a headless agent launch: inject the DOS MCP server (+ optional verify-on-stop Stop hook)
-dos hook {pretool,posttool,stop}       # the live agent-host hook surface (PreToolUse deny / PostToolUse sensor / Stop verify)
-
-# --- live projections (read-only TUIs) ---
 dos top [--once] [--json]              # live fleet watchdog: lanes, leases, verdicts, commits
-dos decisions [N]                      # the operator-decision queue (list + drill-in TUI)
-dos plan [--once] [--json]             # work-terrain board: every phase, the plan's claim vs the oracle's verdict
-dos watch --track R [--budget-ms M]    # the watchdog driver: poll liveness for tracked runs + propose halts on spin/hang
-dos loop --target N [--watch] [--json] # supervisor (init/PID-1): keep N dispatch-loops alive — emits a spawn/reap/flag plan
-
-# --- loop-economics & reliability verdicts (pure; exit code is the verdict) ---
-dos productivity --deltas 5,3,1,0      # is the run still doing work? PRODUCTIVE / DIMINISHING / STALLED
-dos efficiency --work W --tokens N     # did the tokens buy work? EFFICIENT / COSTLY / WASTEFUL
-dos breaker --consecutive N --max-consecutive M  # has this failure class tripped? CLOSED / OPEN (+ escalation rung)
-dos hook-exit --code N                 # map a shell hook's exit code → PASS / BLOCK / WARN
-dos exec-capability --command "…"      # does this command grant arbitrary exec? BOUNDED / GRANTS_ARBITRARY_EXEC
-dos improve --suite-passed --truth-clean --work W --baseline-work B  # self-improving loop: KEEP / REVERT / ESCALATE
-dos reward --claim --witness {confirm,refute,none}   # may a fine-tune TRAIN on this trajectory? ACCEPT / REJECT_POISON
-
-# --- observability: the verdict journal → your dashboards ---
-dos observe [--run R] [--json]         # project the verdict journal: every kernel adjudication, folded by run/syscall/verdict
-dos helped [--since TS] [--json]       # the operator rollup: how many things DOS productively caught for you
-dos export [--to file|statsd|otlp] [--since SEQ]  # drain the journal outward (Datadog / Honeycomb / Grafana); null = report only
-dos notify {decisions,top} [--notifier slack|webhook --channel NAME]  # push what-needs-a-human / what's-running to where the operator is; null = render only
-
-# --- portable proof (third-party verifiable, no loop access) ---
-dos attest --claim KEY {--accept-cmd CMD | --before P --after P}  # mint an HMAC-signed receipt over an effect-witness verdict
-dos verify-receipt --receipt R         # the skeptic's side: check the signature with the shared key alone (fails LOUD on tamper)
-
-# --- cross-project (machine-local index) ---
-dos projects                           # the projects DOS has served
-dos learn AXIS                         # aggregates over resolved decisions
-dos reindex                            # rebuild the central store from the .dos/ dirs
+dos decisions [N]                      # the operator-decision queue (what's waiting on you)
+dos plan [--once] [--json]             # every phase: the plan's claim vs the oracle's verdict
 ```
 
 Most verbs take `--workspace .` (or honor `$DISPATCH_WORKSPACE` / cwd) and
 `--json` for machine-readable output. For verdict-bearing commands (`verify` /
-`liveness` / `gate`) **the exit code is the verdict.** A pluggable `--output
-<name>` renderer (the `dos.renderers` entry-point group) is covered in
-[HACKING.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/HACKING.md).
+`liveness` / `gate`) **the exit code is the verdict** (`dos exit-codes` prints
+the table). The other ~55 verbs — the picker substrate, loop-economics
+verdicts, observability exporters, portable-proof attestation, the eval
+harnesses — and the pluggable `--output <name>` renderer
+([HACKING.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/HACKING.md)) are all in
+**[docs/CLI-REFERENCE.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/CLI-REFERENCE.md)**.
 
 ### Three live projections (read-only TUIs)
 

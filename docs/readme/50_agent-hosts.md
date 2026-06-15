@@ -111,45 +111,26 @@ honest caveat, carried on the install note itself: the Cowork app doesn't
 *fire* hooks yet — anthropics/claude-code#63360 — so until that closes,
 Cowork's working DOS surface is the advisory one above.)
 
-Under the installer sits a pluggable dialect seam: the verdict is decided
-once, then rendered into whatever JSON shape the host parses
-([docs/217](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/217_the-cross-vendor-hook-dialect-seam.md)) — so a runtime the
-installer doesn't cover yet can still consume the same hooks. A sixth shipped
-dialect speaks **Hermes**: `dos hook pretool --dialect hermes` emits the
-`{"decision": "block", "reason": …}` object Hermes' `pre_tool_call` shell hook
-reads (wire it in `cli-config.yaml`). A new host's dialect is a driver, never a
-kernel edit.
+Under the installer sits a pluggable **dialect seam**: the verdict is decided
+once, then rendered into whatever JSON shape each host parses — so a host the
+installer doesn't cover yet (a seventh dialect speaks **Hermes**) is a driver,
+never a kernel edit. Its honest flip side: a host with *no* hook seam gets *no*
+dialect. ByteDance's **Trae** ships no user-scriptable hook system, so DOS binds
+it **advisory-only** (MCP + a verify-before-"done" rule + the skills) and
+`dos init --hooks trae` fails loud rather than writing an invented envelope Trae
+would never read — fake enforcement is the exact failure the seam prevents.
+([docs/217](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/217_the-cross-vendor-hook-dialect-seam.md) ·
+[docs/294](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/294_trae-advisory-only-the-host-with-no-hook-seam.md))
 
-The flip side of that honesty: a host with **no** hook seam gets **no** dialect.
-ByteDance's **Trae** was proved out and ships no user-scriptable hook system in
-its personal/international editions (no lifecycle events, no deny/allow stdout
-contract; its CN-enterprise edition announced one on 2026-06-09 with no
-published grammar yet), so DOS binds to it advisory-only — the MCP server in
-`.trae/mcp.json` (read alike by IDE-mode Agent, SOLO mode, and TRAE CLI), a
-verify-before-"done" rule in `.trae/rules/project_rules.md`, the generic
-skills in `.trae/skills/` — and `dos init --hooks trae` fails loud rather than
-writing config Trae would never read
-([docs/294](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/294_trae-advisory-only-the-host-with-no-hook-seam.md)).
-An invented envelope would be fake enforcement, which is the exact failure the
-dialect seam exists to prevent.
-
-Because these hooks run on *every* tool call, the core kernel logic on the hot
-path is reimplemented in native Go — a `dos-hook` binary that ports the actual
-decision predicates (the conjunctive-only lease-admission and
-prefix-disjointness floor, the `verify()` grep rung, self-modify, the marker
-budget, the WAL) rather than just shelling out to Python. It serves the
-per-call verdict in ~10 ms — 16–43× faster than shelling
-`python -m dos.cli hook …` (~0.25–0.8 s, dominated by interpreter cold-start) —
-and is byte-identical to the Python kernel on the gated decision (the docs/124
-parity contract, pinned by Go parity tests). It owns the common fast path and
-falls back to the always-available Python verb for anything it doesn't yet
-serve, so a machine without the binary degrades cleanly with no wiring change
-([docs/125](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/125_go-hook-fastpath-build-plan.md),
-[docs/270](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/270_go-hook-fastpath-benchmarks.md)). You don't build it
-yourself: the per-platform wheels bundle the binary, so a wheel install gets
-the native fast path with no Go toolchain — and any platform without a bundled
-binary (including a plain source install) just runs the pure-Python path
-([docs/286](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/286_shipping-the-go-binary-through-pypi-per-platform-wheels.md)).
+Because these hooks run on *every* tool call, the hot-path predicates are
+reimplemented in a native Go `dos-hook` binary — byte-identical to the Python
+kernel on the gated decision (the docs/124 parity contract) but ~16–43× faster
+(~10 ms vs. interpreter cold-start), bundled in the per-platform wheels with a
+clean fall-back to the always-available pure-Python path on any platform without
+it ([docs/124](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/124_the-go-core-build-plan-and-the-parity-contract.md),
+[docs/125](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/125_go-hook-fastpath-build-plan.md),
+[docs/270](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/270_go-hook-fastpath-benchmarks.md),
+[docs/286](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/286_shipping-the-go-binary-through-pypi-per-platform-wheels.md)).
 
 ### …and when your host has neither (the exit-code tier)
 

@@ -342,7 +342,9 @@ works without extra dependencies (`--once` / `--json` on a bare install; the liv
 redraw is the optional `[tui]` extra). The when-to-use-each map is
 [Three live projections](../README.md#three-live-projections-read-only-tuis).
 
-- **The full CLI** is in the [README](../README.md#cli).
+- **The full CLI** — every `dos` verb, grouped — is in
+  [CLI-REFERENCE.md](CLI-REFERENCE.md) (the [README](../README.md#cli) shows the
+  core dozen).
 - **Already running a fleet through LangGraph, CrewAI, AutoGen, or an Agents
   SDK?** Bolt the referee onto the framework you have — one function at its
   believe-the-agent seam, every recipe executed against the real framework:

@@ -35,9 +35,10 @@ If you read nothing else, read the first two rows of the table below.
 | Doc | What it gives you |
 |---|---|
 | [**QUICKSTART.md**](QUICKSTART.md) | A runnable 5-minute hello-world: install → `dos init` → commit → `dos verify` shows a real verdict from git history alone. **Start here.** |
+| [**CLI-REFERENCE.md**](CLI-REFERENCE.md) | Every `dos` verb, grouped — the full user-facing CLI reference (the README shows only the core dozen). Distinct from `CLI.md`, which is the `cli.py` design prose. |
 | [**incidents/**](incidents/README.md) | Arriving from a burn? One page per failure mode — "my agent said it committed, but there's no commit" and its siblings — each with the command that catches it. |
 | [**ALTERNATIVES.md**](ALTERNATIVES.md) | How DOS relates to the neighbors — eval platforms, framework guardrails, Temporal, in-toto, plain CI: what each does well, what DOS adds, and when NOT to use DOS. |
-| [**../README.md**](../README.md) | What DOS is, the syscall ABI, the full CLI, the install. The front door. |
+| [**../README.md**](../README.md) | What DOS is, the syscall ABI, the core CLI verbs, the install. The front door. |
 | [**HACKING.md**](HACKING.md) | How to extend DOS *without forking it* — add refusal reasons, lanes, renderers, judges, and safety predicates as workspace policy. The seven extension axes + the plugin model. |
 | [**STABILITY.md**](STABILITY.md) | The compatibility promise: which surfaces you may depend on, what the version number means for each, the deprecation window (`DosDeprecationWarning`), and the short list of what will never break. |
 | [**../CONTRIBUTING.md**](../CONTRIBUTING.md) | How to send a change to the kernel: the layering rule, the CI-enforced litmus tests, the green bar. |
