@@ -106,6 +106,22 @@ _READ_ONLY_TOOLS = frozenset(
 )
 _WRITE_TOOLS = frozenset({"Write", "Edit", "MultiEdit", "NotebookEdit"})
 
+# The opt-in switch for the apply-gate binding turnstile (docs/126 Phase 1.5). The
+# apply-gate generalizes the always-on SELF_MODIFY deny from the kernel's own T1
+# files to ANY held lease's tree — a stronger gate the operator OPTS INTO (docs/126
+# §3 rule 3: an additional binding surface, not a mutation of the default verdicts).
+# An env switch (not a built-in predicate) keeps it host-policy / opt-in: a default
+# install keeps exactly today's SELF_MODIFY + disjointness behavior. Any non-empty,
+# non-"0"/"false" value enables it; the kernel names no host (an env name, not a
+# vendor identifier).
+_APPLY_GATE_ENV = "DOS_APPLY_GATE"
+_APPLY_GATE_OFF = frozenset({"", "0", "false", "no", "off"})
+
+
+def _apply_gate_enabled() -> bool:
+    """True iff the operator opted the apply-gate binding surface in. Boundary read."""
+    return os.environ.get(_APPLY_GATE_ENV, "").strip().lower() not in _APPLY_GATE_OFF
+
 
 # ---------------------------------------------------------------------------
 # PURE adapters — a PreToolUse event in, the pure kernel inputs out (no I/O).
@@ -446,6 +462,88 @@ def live_leases_for(cfg: "_config.SubstrateConfig") -> list[dict]:
         return []
 
 
+def _find_self_lease(leases: list[dict], cfg: "_config.SubstrateConfig") -> "Optional[dict]":
+    """The exact live-lease object THIS run holds, or None. Boundary read.
+
+    The identity match `cli._resolve_self_lease` runs, returning the lease OBJECT (so
+    a caller can identity-filter it out of a disjointness sweep, never a same-tree
+    sibling), in priority order: matching `$CID_RUN_ID`/`$DISPATCH_RUN_ID`, then
+    `$DISPATCH_LOOP_TS`, then this process's pid (or its parent's — the tool call
+    often runs in a child shell of the leasing process). `cfg` is unused today but
+    kept in the signature so a future host-shaped identity rule has a home without a
+    call-site churn.
+    """
+    run_id = os.environ.get("CID_RUN_ID") or os.environ.get("DISPATCH_RUN_ID") or ""
+    loop_ts = os.environ.get("DISPATCH_LOOP_TS") or ""
+    my_pids = {os.getpid()}
+    try:
+        my_pids.add(os.getppid())
+    except (AttributeError, OSError):
+        pass
+    for lease in leases:
+        if run_id and str(lease.get("run_id") or "") == run_id:
+            return lease
+        if loop_ts and str(lease.get("loop_ts") or "") == loop_ts:
+            return lease
+        try:
+            if int(lease.get("pid")) in my_pids:  # type: ignore[arg-type]
+                return lease
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def resolve_self_lease(
+    leases: list[dict], cfg: "_config.SubstrateConfig"
+) -> tuple[str, tuple[str, ...], tuple[tuple[str, ...], ...]]:
+    """Which lane does THIS run hold, its declared tree, and the OTHER live trees.
+
+    The boundary I/O the apply-gate needs but a pure predicate cannot derive — "which
+    of the live leases is MINE?" — resolved here over the ALREADY-READ `leases` (no
+    second WAL read), the same identity match `cli._resolve_self_lease` runs at the
+    `dos apply` CLI boundary, so the gate behaves identically on both surfaces. The
+    self-lease is `apply_gate.ApplyEvidence` data the caller freezes in, the
+    `SelfModifyPredicate`-receives-its-set discipline.
+
+    Identity, in priority order (no `--lane` exists at this surface — the PreToolUse
+    ABI gives the agent no flag, so there is no operator-named lane to honor here):
+      1. a WAL lease whose `run_id` matches `$CID_RUN_ID` / `$DISPATCH_RUN_ID`;
+      2. else a WAL lease whose `loop_ts` matches `$DISPATCH_LOOP_TS`;
+      3. else a WAL lease whose `pid` matches this process's pid (or its parent's —
+         the agent's tool call often runs in a child shell of the leasing process).
+
+    Returns `(self_lane, self_tree, other_trees)`. A self_lane that resolves but has
+    NO declared tree (and no recorded lease tree) yields an EMPTY `self_tree` —
+    `apply_gate.decide` then fails CLOSED on a non-empty footprint (an undeclared
+    blast radius is refused, never admitted). `other_trees` is every OTHER live
+    lease's tree (the collision-floor operands). When NO lease is this run's (an
+    interactive session that never leased), `self_lane` is "" and `self_tree` empty
+    — the apply-gate would then refuse any non-empty write, so the CALLER only runs
+    the gate when a self-lease actually resolved (an un-leased session keeps the
+    pre-apply-gate behavior; the gate binds a run that DECLARED a lane, never invents
+    one for a session that never opted in).
+    """
+    self_lease = _find_self_lease(leases, cfg)
+    self_lane = str(self_lease.get("lane") or "") if self_lease else ""
+    # The DECLARED tree is authoritative (config), then the lease's recorded tree as
+    # the fallback for a lane the taxonomy doesn't name (a keyword lane) — exactly
+    # `cli._resolve_self_lease`'s precedence.
+    self_tree: tuple[str, ...] = ()
+    if self_lane:
+        try:
+            self_tree = tuple(cfg.lanes.tree_for(self_lane))
+        except Exception:  # noqa: BLE001 — a missing taxonomy entry → fall to the lease tree
+            self_tree = ()
+    if not self_tree and self_lease and self_lease.get("tree"):
+        self_tree = tuple(self_lease.get("tree") or ())
+    other_trees = tuple(
+        tuple(lease.get("tree") or ())
+        for lease in leases
+        if lease is not self_lease and lease.get("tree")
+    )
+    return self_lane, self_tree, other_trees
+
+
 def prior_results(session_id: str, cfg: "_config.SubstrateConfig"):
     """The env-authored corpus of PRIOR tool results — the cross-moment join (docs/191 §2).
 
@@ -593,8 +691,35 @@ def decide(
         tree=tree,
     )
     leases = live_leases_for(cfg)
+
+    # The apply-gate (Rung A.5 below) is the AUTHORITATIVE containment + collision
+    # check for a run that holds a lease — it alone knows WHICH live lease is THIS
+    # run's, so it can tell an in-lane write (contained, allowed) from an escape
+    # (refused) and a SIBLING collision (refused) from a SELF "collision" (a write to
+    # your own lane, which is not a collision at all). The built-in
+    # `DisjointnessPredicate` cannot make that distinction — it sees the write
+    # footprint as a NEW lease requesting admission against EVERY live lease,
+    # including the run's own, so a write to your own held lane reads as a 100%
+    # self-overlap and is wrongly refused. So when the gate is ENABLED and a
+    # self-lease resolves, we drop the run's OWN lease from the disjointness sweep and
+    # let the apply-gate adjudicate containment + sibling collision (which it does
+    # correctly, excluding self via `other_trees`). SELF_MODIFY (request-absolute) is
+    # untouched — it fires regardless — and a NON-self sibling lease still gates
+    # through disjointness. Gate OFF ⇒ this is a no-op (the leases are unchanged).
+    self_lease_id = None
+    if _apply_gate_enabled() and is_mutating_tool(event) and tree_known and tree:
+        sl, st, _ot = resolve_self_lease(leases, cfg)
+        if st:
+            # Identify the exact self-lease object by the same match resolve used, so
+            # we drop ONLY it (never a same-tree sibling). resolve_self_lease returns
+            # the lane+tree; re-find the one lease that is this run's.
+            self_lease_id = _find_self_lease(leases, cfg)
+    sweep_leases = (
+        [lz for lz in leases if lz is not self_lease_id]
+        if self_lease_id is not None else leases
+    )
     predicates = admission.active_predicates(config=cfg)
-    averdict = admission.run_predicates(predicates, request, leases, cfg)
+    averdict = admission.run_predicates(predicates, request, sweep_leases, cfg)
     if not averdict.admitted:
         # A non-admit is one of TWO very different things, and only one is deny-safe at PRE:
         #
@@ -742,6 +867,91 @@ def decide(
             ),
             outcome,
         )
+
+    # ---- Rung A.5: the apply-gate binding turnstile (docs/126 Phase 1.5, opt-in) ----
+    # The keystone of docs/342 M1 (P-GATE): generalize the SELF_MODIFY deny above —
+    # which binds a write to the kernel's OWN T1 files — to ANY held lease's tree. The
+    # SELF_MODIFY predicate already denied a T1 write; `run_predicates` just admitted
+    # everything else. The apply-gate adds the one check `run_predicates` does NOT do:
+    # does this write ESCAPE the lane THIS run holds (SCOPE_CREEP / WRONG_TARGET), or
+    # COLLIDE with a sibling lease's region? `apply_gate.decide` answers it — the same
+    # pure verdict the `dos apply` CLI binds (no new decision logic; §2). This is the
+    # change that converts DOS from "checker the host may consult" to "gate the write
+    # must pass": a NON-cooperating agent's out-of-lane Write is refused AT the tool
+    # call, not just by an opt-in CLI it can skip.
+    #
+    # OPT-IN, by design (docs/126 §3 rule 3: an ADDITIONAL binding surface, never a
+    # mutation of the always-on verdicts). It binds ONLY when the operator set
+    # `DOS_APPLY_GATE` AND this run actually holds a lease (`self_tree` resolved) —
+    # an un-leased interactive session keeps its pre-apply-gate behavior, because the
+    # gate binds a run that DECLARED a lane, never one that never opted in. The
+    # always-on SELF_MODIFY guard above is untouched; this only ADDS refusals
+    # (refuse-MORE only). NOTE the honest deployment limit: the native fast-path
+    # binary (`try_native_hook`) serves the default SELF_MODIFY/disjointness path and
+    # does NOT run this Python-side opt-in gate — when `DOS_APPLY_GATE` is set the host
+    # must reach this decider (the witness drives `decide()` directly, the canonical
+    # decision function).
+    if _apply_gate_enabled() and is_mutating_tool(event) and tree_known and tree:
+        self_lane, self_tree, other_trees = resolve_self_lease(leases, cfg)
+        if self_tree or other_trees:
+            from dos import apply_gate
+            ev = apply_gate.ApplyEvidence(
+                touched_files=frozenset(tree),
+                self_lane=self_lane,
+                self_tree=self_tree,
+                other_trees=other_trees,
+            )
+            gate = apply_gate.decide(ev)
+            if not gate.allowed:
+                # The docs/126 P1.5 / docs/143 soften trap, resolved (option a): a
+                # `SCOPE_ESCAPE` is a MISROUTE/CONTENTION-class refusal — "work aimed
+                # at a lane it doesn't own." A dispatch LOOP must be hard-DENIED
+                # (sibling loops race; a declared-tree escape is their only
+                # safe-to-arbitrate signal, and the agent has no --force here). But an
+                # INTERACTIVE operator (no loop-context env) is the human-in-command —
+                # they own the blast radius of their own deliberate edit (the --force
+                # principle, the CLI gate's audited override), so the gate DOWNGRADES to
+                # an advisory WARN for them, never a dead-end block (the docs/143 −9 pp
+                # spurious-disruption mistake). This mirrors the operator-session
+                # softening above for a DisjointnessPredicate collision exactly.
+                gate_reason = (
+                    f"{gate.reason} [held lane: {self_lane or '<unresolved>'}] "
+                    f"(apply-gate, docs/126)"
+                )
+                operator_session = (
+                    not os.environ.get("DOS_LOOP")
+                    and not os.environ.get("CID_RUN_ID")
+                    and not os.environ.get("DISPATCH_LOOP_TS")
+                )
+                if operator_session:
+                    outcome = {
+                        "rung": "apply-gate",
+                        "decision": "warn",
+                        "reason_class": gate.reason_class,
+                        "reason": gate_reason,
+                        "refused_files": list(gate.refused_files),
+                        "tree_known": tree_known,
+                    }
+                    return (
+                        warn_payload(
+                            f"DOS PRE apply-gate (advisory, operator session): "
+                            f"{gate_reason} You are an interactive operator (not a "
+                            f"dispatch loop) — you own the blast radius of your own "
+                            f"change, so DOS warns instead of blocking. If a fleet "
+                            f"loop is actively writing this region, coordinate before "
+                            f"saving; the audited CLI override is `dos apply --force`."
+                        ),
+                        outcome,
+                    )
+                outcome = {
+                    "rung": "apply-gate",
+                    "decision": "deny",
+                    "reason_class": gate.reason_class,
+                    "reason": gate_reason,
+                    "refused_files": list(gate.refused_files),
+                    "tree_known": tree_known,
+                }
+                return deny_payload(f"DOS PRE apply-gate: {gate_reason}"), outcome
 
     # ---- Rung B: behavioral provenance (confidence-gated, fail-to-OBSERVE) ----
     call = toolcall_from_event(event)
