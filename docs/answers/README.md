@@ -30,6 +30,7 @@ story, start at the [README](../../README.md) or the
 | How do I refuse an agent action with a structured reason instead of free text? | `dos refuse-reasons` / `dos check-reason` | [refuse-an-agent-action-with-a-structured-reason](refuse-an-agent-action-with-a-structured-reason.md) |
 | How do I catch an empty commit / `--allow-empty "shipped"` fake-done? | `dos commit-audit` / `dos verify` | [catch-allow-empty-shipped-fake-done](catch-allow-empty-shipped-fake-done.md) |
 | How do I verify a quoted holding actually appears in the cited opinion? | `citation-resolve` (MCP) | [verify-a-quoted-holding-appears-in-the-opinion](verify-a-quoted-holding-appears-in-the-opinion.md) |
+| How can a court audit AI-generated citations in filings it receives? | `citation-resolve` (MCP) / `dos attest` | [how-a-court-can-audit-ai-citations-in-filings](how-a-court-can-audit-ai-citations-in-filings.md) |
 | My recalled agent memory is stale or wrong — how do I re-verify it? | `recall` (MCP) | [recalled-agent-memory-is-stale-how-to-reverify](recalled-agent-memory-is-stale-how-to-reverify.md) |
 | How do I prove a phase or feature actually shipped from git history? | `dos verify` | [prove-a-phase-shipped-from-git-history](prove-a-phase-shipped-from-git-history.md) |
 | How do I do lease-based file locking to coordinate parallel coding agents? | `dos arbitrate` / `dos lease-lane` | [lease-based-file-locking-for-parallel-agents](lease-based-file-locking-for-parallel-agents.md) |
