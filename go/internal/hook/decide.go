@@ -1,6 +1,9 @@
 package hook
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
 
 // Decision is the structured outcome of the PRE division — the Go analogue of the
 // Python `decide()` outcome record. `Dialect` is the CC dict to emit (nil =
@@ -33,6 +36,15 @@ type Inputs struct {
 	LiveLeases      []lease
 	RuntimeFiles    []string
 	OperatorSession bool
+	// OverrideFacts is the operator's armed SELF_MODIFY window (docs/296), read at
+	// the boundary (`ReadOverride`) or nil when disarmed/absent. When present and in
+	// its window, a SELF_MODIFY deny is DISPOSED to an allow-with-note — the Go twin
+	// of the Python `pretool_sensor` override path, so the native fast-path honors an
+	// armed window byte-identically. nil ⇒ the deny stands (today's behavior).
+	OverrideFacts *OverrideFacts
+	// Now is the clock for the override window check, injected at the boundary
+	// (time.Now().UTC()) so the pure decider stays testable/hermetic.
+	Now time.Time
 }
 
 // Decide runs the PRE division on one event — port of `dos.pretool_sensor.decide`
@@ -49,6 +61,28 @@ type Inputs struct {
 func Decide(e *Event, in Inputs) Decision {
 	// ---- Rung A: structural admission ----
 	tree, treeKnown := e.treeFromEvent()
+
+	// docs/296 — the override-arm PERIMETER, before admission and never subject to
+	// the disposition below: a write whose KNOWN footprint touches the operator's arm
+	// file (`.dos/override/`) is denied outright. Arming is the operator's hand on the
+	// file by design (there is no arm verb), and a window must not be able to extend
+	// itself. Byte-twinned with `pretool_sensor.decide`'s perimeter (the same
+	// SELF_MODIFY-classed deny). A read (known-empty tree) cannot reach here.
+	if treeKnown && len(tree) > 0 && touchesArmPath(tree) {
+		reason := "this call would write the operator's SELF_MODIFY override arm file " +
+			"(" + armRelPath + ") — only the operator arms a window, by hand " +
+			"(docs/296). `dos override status` reports it; `dos override disarm` " +
+			"is always allowed."
+		return Decision{
+			Dialect:     denyPayload("DOS PRE-admission: "+reason, ""),
+			Rung:        "admission",
+			DecisionTag: "deny",
+			ReasonClass: selfModifyReason,
+			Reason:      reason,
+			TreeKnown:   treeKnown,
+		}
+	}
+
 	req := admissionRequest{
 		lane: laneFor(e),
 		kind: "tool-call",
@@ -107,6 +141,25 @@ func Decide(e *Event, in Inputs) Decision {
 				ReasonClass: av.reasonClass,
 				Reason:      reason,
 				TreeKnown:   treeKnown,
+			}
+		}
+		// docs/296 — the operator's armed override window, consulted at the
+		// ENFORCEMENT boundary only (the verdict above is unchanged and still says
+		// SELF_MODIFY). The boundary handed us the parsed facts + clock; `dispose`
+		// is pure and fail-closed, and ONLY a SELF_MODIFY refusal is ever converted
+		// (a collision/budget deny is never waved through). The admit is emitted as
+		// ALLOW-with-note, never a silent pass — byte-twinned with
+		// `pretool_sensor.decide`'s override-admit branch.
+		if provable && av.reasonClass == selfModifyReason && in.OverrideFacts != nil {
+			if note := dispose(av.reasonClass, tree, in.OverrideFacts, in.Now); note != "" {
+				return Decision{
+					Dialect:     warnPayload("DOS PRE-admission (operator override): " + note + " [the refused verdict was: " + reason + "]"),
+					Rung:        "admission",
+					DecisionTag: "override-admit",
+					ReasonClass: av.reasonClass,
+					Reason:      reason,
+					TreeKnown:   treeKnown,
+				}
 			}
 		}
 		if provable {

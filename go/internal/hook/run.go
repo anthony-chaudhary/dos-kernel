@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 )
 
 // PretoolResult is the native pretool outcome the CLI dispatcher acts on. The
@@ -75,6 +76,13 @@ func DecidePretool(stdinBytes []byte, workspaceFlag, dialect string, debug io.Wr
 	in := Inputs{
 		LiveLeases:   LiveLeasesFromWAL(journalPath),
 		RuntimeFiles: ExistingRuntimeFiles(workspace),
+		// docs/296 — read the operator's armed SELF_MODIFY window at the boundary
+		// (fail-closed; nil when disarmed/absent) and stamp the clock, so the pure
+		// decider can dispose a SELF_MODIFY deny to an allow-with-note while the
+		// window is open. This is the parity fix: the native fast-path now honors an
+		// armed `dos override arm` window byte-identically to the Python path.
+		OverrideFacts: ReadOverride(workspace),
+		Now:           time.Now().UTC(),
 		// An interactive operator turn carries NONE of the loop-context envs the
 		// dispatcher/cron set (DOS_LOOP / CID_RUN_ID / DISPATCH_LOOP_TS). Their
 		// absence is the same loop-vs-interactive signal the marker/stop verbs already
@@ -107,7 +115,6 @@ func DecidePretool(stdinBytes []byte, workspaceFlag, dialect string, debug io.Wr
 		},
 	}
 }
-
 
 // PosttoolResult is the native posttool outcome — Stdout is the WARN dialect to
 // emit (empty for ADVANCING / any decline). PostToolUse can never block, so there

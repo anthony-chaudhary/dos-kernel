@@ -49,17 +49,37 @@ def _render(dialect: dict | None) -> str:
     return json.dumps(dialect, sort_keys=True)
 
 
-def _decide_with(event: dict, leases: list[dict], runtime_files: tuple[str, ...]):
+def _decide_with(event: dict, leases: list[dict], runtime_files: tuple[str, ...],
+                 override=None, now=None):
     """Run `pretool_sensor.decide`'s two rungs with INJECTED leases + runtime files,
     bypassing the WAL/FS I/O so the corpus is hermetic.
 
     This mirrors decide() exactly but supplies the predicates with the injected
     runtime-file set and the injected live leases, so the Go test (which injects the
     same) is compared against the same logic the live hook runs.
+
+    `override` (an `override_facts.OverrideFacts` or None) + `now` inject the operator's
+    armed window hermetically — the same disposition `pretool_sensor.decide` runs at the
+    enforcement boundary (docs/296), so the Go test (which injects the same facts+clock)
+    is gated byte-exact on the override-admit path too. None ⇒ today's deny stands.
     """
+    from dos import override_facts as _ovr
     cfg = _config.active()
     # Rung A with injected runtime files (the existence probe result) + injected leases.
     tree, tree_known = prt._tree_from_event(event)
+
+    # The arm-path write PERIMETER (docs/296), before admission — byte-twinned with
+    # `pretool_sensor.decide`: an agent write touching `.dos/override/` is denied
+    # outright and never disposed.
+    if tree and prt.is_mutating_tool(event) and _ovr.touches_arm_path(tree):
+        reason = (
+            f"this call would write the operator's SELF_MODIFY override arm file "
+            f"({_ovr.ARM_RELPATH}) — only the operator arms a window, by hand "
+            f"(docs/296). `dos override status` reports it; `dos override disarm` "
+            f"is always allowed."
+        )
+        return prt.deny_payload(f"DOS PRE-admission: {reason}"), "deny"
+
     request = _admission.AdmissionRequest(
         lane=str(event.get("tool_name") or "tool"), kind="tool-call", tree=tree,
     )
@@ -80,6 +100,21 @@ def _decide_with(event: dict, leases: list[dict], runtime_files: tuple[str, ...]
         # on a KNOWN **and non-empty** tree. A contention-only refusal — including a
         # read's known-but-EMPTY tree — stays ADVISORY regardless of tree_known.
         provable = bool(averdict.reason_class) or (tree_known and bool(tree))
+        # docs/296 — the operator's armed override window, consulted at the ENFORCEMENT
+        # boundary only (the SELF_MODIFY verdict is unchanged). Only a SELF_MODIFY
+        # refusal is ever converted. Byte-twinned with `pretool_sensor.decide`'s
+        # override-admit branch; the Go decider injects the same facts+now.
+        if provable and (averdict.reason_class or "") == "SELF_MODIFY" and override is not None:
+            note = _ovr.dispose(
+                averdict.reason_class or "", tuple(tree), override, now=now)
+            if note is not None:
+                return (
+                    prt.warn_payload(
+                        f"DOS PRE-admission (operator override): {note} "
+                        f"[the refused verdict was: {reason}]"
+                    ),
+                    "override-admit",
+                )
         if provable:
             return prt.deny_payload(f"DOS PRE-admission: {reason}"), "deny"
         # PROVEN no-footprint (issue #46): a KNOWN-and-EMPTY tree with no reason_class
@@ -112,9 +147,10 @@ NO_RUNTIME: tuple[str, ...] = ()
 CWD = "/work/workspace"  # neutral fixture workspace path (no real machine path)
 
 
-def case(name: str, event: dict, leases: list[dict], runtime_files: tuple[str, ...]) -> dict:
-    dialect, tag = _decide_with(event, leases, runtime_files)
-    return {
+def case(name: str, event: dict, leases: list[dict], runtime_files: tuple[str, ...],
+         override=None, now=None) -> dict:
+    dialect, tag = _decide_with(event, leases, runtime_files, override=override, now=now)
+    out = {
         "name": name,
         "event": event,
         "leases": leases,
@@ -122,6 +158,18 @@ def case(name: str, event: dict, leases: list[dict], runtime_files: tuple[str, .
         "expected_stdout": _render(dialect),
         "decision": tag,
     }
+    # The override window the Go test must inject to reproduce this case. Serialized as
+    # the arm-file fields (until/reason/scope) + the injected clock — the same data the
+    # boundary `ReadOverride` would parse — so the Go side rebuilds OverrideFacts and
+    # the exact `now`. Absent ⇒ no window (the common case, byte-identical to before).
+    if override is not None:
+        out["override"] = {
+            "until": override.until.isoformat(),
+            "reason": override.reason,
+            "scope": list(override.scope),
+        }
+        out["now"] = now.isoformat()
+    return out
 
 
 def _ev(tool: str, tool_input: dict[str, Any] | None = None, **extra) -> dict:
@@ -214,6 +262,39 @@ def build_cases() -> list[dict]:
                       _ev("Edit", {"file_path": "/work/workspace/src/dos/config.py"}), [], ALL_RUNTIME))
     # --- non-ascii in a path-shaped reason (lane name with unicode is unrealistic,
     #     but the em-dash in every self-modify reason exercises ensure_ascii) ---
+
+    # --- docs/296 operator-armed SELF_MODIFY override (the Py↔Go parity fix, #186) ---
+    # Hermetic facts + clock (no live arm file is read): a fixed UTC window and a `now`
+    # inside / past / scoped, so the Go decider injecting the same reproduces each.
+    import datetime as _dt
+    from dos import override_facts as _ovr
+    until = _dt.datetime(2026, 6, 15, 18, 0, 0, tzinfo=_dt.timezone.utc)
+    now_in = _dt.datetime(2026, 6, 15, 17, 30, 0, tzinfo=_dt.timezone.utc)   # inside
+    now_past = _dt.datetime(2026, 6, 15, 18, 30, 0, tzinfo=_dt.timezone.utc)  # expired
+    armed_unscoped = _ovr.OverrideFacts(until=until, reason="parity fix #186", scope=())
+    armed_scoped = _ovr.OverrideFacts(
+        until=until, reason="scoped to _tree", scope=("src/dos/_tree.py",))
+    # (a) armed, in window, unscoped → a SELF_MODIFY edit is DISPOSED to override-admit.
+    cases.append(case("selfmodify-override-armed-in-window",
+                      _ev("Edit", {"file_path": "src/dos/arbiter.py"}), [], ALL_RUNTIME,
+                      override=armed_unscoped, now=now_in))
+    # (b) armed but EXPIRED (now > until) → the deny stands.
+    cases.append(case("selfmodify-override-expired",
+                      _ev("Edit", {"file_path": "src/dos/arbiter.py"}), [], ALL_RUNTIME,
+                      override=armed_unscoped, now=now_past))
+    # (c) armed + in window but SCOPED to a different file than the edit → deny stands.
+    cases.append(case("selfmodify-override-scope-miss",
+                      _ev("Edit", {"file_path": "src/dos/arbiter.py"}), [], ALL_RUNTIME,
+                      override=armed_scoped, now=now_in))
+    # (d) armed + in window + SCOPED to the edited file → override-admit.
+    cases.append(case("selfmodify-override-scope-hit",
+                      _ev("Edit", {"file_path": "src/dos/_tree.py"}), [], ALL_RUNTIME,
+                      override=armed_scoped, now=now_in))
+    # (e) the arm-path write PERIMETER: an agent write to the arm file is denied even
+    #     WITH a window armed (a window must not extend itself). Disposition never runs.
+    cases.append(case("override-arm-path-write-denied",
+                      _ev("Edit", {"file_path": ".dos/override/self-modify.toml"}), [], ALL_RUNTIME,
+                      override=armed_unscoped, now=now_in))
     return cases
 
 

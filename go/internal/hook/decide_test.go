@@ -3,6 +3,7 @@ package hook
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // eventFor builds an *Event the way parseEvent would from a decoded map, for the
@@ -253,5 +254,94 @@ func TestForeignRepoNoRuntimeFilesAdmitsWholeRepoGlob(t *testing.T) {
 	d := Decide(e, Inputs{RuntimeFiles: nil}) // no runtime files present
 	if d.DecisionTag == "deny" {
 		t.Fatalf("foreign repo must not self-modify-deny, got %s", d.Render())
+	}
+}
+
+// --- docs/296 operator-armed SELF_MODIFY override (Py↔Go parity, issue #186) ---
+//
+// These pin the native fast-path's override-admit branch directly (no corpus): an
+// armed window in time disposes a SELF_MODIFY deny to an allow-with-note; an expired
+// or out-of-scope window leaves the deny standing; nil facts is byte-unchanged from
+// the pre-#186 behavior (back-compat). The corpus parity gate (TestParityCorpus)
+// proves the EMITTED BYTES match Python; these prove the DECISION wiring in isolation.
+
+// armedWindow is a fixed in-window clock + facts pair for the override unit tests:
+// now (17:30) sits before until (18:00), so an unscoped window admits.
+func armedWindow() (*OverrideFacts, time.Time) {
+	until := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 6, 15, 17, 30, 0, 0, time.UTC)
+	return &OverrideFacts{Until: until, Reason: "parity fix #186"}, now
+}
+
+func TestSelfModifyOverrideArmedInWindowAdmits(t *testing.T) {
+	facts, now := armedWindow()
+	e := eventFor("Edit", "/work/workspace", map[string]any{"file_path": "src/dos/arbiter.py"})
+	d := Decide(e, Inputs{RuntimeFiles: dosRuntimeFiles, OverrideFacts: facts, Now: now})
+	if d.DecisionTag != "override-admit" {
+		t.Fatalf("armed window must override-admit, got %q (%s)", d.DecisionTag, d.Render())
+	}
+	if d.ReasonClass != selfModifyReason {
+		t.Fatalf("override-admit must carry the SELF_MODIFY reason_class, got %q", d.ReasonClass)
+	}
+	out := d.Render()
+	if !strings.Contains(out, "operator override armed until") || !strings.Contains(out, "additionalContext") {
+		t.Fatalf("override-admit dialect missing the allow-with-note: %s", out)
+	}
+	if strings.Contains(out, `"permissionDecision": "deny"`) {
+		t.Fatalf("override-admit must NOT be a deny: %s", out)
+	}
+}
+
+func TestSelfModifyOverrideExpiredDenies(t *testing.T) {
+	facts, _ := armedWindow()
+	now := facts.Until.Add(30 * time.Minute) // past the deadline
+	e := eventFor("Edit", "/work/workspace", map[string]any{"file_path": "src/dos/arbiter.py"})
+	d := Decide(e, Inputs{RuntimeFiles: dosRuntimeFiles, OverrideFacts: facts, Now: now})
+	if d.DecisionTag != "deny" {
+		t.Fatalf("expired window must DENY, got %q (%s)", d.DecisionTag, d.Render())
+	}
+}
+
+func TestSelfModifyOverrideScopeMissDenies(t *testing.T) {
+	until := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 6, 15, 17, 30, 0, 0, time.UTC)
+	// Window scoped to _tree.py only; the edit targets arbiter.py → out of scope.
+	facts := &OverrideFacts{Until: until, Reason: "scoped to _tree", Scope: []string{normOverridePath("src/dos/_tree.py")}}
+	e := eventFor("Edit", "/work/workspace", map[string]any{"file_path": "src/dos/arbiter.py"})
+	d := Decide(e, Inputs{RuntimeFiles: dosRuntimeFiles, OverrideFacts: facts, Now: now})
+	if d.DecisionTag != "deny" {
+		t.Fatalf("scope-miss must DENY, got %q (%s)", d.DecisionTag, d.Render())
+	}
+}
+
+func TestSelfModifyOverrideScopeHitAdmits(t *testing.T) {
+	until := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 6, 15, 17, 30, 0, 0, time.UTC)
+	facts := &OverrideFacts{Until: until, Reason: "scoped to _tree", Scope: []string{normOverridePath("src/dos/_tree.py")}}
+	e := eventFor("Edit", "/work/workspace", map[string]any{"file_path": "src/dos/_tree.py"})
+	d := Decide(e, Inputs{RuntimeFiles: dosRuntimeFiles, OverrideFacts: facts, Now: now})
+	if d.DecisionTag != "override-admit" {
+		t.Fatalf("scope-hit in window must override-admit, got %q (%s)", d.DecisionTag, d.Render())
+	}
+}
+
+func TestSelfModifyNilOverrideDeniesBackCompat(t *testing.T) {
+	// No facts (disarmed / pre-#186): the deny is byte-unchanged from today.
+	e := eventFor("Edit", "/work/workspace", map[string]any{"file_path": "src/dos/arbiter.py"})
+	d := Decide(e, Inputs{RuntimeFiles: dosRuntimeFiles}) // OverrideFacts nil, Now zero
+	if d.DecisionTag != "deny" {
+		t.Fatalf("nil override must DENY (back-compat), got %q (%s)", d.DecisionTag, d.Render())
+	}
+}
+
+func TestOverrideNeverWavesThroughCollision(t *testing.T) {
+	// The arm file is a SELF_MODIFY instrument only: a plain lease COLLISION (no
+	// reason_class) must NOT be converted even inside an armed window.
+	facts, now := armedWindow()
+	held := []lease{{lane: "docs", tree: []string{"docs/**"}}}
+	e := eventFor("Edit", "/work/workspace", map[string]any{"file_path": "docs/ARCHITECTURE.md"})
+	d := Decide(e, Inputs{LiveLeases: held, OverrideFacts: facts, Now: now})
+	if d.DecisionTag == "override-admit" {
+		t.Fatalf("a collision deny must never be override-admitted, got %s", d.Render())
 	}
 }

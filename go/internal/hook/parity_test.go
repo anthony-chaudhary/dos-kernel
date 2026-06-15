@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // parityCase mirrors one line of parity/corpus.jsonl — the hermetic differential
@@ -20,6 +21,21 @@ type parityCase struct {
 	RuntimeFiles   []string         `json:"runtime_files"`
 	ExpectedStdout string           `json:"expected_stdout"`
 	Decision       string           `json:"decision"`
+	// Now + Override carry the docs/296 override-arm cases hermetically: the Python
+	// oracle injected these same facts + clock (never a live arm file), so the Go
+	// replay must inject them too. Absent on every non-override case (nil/"" ⇒ the
+	// disarmed default: in.OverrideFacts nil, in.Now zero — byte-unchanged).
+	Now      string          `json:"now"`
+	Override *corpusOverride `json:"override"`
+}
+
+// corpusOverride is the JSON shape of a corpus line's injected armed window — the
+// hermetic twin of the arm file `ReadOverride` would parse, fed straight into
+// OverrideFacts so the test never touches disk.
+type corpusOverride struct {
+	Until  string   `json:"until"`
+	Reason string   `json:"reason"`
+	Scope  []string `json:"scope"`
 }
 
 func loadCorpus(t *testing.T) []parityCase {
@@ -63,6 +79,33 @@ func leasesFromCorpus(raw []map[string]any) []lease {
 	return out
 }
 
+// overrideFromCorpus builds the injected OverrideFacts + clock for an override-case
+// line, or (nil, zero) when the line carries no `override` block (the disarmed
+// default). The scope entries are normalized EXACTLY as `ReadOverride` stores them
+// (`normOverridePath`), and `until`/`now` parse with the corpus's offset spelling, so
+// the hermetic replay sees byte-identical facts to what the Python oracle disposed.
+func overrideFromCorpus(t *testing.T, c parityCase) (*OverrideFacts, time.Time) {
+	t.Helper()
+	if c.Override == nil {
+		return nil, time.Time{}
+	}
+	until := coerceUntil(c.Override.Until)
+	if until.IsZero() {
+		t.Fatalf("corpus %q: unparseable override.until %q", c.Name, c.Override.Until)
+	}
+	now := coerceUntil(c.Now)
+	if now.IsZero() {
+		t.Fatalf("corpus %q: unparseable now %q", c.Name, c.Now)
+	}
+	var scope []string
+	for _, s := range c.Override.Scope {
+		if s != "" {
+			scope = append(scope, normOverridePath(s))
+		}
+	}
+	return &OverrideFacts{Until: until, Reason: c.Override.Reason, Scope: scope}, now
+}
+
 // TestParityCorpus is the differential parity gate (GHF3). For every corpus case
 // it injects the SAME leases + runtime files the Python oracle saw, runs the
 // native decider, and asserts the emitted bytes are IDENTICAL to the Python
@@ -76,6 +119,10 @@ func TestParityCorpus(t *testing.T) {
 			in := Inputs{
 				LiveLeases:   leasesFromCorpus(c.Leases),
 				RuntimeFiles: c.RuntimeFiles,
+			}
+			if facts, now := overrideFromCorpus(t, c); facts != nil {
+				in.OverrideFacts = facts
+				in.Now = now
 			}
 			d := Decide(ev, in)
 			got := d.Render()
