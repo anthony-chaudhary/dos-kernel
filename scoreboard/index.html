@@ -4,24 +4,24 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AI commit messages can lie. This catches it. — DOS</title>
-  <meta name="description" content="says: fix: handle null user in the auth callback did: touched 0 files says: test: green after the refactor did: deleted lines from the test file, added none The kernel is the part that doesn't believe the agents.">
+  <meta name="description" content="Across 15 repos audited here — AI agents wrote about 3% of recent commits — and every one of the concrete claims those commits made was backed by the commit's own diff.">
   <link rel="canonical" href="https://anthony-chaudhary.github.io/dos-kernel/scoreboard/index.html">
   <meta property="og:type" content="article">
   <meta property="og:title" content="AI commit messages can lie. This catches it.">
-  <meta property="og:description" content="says: fix: handle null user in the auth callback did: touched 0 files says: test: green after the refactor did: deleted lines from the test file, added none The kernel is the part that doesn't believe the agents.">
+  <meta property="og:description" content="Across 15 repos audited here — AI agents wrote about 3% of recent commits — and every one of the concrete claims those commits made was backed by the commit's own diff.">
   <meta property="og:url" content="https://anthony-chaudhary.github.io/dos-kernel/scoreboard/index.html">
   <meta property="og:image" content="https://opengraph.githubassets.com/1/anthony-chaudhary/dos-kernel">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="AI commit messages can lie. This catches it.">
-  <meta name="twitter:description" content="says: fix: handle null user in the auth callback did: touched 0 files says: test: green after the refactor did: deleted lines from the test file, added none The kernel is the part that doesn't believe the agents.">
+  <meta name="twitter:description" content="Across 15 repos audited here — AI agents wrote about 3% of recent commits — and every one of the concrete claims those commits made was backed by the commit's own diff.">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
     "@type": "TechArticle",
     "headline": "AI commit messages can lie. This catches it.",
-    "description": "says: fix: handle null user in the auth callback did: touched 0 files says: test: green after the refactor did: deleted lines from the test file, added none The kernel is the part that doesn't believe the agents.",
+    "description": "Across 15 repos audited here \u2014 AI agents wrote about 3% of recent commits \u2014 and every one of the concrete claims those commits made was backed by the commit's own diff.",
     "url": "https://anthony-chaudhary.github.io/dos-kernel/scoreboard/index.html",
-    "datePublished": "2026-06-14",
+    "datePublished": "2026-06-15",
     "author": { "@type": "Person", "name": "Anthony Chaudhary", "url": "https://github.com/anthony-chaudhary" },
     "isPartOf": { "@type": "WebSite", "url": "https://anthony-chaudhary.github.io/dos-kernel/" }
   }
@@ -74,14 +74,17 @@
   <code>scripts/build_incident_pages.py</code>, never hand-edited.</p>
 <h1>AI commit messages can lie. This catches it.</h1>
 <p>When Copilot, Cursor, or Claude writes a commit for you, the message is just text — <code>fix the login bug</code>, <code>tests pass</code>, <code>add caching</code>. Nothing checks that the change actually did that. The <strong>diff</strong> can't lie about which files it touched. The <strong>message</strong> can say anything.</p>
-<p>This scoreboard runs one check over public repos built with AI agents: <strong>does each commit's message match what its diff actually did?</strong> When it doesn't — an empty commit that says "fixed it", a "tests pass" that deletes the test — we call that a <strong>drift</strong>. Each page below is the receipt.</p>
+<p>This scoreboard asks two plain questions about public repos built with AI agents: <strong>how much of the repo did the AI write — and did the AI tell the truth about what each commit did?</strong> For every AI-authored commit we check whether its message's claim is backed by the commit's own diff. Each page below is the receipt.</p>
 <h3>Score your own repo in one command</h3>
 <pre><code class="language-bash">pip install dos-kernel
 dos commit-audit --sweep --workspace . BASE..HEAD
 </code></pre>
 <p>That's the same check, on your history. No account, no upload.</p>
-<h2>What a "drift" looks like</h2>
-<p>The commit <em>message</em> is written by a person or an agent — it can say anything. The <em>diff</em> is written by git — it can't. A <strong>drift</strong> is when the two don't match: the message makes a concrete claim the diff doesn't back up.</p>
+<blockquote>
+<p>Across <strong>15 repos</strong> audited here — AI agents wrote about <strong>3%</strong> of recent commits — and <strong>every one</strong> of the concrete claims those commits made was backed by the commit's own diff.</p>
+</blockquote>
+<h2>What "backed by the diff" means</h2>
+<p>The commit <em>message</em> is written by a person or an agent — it can say anything. The <em>diff</em> is written by git — it can't. We check whether a concrete claim in the message is <strong>backed by</strong> the commit's own diff. When it isn't, the claim rests on the words alone:</p>
 <p><strong>The empty fix.</strong></p>
 <blockquote>
 <p><strong>says:</strong> <code>fix: handle null user in the auth callback</code><br />
@@ -94,28 +97,141 @@ dos commit-audit --sweep --workspace . BASE..HEAD
 <strong>did:</strong> <strong>deleted</strong> lines from the test file, added none</p>
 </blockquote>
 <p>The message claims the tests pass. The diff removed test code. Maybe that was the right call — but the subject says the opposite of what the diff shows.</p>
-<p>Those are the two clearest shapes. Most real commits aren't drifts at all — which is the whole point of a clean page.</p>
+<p>Those are the two clearest mismatch shapes. Most real commits aren't mismatches at all — which is the whole point of a clean page.</p>
 <h2>Start here — the auditor grades itself</h2>
 <p>We ran the check on our own repo first and published whatever it said. It says <strong>non-zero</strong> — a few commits that claim a fix but touched nothing. They're a deliberate house convention, and the page shows exactly why. We left them in. A scoreboard that airbrushed its own page to zero wouldn't be worth reading.</p>
 <ul>
 <li><strong><a href="https://anthony-chaudhary.github.io/dos-kernel/scoreboard/anthony-chaudhary/dos-kernel.html">anthony-chaudhary/dos-kernel</a></strong> — our own grade, every flag explained.</li>
 </ul>
 <h2>Repos that came back clean</h2>
-<p>Every checkable commit message matched its diff over the audited range. "Clean" here is earned, not empty: each page shows the range, the count, and receipts you can re-run yourself.</p>
-<ul>
-<li><a href="https://anthony-chaudhary.github.io/dos-kernel/scoreboard/JuliusBrussee/caveman.html">JuliusBrussee/caveman</a></li>
-<li><a href="https://anthony-chaudhary.github.io/dos-kernel/scoreboard/farion1231/cc-switch.html">farion1231/cc-switch</a></li>
-<li><a href="https://anthony-chaudhary.github.io/dos-kernel/scoreboard/kenn-io/roborev.html">kenn-io/roborev</a></li>
-<li><a href="https://anthony-chaudhary.github.io/dos-kernel/scoreboard/unslothai/unsloth.html">unslothai/unsloth</a></li>
-</ul>
+<p>Every checkable claim an AI commit made matched the commit's own diff over the audited range. "Clean" here is earned, not empty: each page shows the range, the count, and receipts you can re-run yourself.</p>
+<p>What differs between them is how much of the repo the AI built and which agents did it — sorted by AI-built share. Click a repo for the full receipt.</p>
+<table>
+<thead>
+<tr>
+<th>Repo</th>
+<th>AI-built</th>
+<th>Agents</th>
+<th>Claims checked</th>
+<th>Backed</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="https://anthony-chaudhary.github.io/dos-kernel/scoreboard/kenn-io/roborev.html">kenn-io/roborev</a></td>
+<td>65%</td>
+<td>claude 430 · copilot 1 · cursor 1</td>
+<td>273</td>
+<td>100%</td>
+</tr>
+<tr>
+<td><a href="https://anthony-chaudhary.github.io/dos-kernel/scoreboard/JuliusBrussee/caveman.html">JuliusBrussee/caveman</a></td>
+<td>32%</td>
+<td>claude 65</td>
+<td>49</td>
+<td>100%</td>
+</tr>
+<tr>
+<td><a href="https://anthony-chaudhary.github.io/dos-kernel/scoreboard/getzep/graphiti.html">getzep/graphiti</a></td>
+<td>15%</td>
+<td>claude 127</td>
+<td>66</td>
+<td>100%</td>
+</tr>
+<tr>
+<td><a href="https://anthony-chaudhary.github.io/dos-kernel/scoreboard/pydantic/pydantic-ai.html">pydantic/pydantic-ai</a></td>
+<td>9%</td>
+<td>claude 188 · devin 7 · copilot 4 · …</td>
+<td>139</td>
+<td>100%</td>
+</tr>
+<tr>
+<td><a href="https://anthony-chaudhary.github.io/dos-kernel/scoreboard/exo-explore/exo.html">exo-explore/exo</a></td>
+<td>4%</td>
+<td>claude 99 · cursor 1 · jules 1</td>
+<td>67</td>
+<td>100%</td>
+</tr>
+<tr>
+<td><a href="https://anthony-chaudhary.github.io/dos-kernel/scoreboard/OpenInterpreter/open-interpreter.html">OpenInterpreter/open-interpreter</a></td>
+<td>4%</td>
+<td>codex 240 · claude 10 · copilot 3</td>
+<td>118</td>
+<td>100%</td>
+</tr>
+<tr>
+<td><a href="https://anthony-chaudhary.github.io/dos-kernel/scoreboard/crewAIInc/crewAI.html">crewAIInc/crewAI</a></td>
+<td>3%</td>
+<td>devin 51 · claude 29 · aider 3 · …</td>
+<td>69</td>
+<td>100%</td>
+</tr>
+<tr>
+<td><a href="https://anthony-chaudhary.github.io/dos-kernel/scoreboard/agno-agi/agno.html">agno-agi/agno</a></td>
+<td>3%</td>
+<td>claude 159 · copilot 7 · aider 1 · …</td>
+<td>103</td>
+<td>100%</td>
+</tr>
+<tr>
+<td><a href="https://anthony-chaudhary.github.io/dos-kernel/scoreboard/charmbracelet/crush.html">charmbracelet/crush</a></td>
+<td>3%</td>
+<td>crush 86 · copilot 9 · claude 1</td>
+<td>50</td>
+<td>100%</td>
+</tr>
+<tr>
+<td><a href="https://anthony-chaudhary.github.io/dos-kernel/scoreboard/farion1231/cc-switch.html">farion1231/cc-switch</a></td>
+<td>2%</td>
+<td>claude 40 · copilot 1 · cursor 1</td>
+<td>30</td>
+<td>100%</td>
+</tr>
+<tr>
+<td><a href="https://anthony-chaudhary.github.io/dos-kernel/scoreboard/livekit/agents.html">livekit/agents</a></td>
+<td>2%</td>
+<td>claude 45 · devin 17 · cursor 6 · …</td>
+<td>58</td>
+<td>100%</td>
+</tr>
+<tr>
+<td><a href="https://anthony-chaudhary.github.io/dos-kernel/scoreboard/danny-avila/LibreChat.html">danny-avila/LibreChat</a></td>
+<td>1%</td>
+<td>claude 24 · copilot 13 · cursor 1</td>
+<td>24</td>
+<td>100%</td>
+</tr>
+<tr>
+<td><a href="https://anthony-chaudhary.github.io/dos-kernel/scoreboard/microsoft/autogen.html">microsoft/autogen</a></td>
+<td>1%</td>
+<td>copilot 28 · claude 2</td>
+<td>27</td>
+<td>100%</td>
+</tr>
+<tr>
+<td><a href="https://anthony-chaudhary.github.io/dos-kernel/scoreboard/unslothai/unsloth.html">unslothai/unsloth</a></td>
+<td>0%</td>
+<td>claude 26 · cursor 2</td>
+<td>22</td>
+<td>100%</td>
+</tr>
+<tr>
+<td><a href="https://anthony-chaudhary.github.io/dos-kernel/scoreboard/langchain-ai/langchain.html">langchain-ai/langchain</a></td>
+<td>0%</td>
+<td>copilot 24 · claude 15</td>
+<td>29</td>
+<td>100%</td>
+</tr>
+</tbody>
+</table>
 <h2>The fine print (it matters)</h2>
-<p><strong>A drift is not an accusation.</strong> It does not mean the code is wrong, or that anyone lied. It means one thing only: a commit's subject claimed something its own diff doesn't show. A real fix to the wrong bug passes the check; an honest doc cleanup with a sloppy subject can flag. A drift is a message-vs-diff mismatch — <strong>never</strong> a correctness, honesty, or intent grade.</p>
+<p><strong>A mismatch is not an accusation.</strong> It does not mean the code is wrong, or that anyone lied. It means one thing only: a commit's subject claimed something its own diff doesn't show. A real fix to the wrong bug passes the check; an honest doc cleanup with a sloppy subject can flag. A message-vs-diff mismatch is <strong>never</strong> a correctness, honesty, or intent grade — only a note that a commit's words and its own diff disagree.</p>
 <ul>
 <li><strong><a href="https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/scoreboard/methodology.md">How it works</a></strong> — exactly what the check reads, what it skips, and every time the check itself was wrong (we narrow the check, never trust the subject).</li>
-<li><strong><a href="https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/scoreboard/report-2026-06.md">The big picture</a></strong> — the population drift rate across public repos, with every flag hand-checked and denominators everywhere.</li>
+<li><strong><a href="https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/scoreboard/report-2026-06.md">The big picture</a></strong> — the population mismatch rate across public repos, with every flag hand-checked and denominators everywhere.</li>
 <li><strong>Want your repo listed?</strong> Clean or not, it's opt-in and you see the result before it publishes. See the methodology's registration section.</li>
 </ul>
-<p>The pages above are the 5 repos we've audited and named. Another 22 repos were checked but not named — a non-clean or unadjudicated verdict is reported only as a count, never as a named page (<a href="https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/311_scoreboard-per-repo-index-plan.md">docs/311</a> §2).</p>
+<p>The pages above are the 15 repos we've audited and named. Another 20 repos were checked but not named — a non-clean or unadjudicated verdict is reported only as a count, never as a named page (<a href="https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/311_scoreboard-per-repo-index-plan.md">docs/311</a> §2).</p>
 <blockquote>
 <p>The kernel is the part that doesn't believe the agents.</p>
 </blockquote>
