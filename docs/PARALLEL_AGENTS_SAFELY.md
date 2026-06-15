@@ -18,6 +18,32 @@ command if it doesn't, the output shape to expect, and the honest boundary.
 
 ---
 
+## The one-line handshake (when *you* are the agent)
+
+The four surfaces below are written for an operator dispatching a fleet from a
+shell. But the most common case is smaller and closer: **you are an agent**, and
+you are about to spawn sub-agents, kick off a second `/loop`, or fan out a
+`parallel()`/`pipeline()` stage against this one repo. The universal move —
+before you fan out, not after a collision — is a single call:
+
+> *"another agent is also working here; deconflict with DOS"* → `arbitrate(my
+> file-tree, the leases already held)`.
+
+It returns `acquire` (your tree is disjoint from every live lease — go) or
+`refuse` (it overlaps — and here are the `free_clusters` you could take
+instead). Deconfliction is a **router, not a queue**: a colliding worker is sent
+somewhere disjoint to work *now*. The verdict is the **same closed shape**
+whether the "other agent" is your own sibling sub-agent in this very session,
+another loop, or a different runtime entirely — that is what makes it a shared
+*protocol over file-tree disjointness* rather than a per-host feature. Call it
+deliberately from inside a session via the `dos_arbitrate` MCP tool (or
+`dos arbitrate` on the CLI); the host's PreToolUse hook also enforces it
+automatically at write time. The runnable, suite-pinned version is
+[`examples/fleet_frameworks/in_session_deconflict.py`](../examples/fleet_frameworks/in_session_deconflict.py)
+(Recipe 8).
+
+---
+
 ## Why this page exists
 
 Concurrency is cheap to ignore while tokens are cheap — "if two agents collide,
@@ -180,6 +206,10 @@ re-derivation (or an incident) into a read.
 
 ## Where to go next
 
+- *You are the agent* and want the deliberate in-session handshake (sub-agents,
+  parallel loops, a `parallel()` stage)? Recipe 8 —
+  [`examples/fleet_frameworks/in_session_deconflict.py`](../examples/fleet_frameworks/in_session_deconflict.py)
+  — is the one-call version, and "The one-line handshake" section above is the why.
 - Arriving from a specific framework (LangGraph, CrewAI, AutoGen, the Agents
   SDKs)? The runnable recipes live in
   [`examples/fleet_frameworks/`](../examples/fleet_frameworks/README.md).

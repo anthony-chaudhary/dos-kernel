@@ -31,7 +31,7 @@ _EXAMPLE_DIR = Path(__file__).resolve().parents[1] / "examples" / "fleet_framewo
 _EXAMPLE_MODULES = ("_fixture", "universal", "langgraph_referee",
                     "crewai_verify_tool", "autogen_termination",
                     "openai_agents_guardrail", "crewai_task_guardrail",
-                    "openai_agents_effect_gate")
+                    "openai_agents_effect_gate", "in_session_deconflict")
 
 
 @pytest.fixture()
@@ -154,3 +154,30 @@ def test_openai_agents_effect_gate_trips_then_clears(example_path, tmp_path):
     assert r["unbacked"].output_info["outcome"] == "TRIPPED"
     assert r["backed"].tripwire_triggered is False
     assert r["backed"].output_info["outcome"] == "CLEAR"
+
+
+# ===========================================================================
+# Recipe 8 — the in-session deconfliction handshake (dos only; always runs).
+# "Another agent is also working here; deconflict with DOS" as one arbitrate
+# call — the same verdict whether the other agent is a sibling sub-agent, a
+# parallel loop, or a foreign runtime.
+# ===========================================================================
+def test_in_session_deconflict_routes_not_stalls(example_path, tmp_path):
+    r = _demo("in_session_deconflict", tmp_path)
+
+    # A — a clean fan-out over disjoint regions admits every worker, and each
+    # admission is folded into `held` so my own sub-agents deconflict too.
+    clean = r["clean"]
+    assert [s["go"] for s in clean] == [True, True, True]
+    assert [s["dispatch_to"] for s in clean] == ["src", "docs", "tests"]
+
+    # B — a sibling holding src/** refuses my src request (NOT a stall: a free
+    # candidate is offered) while my disjoint docs worker still goes.
+    collide = {s["requested"]: s for s in r["collide"]}
+    assert collide["src"]["go"] is False
+    assert collide["src"]["free_clusters"]          # routed, not dead-ended
+    assert collide["docs"]["go"] is True
+
+    # C — deconfliction is by file-TREE overlap, not lane name: a nested region
+    # is admitted even with a different parent's tree held.
+    assert r["nested"].outcome == "acquire"
