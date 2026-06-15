@@ -1,5 +1,12 @@
 # Cookbook — the exit-code tier: integrate any environment that runs a command
 
+> **In plain words:** the simplest way to check whether your AI really did what
+> it said is to run one command and look at the small number it leaves behind
+> (its *exit code*) — `0` means good, anything else means "not yet" or "look at
+> this." Any tool that can run a command can read that number, so this works
+> everywhere, even where there's nothing fancier to plug into. A vibe coder in
+> Windsurf, Warp, or Zed wants **Recipe 4** below.
+
 > **You do not need a hook adapter. An exit code is enough.** DOS has three
 > integration tiers, in order of how much the host has to know about DOS:
 >
