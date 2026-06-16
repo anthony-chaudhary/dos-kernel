@@ -300,6 +300,16 @@ step through one frame at a time — clone the repo and open
 [`docs/assets/loop_visual.html`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/assets/loop_visual.html) in a browser. (It's an
 HTML file, so GitHub shows its source rather than running it — open it locally.)</sub>
 
+**Lease scope — single filesystem today.** The verification half (`verify`,
+`commit-audit`, `liveness`) travels across machines freely because it reads git
+history. The admission half (`arbitrate`, lane leases) is local-filesystem only:
+the WAL lives on one disk, and workers on separate machines share no
+serialization point. A fleet that runs all its workers on one machine or in one
+shared filesystem is fully covered; a fleet spanning multiple hosts should treat
+`dos arbitrate` as advisory (not a hard mutex) until a remote-lease driver
+ships. See [docs/366](docs/366_single-filesystem-lease-boundary.md) for the
+design.
+
 ### How far you take it
 
 It works on a plain `git init` with zero config, and gets smarter the more you

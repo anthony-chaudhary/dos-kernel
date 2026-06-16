@@ -7736,6 +7736,50 @@ def cmd_skillify(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_plugins(args: argparse.Namespace) -> int:
+    """`dos plugins` — the extension-surface manifest: every pluggable seam, its built-in
+    floor, and what third-party plugins are installed. A pure read of entry-point
+    metadata (no lease, no mutation). Detail: docs/CLI.md § cmd_plugins."""
+    from dos import plugins as _plugins
+
+    reports = _plugins.fold()
+    if getattr(args, "json", False):
+        print(_plugins.render_json(reports))
+    else:
+        print(_plugins.render_text(reports))
+    return 0
+
+
+def cmd_plugin_new(args: argparse.Namespace) -> int:
+    """`dos plugin new <seam> --name <n>` — scaffold an installable plugin package that
+    registers one occupant under the named seam. Writes the file set `plugins.scaffold`
+    plans into `--out` (default: ./<pkg>). Detail: docs/CLI.md § cmd_plugin_new."""
+    import os
+
+    from dos import plugins as _plugins
+
+    try:
+        plan = _plugins.scaffold(args.seam, args.name)
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    out_root = os.path.abspath(args.out) if getattr(args, "out", None) else os.path.abspath(plan.pkg)
+    if os.path.exists(out_root) and os.listdir(out_root):
+        print(f"error: {out_root} exists and is not empty; pass --out to a fresh dir",
+              file=sys.stderr)
+        return 2
+    for rel, content in plan.files.items():
+        dest = os.path.join(out_root, rel)
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        # write bytes with explicit UTF-8 + LF — never write_text (which would CRLF on
+        # win32 and corrupt a generated source file).
+        with open(dest, "wb") as f:
+            f.write(content.encode("utf-8"))
+    print(f"scaffolded {plan.seam.group} plugin '{args.name}' in {out_root}")
+    print(f"  next:  pip install -e {out_root}  &&  dos plugins")
+    return 0
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     _apply_workspace(args)
     cfg = _config.active()
@@ -7933,6 +7977,23 @@ def cmd_doctor(args: argparse.Namespace) -> int:
           f"spin_halt_after={_spin_halt})")
     git = cfg.paths.root / ".git"
     print(f"is git workspace    {'yes' if git.exists() else 'no'}")
+    # docs/366 — single-filesystem lease boundary: if this workspace has a git
+    # remote (implying the repo is shared across machines), note that the lease
+    # WAL is local-filesystem only and cross-host workers share no serialization
+    # point. Advisory (exit 0, never a failure); read-only, fail-soft.
+    if git.exists():
+        try:
+            import subprocess as _sp
+            _remote = _sp.run(
+                ["git", "-C", str(cfg.paths.root), "remote"],
+                capture_output=True, text=True, timeout=3,
+            )
+            if _remote.returncode == 0 and _remote.stdout.strip():
+                print("lease scope         local filesystem only — "
+                      "workers on other machines share no serialization point "
+                      "(docs/366)")
+        except Exception:  # noqa: BLE001 — never break doctor
+            pass
     # docs/221 — which agent runtimes have the DOS hooks wired in THIS workspace, so
     # an adopter can confirm `dos init --hooks <host>` actually took effect (a
     # mis-wired hook is otherwise a silent no-op). Read-only: probes each host's
