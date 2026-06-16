@@ -334,6 +334,11 @@ devin = "dos.drivers.hook_dialects:devin_install_spec"
 # {"permission":"deny"} output the Cursor IDE reads, so it reuses the cursor renderer.
 # Wiring `cursor` or `cursor-cli` wires the same file. Existing renderer; install spec only.
 cursor-cli = "dos.drivers.hook_dialects:cursor_cli_install_spec"
+# Charmbracelet's Crush -- `crush.json`, a flat event-keyed config (hooks.<event> =
+# [{matcher,command,timeout}]) with a native flat top-level {"decision":"deny"} deny
+# OUTPUT, so it reuses the antigravity renderer (--dialect antigravity). The config
+# lives inside crush.json (not a dedicated hooks file). Existing renderer; install spec only.
+crush = "dos.drivers.hook_dialects:crush_install_spec"
 
 # The memory-STORE providers (docs/314 P2/P3) — where a fleet's memories live, so
 # the recall gate (docs/103) and the write gate (`dos memory admit`) can run against

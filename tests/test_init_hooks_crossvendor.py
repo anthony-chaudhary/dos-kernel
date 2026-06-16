@@ -223,6 +223,27 @@ def test_cursor_cli_shares_the_cursor_hooks_file(tmp_path: Path):
         assert _flat_commands(cfg, ev) == ["dos hook pretool --workspace . --dialect cursor"]
 
 
+def test_crush_writes_crush_json_flat_with_the_antigravity_dialect(tmp_path: Path):
+    """Crush is the flat-config / antigravity-OUTPUT host: `crush.json` holds a top-level
+    `hooks` map of FLAT {matcher,command,timeout} entries (not CC's group-wrapped form),
+    and its native deny is a flat top-level {"decision":"deny"} -- so the wired command
+    carries `--dialect antigravity`. No stop event (Crush documents none)."""
+    dest = tmp_path / "svc"
+    proc = _cli("init", "--hooks", "crush", str(dest))
+    assert proc.returncode == 0, proc.stderr
+    spec = hi.host_spec("crush")
+    assert spec.config_path == ("crush.json",)
+    cfg = _json_config(dest, spec)
+    # Flat entries (no group wrapper, no "type"), wired with the antigravity dialect.
+    assert _flat_commands(cfg, "PreToolUse") == ["dos hook pretool --workspace . --dialect antigravity"]
+    assert _flat_commands(cfg, "PostToolUse") == ["dos hook posttool --workspace . --dialect antigravity"]
+    entry = cfg["hooks"]["PreToolUse"][0]
+    assert set(entry) == {"command"}                     # flat {command}, no CC group/type
+    # No stop hook is wired (Crush documents none).
+    assert "stop" not in cfg["hooks"] and "Stop" not in cfg["hooks"]
+    assert "(stop)" not in proc.stdout
+
+
 def test_claude_cowork_writes_the_shared_claude_settings_file(tmp_path: Path):
     """Claude Cowork is the SHARED-surface host (docs/298): it runs the Claude Code
     harness, so its hook surface IS `.claude/settings.json` — and the wired command
@@ -404,7 +425,7 @@ def test_cursor_merge_preserves_user_hooks_and_keys(tmp_path: Path):
 
 def test_idempotent_rerun_does_not_duplicate(tmp_path: Path):
     for host in ("cursor", "codex", "gemini", "antigravity", "claude-cowork", "hermes",
-                 "augment", "devin", "cursor-cli"):
+                 "augment", "devin", "cursor-cli", "crush"):
         dest = tmp_path / host
         assert _cli("init", "--hooks", host, str(dest)).returncode == 0
         proc = _cli("init", "--hooks", host, str(dest))

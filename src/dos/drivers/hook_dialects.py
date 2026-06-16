@@ -609,3 +609,44 @@ def cursor_cli_install_spec() -> HostHookSpec:
              "hooks, idempotent). The wired `dos hook` command must be on PATH in the "
              "cursor-agent session.",
     )
+
+
+def crush_install_spec() -> HostHookSpec:
+    """Charmbracelet's **Crush** — `crush.json` (flat event-keyed config, ANTIGRAVITY output).
+
+    Crush is another config-vs-output split (source-verified against
+    charmbracelet/crush 2026-06-16: internal/config/config.go, internal/hooks/input.go,
+    the bundled crush-config SKILL.md): its hook CONFIG is a top-level `hooks` map keyed
+    by event name, each a list of FLAT `{matcher, command, timeout}` entries (NOT Claude
+    Code's group-wrapped `{matcher, hooks:[{type,command}]}` nesting). Its NATIVE deny
+    OUTPUT is a flat top-level `{"decision":"deny","reason":…}` — byte-identical to what
+    `AntigravityDialect` already emits, so it reuses the **antigravity** renderer (zero
+    new renderer). (Crush ALSO compat-accepts the CC wrapper and an exit-2 deny, but its
+    own documented output is the antigravity shape, so per the output-shape rule it
+    aliases antigravity.)
+
+    The config lives INSIDE `crush.json` under a top-level `hooks` object (not a dedicated
+    hooks file like `.cursor/hooks.json`), so the merge targets `hooks.<event>` — the same
+    flat-JSON shape `merge_json` already handles with `json_group_wraps=False` /
+    `json_entry_has_type=False`. Crush implements `PreToolUse` and designs `PostToolUse`;
+    it documents no stop/agent-end hook, so DOS wires only the two tool moments (the
+    honest-coverage rule, the docs/294 discipline).
+    """
+    return HostHookSpec(
+        host="crush",
+        config_path=("crush.json",),
+        fmt=ConfigFormat.JSON,
+        pre_events=("PreToolUse",),
+        post_events=("PostToolUse",),
+        stop_events=(),              # Crush documents no stop/agent-end hook.
+        dialect_flag="--dialect antigravity",   # native flat {"decision":"deny"} = the antigravity envelope.
+        json_entry_has_type=False,   # Crush entries are flat {matcher, command, timeout}.
+        json_group_wraps=False,
+        json_version=None,
+        note="Crush wires hooks inside crush.json under a top-level `hooks` map "
+             "(PreToolUse / PostToolUse), flat {matcher,command,timeout} entries. Its "
+             "native deny output is a flat top-level {\"decision\":\"deny\",\"reason\":…}, so "
+             "DOS wires --dialect antigravity (the matching renderer). It documents no "
+             "stop hook, so only the two tool moments are wired. The wired `dos hook` "
+             "command must be on PATH in the Crush session.",
+    )
