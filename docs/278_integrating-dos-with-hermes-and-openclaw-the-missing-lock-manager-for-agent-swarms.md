@@ -5,9 +5,12 @@
 > and cited (2026-06-09); the example is pinned by `tests/test_hermes_integration_example.py`
 > against the live CLI; the `HermesDialect` renderer is grounded in Hermes' real
 > `pre_tool_call` shell-hook shape and pinned by the dialect + fail-open suites.
-> Phase 3 (an MCP-injection variant) and the Hermes YAML `install_spec` remain
-> deferred — the centerpiece the operator asked for is the arbiter-coordination
-> demo, and it stands alone.
+> Phase 3 (an MCP-injection variant) remains deferred — the centerpiece the
+> operator asked for is the arbiter-coordination demo, and it stands alone. The
+> Hermes YAML `install_spec` HAS NOW LANDED (`ConfigFormat.YAML` + `merge_yaml`
+> in `hook_install.py` + `hermes_install_spec` in the driver), so `dos init
+> --hooks hermes` wires `cli-config.yaml` directly — see "The `install_spec` now
+> ships" below.
 
 ## The two-pronged thesis
 
@@ -254,15 +257,18 @@ hook docs + GitHub) is what made this buildable *honestly* — and is why only
 - **SwarmClaw** documents **no** first-class pre-tool veto hook at all (only
   task-stage approval + human-loop + MCP injection) — so, likewise, no dialect.
 
-Two caveats kept deliberately honest: (a) DOS ships only the Hermes **dialect
-renderer**, not an `install_spec` — Hermes' config is YAML (`cli-config.yaml`),
-which `hook_install.ConfigFormat` (JSON/TOML) does not yet encode, so the install is
-documented by hand below and the spec is a separate kernel lift; (b) Hermes' shell
-hook has no non-blocking "add context" channel, so a DOS **WARN** degrades to a
-non-blocking pass there (the corrective is dropped) — surfaced in the renderer's
-docstring rather than smuggled onto a field Hermes does not read.
+One caveat kept deliberately honest: Hermes' shell hook has no non-blocking "add
+context" channel, so a DOS **WARN** degrades to a non-blocking pass there (the
+corrective is dropped) — surfaced in the renderer's docstring rather than smuggled
+onto a field Hermes does not read.
 
-**Wiring the Hermes shell hook by hand** (until the install_spec lands) — in
+**The `install_spec` now ships** (the YAML lift that was deferred): `hook_install.py`
+gained `ConfigFormat.YAML` + `merge_yaml`/`wired_events_yaml` (PyYAML is already the
+kernel's one dep — no new dep), and the driver gained `hermes_install_spec`. So
+`dos init --hooks hermes .` writes exactly the `cli-config.yaml` below, idempotently,
+preserving the user's keys and per-entry `timeout`. Hermes documents no stop/agent-end
+shell hook, so DOS wires only `pre_tool_call` / `post_tool_call` (the honest-coverage
+rule, docs/294). The same file can still be **hand-wired** if you prefer — in
 `cli-config.yaml`:
 
 ```yaml
@@ -352,11 +358,17 @@ claimant, docs/138) applied to the example.
 - **Phase 2 — `hermes` hook dialect (DONE).** `HermesDialect` in
   `drivers/hook_dialects.py` + the `dos.hook_dialects` entry-point, grounded in
   Hermes' real `pre_tool_call` shell-hook deny shape (`{"decision":"block",…}`) and
-  pinned by the dialect golden-byte + fail-open + CLI suites. The YAML
-  `install_spec` is **deferred** (Hermes' `cli-config.yaml` needs a YAML
-  `ConfigFormat`, a separate kernel lift); the renderer — the high-value, kernel-clean
-  half — ships now. OpenClaw/SwarmClaw get **no** dialect by design (their hooks are
-  not stdout-JSON surfaces; see Surface 3).
+  pinned by the dialect golden-byte + fail-open + CLI suites. OpenClaw/SwarmClaw get
+  **no** dialect by design (their hooks are not stdout-JSON surfaces; see Surface 3).
+- **Phase 2.5 — `hermes` YAML `install_spec` (DONE, the deferred lift).**
+  `hook_install.py` gained `ConfigFormat.YAML` + `merge_yaml`/`wired_events_yaml`
+  (PyYAML is the kernel's one dep — no new dep), and the driver gained
+  `hermes_install_spec`. So `dos init --hooks hermes` wires `cli-config.yaml`
+  (`pre_tool_call` / `post_tool_call`, flat entries, no stop — Hermes documents none)
+  directly, idempotently, preserving the user's keys + per-entry `timeout`. The Go
+  fast-path also gained a `renderHermes` transcode + parity case, so a Go-decided
+  `--dialect hermes` deny emits the flat `{"decision":"block"}` Hermes reads instead
+  of silently degrading to the CC envelope (the docs/268 fail-open, closed).
 - **Phase 3 — MCP-injection variant (DEFERRED).** The same demo driven through
   `dos-mcp` over stdio instead of a subprocess, to match the runtimes'
   documented #1 extension path.
