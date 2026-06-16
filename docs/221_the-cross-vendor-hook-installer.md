@@ -11,6 +11,12 @@
 *Status: PLAN. Implements docs/217 §4 Phase 4 (installer only; the `[hook_dialect]`
 config table and `dos hook-dialect-eval` stay future). As of 2026-06-07.*
 
+> **Phase stamp.** Phase `P1` (the `dos init --hooks <host>` cross-vendor
+> installer + the host-wiring roster) shipped across the docs/221 series (e.g.
+> `b795e3b`, `e9bd9ac`, `124d105`); `dos verify --workspace . docs/221 P1`
+> resolves it via this commit's `(docs/221 P1)` trailer. The `[hook_dialect]`
+> config table stays a future leg, by design.
+
 ## 0. The gap this closes (the adoption finding)
 
 DOS has three binding surfaces with different cross-vendor reach (docs/217 §0). Two
