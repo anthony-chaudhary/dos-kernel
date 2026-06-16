@@ -5645,6 +5645,27 @@ def cmd_hook_posttool(args: argparse.Namespace) -> int:
     return 0
 
 
+def _hook_posture(cfg) -> "object":
+    """The operator's declared enforcement POSTURE for this workspace (docs/370).
+
+    Boundary read — the one I/O behind the pure `hook_dialect.under_posture`. Precedence:
+    the `DOS_HOOK_POSTURE` env (a fleet-wide override, read per-call like
+    `DOS_APPLY_GATE`), then `dos.toml [enforcement] posture`, then the BLOCK default.
+    Any shape miss degrades to the default (which `parse_posture` also enforces), so a
+    malformed config never breaks the hook hot path. Returns a `hook_dialect.Posture`.
+    """
+    from dos import hook_dialect as _hd
+    name = os.environ.get("DOS_HOOK_POSTURE", "").strip()
+    if not name:
+        try:
+            table = _config._load_toml_table(Path(cfg.root) / "dos.toml", "enforcement")
+            if isinstance(table, dict):
+                name = str(table.get("posture") or "").strip()
+        except Exception:  # noqa: BLE001 — a torn/absent config never breaks the hook
+            name = ""
+    return _hd.parse_posture(name)
+
+
 def cmd_hook_pretool(args: argparse.Namespace) -> int:
     """A `PreToolUse` hook: DENY a structurally-refused tool call BEFORE it runs (docs/191).
 
@@ -5748,6 +5769,12 @@ def cmd_hook_pretool(args: argparse.Namespace) -> int:
             from dos import hook_dialect as _hd
             renderer = _hd.resolve_dialect(getattr(args, "dialect", None))
             verdict = _hd.parse_cc(dialect, moment=_hd.HookMoment.PRE)
+            # docs/370 — the enforcement POSTURE: an operator who keeps a human in
+            # the loop sets `gate` to ESCALATE a refusal to their permission prompt
+            # (an ASK) instead of a hard block; `observe` records only. Default BLOCK
+            # is byte-for-byte today's behavior (the parity floor). The transform is
+            # pure; the env/config read is the one boundary line here.
+            verdict = _hd.under_posture(verdict, _hook_posture(cfg))
             host_dialect = renderer.render(verdict)
         except ValueError as exc:  # unknown dialect name — surface, do not guess a host
             _dbg(f"dialect error ({exc}) — emitting nothing (passthrough)")
