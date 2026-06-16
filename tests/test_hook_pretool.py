@@ -127,9 +127,10 @@ def test_misrouted_posttool_event_passthrough(monkeypatch, tmp_path):
 # ==========================================================================
 # (2) SELF_MODIFY deny — a Write to a kernel runtime path → permissionDecision: deny.
 # ==========================================================================
-def test_self_modify_write_denies():
-    cfg_holder = {}
-
+def test_self_modify_write_denies(monkeypatch):
+    # docs/355 — a SELF_MODIFY hard DENY is now the LOOP-session case (an interactive
+    # operator softens to a WARN). Pin the deny path by marking this a loop session.
+    monkeypatch.setenv("DOS_LOOP", "1")
     # Build directly via decide() with a kernel-runtime config (independent of the CLI's
     # workspace resolution, which would re-probe the real disk).
     import tempfile
@@ -147,7 +148,7 @@ def test_self_modify_write_denies():
     assert "updatedInput" not in hso
 
 
-def test_self_modify_deny_text_names_hook_real_remedies_only():
+def test_self_modify_deny_text_names_hook_real_remedies_only(monkeypatch):
     """The hook-emitted SELF_MODIFY deny must not advertise `--force` (issue #14).
 
     Only the `dos arbitrate` CLI has `--force`; the PreToolUse ABI deliberately
@@ -158,6 +159,8 @@ def test_self_modify_deny_text_names_hook_real_remedies_only():
     repeated denies raise an operator decision"). The PREDICATE text is
     untouched: the CLI deny keeps `--force`, where it is real.
     """
+    # docs/355 — the hard SELF_MODIFY deny is the LOOP-session case; mark it one.
+    monkeypatch.setenv("DOS_LOOP", "1")
     import tempfile
     cfg = _kernel_cfg(Path(tempfile.mkdtemp()))
     dialect, outcome = prt.decide(_event("Write", {"file_path": "src/dos/arbiter.py"}), cfg)
@@ -297,21 +300,34 @@ def test_operator_session_collision_warns_not_denies(monkeypatch):
     assert "permissionDecision" not in (dialect or {}).get("hookSpecificOutput", {}), dialect
 
 
-def test_operator_session_does_not_soften_self_modify(monkeypatch):
-    """Safety invariant: the operator-session softening touches CONTENTION refusals only.
-    A SELF_MODIFY refusal (reason_class set) — editing the live kernel — stays a hard DENY
-    for an operator too."""
+def test_self_modify_softens_for_operator_but_not_for_loop(monkeypatch):
+    """docs/355 — the SELF_MODIFY middle ground. The mid-flight-rewrite hazard needs a
+    LIVE dispatch loop, so an interactive operator (no loop env) editing the kernel
+    BETWEEN loop runs softens to an advisory WARN — the edit proceeds, the hazard is
+    named, no arm ritual. A LOOP session (a loop-context env present) still gets the
+    hard DENY: a loop rewriting its own decision path mid-flight IS the hazard. Either
+    way the verdict still carries the SELF_MODIFY reason_class (PDP decides, PEP
+    disposes). Twin of the Go `TestSelfModifySoftensForOperatorSessionButNotForLoop`."""
     import tempfile
+    cfg = _kernel_cfg(Path(tempfile.mkdtemp()))
+    ev = _event("Edit", {"file_path": "src/dos/arbiter.py",
+                         "old_string": "a", "new_string": "b"}, cwd="/repo")
+
+    # Operator session (no loop env): softened to WARN, still tagged SELF_MODIFY.
     for var in ("DOS_LOOP", "CID_RUN_ID", "DISPATCH_LOOP_TS"):
         monkeypatch.delenv(var, raising=False)
-    cfg = _kernel_cfg(Path(tempfile.mkdtemp()))
-    # A kernel runtime file (configured in _kernel_cfg) -> the SELF_MODIFY predicate fires
-    # (request-absolute, reason_class set) regardless of any live lease.
-    dialect, outcome = prt.decide(
-        _event("Edit", {"file_path": "src/dos/arbiter.py",
-                        "old_string": "a", "new_string": "b"}, cwd="/repo"), cfg)
+    dialect, outcome = prt.decide(ev, cfg)
+    assert outcome["decision"] == "warn", outcome
+    assert outcome["reason_class"] == "SELF_MODIFY", outcome
+    # A WARN omits permissionDecision (passthrough — the edit proceeds).
+    assert "permissionDecision" not in dialect["hookSpecificOutput"], dialect
+
+    # The negative control — a LOOP session still hard-denies (the live-loop hazard).
+    monkeypatch.setenv("DOS_LOOP", "1")
+    dialect, outcome = prt.decide(ev, cfg)
     assert outcome["decision"] == "deny", outcome
     assert outcome["reason_class"] == "SELF_MODIFY", outcome
+    assert dialect["hookSpecificOutput"]["permissionDecision"] == "deny", dialect
 
 
 def test_disjoint_known_tree_passes_through_under_live_lease(monkeypatch):
@@ -491,6 +507,9 @@ def test_stdout_is_exact_cc_dialect_and_debug_on_stderr(monkeypatch, tmp_path, c
     # workspace at the actual repo root (the test runs inside it).
     repo_root = Path(__file__).resolve().parents[1]
     monkeypatch.setenv("DISPATCH_WORKSPACE", str(repo_root))
+    # docs/355 — the hard SELF_MODIFY deny is the LOOP-session case (an operator
+    # softens to a WARN); mark this a loop session so the CLI emits the deny dialect.
+    monkeypatch.setenv("DOS_LOOP", "1")
     event = _event("Write", {"file_path": "src/dos/arbiter.py"}, cwd=str(repo_root))
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(event)))
     out_buf = io.StringIO()
@@ -573,11 +592,16 @@ def test_tree_substitution_veto_falls_back_to_unknown():
     assert prt._tree_from_event(_event("Bash", {"command": cmd})) == ((), False)
 
 
-def test_gh_issue_mention_not_denied_but_redirect_still_denied():
+def test_gh_issue_mention_not_denied_but_redirect_still_denied(monkeypatch):
     """The issue-#12 done-condition, at the decide() level: filing an issue ABOUT a kernel
     runtime file is not a SELF_MODIFY deny (the path is a mention), while actually
-    redirecting bytes INTO that file still denies."""
+    redirecting bytes INTO that file still denies.
+
+    docs/355 — the hard SELF_MODIFY deny is the LOOP-session case; mark this a loop
+    session so the redirect denies (an operator session would soften it to a WARN,
+    which is correct but not what this issue-#12 mention-vs-write contrast pins)."""
     import tempfile
+    monkeypatch.setenv("DOS_LOOP", "1")
     cfg = _kernel_cfg(Path(tempfile.mkdtemp()))
     mention = _event("Bash", {"command": 'gh issue create --body "see src/dos/arbiter.py"'})
     dialect, outcome = prt.decide(mention, cfg)

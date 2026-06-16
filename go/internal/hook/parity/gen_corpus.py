@@ -50,7 +50,7 @@ def _render(dialect: dict | None) -> str:
 
 
 def _decide_with(event: dict, leases: list[dict], runtime_files: tuple[str, ...],
-                 override=None, now=None):
+                 override=None, now=None, operator_session=False):
     """Run `pretool_sensor.decide`'s two rungs with INJECTED leases + runtime files,
     bypassing the WAL/FS I/O so the corpus is hermetic.
 
@@ -104,6 +104,25 @@ def _decide_with(event: dict, leases: list[dict], runtime_files: tuple[str, ...]
         # boundary only (the SELF_MODIFY verdict is unchanged). Only a SELF_MODIFY
         # refusal is ever converted. Byte-twinned with `pretool_sensor.decide`'s
         # override-admit branch; the Go decider injects the same facts+now.
+        # docs/355 — soften the interactive NO-LOOP case to an advisory WARN. MUST
+        # mirror `pretool_sensor.decide`'s docs/355 branch and the Go decider's, and
+        # runs BEFORE the override-window dispose (a softened no-loop human needs no
+        # arm file). A LOOP session (operator_session=False, the corpus default)
+        # falls through to the override/deny path below, unchanged.
+        if provable and (averdict.reason_class or "") == "SELF_MODIFY" and operator_session:
+            return (
+                prt.warn_payload(
+                    f"DOS PRE-admission (advisory, operator session): {reason} "
+                    f"You are editing the live kernel, but NO dispatch loop is "
+                    f"in flight (the mid-flight-rewrite hazard needs a live "
+                    f"loop) — you own the blast radius of your own deliberate "
+                    f"edit, so DOS warns instead of blocking. A dispatch loop "
+                    f"carries the loop env and still gets the hard deny; arm a "
+                    f"window (dos override status) to edit under a live loop."
+                ),
+                "warn",
+            )
+        expired_note = ""  # issue #159 — set when an armed window has LAPSED
         if provable and (averdict.reason_class or "") == "SELF_MODIFY" and override is not None:
             note = _ovr.dispose(
                 averdict.reason_class or "", tuple(tree), override, now=now)
@@ -115,8 +134,19 @@ def _decide_with(event: dict, leases: list[dict], runtime_files: tuple[str, ...]
                     ),
                     "override-admit",
                 )
+            # issue #159 — an EXPIRED window denies identically to NO window
+            # unless we say so. Byte-twinned with `pretool_sensor.decide`'s and
+            # the Go decider's expired-note branch (same minute math + phrasing).
+            if now is not None and now > override.until:
+                _mins = int((now - override.until).total_seconds() // 60)
+                _ago = f"{_mins} min ago" if _mins >= 1 else "less than a min ago"
+                expired_note = (
+                    f" An operator override window WAS armed but EXPIRED at "
+                    f"{override.until.isoformat()} ({_ago}) — it lapsed, it was "
+                    f"never absent. Re-arm to edit: dos override status."
+                )
         if provable:
-            return prt.deny_payload(f"DOS PRE-admission: {reason}"), "deny"
+            return prt.deny_payload(f"DOS PRE-admission: {reason}{expired_note}"), "deny"
         # PROVEN no-footprint (issue #46): a KNOWN-and-EMPTY tree with no reason_class
         # is a read — it cannot collide, so it passes CLEAN (no advisory). MUST mirror
         # `pretool_sensor.decide`; the Go decider applies the identical branch.
@@ -148,8 +178,9 @@ CWD = "/work/workspace"  # neutral fixture workspace path (no real machine path)
 
 
 def case(name: str, event: dict, leases: list[dict], runtime_files: tuple[str, ...],
-         override=None, now=None) -> dict:
-    dialect, tag = _decide_with(event, leases, runtime_files, override=override, now=now)
+         override=None, now=None, operator_session=False) -> dict:
+    dialect, tag = _decide_with(event, leases, runtime_files, override=override,
+                                now=now, operator_session=operator_session)
     out = {
         "name": name,
         "event": event,
@@ -158,6 +189,12 @@ def case(name: str, event: dict, leases: list[dict], runtime_files: tuple[str, .
         "expected_stdout": _render(dialect),
         "decision": tag,
     }
+    # docs/355 — the session class the Go test must inject as `in.OperatorSession`.
+    # Emitted ONLY when True (an interactive no-loop session that softens a
+    # SELF_MODIFY deny to a WARN); absent ⇒ False (a loop session, the default that
+    # keeps every pre-355 case byte-identical). The Go side reads this into Inputs.
+    if operator_session:
+        out["operator_session"] = True
     # The override window the Go test must inject to reproduce this case. Serialized as
     # the arm-file fields (until/reason/scope) + the injected clock — the same data the
     # boundary `ReadOverride` would parse — so the Go side rebuilds OverrideFacts and
@@ -295,6 +332,24 @@ def build_cases() -> list[dict]:
     cases.append(case("override-arm-path-write-denied",
                       _ev("Edit", {"file_path": ".dos/override/self-modify.toml"}), [], ALL_RUNTIME,
                       override=armed_unscoped, now=now_in))
+
+    # --- docs/355 the SELF_MODIFY middle ground: soften the interactive no-loop case ---
+    # An interactive operator (no loop env => operator_session=True) editing a T1 file
+    # gets an advisory WARN, not a hard deny — the mid-flight-rewrite hazard needs a
+    # live loop. The loop-session twins of these (operator_session default False) are
+    # the existing `selfmodify-edit-arbiter` / `-bash-rm-tree` cases above (still deny).
+    cases.append(case("selfmodify-operator-session-edit-warns",
+                      _ev("Edit", {"file_path": "src/dos/arbiter.py"}), [], ALL_RUNTIME,
+                      operator_session=True))
+    cases.append(case("selfmodify-operator-session-bash-warns",
+                      _ev("Bash", {"command": "rm src/dos/_tree.py"}), [], ALL_RUNTIME,
+                      operator_session=True))
+    # An operator-session edit to a DROPPED (post-355-trim) file is not even T1: it
+    # passes clean (no warn), proving the trim and the soften compose. `cli.py` was
+    # never T1; this pins that a non-runtime edit by an operator is a plain passthrough.
+    cases.append(case("operator-session-non-runtime-passthrough",
+                      _ev("Edit", {"file_path": "src/dos/cli.py"}), [], ALL_RUNTIME,
+                      operator_session=True))
     return cases
 
 

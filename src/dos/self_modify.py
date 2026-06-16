@@ -45,6 +45,19 @@ SELF_MODIFY_REASON = "SELF_MODIFY"
 # scoped to the kernel's *adjudication* path — NOT every kernel file (a lease
 # editing `timeline.py`, pure post-hoc assembly, is not a live-decision hazard).
 # ---------------------------------------------------------------------------
+#
+# docs/355 — the set was TRIMMED to the mid-flight-critical CORE: the files a
+# live ADMISSION reads on every decision, where a mid-flight rewrite silently
+# changes the next packet's verdict. The docs/73 criterion ("modules in the
+# running orchestrator's own execution path") applied honestly leaves six. The
+# loop-internal classifiers (`gate_classify`, `loop_decide`, `tokens`) and the
+# reason DATA/prose (`reasons`, `wedge_reason`) were DROPPED: they are edited far
+# more often than they are mid-flight-critical (a reason rename was the dominant
+# false interactive wall — the #11/#145 type-specimen), a live LOOP still reaches
+# them via the opt-in apply-gate (docs/126) when it leased `src/`, and the
+# always-on guard now softens to a WARN for an interactive no-loop human anyway
+# (docs/355 Change 1). The hard deny survives where the hazard is real: a live
+# loop rewriting its own collision-adjudication path.
 _DISPATCH_RUNTIME_FILES: tuple[str, ...] = (
     # The admission kernel itself — the code that runs THIS very check. A packet
     # rewriting it between two Step-0 calls changes whether the next loop admits.
@@ -58,17 +71,6 @@ _DISPATCH_RUNTIME_FILES: tuple[str, ...] = (
     # collision check to — the substance of "may these two lanes coexist."
     "src/dos/lane_overlap.py",
     "src/dos/_tree.py",
-    # The loop's go/no-go classifiers: whether a phase is gated, whether the loop
-    # should continue, the token-budget accounting those read. A live loop calls
-    # these every iteration; rewriting them mid-loop reshapes its control flow.
-    "src/dos/gate_classify.py",
-    "src/dos/loop_decide.py",
-    "src/dos/tokens.py",
-    # The structured-refusal vocabulary the loop emits/verifies against. Changing
-    # the reason set under a live loop desyncs producer↔oracle (the exact drift
-    # the registry exists to forbid), so it is a runtime-path edit.
-    "src/dos/wedge_reason.py",
-    "src/dos/reasons.py",
     # The config seam — the lane taxonomy + paths a live arbiter reads on every
     # admission. Re-pointing the workspace or rewriting the taxonomy mid-loop
     # changes what "disjoint" even means for the next packet.

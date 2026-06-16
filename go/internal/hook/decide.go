@@ -1,6 +1,7 @@
 package hook
 
 import (
+	"fmt"
 	"strings"
 	"time"
 )
@@ -179,13 +180,40 @@ func Decide(e *Event, in Inputs) Decision {
 				TreeKnown:   treeKnown,
 			}
 		}
+		// docs/355 — the SELF_MODIFY middle ground: soften the interactive,
+		// NO-LOOP case to an advisory WARN. The verdict still says SELF_MODIFY,
+		// but the mid-flight-rewrite HAZARD needs a live dispatch loop — a packet
+		// rewriting arbiter.py between two admission checks only matters if there
+		// IS a next packet. An interactive operator (OperatorSession, i.e. no loop
+		// env) is the human editing the kernel BETWEEN loop runs, the case the
+		// guard's own TYPICAL-FIX calls safe; for them the deny downgrades to a
+		// WARN (proceeds, hazard named, no arm ritual). A LOOP session is NOT
+		// softened — it falls through to the `dispose` window branch and then the
+		// hard deny. Runs BEFORE `dispose`: if we soften for the no-loop human
+		// there is nothing for the arm file to convert. Byte-twinned with
+		// `pretool_sensor.decide`'s docs/355 operator-session SELF_MODIFY branch.
+		if provable && av.reasonClass == selfModifyReason && in.OperatorSession {
+			warn := "DOS PRE-admission (advisory, operator session): " + reason +
+				" You are editing the live kernel, but NO dispatch loop is in flight (the mid-flight-rewrite hazard needs a live loop) — you own the blast radius of your own deliberate edit, so DOS warns instead of blocking. A dispatch loop carries the loop env and still gets the hard deny; arm a window (dos override status) to edit under a live loop."
+			return Decision{
+				Dialect:     warnPayload(warn),
+				Rung:        "admission",
+				DecisionTag: "warn",
+				ReasonClass: av.reasonClass,
+				Reason:      reason,
+				TreeKnown:   treeKnown,
+			}
+		}
 		// docs/296 — the operator's armed override window, consulted at the
 		// ENFORCEMENT boundary only (the verdict above is unchanged and still says
 		// SELF_MODIFY). The boundary handed us the parsed facts + clock; `dispose`
 		// is pure and fail-closed, and ONLY a SELF_MODIFY refusal is ever converted
 		// (a collision/budget deny is never waved through). The admit is emitted as
 		// ALLOW-with-note, never a silent pass — byte-twinned with
-		// `pretool_sensor.decide`'s override-admit branch.
+		// `pretool_sensor.decide`'s override-admit branch. Reached only by a LOOP
+		// session now (the no-loop human softened above) — the arm window's
+		// loop-time-only job, post docs/355.
+		expiredNote := "" // issue #159 — set when an armed window has LAPSED
 		if provable && av.reasonClass == selfModifyReason && in.OverrideFacts != nil {
 			if note := dispose(av.reasonClass, tree, in.OverrideFacts, in.Now); note != "" {
 				return Decision{
@@ -197,10 +225,25 @@ func Decide(e *Event, in Inputs) Decision {
 					TreeKnown:   treeKnown,
 				}
 			}
+			// issue #159 — an EXPIRED window denies identically to NO window
+			// unless we say so. `dispose` declined; if the arm file parsed AND
+			// its deadline is now in the past, the cause is LAPSE, not absence —
+			// tell the operator to re-arm. Byte-twinned with `pretool_sensor`'s
+			// expired-note branch (the same minute math + phrasing).
+			if in.Now.After(in.OverrideFacts.Until) {
+				mins := int(in.Now.Sub(in.OverrideFacts.Until).Minutes())
+				ago := "less than a min ago"
+				if mins >= 1 {
+					ago = fmt.Sprintf("%d min ago", mins)
+				}
+				expiredNote = " An operator override window WAS armed but EXPIRED at " +
+					isoZ(in.OverrideFacts.Until) + " (" + ago + ") — it lapsed, it was " +
+					"never absent. Re-arm to edit: dos override status."
+			}
 		}
 		if provable {
 			return Decision{
-				Dialect:     denyPayload("DOS PRE-admission: "+reason, ""),
+				Dialect:     denyPayload("DOS PRE-admission: "+reason+expiredNote, ""),
 				Rung:        "admission",
 				DecisionTag: "deny",
 				ReasonClass: av.reasonClass,

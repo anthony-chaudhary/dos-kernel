@@ -52,7 +52,6 @@ import argparse
 import dataclasses
 import hashlib
 import json
-import sys
 import tempfile
 from pathlib import Path
 
@@ -123,6 +122,8 @@ def probe_dialect(root: Path, dialect: str) -> dict:
     """Run the real pre-tool decision for a Write to the stimulus path, render it in
     `dialect`, and report whether it BLOCKS. Pure-ish: reads the sacrificial root,
     writes nothing to it here (the fail-open simulation is separate)."""
+    import os
+
     from dos import hook_dialect as hd
     from dos import pretool_sensor as prt
 
@@ -133,7 +134,20 @@ def probe_dialect(root: Path, dialect: str) -> dict:
         "tool_input": {"file_path": _STIMULUS_PATH, "content": "x"},
         "cwd": str(root),
     }
-    cc_dict, outcome = prt.decide(event, cfg)
+    # docs/355 — the probe demonstrates the HARD self-modify guard (the deny that
+    # blocks a kernel write for every dialect). That hard deny is now the LOOP-session
+    # case: an interactive operator editing the kernel between loop runs softens to a
+    # WARN (docs/355 Change 1). Mark this probe a loop session so the guard fires as
+    # the proof intends; restore the prior env after, so the probe leaves no trace.
+    _saved = os.environ.get("DOS_LOOP")
+    os.environ["DOS_LOOP"] = "1"
+    try:
+        cc_dict, outcome = prt.decide(event, cfg)
+    finally:
+        if _saved is None:
+            os.environ.pop("DOS_LOOP", None)
+        else:
+            os.environ["DOS_LOOP"] = _saved
     decision = (outcome or {}).get("decision")
     reason_class = (outcome or {}).get("reason_class")
 

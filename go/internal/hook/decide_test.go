@@ -222,22 +222,34 @@ func TestSubagentInLaneBoundaryResolution(t *testing.T) {
 	})
 }
 
-func TestOperatorSessionDoesNotSoftenSelfModify(t *testing.T) {
-	// The safety invariant: OperatorSession softens CONTENTION refusals only. A
-	// SELF_MODIFY refusal carries a reason_class and is request-absolute — editing the
-	// live kernel that is adjudicating the fleet stays a hard DENY for EVERYONE,
-	// operator or not.
+func TestSelfModifySoftensForOperatorSessionButNotForLoop(t *testing.T) {
+	// docs/355 — the SELF_MODIFY middle ground. The mid-flight-rewrite hazard needs
+	// a LIVE dispatch loop: a packet rewriting arbiter.py between two admission checks
+	// only matters if there IS a next packet. So an INTERACTIVE operator (no loop env
+	// => OperatorSession=true) editing the kernel BETWEEN loop runs is the case the
+	// guard's own TYPICAL-FIX calls safe — the deny softens to an advisory WARN (the
+	// edit proceeds, the hazard is named). A LOOP session (OperatorSession=false) still
+	// gets the hard DENY: a loop rewriting its own decision path mid-flight is the real
+	// hazard. The verdict still CARRIES the SELF_MODIFY reason_class either way — only
+	// the disposition differs (PDP decides, PEP disposes).
 	e := eventFor("Edit", "/work/workspace", map[string]any{"file_path": dosRuntimeFiles[0]})
-	in := Inputs{
-		RuntimeFiles:    dosRuntimeFiles,
-		OperatorSession: true,
+
+	// Operator session: softened to WARN, still tagged SELF_MODIFY.
+	op := Decide(e, Inputs{RuntimeFiles: dosRuntimeFiles, OperatorSession: true})
+	if op.DecisionTag != "warn" {
+		t.Fatalf("SELF_MODIFY for an operator session must WARN (docs/355), got %q (%s)", op.DecisionTag, op.Render())
 	}
-	d := Decide(e, in)
-	if d.DecisionTag != "deny" {
-		t.Fatalf("SELF_MODIFY must DENY even for an operator session, got %q (%s)", d.DecisionTag, d.Render())
+	if op.ReasonClass != selfModifyReason {
+		t.Fatalf("a softened SELF_MODIFY must still carry the reason_class %q, got %q", selfModifyReason, op.ReasonClass)
 	}
-	if d.ReasonClass != selfModifyReason {
-		t.Fatalf("want SELF_MODIFY reason_class %q, got %q", selfModifyReason, d.ReasonClass)
+
+	// The negative control — a LOOP session (the dangerous case) still hard-denies.
+	loop := Decide(e, Inputs{RuntimeFiles: dosRuntimeFiles, OperatorSession: false})
+	if loop.DecisionTag != "deny" {
+		t.Fatalf("SELF_MODIFY for a LOOP session must still DENY (the live-loop hazard), got %q (%s)", loop.DecisionTag, loop.Render())
+	}
+	if loop.ReasonClass != selfModifyReason {
+		t.Fatalf("want SELF_MODIFY reason_class %q on the loop deny, got %q", selfModifyReason, loop.ReasonClass)
 	}
 }
 
@@ -386,6 +398,27 @@ func TestSelfModifyOverrideExpiredDenies(t *testing.T) {
 	d := Decide(e, Inputs{RuntimeFiles: dosRuntimeFiles, OverrideFacts: facts, Now: now})
 	if d.DecisionTag != "deny" {
 		t.Fatalf("expired window must DENY, got %q (%s)", d.DecisionTag, d.Render())
+	}
+	// issue #159 — the deny must NAME the lapse so the operator re-arms instead
+	// of reading it as "no window was ever armed". The deny OUTCOME is unchanged
+	// (still deny — asserted above); only the narration gains the breadcrumb.
+	out := d.Render()
+	if !strings.Contains(out, "EXPIRED") || !strings.Contains(out, "Re-arm to edit") {
+		t.Fatalf("expired-window deny must name the lapse (EXPIRED + Re-arm), got: %s", out)
+	}
+}
+
+func TestSelfModifyNoWindowDenyHasNoExpiredNote(t *testing.T) {
+	// The contrast case: with NO arm file (nil facts), the deny must NOT claim a
+	// window expired — that breadcrumb is reserved for a genuinely-lapsed window
+	// (issue #159; mirrors test_no_window_deny_carries_no_expired_note).
+	e := eventFor("Edit", "/work/workspace", map[string]any{"file_path": "src/dos/arbiter.py"})
+	d := Decide(e, Inputs{RuntimeFiles: dosRuntimeFiles}) // OverrideFacts nil
+	if d.DecisionTag != "deny" {
+		t.Fatalf("no-window self-modify must DENY, got %q (%s)", d.DecisionTag, d.Render())
+	}
+	if strings.Contains(d.Render(), "EXPIRED") {
+		t.Fatalf("no-window deny must NOT fabricate an expired-window note: %s", d.Render())
 	}
 }
 

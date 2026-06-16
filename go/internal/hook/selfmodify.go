@@ -13,17 +13,19 @@ const selfModifyReason = "SELF_MODIFY"
 // `dos.self_modify._DISPATCH_RUNTIME_FILES` — must stay byte-identical to it, so
 // the parity corpus pins the list. If a file is added/removed there, mirror it
 // here (the GHF3 gate fails loudly otherwise).
+//
+// docs/355 — TRIMMED to the mid-flight-critical core (six files). The
+// loop-internal classifiers (gate_classify, loop_decide, tokens) and the reason
+// DATA/prose (reasons, wedge_reason) were DROPPED: edited far more often than
+// mid-flight-critical, still reached by a live loop via the opt-in apply-gate,
+// and the guard now softens to a WARN for an interactive no-loop human. Must
+// stay byte-identical to the trimmed `_DISPATCH_RUNTIME_FILES` (the GHF3 gate).
 var dispatchRuntimeFiles = []string{
 	"src/dos/arbiter.py",
 	"src/dos/admission.py",
 	"src/dos/self_modify.py",
 	"src/dos/lane_overlap.py",
 	"src/dos/_tree.py",
-	"src/dos/gate_classify.py",
-	"src/dos/loop_decide.py",
-	"src/dos/tokens.py",
-	"src/dos/wedge_reason.py",
-	"src/dos/reasons.py",
 	"src/dos/config.py",
 }
 

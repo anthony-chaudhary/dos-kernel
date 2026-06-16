@@ -371,8 +371,12 @@ def test_no_dialect_emits_a_rewrite_key(name, action):
 # ---------------------------------------------------------------------------
 # Provenance: a real SELF_MODIFY deny from decide() transcodes to each host.
 # ---------------------------------------------------------------------------
-def test_self_modify_deny_transcodes_to_every_host(tmp_path):
+def test_self_modify_deny_transcodes_to_every_host(tmp_path, monkeypatch):
     """End-to-end: a real decide() SELF_MODIFY deny → the right bytes per host.
+
+    docs/355 — the hard SELF_MODIFY deny is the LOOP-session case (an interactive
+    operator softens to a WARN); mark this a loop session so the deny dialect is what
+    transcodes to every host.
 
     Proves the seam consumes what `decide()` actually returns (not a hand-built dict),
     and that the deny crosses to all four runtimes.
@@ -380,6 +384,7 @@ def test_self_modify_deny_transcodes_to_every_host(tmp_path):
     import dataclasses
     from dos import config as _config
 
+    monkeypatch.setenv("DOS_LOOP", "1")  # docs/355 — reach the hard deny path
     # A kernel-repo config whose runtime-file LIST includes the target path, so
     # SELF_MODIFY fires deterministically regardless of what's under tmp_path (the
     # same construction the test_hook_pretool guard tests use — the is_kernel_repo

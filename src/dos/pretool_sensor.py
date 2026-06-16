@@ -911,20 +911,79 @@ def decide(
                 outcome,
             )
         if provable:
+            # docs/355 — the SELF_MODIFY middle ground: soften the interactive,
+            # NO-LOOP case to an advisory WARN. SELF_MODIFY is request-absolute
+            # and the verdict still says SELF_MODIFY, but the mid-flight-rewrite
+            # HAZARD needs a live dispatch loop: a packet rewriting `arbiter.py`
+            # between two admission checks changes the next packet's verdict only
+            # if there IS a next packet. An interactive operator (no loop env) is
+            # the human editing the kernel BETWEEN loop runs — the exact case the
+            # SELF_MODIFY guard's own TYPICAL-FIX calls safe. So for them the deny
+            # downgrades to a WARN: the edit proceeds, the hazard is named on the
+            # record, and no arm ritual is needed. A LOOP session
+            # (OperatorSession=false) is NOT softened here and falls through to
+            # the override-window `dispose` branch below, then to the hard deny —
+            # the arm file's one remaining job is authorizing a kernel edit WHILE
+            # a loop is live. Runs BEFORE `dispose` because if we soften for the
+            # no-loop human there is nothing for the arm file to convert. The
+            # operator_session signal is the same absence-of-loop-env one the
+            # collision softening above uses (computed there).
+            if (averdict.reason_class or "") == "SELF_MODIFY" and operator_session:
+                outcome = {
+                    "rung": "admission",
+                    "decision": "warn",
+                    "reason_class": "SELF_MODIFY",
+                    "reason": reason,
+                    "tree_known": tree_known,
+                }
+                return (
+                    warn_payload(
+                        f"DOS PRE-admission (advisory, operator session): {reason} "
+                        f"You are editing the live kernel, but NO dispatch loop is "
+                        f"in flight (the mid-flight-rewrite hazard needs a live "
+                        f"loop) — you own the blast radius of your own deliberate "
+                        f"edit, so DOS warns instead of blocking. A dispatch loop "
+                        f"carries the loop env and still gets the hard deny; arm a "
+                        f"window (dos override status) to edit under a live loop."
+                    ),
+                    outcome,
+                )
             # docs/296 — the operator's armed override window, consulted at the
             # ENFORCEMENT boundary only (the verdict above is unchanged and still
             # says SELF_MODIFY). Boundary I/O beside the lease read: the arm file
             # + the clock, both fail-closed — a broken reader never admits. Only
             # a SELF_MODIFY refusal is ever converted (`dispose` enforces that),
             # and the admit is emitted as ALLOW-with-note, never a silent pass.
+            # Reached only by a LOOP session now (the no-loop human softened
+            # above) — the arm window's loop-time-only job, post docs/355.
+            expired_note = ""  # issue #159 — set when an armed window has LAPSED
             if (averdict.reason_class or "") == "SELF_MODIFY":
                 note = None
                 try:
                     import datetime as _dt
+                    _now = _dt.datetime.now(_dt.timezone.utc)
                     facts = _ovr.read_override(cfg.root)
                     note = _ovr.dispose(
                         averdict.reason_class or "", tuple(tree), facts,
-                        now=_dt.datetime.now(_dt.timezone.utc))
+                        now=_now)
+                    # issue #159 — an EXPIRED window denies identically to NO
+                    # window unless we say so. `dispose` returned None; if the
+                    # arm file parsed AND its deadline is now in the past, the
+                    # cause is LAPSE, not absence — tell the operator to re-arm.
+                    # (`read_override` returns facts for a past `until`; only
+                    # `dispose` enforces the deadline, so the lapse is legible
+                    # right here without re-reading the file.)
+                    if note is None and facts is not None and _now > facts.until:
+                        _lapsed = _now - facts.until
+                        _mins = int(_lapsed.total_seconds() // 60)
+                        _ago = (
+                            f"{_mins} min ago" if _mins >= 1 else "less than a min ago"
+                        )
+                        expired_note = (
+                            f" An operator override window WAS armed but EXPIRED at "
+                            f"{facts.until.isoformat()} ({_ago}) — it lapsed, it was "
+                            f"never absent. Re-arm to edit: dos override status."
+                        )
                 except Exception:  # noqa: BLE001 — fail-closed: the deny stands
                     note = None
                 if note is not None:
@@ -950,7 +1009,9 @@ def decide(
                 "reason": reason,
                 "tree_known": tree_known,
             }
-            return deny_payload(f"DOS PRE-admission: {reason}"), outcome
+            if expired_note:
+                outcome["override_expired"] = True
+            return deny_payload(f"DOS PRE-admission: {reason}{expired_note}"), outcome
         # (c) PROVEN no-footprint (issue #46) — a KNOWN-and-EMPTY tree with no
         #     structural reason_class is a read (Read/Grep/Glob, a no-write Bash, a
         #     read-only MCP tool): `_tree_from_event → ((), True)`. It provably

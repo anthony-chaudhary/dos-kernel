@@ -26,6 +26,8 @@ import datetime as dt
 import json
 from pathlib import Path
 
+import pytest
+
 from dos import config as _config
 from dos import override_facts as ovr
 from dos import pretool_sensor as prt
@@ -176,6 +178,18 @@ def test_dispose_note_names_deadline_reason_and_disarm():
 # ==========================================================================
 # decide() — the hook disposition end to end (the PEP side).
 # ==========================================================================
+# docs/355 — the arm window is now the LOOP-session escape: an interactive operator
+# editing the kernel BETWEEN loop runs softens to a WARN with no arm file (docs/355
+# Change 1), so the deny / override-admit disposition these end-to-end tests pin is
+# reached only by a LOOP session. Mark every `decide()`-level disposition test a loop
+# session. (The pure `dispose`/`read_override` tests above never call `decide`, so they
+# are unaffected; the arm-path PERIMETER tests below fire before the soften and pass
+# either way, but the fixture is harmless there too.)
+@pytest.fixture(autouse=True)
+def _loop_session(monkeypatch):
+    monkeypatch.setenv("DOS_LOOP", "1")
+
+
 def test_unarmed_self_modify_still_denies(tmp_path):
     cfg = _kernel_cfg(tmp_path)
     dialect, outcome = prt.decide(
@@ -183,6 +197,20 @@ def test_unarmed_self_modify_still_denies(tmp_path):
     assert outcome["decision"] == "deny"
     assert outcome["reason_class"] == "SELF_MODIFY"
     assert dialect["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+def test_operator_session_self_modify_softens_to_warn(tmp_path, monkeypatch):
+    """docs/355 — the new middle ground at the e2e decide() level: an INTERACTIVE
+    operator (no loop env) editing a kernel runtime file gets an advisory WARN, not a
+    hard deny, and NO arm file is needed. The verdict still carries SELF_MODIFY."""
+    for var in ("DOS_LOOP", "CID_RUN_ID", "DISPATCH_LOOP_TS"):
+        monkeypatch.delenv(var, raising=False)
+    cfg = _kernel_cfg(tmp_path)
+    dialect, outcome = prt.decide(
+        _event("Write", {"file_path": "src/dos/arbiter.py"}), cfg)
+    assert outcome["decision"] == "warn"
+    assert outcome["reason_class"] == "SELF_MODIFY"
+    assert "permissionDecision" not in dialect["hookSpecificOutput"]
 
 
 def test_armed_window_converts_deny_to_allow_with_note(tmp_path):
@@ -207,6 +235,38 @@ def test_expired_window_restores_the_deny(tmp_path):
         _event("Write", {"file_path": "src/dos/arbiter.py"}), cfg)
     assert outcome["decision"] == "deny"
     assert dialect["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+def test_expired_window_deny_names_the_lapse_not_just_denies(tmp_path):
+    """#159 — an EXPIRED window must deny DIFFERENTLY from no window. The
+    outcome is identical (deny — correct), but the operator gets a breadcrumb:
+    'a window WAS armed but EXPIRED at <until> — re-arm', so the cause reads as
+    lapse, not absence. The deny OUTCOME is unchanged (no weakening)."""
+    cfg = _kernel_cfg(tmp_path)
+    _arm(tmp_path, until="2001-01-01T00:00:00Z", reason="long gone")
+    dialect, outcome = prt.decide(
+        _event("Write", {"file_path": "src/dos/arbiter.py"}), cfg)
+    # The deny still stands — the lapse changes only the narration.
+    assert outcome["decision"] == "deny"
+    assert outcome["reason_class"] == "SELF_MODIFY"
+    assert outcome.get("override_expired") is True
+    # The deny narration lives in `permissionDecisionReason` (the deny dialect).
+    msg = dialect["hookSpecificOutput"]["permissionDecisionReason"]
+    assert "EXPIRED" in msg
+    assert "2001-01-01" in msg               # the lapsed deadline is named
+    assert "re-arm" in msg.lower()
+
+
+def test_no_window_deny_carries_no_expired_note(tmp_path):
+    """The contrast case: with NO arm file at all, the deny must NOT claim a
+    window expired (that would be a fabricated breadcrumb). The expired note is
+    reserved for a genuinely-lapsed window."""
+    cfg = _kernel_cfg(tmp_path)
+    dialect, outcome = prt.decide(
+        _event("Write", {"file_path": "src/dos/arbiter.py"}), cfg)
+    assert outcome["decision"] == "deny"
+    assert "override_expired" not in outcome
+    assert "EXPIRED" not in dialect["hookSpecificOutput"]["permissionDecisionReason"]
 
 
 def test_scoped_window_denies_out_of_scope_target(tmp_path):
