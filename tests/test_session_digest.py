@@ -100,6 +100,23 @@ def test_restored_note_on_compaction():
     assert "(restored after compaction)" in out
 
 
+def test_prior_run_refusals_orient_a_cold_wake():
+    """A cross-session refusal trail breaks the silence rule on its own (§4.1).
+
+    The unattended case: a cron worker waking COLD has no this-session caught leg,
+    so the durable trail prior runs wrote is its ONLY orientation. A positive count
+    speaks; 0/None stays silent.
+    """
+    out = sd.build_digest(recent_refusals=2)
+    assert out is not None
+    assert "a prior run was refused 2 calls here recently" in out
+    assert "don't re-attempt blindly" in out
+    # singular + the silence floor
+    assert "refused 1 call here" in sd.build_digest(recent_refusals=1)
+    assert sd.build_digest(recent_refusals=0) is None
+    assert sd.build_digest(recent_refusals=None) is None
+
+
 # ---------------------------------------------------------------------------
 # The VERB — driven in-process via cli.main (the test_hook_stop idiom).
 # ---------------------------------------------------------------------------

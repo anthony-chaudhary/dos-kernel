@@ -114,6 +114,27 @@ def _caught_phrase(summary: Any) -> Optional[str]:
     return f"DOS surfaced {advisory} advisory {noun} earlier this session"
 
 
+def _prior_refusals_phrase(recent_refusals: Any) -> Optional[str]:
+    """`a prior run refused 2 calls here recently` — or `None` when 0/absent.
+
+    The CROSS-SESSION leg: `caught_phrase` reports what THIS session caught, but a
+    fresh agent waking COLD (the cron/unattended case) inherits none of that. This
+    folds the durable refusal trail prior runs wrote to the lane WAL (the OP_REFUSE
+    records `lane_journal.read_all` carries), so a scheduled worker starting blind
+    sees what its predecessors already refused — instead of re-attempting the exact
+    move the last 3am run was denied, with nobody watching (docs/121 §4.1). An int
+    count in; 0/None ⇒ no line (the silence rule).
+    """
+    try:
+        n = int(recent_refusals or 0)
+    except (TypeError, ValueError):
+        return None
+    if n <= 0:
+        return None
+    noun = "call" if n == 1 else "calls"
+    return f"a prior run was refused {n} {noun} here recently — don't re-attempt blindly"
+
+
 _HEAD = "DOS session orientation"
 _RESTORED_HEAD = f"{_HEAD} (restored after compaction)"
 
@@ -142,11 +163,13 @@ def build_digest(
     breaker_verdict: Any = None,
     is_kernel_repo: bool = False,
     restored: bool = False,
+    recent_refusals: Any = None,
 ) -> Optional[str]:
     """Fold the read-only ground-truth facts into one session-start line. PURE.
 
     Returns the `additionalContext` string, or `None` when there is nothing worth
-    saying (the silence rule: no leases held, a CLOSED breaker, nothing caught).
+    saying (the silence rule: no leases held, a CLOSED breaker, nothing caught, no
+    prior-run refusal trail).
 
     `leases`          — a folded live-lease set (`lane_lease.live_leases`).
     `summary`         — a `help_summary.HelpSummary` for this session (or None).
@@ -156,6 +179,11 @@ def build_digest(
                         on its own it is not enough to break the silence rule).
     `restored`        — set on a SessionStart fired by a compaction, so the line
                         notes the orientation survived the compact (docs: Part C).
+    `recent_refusals` — the CROSS-SESSION count of durable refusals prior runs wrote
+                        to the lane WAL (OP_REFUSE), so a COLD cron worker wakes
+                        knowing what its predecessors were already refused (docs/121
+                        §4.1). 0/None ⇒ no line; a positive count breaks the silence
+                        rule on its own (the unattended case has no other channel).
     """
     parts: list[str] = []
     lease_phrase = _lease_phrase(leases)
@@ -169,6 +197,9 @@ def build_digest(
     caught_phrase = _caught_phrase(summary)
     if caught_phrase is not None:
         parts.append(caught_phrase)
+    prior_phrase = _prior_refusals_phrase(recent_refusals)
+    if prior_phrase is not None:
+        parts.append(prior_phrase)
 
     if not parts:
         return None

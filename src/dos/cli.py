@@ -5044,18 +5044,29 @@ def cmd_hook_session_start(args: argparse.Namespace) -> int:
         except Exception as exc:  # noqa: BLE001 — advisory fail-safe
             _dbg(f"live_leases read error ({exc!r}) — omitting the lease leg")
         summary = None
-        if session_id:
-            try:
-                from dos import help_summary as _help
-                from dos import lane_journal as _lane_journal
-                from dos import lane_lease as _lane_lease
-                records = _lane_journal.read_all(path=_lane_lease._journal_path(cfg))
+        recent_refusals = 0
+        try:
+            from dos import help_summary as _help
+            from dos import lane_journal as _lane_journal
+            from dos import lane_lease as _lane_lease
+            records = _lane_journal.read_all(path=_lane_lease._journal_path(cfg))
+            if session_id:
                 summary = _help.summarize(records, holder=session_id)
-            except Exception as exc:  # noqa: BLE001 — advisory fail-safe
-                _dbg(f"help_summary read error ({exc!r}) — omitting the caught leg")
+            # The CROSS-SESSION orientation leg (docs/121 §4.1): count durable
+            # OP_REFUSE records written by OTHER holders — what PRIOR runs were
+            # refused here, which a cold-waking cron worker inherits in no other
+            # channel. Scoped to "not this session" so it complements (never
+            # double-counts) the this-session `summary` caught leg.
+            recent_refusals = sum(
+                1 for r in records
+                if isinstance(r, dict) and r.get("op") == _lane_journal.OP_REFUSE
+                and (not session_id or str(r.get("holder") or "") != session_id))
+        except Exception as exc:  # noqa: BLE001 — advisory fail-safe
+            _dbg(f"WAL read error ({exc!r}) — omitting the caught/prior-refusal legs")
         is_kernel = bool(getattr(getattr(cfg, "workspace", None), "is_kernel_repo", False))
         context = _sd.build_digest(
-            leases=leases, summary=summary, is_kernel_repo=is_kernel, restored=restored)
+            leases=leases, summary=summary, is_kernel_repo=is_kernel, restored=restored,
+            recent_refusals=recent_refusals)
 
     if not context:
         _dbg("nothing worth saying — emitting nothing")
