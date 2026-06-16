@@ -30,6 +30,12 @@ it belongs in a `drivers/` module or in `dos.toml` workspace config, not in the
 kernel. Adding support for a new host = adding a `drivers/` module, **never** editing
 `config.py` or a kernel file.
 
+> **Maintaining a runtime, or curating an `awesome-*` list?** The recipe for wiring
+> DOS into your runtime's *recommended examples* — the proven deny envelope, the
+> per-host config file, the one honest caveat each — is [`docs/UPSTREAM.md`](docs/UPSTREAM.md).
+> Ready-to-file PR drafts for the community lists are under
+> [`docs/upstream-pr-drafts/`](docs/upstream-pr-drafts/).
+
 The litmus tests below are not style preferences — they are enforced by the suite and
 are the closest thing this project has to a constitution.
 
