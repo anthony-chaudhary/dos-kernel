@@ -35,7 +35,6 @@ delta* it is "no progress observed").
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 from typing import Iterable
 
@@ -43,67 +42,37 @@ from dos import config as _config
 from dos import intent_ledger as _il
 from dos.intent_ledger import LedgerState
 from dos.resume import AncestryFacts
-
-_GIT_TIMEOUT_S = 15
+from dos.vcs import active_vcs
 
 
 def _is_ancestor(sha: str, *, root: Path | str) -> bool:
     """True iff `sha` is reachable from HEAD (an ancestor) on `root`. Fail-closed.
 
-    `git merge-base --is-ancestor <sha> HEAD` exits 0 iff `sha` is an ancestor of
-    HEAD, 1 iff not, and >1 on error (bad sha, not a git dir). We treat ONLY a
-    clean exit-0 as "in ancestry" — every other outcome (unknown sha, git missing,
-    timeout, non-git dir) is `False` (the safe direction for a resume anchor: a SHA
-    we cannot prove is reachable must not anchor a resume point). The opposite of
-    `git_delta`'s permissive-empty, because the safe failure here is "don't trust."
+    The backend's `is_ancestor` is three-valued (`True`/`False`/`None` = unresolvable);
+    this resume rung collapses BOTH `False` and `None` to `False` AT THE CALLER — the
+    safe direction for a resume anchor: a SHA we cannot prove is reachable must not
+    anchor a resume point. That fail-closed policy is THIS caller's, not the backend's
+    (the backend stays honest about "unresolvable"; the resume axis chooses to distrust
+    it). The opposite of `git_delta`'s permissive-empty, because the safe failure here
+    is "don't trust." Routes through the active VCS backend (docs/360).
     """
-    s = (sha or "").strip()
-    if not s:
-        return False
-    try:
-        res = subprocess.run(
-            ["git", "merge-base", "--is-ancestor", s, "HEAD"],
-            cwd=str(root),
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=_GIT_TIMEOUT_S,
-            stdin=subprocess.DEVNULL,  # docs/295 — never leak the caller's stdin
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return False
-    return res.returncode == 0
+    return active_vcs(root=root).is_ancestor((sha or "").strip()) is True
 
 
 def _touched_files(sha: str, *, root: Path | str) -> set[str] | None:
     """The repo-relative paths commit `sha` touched on `root`, or None if unresolvable.
 
-    The explicit-root sibling of `oracle._git_touched_files` (which reads the
-    process-global active config). None means "could not resolve" (unknown sha,
-    shallow clone, git missing) — the caller treats it as NOT verifiable
-    (fail-closed). An EMPTY set means the commit touched NO files: an `--allow-empty`
-    commit — the exact forgeable case §5 req 2 forecloses.
+    The explicit-root sibling of `oracle._git_touched_files`. None means "could not
+    resolve" (unknown sha, shallow clone, no VCS) — the caller treats it as NOT
+    verifiable (fail-closed). An EMPTY set means the commit touched NO files: an
+    `--allow-empty` commit — the exact forgeable case §5 req 2 forecloses (the
+    backend's `[]`-vs-`None` distinction carries that through). Routes through the
+    active VCS backend (docs/360); paths are normalised to forward slashes here.
     """
-    s = (sha or "").strip()
-    if not s:
+    paths = active_vcs(root=root).files_in_commit((sha or "").strip())
+    if paths is None:
         return None
-    try:
-        res = subprocess.run(
-            ["git", "show", "--name-only", "--format=", s],
-            cwd=str(root),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=_GIT_TIMEOUT_S,
-            check=False,
-            stdin=subprocess.DEVNULL,  # docs/295 — never leak the caller's stdin
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    if res.returncode != 0:
-        return None
-    return {ln.strip().replace("\\", "/") for ln in res.stdout.splitlines() if ln.strip()}
+    return {p.replace("\\", "/") for p in paths if p.strip()}
 
 
 def step_stands_on_nonforgeable_rung(

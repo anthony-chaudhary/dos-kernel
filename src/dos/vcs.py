@@ -123,6 +123,21 @@ class Commit:
         return {"sha": self.sha, "subject": self.subject}
 
 
+@dataclass(frozen=True)
+class FileDelta:
+    """One file's line-delta in a commit: ``(added, removed, path)``.
+
+    The unit `commit_diffstat` returns. ``added``/``removed`` are ``-1`` for a binary
+    file (git prints ``-`` in numstat — no countable line delta), so a caller counting
+    test-line churn skips binaries by checking for the ``-1`` sentinel, exactly as it
+    skipped git's ``-`` marker before the seam.
+    """
+
+    added: int
+    removed: int
+    path: str
+
+
 @runtime_checkable
 class VcsBackend(Protocol):
     """The contract a workspace implements to supply VCS evidence to the kernel.
@@ -143,7 +158,21 @@ class VcsBackend(Protocol):
         """Commits on the served tree since ``start`` (exclusive), newest-first.
 
         The forward-progress delta: how many commits landed since a run began. ``[]``
-        for an empty/unknown ``start``, a non-VCS tree, or any read failure.
+        for an empty/unknown ``start``, a non-VCS tree, or any read failure. A special
+        case of ``commits_in_range(f"{start}..HEAD")``.
+        """
+        ...
+
+    def commits_in_range(
+        self, spec: str, *, limit: int | None = None, full_sha: bool = False
+    ) -> list[Commit]:
+        """Commits in an arbitrary range ``spec`` (e.g. ``origin/main..HEAD``),
+        newest-first, with full 40-char shas iff ``full_sha``.
+
+        The general form ``commits_since`` is a special case of — `commit_audit`'s
+        range audit needs an arbitrary ``A..B`` enumeration. The range syntax is the
+        backend's to interpret (a non-git backend maps its own equivalent). ``[]`` for
+        an empty/unresolvable ``spec`` or any read failure.
         """
         ...
 
@@ -203,6 +232,14 @@ class VcsBackend(Protocol):
         """The raw committed bytes of ``path`` at ``sha``, or ``None`` if unsupported
         / unresolvable. Optional: the base contract returns ``None`` so a content-diff
         caller falls back to its existing abstention when a backend can't serve it."""
+        return None
+
+    def commit_diffstat(self, sha: str) -> "list[FileDelta] | None":  # pragma: no cover - default
+        """Per-file ``(added, removed, path)`` line deltas for commit ``sha``, or
+        ``None`` if unresolvable. Optional: `commit_audit` uses it to count test-line
+        churn; a backend that cannot produce a numstat returns ``None`` and the caller
+        falls back to a files-only read. ``added``/``removed`` are ``-1`` for a binary
+        file (no countable line delta), matching git's ``-`` numstat marker."""
         return None
 
     def history_search(self, **kwargs: object) -> list[Commit] | None:  # pragma: no cover - default
@@ -276,7 +313,15 @@ class GitBackend:
     def commits_since(self, start: str, *, limit: int | None = None) -> list[Commit]:
         if not start:
             return []
-        args = ["log", f"{start}..HEAD", "--pretty=format:%h%x09%s"]
+        return self.commits_in_range(f"{start}..HEAD", limit=limit)
+
+    def commits_in_range(
+        self, spec: str, *, limit: int | None = None, full_sha: bool = False
+    ) -> list[Commit]:
+        if not spec:
+            return []
+        fmt = "%H%x09%s" if full_sha else "%h%x09%s"
+        args = ["log", spec, f"--pretty=format:{fmt}"]
         if limit is not None and limit > 0:
             args.insert(1, f"-{int(limit)}")
         res = _run_git(args, root=self._root)
@@ -389,6 +434,36 @@ class GitBackend:
             return None
         return res.stdout
 
+    def commit_diffstat(self, sha: str) -> "list[FileDelta] | None":
+        s = (sha or "").strip()
+        if not s:
+            return None
+        res = _run_git(
+            ["show", "--numstat", "--format=", "--no-renames", s], root=self._root
+        )
+        if res is None or res.returncode != 0:
+            return None
+        out: list[FileDelta] = []
+        for line in res.stdout.splitlines():
+            line = line.rstrip("\n")
+            if not line.strip():
+                continue
+            parts = line.split("\t")
+            if len(parts) != 3:
+                continue
+            added_s, removed_s, path = parts
+            path = path.strip()
+            if not path:
+                continue
+            # git prints `-` for a binary file's added/removed — map to the -1 sentinel.
+            try:
+                added = int(added_s) if added_s != "-" else -1
+                removed = int(removed_s) if removed_s != "-" else -1
+            except ValueError:
+                added = removed = -1
+            out.append(FileDelta(added=added, removed=removed, path=path))
+        return out
+
 
 class NullVcs:
     """The honest-empty backend: every read returns the empty shape.
@@ -409,6 +484,11 @@ class NullVcs:
         self._root = root
 
     def commits_since(self, start: str, *, limit: int | None = None) -> list[Commit]:
+        return []
+
+    def commits_in_range(
+        self, spec: str, *, limit: int | None = None, full_sha: bool = False
+    ) -> list[Commit]:
         return []
 
     def recent_commits(self, n: int) -> list[Commit]:
@@ -432,6 +512,9 @@ class NullVcs:
         return None
 
     def read_blob(self, sha: str, path: str) -> bytes | None:
+        return None
+
+    def commit_diffstat(self, sha: str) -> "list[FileDelta] | None":
         return None
 
     def history_search(self, **kwargs: object) -> list[Commit] | None:

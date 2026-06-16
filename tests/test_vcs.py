@@ -21,6 +21,7 @@ import pytest
 from dos import git_delta
 from dos.vcs import (
     Commit,
+    FileDelta,
     GitBackend,
     NullVcs,
     VcsBackend,
@@ -246,3 +247,40 @@ def test_git_delta_shape_unchanged_through_seam(tmp_path: Path):
 def test_git_delta_empty_start_is_empty(tmp_path: Path):
     assert git_delta.commits_since("", root=tmp_path) == []
     assert git_delta.count_commits_since("", root=tmp_path) == 0
+
+
+# --- the slice-3 reads: commits_in_range + commit_diffstat -----------------
+
+
+@gitmark
+def test_gitbackend_commits_in_range_full_sha(tmp_path: Path):
+    first = _init_repo(tmp_path)
+    gb = GitBackend(root=tmp_path)
+    rows = gb.commits_in_range(f"{first}..HEAD", full_sha=True)
+    assert len(rows) == 1
+    assert len(rows[0].sha) == 40  # full 40-char sha, not the short form
+    # commits_since is the special case of commits_in_range
+    assert [c.subject for c in gb.commits_since(first)] == [r.subject for r in rows]
+
+
+@gitmark
+def test_gitbackend_commit_diffstat(tmp_path: Path):
+    _init_repo(tmp_path)
+    deltas = GitBackend(root=tmp_path).commit_diffstat("HEAD")
+    assert deltas is not None
+    assert len(deltas) == 1
+    d = deltas[0]
+    assert d.path == "src/two.py"
+    assert d.added == 1 and d.removed == 0
+
+
+@gitmark
+def test_gitbackend_commit_diffstat_unknown_is_none(tmp_path: Path):
+    _init_repo(tmp_path)
+    assert GitBackend(root=tmp_path).commit_diffstat("deadbeef") is None
+
+
+def test_nullvcs_optional_caps_are_none():
+    n = NullVcs()
+    assert n.commits_in_range("a..b") == []
+    assert n.commit_diffstat("abc") is None
