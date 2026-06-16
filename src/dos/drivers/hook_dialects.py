@@ -650,3 +650,99 @@ def crush_install_spec() -> HostHookSpec:
              "stop hook, so only the two tool moments are wired. The wired `dos hook` "
              "command must be on PATH in the Crush session.",
     )
+
+
+def qwen_install_spec() -> HostHookSpec:
+    """Alibaba's **Qwen Code** — `.qwen/settings.json` (a pure Claude-Code alias).
+
+    Qwen Code's hook system is structurally identical to Claude Code's (source-verified
+    against QwenLM/qwen-code docs/users/features/hooks.md, 2026-06-16): `.qwen/settings.json`
+    holds a top-level `hooks` map keyed by event, each a group-wrapped
+    `{"matcher":…,"hooks":[{"type":"command","command":…}]}` entry; and its PreToolUse deny
+    OUTPUT is the NESTED `{"hookSpecificOutput":{"permissionDecision":"deny",
+    "permissionDecisionReason":…}}` — byte-identical to Claude Code. So it carries NO
+    `--dialect` (the default CC envelope is its envelope), `json_group_wraps=True`. Zero new
+    renderer; an install spec over the unshadowable default, the augment precedent.
+    """
+    return HostHookSpec(
+        host="qwen",
+        config_path=(".qwen", "settings.json"),
+        fmt=ConfigFormat.JSON,
+        pre_events=("PreToolUse",),
+        post_events=("PostToolUse",),
+        stop_events=("Stop",),
+        dialect_flag="",          # CC-identical nested deny output — the default IS the envelope.
+        json_entry_has_type=True,
+        json_group_wraps=True,    # CC-shaped: entries nest under {"hooks": [...]} groups.
+        json_version=None,
+        note="Qwen Code's hook system is structurally identical to Claude Code's — the "
+             "same .qwen/settings.json group-wrapped shape and the same nested "
+             "hookSpecificOutput/permissionDecision deny output, so the default CC "
+             "envelope is wired (no --dialect). The wired `dos hook` command must be on "
+             "PATH in the Qwen Code session.",
+    )
+
+
+def continue_install_spec() -> HostHookSpec:
+    """Continue.dev's **Continue CLI** — `.continue/settings.json` (a Claude-Code alias).
+
+    Continue CLI adopted the Claude Code hook contract (source-verified 2026-06-16): a
+    top-level `hooks` map of group-wrapped `{"matcher":…,"hooks":[{"type":"command",
+    "command":…}]}` entries, and a NESTED `{"hookSpecificOutput":{"permissionDecision":
+    "deny","permissionDecisionReason":…}}` PreToolUse deny OUTPUT — byte-identical to CC.
+    Continue ALSO reads `.claude/settings.json` directly (cross-tool reuse); DOS wires its
+    OWN `.continue/settings.json` so the binding is explicit and never collides with the
+    claude-code host's file. NO `--dialect` (the default CC envelope), `json_group_wraps=True`.
+    Zero new renderer — the augment/qwen precedent.
+    """
+    return HostHookSpec(
+        host="continue",
+        config_path=(".continue", "settings.json"),
+        fmt=ConfigFormat.JSON,
+        pre_events=("PreToolUse",),
+        post_events=("PostToolUse",),
+        stop_events=("Stop",),
+        dialect_flag="",          # CC-identical nested deny output — the default IS the envelope.
+        json_entry_has_type=True,
+        json_group_wraps=True,    # CC-shaped: entries nest under {"hooks": [...]} groups.
+        json_version=None,
+        note="Continue CLI adopted the Claude Code hook contract — group-wrapped "
+             ".continue/settings.json + nested hookSpecificOutput/permissionDecision deny "
+             "output, so the default CC envelope is wired (no --dialect). Continue also "
+             "reads .claude/settings.json directly; DOS wires its own .continue file so "
+             "the binding is explicit. The wired `dos hook` command must be on PATH in "
+             "the Continue session.",
+    )
+
+
+def openhands_install_spec() -> HostHookSpec:
+    """All-Hands' **OpenHands** (formerly OpenDevin) — `.openhands/hooks.json` (CC config, ANTIGRAVITY output).
+
+    OpenHands is another config-vs-output split (source-verified against
+    docs.openhands.dev/openhands/usage/customization/hooks, 2026-06-16): its hook CONFIG is
+    a group-wrapped `{"matcher":…,"hooks":[{"command":…,"timeout":…}]}` map (explicitly
+    "compatible with Claude Code hooks"), BUT its deny OUTPUT is a FLAT top-level
+    `{"decision":"deny","reason":…}` on stdout (exit 2) — byte-identical to what
+    `AntigravityDialect` emits, NOT Claude Code's nested form. So it reuses the
+    **antigravity** renderer (`--dialect antigravity`) with a `json_group_wraps=True`
+    (CC-shaped) config — the Antigravity precedent itself, applied to a third host.
+    OpenHands accepts both snake_case (`pre_tool_use`) and PascalCase (`PreToolUse`) event
+    keys; DOS writes the PascalCase forms (cross-tool-consistent). Zero new renderer.
+    """
+    return HostHookSpec(
+        host="openhands",
+        config_path=(".openhands", "hooks.json"),
+        fmt=ConfigFormat.JSON,
+        pre_events=("PreToolUse",),
+        post_events=("PostToolUse",),
+        stop_events=("Stop",),
+        dialect_flag="--dialect antigravity",   # flat top-level {"decision":"deny"} output = antigravity.
+        json_entry_has_type=False,   # OpenHands entries are flat {"command":…,"timeout":…} inside the group.
+        json_group_wraps=True,       # CC-shaped config (group-wrapped), CC-compatible.
+        json_version=None,
+        note="OpenHands has a Claude-Code-COMPATIBLE hook config (group-wrapped "
+             ".openhands/hooks.json) but a flat top-level {\"decision\":\"deny\",\"reason\":…} "
+             "deny OUTPUT (exit 2), so DOS wires --dialect antigravity (the matching "
+             "flat-top-level renderer). The wired `dos hook` command must be on PATH in "
+             "the OpenHands session.",
+    )

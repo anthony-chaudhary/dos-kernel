@@ -244,6 +244,50 @@ def test_crush_writes_crush_json_flat_with_the_antigravity_dialect(tmp_path: Pat
     assert "(stop)" not in proc.stdout
 
 
+def test_qwen_writes_qwen_settings_as_claude_code_alias(tmp_path: Path):
+    """Qwen Code is structurally identical to Claude Code: `.qwen/settings.json`,
+    group-wrapped, nested permissionDecision deny output -- so NO --dialect (the
+    default CC envelope)."""
+    dest = tmp_path / "svc"
+    assert _cli("init", "--hooks", "qwen", str(dest)).returncode == 0
+    spec = hi.host_spec("qwen")
+    assert spec.config_path == (".qwen", "settings.json")
+    cfg = _json_config(dest, spec)
+    assert _flat_commands(cfg, "PreToolUse") == ["dos hook pretool --workspace ."]
+    assert _flat_commands(cfg, "Stop") == ["dos hook stop --workspace ."]
+    assert set(cfg["hooks"]["PreToolUse"][0]) == {"hooks"}
+
+
+def test_continue_writes_continue_settings_as_claude_code_alias(tmp_path: Path):
+    """Continue CLI adopted the CC hook contract: `.continue/settings.json`,
+    group-wrapped, nested permissionDecision deny -- NO --dialect. DOS wires its own
+    .continue file (Continue also reads .claude/settings.json)."""
+    dest = tmp_path / "svc"
+    assert _cli("init", "--hooks", "continue", str(dest)).returncode == 0
+    spec = hi.host_spec("continue")
+    assert spec.config_path == (".continue", "settings.json")
+    cfg = _json_config(dest, spec)
+    assert _flat_commands(cfg, "PreToolUse") == ["dos hook pretool --workspace ."]
+    assert set(cfg["hooks"]["PreToolUse"][0]) == {"hooks"}
+
+
+def test_openhands_writes_cc_config_with_antigravity_dialect(tmp_path: Path):
+    """OpenHands is the CC-config / antigravity-OUTPUT split: `.openhands/hooks.json`
+    is group-wrapped (CC-compatible), but its deny is a flat top-level
+    {"decision":"deny"} -- so the wired command carries `--dialect antigravity`. The
+    inner hook is a flat {command} (no "type"), matching OpenHands' shape."""
+    dest = tmp_path / "svc"
+    assert _cli("init", "--hooks", "openhands", str(dest)).returncode == 0
+    spec = hi.host_spec("openhands")
+    assert spec.config_path == (".openhands", "hooks.json")
+    cfg = _json_config(dest, spec)
+    assert _flat_commands(cfg, "PreToolUse") == ["dos hook pretool --workspace . --dialect antigravity"]
+    assert _flat_commands(cfg, "Stop") == ["dos hook stop --workspace . --dialect antigravity"]
+    # CC-shaped group wrapper, but the inner entry is flat {command} (no "type").
+    inner = cfg["hooks"]["PreToolUse"][0]["hooks"][0]
+    assert set(inner) == {"command"}
+
+
 def test_claude_cowork_writes_the_shared_claude_settings_file(tmp_path: Path):
     """Claude Cowork is the SHARED-surface host (docs/298): it runs the Claude Code
     harness, so its hook surface IS `.claude/settings.json` — and the wired command
@@ -425,7 +469,8 @@ def test_cursor_merge_preserves_user_hooks_and_keys(tmp_path: Path):
 
 def test_idempotent_rerun_does_not_duplicate(tmp_path: Path):
     for host in ("cursor", "codex", "gemini", "antigravity", "claude-cowork", "hermes",
-                 "augment", "devin", "cursor-cli", "crush"):
+                 "augment", "devin", "cursor-cli", "crush", "qwen", "continue",
+                 "openhands"):
         dest = tmp_path / host
         assert _cli("init", "--hooks", host, str(dest)).returncode == 0
         proc = _cli("init", "--hooks", host, str(dest))

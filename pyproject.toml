@@ -339,6 +339,18 @@ cursor-cli = "dos.drivers.hook_dialects:cursor_cli_install_spec"
 # OUTPUT, so it reuses the antigravity renderer (--dialect antigravity). The config
 # lives inside crush.json (not a dedicated hooks file). Existing renderer; install spec only.
 crush = "dos.drivers.hook_dialects:crush_install_spec"
+# Alibaba's Qwen Code -- `.qwen/settings.json`, a PURE claude-code alias: structurally
+# identical to CC's hooks (group-wrapped config + nested hookSpecificOutput/permissionDecision
+# deny output), so NO --dialect. Zero new renderer -- install spec only.
+qwen = "dos.drivers.hook_dialects:qwen_install_spec"
+# Continue.dev's Continue CLI -- `.continue/settings.json`, a claude-code alias (adopted the
+# CC hook contract: group-wrapped config + nested permissionDecision deny). Continue also reads
+# .claude/settings.json; DOS wires its own file. Zero new renderer -- install spec only.
+continue = "dos.drivers.hook_dialects:continue_install_spec"
+# All-Hands' OpenHands -- `.openhands/hooks.json`: a Claude-Code-COMPATIBLE config (group-wrapped)
+# with a FLAT top-level {"decision":"deny"} deny OUTPUT, so it reuses the antigravity renderer
+# (--dialect antigravity). Existing renderer; install spec only.
+openhands = "dos.drivers.hook_dialects:openhands_install_spec"
 
 # The memory-STORE providers (docs/314 P2/P3) — where a fleet's memories live, so
 # the recall gate (docs/103) and the write gate (`dos memory admit`) can run against
