@@ -7,6 +7,11 @@
 > axis that the file algebra genuinely cannot express today: the `lock://NAME`
 > named-mutex region (`src/dos/named_lock.py`, `tests/test_named_lock.py`).
 >
+> **Phase stamp.** Phase `P1` (the first slice — the `lock://NAME` named-mutex
+> region) shipped as `827c5ea`; `dos verify --workspace . docs/363 P1` resolves
+> it via this commit's `(docs/363 P1)` trailer. The remaining region types in
+> the survey stay future, by design.
+>
 > **One line.** A lane is a *leased predicate-lock over a region*, and the region
 > has always been a set of file-path globs. But a fleet of agents collides on far
 > more than files — a git branch, a database range, a publish step, an API budget,
