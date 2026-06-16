@@ -166,6 +166,15 @@ dos-kernel = "dos_mcp.server:main"
 # so `dos judge-eval --judge llm` resolves out of the box. It lives in a driver,
 # behind the `$DOS_LLM_JUDGE_CMD` provider seam, and ABSTAINS with no provider
 # wired — registering it adds no dependency and can never loosen distrust.
+#
+# The host-policy DRIVER seam (`dos.drivers`, Axis 1) is registered just below the
+# judges so the two reference packs are discoverable; in-tree packs resolve FIRST and
+# are UNSHADOWABLE — a third party ships `acme = "acme_pkg:acme_config"` in their own
+# package and `dos --driver acme` resolves with no kernel fork.
+[project.entry-points."dos.drivers"]
+workshop = "dos.drivers.workshop:workshop_config"
+job = "dos.drivers.job:job_config"
+
 [project.entry-points."dos.judges"]
 llm = "dos.drivers.llm_judge:LlmJudge"
 # The DISTANCE adjudicator — the "fuzzy / close-enough matching" the kernel verdict

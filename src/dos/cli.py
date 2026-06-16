@@ -12533,6 +12533,31 @@ def build_parser() -> argparse.ArgumentParser:
                          "— what a generic skill reads to discover its layout (SKP)")
     pd.set_defaults(func=cmd_doctor)
 
+    # `dos plugins` — the extension-surface manifest (every pluggable seam, its built-in
+    # floor, installed third-party plugins). A pure read of entry-point metadata; needs
+    # no workspace. `dos plugin new <seam>` scaffolds an installable plugin package.
+    pp = sub.add_parser("plugins",
+                        help="list DOS's pluggable seams + installed third-party plugins")
+    pp.add_argument("--json", action="store_true",
+                    help="machine-readable manifest (group/protocol/invariant/occupants)")
+    pp.set_defaults(func=cmd_plugins)
+
+    pn = sub.add_parser("plugin",
+                        help="scaffold a DOS extension plugin (dos plugin new <seam>)")
+    pn_sub = pn.add_subparsers(dest="plugin_action")
+    pnn = pn_sub.add_parser("new",
+                            help="scaffold an installable plugin package for a seam")
+    pnn.add_argument("seam",
+                     help="the seam to extend (e.g. judges, drivers, mcp_tools); "
+                          "run `dos plugins` to see them all")
+    pnn.add_argument("--name", required=True,
+                     help="the occupant name to register (e.g. acme)")
+    pnn.add_argument("--out",
+                     help="output directory (default: ./dos_<name>_plugin)")
+    pnn.set_defaults(func=cmd_plugin_new)
+    # `dos plugin` with no action prints help rather than a stack trace.
+    pn.set_defaults(func=lambda a: (pn.print_help() or 0) if not getattr(a, "plugin_action", None) else 0)
+
     # docs/227 (G1 from docs/189) — the config-integrity linter as a focused verb:
     #   (full prose: docs/CLI.md § "docs/227 (G1 from docs/189) — the config-integrity linter as")
     pl = sub.add_parser("lint",
