@@ -380,6 +380,10 @@ kimi = "dos.drivers.hook_dialects:kimi_install_spec"
 # type="before_tool") with a flat top-level {"decision":"deny"} output, so --dialect antigravity.
 # Uses the flat TOML block (toml_event_key="type"). Existing renderer; install spec only.
 vibe = "dos.drivers.hook_dialects:vibe_install_spec"
+# xAI's Grok CLI -- `.grok/user-settings.json`: a Claude-Code-SHAPED config (group-wrapped)
+# with a flat top-level {"decision":"block"} deny OUTPUT, so it reuses the hermes renderer
+# (--dialect hermes), the Devin precedent. Existing renderer; install spec only.
+grok = "dos.drivers.hook_dialects:grok_install_spec"
 
 # The memory-STORE providers (docs/314 P2/P3) — where a fleet's memories live, so
 # the recall gate (docs/103) and the write gate (`dos memory admit`) can run against

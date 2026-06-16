@@ -389,6 +389,20 @@ def test_vibe_writes_flat_toml_hooks_with_antigravity_dialect(tmp_path: Path):
     assert {e["type"] for e in entries} == {"before_tool", "after_tool", "post_agent_turn"}
 
 
+def test_grok_writes_cc_config_with_the_hermes_dialect(tmp_path: Path):
+    """Grok CLI is the Devin precedent: `.grok/user-settings.json` is CC-SHAPED
+    (group-wrapped), but its deny is a flat top-level {"decision":"block"} -- so
+    `--dialect hermes`."""
+    dest = tmp_path / "svc"
+    assert _cli("init", "--hooks", "grok", str(dest)).returncode == 0
+    spec = hi.host_spec("grok")
+    assert spec.config_path == (".grok", "user-settings.json")
+    cfg = _json_config(dest, spec)
+    assert _flat_commands(cfg, "PreToolUse") == ["dos hook pretool --workspace . --dialect hermes"]
+    assert _flat_commands(cfg, "Stop") == ["dos hook stop --workspace . --dialect hermes"]
+    assert set(cfg["hooks"]["PreToolUse"][0]) == {"hooks"}
+
+
 def test_claude_cowork_writes_the_shared_claude_settings_file(tmp_path: Path):
     """Claude Cowork is the SHARED-surface host (docs/298): it runs the Claude Code
     harness, so its hook surface IS `.claude/settings.json` — and the wired command
@@ -572,7 +586,7 @@ def test_idempotent_rerun_does_not_duplicate(tmp_path: Path):
     for host in ("cursor", "codex", "gemini", "antigravity", "claude-cowork", "hermes",
                  "augment", "devin", "cursor-cli", "crush", "qwen", "continue",
                  "openhands", "tabnine", "factory", "copilot", "copilot-cli",
-                 "kimi", "vibe"):
+                 "kimi", "vibe", "grok"):
         dest = tmp_path / host
         assert _cli("init", "--hooks", host, str(dest)).returncode == 0
         proc = _cli("init", "--hooks", host, str(dest))

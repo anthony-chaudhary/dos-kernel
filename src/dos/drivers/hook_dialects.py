@@ -992,3 +992,36 @@ def vibe_install_spec() -> HostHookSpec:
              "top-level {\"decision\":\"deny\",\"reason\":…}, so DOS wires --dialect antigravity. "
              "The wired `dos hook` command must be on PATH in the Vibe session.",
     )
+
+
+def grok_install_spec() -> HostHookSpec:
+    """xAI's **Grok CLI** (grok-cli) — `.grok/user-settings.json` (CC config, HERMES output).
+
+    Grok CLI is the Devin precedent again (source-verified against the grok-cli source +
+    CHANGELOG "Programmable hooks system with 17 lifecycle events", 2026-06-16): its hook
+    CONFIG is Claude-Code-SHAPED — a top-level event map of group-wrapped
+    `{"matcher":…,"hooks":[{"type":"command","command":…}]}` rules — BUT its deny OUTPUT is a
+    flat top-level `{"decision":"block","reason":…}` (its executor branches on
+    `decision === "block"`). That flat block shape is byte-identical to the **hermes**
+    dialect, so the wired command carries `--dialect hermes` with a `json_group_wraps=True`
+    (CC-shaped) config. Events PreToolUse / PostToolUse / Stop. The path is
+    `~/.grok/user-settings.json` (user-global); `dos init --hooks grok <dir>` writes
+    `<dir>/.grok/user-settings.json`. Zero new renderer.
+    """
+    return HostHookSpec(
+        host="grok",
+        config_path=(".grok", "user-settings.json"),
+        fmt=ConfigFormat.JSON,
+        pre_events=("PreToolUse",),
+        post_events=("PostToolUse",),
+        stop_events=("Stop",),
+        dialect_flag="--dialect hermes",   # flat {"decision":"block"} output = the hermes envelope.
+        json_entry_has_type=True,
+        json_group_wraps=True,             # CC-shaped config (group-wrapped), like Devin.
+        json_version=None,
+        note="Grok CLI has a Claude-Code-SHAPED hook config (group-wrapped matcher+hooks "
+             "under PreToolUse/PostToolUse/Stop in .grok/user-settings.json) but a flat "
+             "top-level {\"decision\":\"block\",\"reason\":…} deny OUTPUT, so DOS wires --dialect "
+             "hermes (the matching flat-block renderer). The path is user-global "
+             "(~/.grok/user-settings.json); the wired `dos hook` command must be on PATH.",
+    )
