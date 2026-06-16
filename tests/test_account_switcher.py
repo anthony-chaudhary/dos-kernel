@@ -676,3 +676,124 @@ def test_spread_single_serving_among_walled_is_that_account(tmp_path):
     for i in (0, 1, 5):
         p = sw.pick_account_spread(accounts, seat_index=i, probe_fn=probe, now_epoch=NOW)
         assert p.ok and p.account.name == "b"
+
+
+# --------------------------------------------------------------------------- #
+# seed_account_settings — write settings.json into account config dir
+# --------------------------------------------------------------------------- #
+_SAMPLE_SETTINGS = {
+    "model": "opus",
+    "effortLevel": "xhigh",
+    "permissions": {"defaultMode": "bypassPermissions"},
+}
+
+
+def test_seed_account_settings_writes_if_absent(tmp_path):
+    a = _acct("a", tmp_path / "a")
+    path = sw.seed_account_settings(a, _SAMPLE_SETTINGS)
+    assert path == sw.account_settings_path(a)
+    assert path.is_file()
+    data = json.loads(path.read_text())
+    assert data["model"] == "opus"
+    assert data["effortLevel"] == "xhigh"
+    assert data["permissions"]["defaultMode"] == "bypassPermissions"
+
+
+def test_seed_account_settings_creates_config_dir(tmp_path):
+    a = _acct("a", tmp_path / "new-account")
+    assert not (tmp_path / "new-account").exists()
+    sw.seed_account_settings(a, _SAMPLE_SETTINGS)
+    assert (tmp_path / "new-account").is_dir()
+
+
+def test_seed_account_settings_skips_if_present(tmp_path):
+    a = _acct("a", tmp_path / "a")
+    first = sw.seed_account_settings(a, _SAMPLE_SETTINGS)
+    assert first is not None
+    second = sw.seed_account_settings(a, {"model": "haiku"})
+    assert second is None
+    data = json.loads(sw.account_settings_path(a).read_text())
+    assert data["model"] == "opus"  # unchanged
+
+
+def test_seed_account_settings_overwrite(tmp_path):
+    a = _acct("a", tmp_path / "a")
+    sw.seed_account_settings(a, _SAMPLE_SETTINGS)
+    path = sw.seed_account_settings(a, {"model": "haiku"}, overwrite=True)
+    assert path is not None
+    data = json.loads(sw.account_settings_path(a).read_text())
+    assert data["model"] == "haiku"
+
+
+def test_seed_account_settings_empty_is_noop(tmp_path):
+    a = _acct("a", tmp_path / "a")
+    result = sw.seed_account_settings(a, {})
+    assert result is None
+    assert not sw.account_settings_path(a).exists()
+
+
+# --------------------------------------------------------------------------- #
+# load_roster_defaults — fail-open parsing of defaults.settings
+# --------------------------------------------------------------------------- #
+def test_load_roster_defaults_missing_file_is_empty(tmp_path, monkeypatch):
+    monkeypatch.setenv(sw.ACCOUNTS_FILE_ENV, str(tmp_path / "nope.yaml"))
+    d = sw.load_roster_defaults()
+    assert d.settings == {}
+
+
+def test_load_roster_defaults_parses_settings(tmp_path, monkeypatch):
+    f = tmp_path / "roster.yaml"
+    f.write_text(
+        "accounts:\n"
+        "  - name: x\n"
+        '    config_dir: "~/.claude-x"\n'
+        "defaults:\n"
+        "  settings:\n"
+        "    model: opus\n"
+        "    effortLevel: xhigh\n"
+        "    permissions:\n"
+        "      defaultMode: bypassPermissions\n"
+        "      skipDangerousModePermissionPrompt: true\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv(sw.ACCOUNTS_FILE_ENV, str(f))
+    d = sw.load_roster_defaults()
+    assert d.settings["model"] == "opus"
+    assert d.settings["effortLevel"] == "xhigh"
+    assert d.settings["permissions"]["defaultMode"] == "bypassPermissions"
+    assert d.settings["permissions"]["skipDangerousModePermissionPrompt"] is True
+
+
+def test_load_roster_defaults_no_defaults_section(tmp_path, monkeypatch):
+    f = tmp_path / "roster.yaml"
+    f.write_text(
+        "accounts:\n"
+        "  - name: x\n"
+        '    config_dir: "~/.claude-x"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv(sw.ACCOUNTS_FILE_ENV, str(f))
+    d = sw.load_roster_defaults()
+    assert d.settings == {}
+
+
+def test_load_roster_defaults_malformed_is_empty(tmp_path, monkeypatch):
+    f = tmp_path / "bad.yaml"
+    f.write_text("accounts: [this is not: valid: yaml: : :", encoding="utf-8")
+    monkeypatch.setenv(sw.ACCOUNTS_FILE_ENV, str(f))
+    d = sw.load_roster_defaults()
+    assert d.settings == {}  # fail-open, never raises
+
+
+def test_seed_and_enroll_roundtrip(tmp_path):
+    """write_account_token + seed_account_settings together: the full enroll flow."""
+    cfg = tmp_path / "acct1"
+    cfg.mkdir()
+    a = _acct("acct1", cfg)
+    defaults = sw.RosterDefaults(settings={"model": "opus", "effortLevel": "xhigh"})
+    sw.write_account_token(a, "sk-ant-oat01-realtoken-xyz")
+    seeded = sw.seed_account_settings(a, defaults.settings)
+    assert seeded is not None
+    data = json.loads(sw.account_settings_path(a).read_text())
+    assert data["model"] == "opus"
+    assert data["effortLevel"] == "xhigh"

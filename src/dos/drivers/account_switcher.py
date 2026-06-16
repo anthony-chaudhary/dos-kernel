@@ -309,6 +309,7 @@ def account_creds_path(account: Account) -> Path:
 # short-lived access-token flap) AND probeable. The ``login`` path's
 # ``.credentials.json`` keeps working unchanged.
 _OAUTH_TOKEN_PREFIX = "sk-ant-oat"  # setup-token: sk-ant-oat01-… (version-tolerant)
+_SETTINGS_FILENAME = "settings.json"  # Claude Code user-settings file seeded per account
 
 
 class TokenError(ValueError):
@@ -350,6 +351,98 @@ def write_account_token(account: Account, token: str) -> Path:
     except OSError:
         pass
     return path
+
+
+# --------------------------------------------------------------------------- #
+# Account settings — seed a new account's config dir with global defaults.
+# --------------------------------------------------------------------------- #
+def account_settings_path(account: Account) -> Path:
+    """The settings.json path inside an account's isolated config dir."""
+    return Path(account.config_dir).expanduser() / _SETTINGS_FILENAME
+
+
+def seed_account_settings(
+    account: Account,
+    settings: dict,
+    *,
+    overwrite: bool = False,
+) -> Optional[Path]:
+    """Write settings.json into the account's config dir if not already present.
+
+    This is the fix for new accounts not inheriting global defaults (model,
+    effortLevel, permissions.defaultMode, etc.): call this once after
+    ``write_account_token`` with the settings dict from ``load_roster_defaults``
+    and the new account's config dir will carry those defaults on the next launch.
+
+    Returns the written path, or None when the file already existed and
+    ``overwrite=False`` (safe to call on re-enrollment — idempotent).
+    Returns None silently when ``settings`` is empty or falsy.
+    Creates the config dir if needed (matching ``write_account_token``).
+    """
+    if not settings:
+        return None
+    path = account_settings_path(account)
+    if path.is_file() and not overwrite:
+        return None
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(settings, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return path
+
+
+@dataclass(frozen=True)
+class RosterDefaults:
+    """Global defaults from the roster ``defaults`` section.
+
+    Seeded into each new account's ``settings.json`` at enrollment time so that
+    model, effortLevel, permissions, and any other global preferences carry over
+    to every account in the pool — not just the primary one. Read by
+    ``load_roster_defaults``; applied by ``seed_account_settings``.
+    """
+
+    settings: dict = field(default_factory=dict)
+
+
+def load_roster_defaults(
+    path: "str | os.PathLike[str] | None" = None,
+) -> RosterDefaults:
+    """Parse the roster's ``defaults`` section into a ``RosterDefaults``.
+
+    Reads the same file as ``load_roster`` and extracts the optional
+    ``defaults.settings`` dict — the Claude Code ``settings.json`` content to
+    seed into each new account config dir at enrollment time.
+
+    Fail-OPEN: a missing file, missing ``defaults`` key, or any parse error
+    returns ``RosterDefaults(settings={})`` — a roster with no defaults section
+    is valid; new accounts just get no auto-seeding.
+
+    Example roster section::
+
+        defaults:
+          settings:
+            model: opus
+            effortLevel: xhigh
+            permissions:
+              defaultMode: bypassPermissions
+              skipDangerousModePermissionPrompt: true
+    """
+    p = accounts_file_path(path)
+    if not p.is_file():
+        return RosterDefaults()
+    try:
+        import yaml
+
+        data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    except Exception:  # noqa: BLE001 — fail-open on any parse fault / missing yaml
+        return RosterDefaults()
+    if not isinstance(data, dict):
+        return RosterDefaults()
+    raw = data.get("defaults") or {}
+    if not isinstance(raw, dict):
+        return RosterDefaults()
+    settings = raw.get("settings") or {}
+    if not isinstance(settings, dict):
+        settings = {}
+    return RosterDefaults(settings=settings)
 
 
 def _token_expired(creds_path: Path, now_epoch: float) -> tuple[bool, bool]:
@@ -854,6 +947,7 @@ __all__ = [
     "Account",
     "AccountState",
     "Pick",
+    "RosterDefaults",
     "RotationPolicy",
     "ProbeFn",
     "ProbeLike",
@@ -873,14 +967,17 @@ __all__ = [
     "accounts_file_path",
     "account_creds_path",
     "account_env_overrides",
+    "account_settings_path",
     "account_state",
     "account_token_path",
     "allocate_seats",
     "enroll_recipe",
     "env_for",
     "load_roster",
+    "load_roster_defaults",
     "pick_account",
     "pick_account_spread",
+    "seed_account_settings",
     "serving_pool",
     "read_account_token",
     "write_account_token",

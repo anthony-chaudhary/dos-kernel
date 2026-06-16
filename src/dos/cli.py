@@ -5772,6 +5772,144 @@ def _journal_pretool_outcome(event: dict, outcome: dict, cfg) -> None:
 
 
 # ---------------------------------------------------------------------------
+# hook stop-failure  (StopFailure asyncRewake — backoff retry on API failures)
+# ---------------------------------------------------------------------------
+
+_STOP_FAILURE_BACKOFF_S: tuple = (30, 60, 120, 240, 300)  # cap at 5 min
+
+
+def cmd_hook_stop_failure(args: argparse.Namespace) -> int:
+    """A StopFailure asyncRewake hook: backoff-retry on transient API failures.
+
+    The StopFailure companion to `dos hook stop`. Where `dos hook stop`
+    adjudicates a claimed ship, this command handles the session DYING before
+    it could ship — a transient API failure (rate limit, overload, network blip).
+    It is the kernel-generic answer to "what should DOS do when the harness
+    drops the session?":
+
+      1. Read the StopFailure event JSON from STDIN ({session_id, cwd, …}).
+      2. Load the session's persisted BreakerCounts from .dos/stop-failures/.
+      3. Call breaker.record_failure() — PURE, stateless, kernel primitive.
+      4. Persist the new counts so the next fire sees the accumulated state.
+      5. If the breaker OPENED: emit the escalation reason and exit 0 (no rewake;
+         the --on-trip=human flag queued the decision for the operator).
+      6. If the breaker is CLOSED: sleep (exponential backoff — consecutive-indexed
+         from _STOP_FAILURE_BACKOFF_S), print retry context to stdout (the harness
+         appends stdout to the rewakeMessage), and exit 2 (asyncRewake fires).
+
+    --success inverts polarity: records a clean Stop (resets the consecutive
+    counter via breaker.record_success), exits 0.  Wire this from the Stop hook
+    so the breaker heals after a successful session:
+
+        "Stop": [{"hooks": [{"type":"command","shell":"bash",
+            "command":"dos hook stop-failure --success --workspace . 2>/dev/null || true"}]}]
+
+    Wire the failure path from StopFailure (with asyncRewake in plugin hooks.json
+    or .claude/settings.json):
+
+        "StopFailure": [{"hooks": [{"type":"command","shell":"bash",
+            "asyncRewake":true,
+            "rewakeMessage":"Session resumed after API failure. DOS state:",
+            "rewakeSummary":"API-failure retry",
+            "command":"dos hook stop-failure --workspace .","timeout":320}]}]
+
+    The whole contract (failure + success) fits one verb because the braker's
+    durable state (BreakerCounts in .dos/stop-failures/) is this module's
+    only owned surface; there is no "stop-failure-success" sibling to drift.
+
+    Exit codes (the asyncRewake + kernel contract):
+      0 — no rewake: circuit OPEN, or --success mode
+      2 — rewake: circuit CLOSED, backoff elapsed
+    """
+    import time as _time
+
+    from dos import breaker as _brk
+    from dos import stop_failure_sensor as _sfs
+
+    debug = bool(getattr(args, "debug", False))
+
+    def _dbg(msg: str) -> None:
+        if debug:
+            print(f"[dos hook stop-failure] {msg}", file=sys.stderr)
+
+    # 1. Read stdin — any failure → emit nothing, exit 0 (advisory fail-safe).
+    event: dict = {}
+    try:
+        raw = sys.stdin.read()
+        if raw.strip():
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                event = parsed
+    except Exception:
+        pass
+
+    # 2. Resolve workspace: explicit flag › event cwd › cwd.
+    if not getattr(args, "workspace", None):
+        ev_cwd = event.get("cwd")
+        if isinstance(ev_cwd, str) and ev_cwd:
+            args.workspace = ev_cwd
+    if not _apply_workspace_failsoft(args, verb="stop-failure"):
+        return 0
+    cfg = _config.active()
+
+    session_id = getattr(args, "session_id", None) or event.get("session_id") or ""
+    if not (isinstance(session_id, str) and session_id.strip()):
+        _dbg("no session_id — cannot key the breaker state; skip")
+        return 0
+
+    # 3. Load persisted BreakerCounts.
+    counts = _sfs.load_counts(session_id, cfg)
+
+    # 4. Record failure or success (pure), persist new counts.
+    policy = _brk.BreakerPolicy(
+        max_consecutive=getattr(args, "max_consecutive", None) or 5,
+        max_total=getattr(args, "max_total", None) or 50,
+        on_trip=_brk.Escalation.HUMAN,
+    )
+    success_mode = bool(getattr(args, "success", False))
+    if success_mode:
+        transition = _brk.record_success(counts, policy)
+        _sfs.save_counts(session_id, transition.counts, cfg)
+        _dbg(f"success recorded — consecutive reset to {transition.counts.consecutive}")
+        return 0
+
+    transition = _brk.record_failure(counts, policy)
+    _sfs.save_counts(session_id, transition.counts, cfg)
+    new_counts = transition.counts
+    verdict = transition.verdict
+
+    _dbg(
+        f"failure #{new_counts.consecutive} consecutive / {new_counts.total} total; "
+        f"breaker={verdict.state.value}"
+    )
+
+    # 5. Circuit OPEN → emit reason, exit 0 (no rewake — operator handles it).
+    if verdict.is_open:
+        print(
+            f"dos breaker OPEN: {verdict.reason} "
+            f"(tripped on {verdict.tripped_on}; "
+            "check `dos decisions --workspace .` for queued operator actions).",
+            flush=True,
+        )
+        return 0
+
+    # 6. Circuit CLOSED → backoff + exit 2 (asyncRewake).
+    idx = min(new_counts.consecutive - 1, len(_STOP_FAILURE_BACKOFF_S) - 1)
+    wait = _STOP_FAILURE_BACKOFF_S[idx]
+    _dbg(f"sleeping {wait}s before rewake")
+    _time.sleep(wait)
+
+    # Stdout is appended to rewakeMessage by the harness.
+    print(
+        f"Retry #{new_counts.consecutive} after {wait}s backoff "
+        f"(circuit {new_counts.consecutive}/{policy.max_consecutive} consecutive). "
+        "Re-orient with `dos doctor --workspace .` then resume.",
+        flush=True,
+    )
+    return 2  # asyncRewake fires
+
+
+# ---------------------------------------------------------------------------
 # id-alloc  (atomic monotonic id allocator — the TAG_COLLISION structural fix)
 # ---------------------------------------------------------------------------
 def cmd_id_alloc(args: argparse.Namespace) -> int:
@@ -12123,6 +12261,40 @@ def build_parser() -> argparse.ArgumentParser:
                           "DENY is honored by every host; an unknown name fails loud "
                           "and emits nothing (docs/217)")
     ppt.set_defaults(func=cmd_hook_pretool)
+
+    psf = hsub.add_parser(
+        "stop-failure",
+        help="a StopFailure asyncRewake hook: backoff-retry on transient API "
+             "failures — the kernel-generic answer to a rate-limited session",
+        description=(
+            "Reads the host StopFailure event JSON on STDIN ({session_id, cwd, …}), "
+            "loads the session's persisted dos.breaker counts from "
+            ".dos/stop-failures/, records the failure (or --success for a clean "
+            "stop), and acts on the breaker verdict: OPEN → emit escalation reason, "
+            "exit 0 (no rewake, operator handles); CLOSED → sleep exponential "
+            "backoff, print retry context (appended to rewakeMessage by the harness), "
+            "exit 2 (asyncRewake fires). Wire the failure side from a StopFailure "
+            "hook with asyncRewake:true (timeout 320s); wire --success from the Stop "
+            "hook so the breaker heals after a clean session. Every failure mode "
+            "(no stdin, bad JSON, no session_id) degrades to exit 0 — the advisory "
+            "fail-safe shared by every dos hook command."),
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    _add_workspace_flags(psf)
+    psf.add_argument("--session-id", dest="session_id", default=None,
+                     help="session key for the breaker state "
+                          "(default: the event's session_id on stdin)")
+    psf.add_argument("--success", action="store_true",
+                     help="record a CLEAN stop (resets the consecutive counter); "
+                          "wire from the Stop hook so the breaker heals")
+    psf.add_argument("--max-consecutive", dest="max_consecutive", type=int,
+                     default=None,
+                     help="open the circuit after N consecutive failures (default 5)")
+    psf.add_argument("--max-total", dest="max_total", type=int, default=None,
+                     help="open the circuit after N total failures (default 50)")
+    psf.add_argument("--debug", action="store_true",
+                     help="print diagnostics to STDERR (stdout stays exclusively "
+                          "the asyncRewake context or empty)")
+    psf.set_defaults(func=cmd_hook_stop_failure)
 
     pia = sub.add_parser(
         "id-alloc",
