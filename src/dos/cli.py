@@ -87,32 +87,16 @@ from dos import interpret as _interpret  # the --explain next-action hint (share
 
 
 def _resolve_driver_config(name: str, workspace=None):
-    """Resolve a host policy driver BY CONVENTION — no hardcoded host name.
+    """Resolve a host policy driver BY NAME — in-tree first, then the `dos.drivers`
+    entry-point group (so a third party ships a host pack in their OWN pip package,
+    no kernel fork). Delegates to the `dos.drivers_seam` resolver; named here only as
+    the CLI's call boundary. No hardcoded host name.
 
     Detail: docs/CLI.md § _resolve_driver_config.
     """
-    import importlib
+    from dos import drivers_seam
 
-    if "." in name or "/" in name or "\\" in name:
-        raise ValueError(
-            f"unknown driver {name!r}: a driver name is a single module token "
-            f"(no '.', '/' or '\\'); drivers live in src/dos/drivers/, see "
-            f"dos.drivers.workshop for a template")
-    try:
-        mod = importlib.import_module(f"dos.drivers.{name}")
-    except ModuleNotFoundError as e:
-        if (e.name or "") in (f"dos.drivers.{name}", "dos.drivers"):
-            raise ValueError(
-                f"unknown driver {name!r} (no module dos.drivers.{name}); "
-                f"drivers live in src/dos/drivers/, see dos.drivers.workshop "
-                f"for a template") from None
-        raise
-    factory = getattr(mod, f"{name}_config", None)
-    if factory is None:
-        raise ValueError(
-            f"driver {name!r} (dos.drivers.{name}) exposes no "
-            f"{name}_config(workspace) factory")
-    return factory(workspace)
+    return drivers_seam.resolve_driver_config(name, workspace)
 
 
 def _apply_workspace(args: argparse.Namespace) -> None:
@@ -492,14 +476,14 @@ def _render_init_config(target: Path) -> tuple[str, str]:
 def _resolve_driver_taxonomy(name: str):
     """The `LaneTaxonomy` of a named driver pack — the single source of truth.
 
+    In-tree first, then the `dos.drivers` entry-point group (same resolution as
+    `_resolve_driver_config`). Delegates to the `dos.drivers_seam` resolver.
+
     Detail: docs/CLI.md § _resolve_driver_taxonomy.
     """
-    import importlib
-    if not name.isidentifier():
-        raise ValueError(f"driver name must be a bare identifier, got {name!r}")
-    mod = importlib.import_module(f"dos.drivers.{name}")
-    factory = getattr(mod, f"{name}_config")
-    return factory(None).lanes
+    from dos import drivers_seam
+
+    return drivers_seam.resolve_driver_taxonomy(name)
 
 
 def _render_driver_config(name: str, taxonomy) -> str:
@@ -2627,8 +2611,14 @@ def cmd_liveness(args: argparse.Namespace) -> int:
         # (DISPATCH_HOST_ID override › hostname), so a --host-id read off a lease
         # compares against the same identity that lease recorded.
         this_host = _os.environ.get("DISPATCH_HOST_ID") or _hostname()
+        # --proc-starttime is the OPTIONAL PID-reuse baseline (docs/95 §4.2): the
+        # process-creation stamp recorded when this pid was first captured. Given it,
+        # a recycled pid (exists, but a different process) resolves to None instead of
+        # a false alive=True. Absent ⇒ existence-only, byte-identical to before.
+        _rec = getattr(args, "proc_starttime", None)
         process_alive = proc_delta.probe(
-            pid, host_id=getattr(args, "host_id", "") or "", this_host=this_host
+            pid, host_id=getattr(args, "host_id", "") or "", this_host=this_host,
+            recorded_starttime=_rec,
         ).alive
 
     # The OPTIONAL waste signal (docs/300 §7, issue #41): `--usage-json` feeds the
@@ -2990,6 +2980,188 @@ def cmd_improve(args: argparse.Namespace) -> int:
     verdict = improve.classify(evidence, policy)
 
     return _IMPROVE_EXITS.emit(args, verdict, verdict.verdict.value)
+
+
+# ---------------------------------------------------------------------------
+# enforce-tune  (the self-tuning ENFORCEMENT-POLICY keep-gate — docs/358)
+#   The PEP-feedback loop's per-cycle verdict: it MEASURES a candidate enforcement
+#   policy's net_task_delta over the labelled corpus (the SAME intervention_eval
+#   metric `dos intervention-eval` reports) and hands the env-authored work +
+#   baseline to the kernel keep-gate. KEEP/REVERT/ESCALATE — same exit codes as
+#   `improve`, because it IS `improve.classify`, with the metric folded in so the
+#   loop never re-implements (or fakes) the score.
+_ENFORCE_TUNE_EXITS = ExitMap(
+    {"KEEP": 0, "REVERT": 3, "ESCALATE": 4},
+    unknown=5,
+    syscall="improve",  # it rides the improve keep-gate; record under that syscall
+)
+_ENFORCE_TUNE_EXIT_CONTRACT_ERROR = _ENFORCE_TUNE_EXITS.contract_error
+
+
+def cmd_enforce_tune(args: argparse.Namespace) -> int:
+    """Measure a candidate enforcement policy's net_task_delta, then KEEP/REVERT/ESCALATE.
+
+    The per-cycle verdict of the self-tuning enforcement loop (docs/358). It:
+      1. loads the labelled corpus (`--cases`, the docs/143 InterventionCase JSONL),
+      2. loads the CANDIDATE policy from a worktree's dos.toml (`--policy-toml`) —
+         the candidate's actual knob edit, scored, never the agent's claim,
+      3. scores it via `intervention_eval.score(...).net_task_delta`, scaled to the
+         kernel's non-negative `work` unit (`enforce_tune.score_policy`),
+      4. hands `work` + `--baseline-work` + the suite/truth witnesses to
+         `improve.classify` — the SAME non-forgeable keep-gate as `dos improve`.
+
+    The runtime-logic RAIL: pass `--changed-files` (the candidate's diff path list)
+    to have THIS verb enforce it inline — a file in `self_modify._DISPATCH_RUNTIME_FILES`
+    forces truth=dirty, so the keep-gate REVERTs it as a REGRESSION regardless of the
+    metric (the autonomy hard rail, docs/358), mirroring the driver.
+    """
+    _apply_workspace(args)
+    cfg = _config.active()
+    import importlib
+
+    from dos import improve
+    # Resolve the enforce-tune driver BY NAME at the call boundary (never a static
+    # `from dos.drivers import …`, which would trip the one-way-arrow litmus
+    # `test_no_kernel_module_imports_a_driver`) — the same discipline every other
+    # driver load site in this module follows.
+    enforce_tune = importlib.import_module("dos.drivers.enforce_tune")
+    from dos.intervention import InterventionPolicy, load_from_toml as _load_ladder
+
+    # The runtime-logic rail (inline): a candidate that edited enforcement LOGIC is a
+    # REGRESSION for this loop regardless of its metric — the autonomy hard rail
+    # (docs/358).
+    changed = list(args.changed_files or [])
+    runtime_hits = enforce_tune.candidate_touches_runtime(changed) if changed else []
+
+    try:
+        cases = _load_intervention_cases(args.cases)
+    except (OSError, ValueError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return _ENFORCE_TUNE_EXIT_CONTRACT_ERROR
+    if not cases:
+        print(f"error: no cases found in {args.cases}", file=sys.stderr)
+        return _ENFORCE_TUNE_EXIT_CONTRACT_ERROR
+
+    # The candidate policy + ladder: from --policy-toml (the worktree's dos.toml) when
+    # given, else the active workspace's. A candidate may have tuned BOTH the policy
+    # knobs ([intervention_policy]) and the ladder ranks ([intervention]).
+    if args.policy_toml:
+        ladder = _load_ladder(args.policy_toml, base=cfg.interventions)
+        policy = _intervention_policy_from_toml(args.policy_toml) or InterventionPolicy()
+    else:
+        ladder = cfg.interventions
+        policy = InterventionPolicy()
+    inputs = enforce_tune.EnforceMetricInputs(corpus=tuple(cases), ladder=ladder)
+    try:
+        work = enforce_tune.score_policy(policy, inputs)
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return _ENFORCE_TUNE_EXIT_CONTRACT_ERROR
+
+    # A runtime-logic edit forces truth=dirty so the keep-gate reverts it as a
+    # REGRESSION — exactly the driver's rail, surfaced through the same verdict.
+    truth_clean = bool(args.truth_clean) and not runtime_hits
+    try:
+        keep_policy = improve.ImprovePolicy(
+            max_consecutive_reverts=args.max_reverts if args.max_reverts is not None
+            else improve.DEFAULT_POLICY.max_consecutive_reverts,
+        )
+        evidence = improve.CandidateEvidence(
+            suite_passed=bool(args.suite_passed),
+            truth_clean=truth_clean,
+            work=work,
+            baseline_work=args.baseline_work,
+            tokens=args.tokens,
+            consecutive_reverts=args.consecutive_reverts,
+            narrated=args.narrated or "",
+        )
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return _ENFORCE_TUNE_EXIT_CONTRACT_ERROR
+
+    verdict = improve.classify(evidence, keep_policy)
+    if args.json:
+        out = verdict.to_dict()
+        out["measured_work"] = work
+        out["runtime_logic_hits"] = runtime_hits
+        print(json.dumps(out, indent=2))
+        return _ENFORCE_TUNE_EXITS.codes.get(
+            verdict.verdict.value, _ENFORCE_TUNE_EXITS.unknown)
+    return _ENFORCE_TUNE_EXITS.emit(args, verdict, verdict.verdict.value)
+
+
+def _intervention_policy_from_toml(path):
+    """Read an `[intervention_policy]` table from a dos.toml into an InterventionPolicy.
+
+    The candidate-tuning surface: a workspace declares the confidence-gating knobs
+    (on_high_confidence / on_low_confidence / floor / ceiling) in `[intervention_policy]`,
+    and a candidate self-improvement edits THOSE values. Returns None when the table is
+    absent (the caller falls back to the default policy) — the additive, missing-degrades
+    posture every dos.toml loader takes. A present-but-malformed table raises via
+    `InterventionPolicy.__post_init__` (a bad knob set fails loudly at load).
+    """
+    from pathlib import Path
+    from dos.intervention import InterventionPolicy
+    p = Path(path)
+    if not p.exists():
+        return None
+    try:
+        import tomllib
+    except ModuleNotFoundError:  # pragma: no cover - py<3.11
+        try:
+            import tomli as tomllib  # type: ignore
+        except ModuleNotFoundError:
+            return None
+    data = tomllib.loads(p.read_text(encoding="utf-8-sig"))
+    table = data.get("intervention_policy")
+    if not isinstance(table, dict) or not table:
+        return None
+    kwargs = {k: str(v) for k, v in table.items()
+              if k in ("on_high_confidence", "on_low_confidence", "on_none", "floor", "ceiling")}
+    return InterventionPolicy(**kwargs)
+
+
+# ---------------------------------------------------------------------------
+# enforce-outcomes  (the read-only PEP-feedback projection — docs/358)
+#   The live false-DENY / held-catch ledger folded from the OP_ENFORCE journal: what
+#   the enforcement seam ACTED on, and which acts the operator later overturned. The
+#   `dos decisions` queue is for HUMAN decisions; this is the tuning-shaped read the
+#   self-tuning loop's metric augments from.
+def cmd_enforce_outcomes(args: argparse.Namespace) -> int:
+    """Fold the live OP_ENFORCE journal into false-DENY / held-catch outcomes (docs/358).
+
+    Read-only projection. Prints, per (holder, target) the seam acted on, whether the
+    deny was a FALSE-DENY (the operator later overrode it) or a HELD catch, plus the
+    rolled-up `EnforceMetric` (false_denies / held_catches / storms / work). The
+    `--json` form is what the cadence reads to decide whether the false-DENY rate
+    warrants a tuning run.
+    """
+    _apply_workspace(args)
+    cfg = _config.active()
+    from dos import enforce_outcomes
+    outcomes = enforce_outcomes.read_outcomes(cfg)
+    metric = enforce_outcomes.outcome_metric(outcomes)
+    if args.json:
+        print(json.dumps({
+            "metric": metric.to_dict(),
+            "outcomes": [o.to_dict() for o in outcomes],
+        }, indent=2))
+        return 0
+    if not outcomes:
+        print("(no enforcement outcomes on the journal — the seam has acted on nothing)")
+        return 0
+    print(f"ENFORCEMENT OUTCOMES  {metric.n_pairs} acted-on pair(s)")
+    print(f"  false-denies  {metric.false_denies:>4}  (denies the operator overrode — drive DOWN)")
+    print(f"  held-catches  {metric.held_catches:>4}  (denies that stood — HOLD)")
+    print(f"  storms        {metric.storms:>4}  ({metric.storm_denies} excess denies — false disruption)")
+    print(f"  work          {metric.work:>10}  (the env-authored tuning metric, higher = better)")
+    print()
+    for o in outcomes:
+        label = "FALSE-DENY" if o.is_false_deny else "held-catch"
+        plural = "s" if o.n_denies != 1 else ""
+        print(f"  [{label}] {o.holder or '?'} × {o.target}  "
+              f"({o.n_denies} deny{plural}, {o.reason_class or '?'})")
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -6571,8 +6743,13 @@ def cmd_pulse(args: argparse.Namespace) -> int:
                 from dos import proc_delta as _proc_delta
                 from dos.lane_lease import _hostname
                 this_host = _os.environ.get("DISPATCH_HOST_ID") or _hostname()
+                # The lease carries the OS process-identity baseline (docs/95 §4.2)
+                # captured at mint — pass it so a recycled pid no longer reads as the
+                # live holder. Absent ⇒ existence-only, byte-identical to before.
+                _rec = lease.get("proc_starttime")
                 process_alive = _proc_delta.probe(
-                    pid, host_id=str(lease.get("host_id") or ""), this_host=this_host).alive
+                    pid, host_id=str(lease.get("host_id") or ""), this_host=this_host,
+                    recorded_starttime=_rec if isinstance(_rec, int) else None).alive
             ev = liveness.ProgressEvidence(
                 run_started_ms=started_ms,
                 now_ms=now_ms,
@@ -6609,8 +6786,22 @@ def cmd_pulse(args: argparse.Namespace) -> int:
             breaker_verdict = _PulseBreaker(is_open=True, _escalation=esc)
             break
 
+    # 3b. The HUMAN escalation rung's own saturation (the always-on regime, docs/121
+    #     §4.1): are decisions arriving faster than a human drains them? Gathered at this
+    #     boundary from the SAME decisions + journal sources, folded by the pure
+    #     queue_saturation.classify. A SATURATED verdict reframes the pending count: the
+    #     fold surfaces "auto-degrade" at URGENT instead of one more unread line.
+    saturation = None
+    try:
+        from dos import queue_saturation as _qs
+        _qe = _gather_queue_evidence(cfg, now_ms=now_ms, window_seconds=3600)
+        saturation = _qs.classify(_qe, cfg.queue_saturation)
+    except Exception:  # noqa: BLE001 — advisory fail-safe; absent ⇒ the fold's silent default
+        saturation = None
+
     digest = _pulse.fold_pulse(
-        liveness=verdicts, decisions=human_rows, breaker_verdict=breaker_verdict)
+        liveness=verdicts, decisions=human_rows, breaker_verdict=breaker_verdict,
+        saturation=saturation)
 
     # 4. SILENCE RULE: an all-clear pulse pushes nothing and exits 0 (unless --json,
     #    which always emits the machine surface for a scripted cron).
@@ -6697,6 +6888,128 @@ class _PulseBreaker:
         class _E:
             value = esc
         return _E()
+
+
+# ---------------------------------------------------------------------------
+# queue-saturation — is the HUMAN escalation rung still a real target (the always-on
+# regime, docs/121 §4.1)? Boundary gather + the pure queue_saturation.classify fold.
+# ---------------------------------------------------------------------------
+# The journal ops that mean "a HUMAN-rung decision LEFT the queue" — a drain. A
+# RELEASE / SCAVENGE frees the lease the refusal guarded; an OVERRIDE admits past it.
+# All are written by the lease machinery (not the worker) — the byte-author floor that
+# makes the drain count non-forgeable.
+_QUEUE_DRAIN_OPS = ("RELEASE", "SCAVENGE", "OVERRIDE")
+
+
+def _gather_queue_evidence(cfg, *, now_ms: int, window_seconds: int):
+    """Read the HUMAN-queue arrival/drain counts over a recent window. BOUNDARY I/O only.
+
+    Returns a frozen `queue_saturation.QueueEvidence` the pure `classify` folds — the
+    "I/O at the boundary, data to the pure core" rule (the `cmd_pulse` liveness-gather
+    idiom). Both counts are env/journal-authored, downstream of an already-decided
+    verdict:
+
+      arrivals — HUMAN-resolver `decisions.Decision`s whose age is within the window
+                 (they ENTERED the queue during it). An untimestamped row (age None) is
+                 counted as in-window — it is a live unresolved decision either way, and
+                 dropping it would understate the arrival rate (the safe direction).
+      drains   — lane-journal RELEASE/SCAVENGE/OVERRIDE events whose `ts` falls in the
+                 window (a decision LEFT the queue).
+      pending  — the current HUMAN queue depth (every unresolved row, regardless of age).
+
+    Any single read fault degrades that leg to 0 (the advisory fail-safe — a saturation
+    read never crashes a pulse cron). With zero arrivals the verdict abstains to
+    DRAINING, so a total read failure is conservatively read as "the rung is fine".
+    """
+    from dos import queue_saturation as _qs
+
+    window_seconds = max(int(window_seconds), 0)
+
+    # arrivals + pending — the HUMAN decisions queue.
+    arrivals = 0
+    pending = 0
+    try:
+        from dos import decisions as _decisions
+        human_rows = _decisions.collect_decisions(cfg, resolver="HUMAN")
+        pending = len(human_rows)
+        for r in human_rows:
+            age = getattr(r, "age_seconds", None)
+            # in-window iff age unknown (count it — the safe direction) or age <= window.
+            if window_seconds == 0 or age is None or int(age) <= window_seconds:
+                arrivals += 1
+    except Exception:  # noqa: BLE001 — advisory fail-safe; no rows ⇒ 0 arrivals ⇒ abstain
+        pass
+
+    # drains — RELEASE/SCAVENGE/OVERRIDE journal events inside the window.
+    drains = 0
+    try:
+        import datetime as _dt
+        from dos import lane_journal as _lj
+        cutoff_ms = now_ms - window_seconds * 1000 if window_seconds else None
+        for e in _lj.read_all():
+            op = str(e.get("op") or "").upper()
+            if op not in _QUEUE_DRAIN_OPS:
+                continue
+            if cutoff_ms is None:
+                drains += 1
+                continue
+            ts = e.get("ts")
+            if not ts:
+                drains += 1  # untimestamped drain — count it (the safe direction)
+                continue
+            try:
+                parsed = _dt.datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+                ev_ms = int(parsed.timestamp() * 1000)
+            except (ValueError, OverflowError, OSError):
+                drains += 1  # unparseable ts — count it rather than silently drop
+                continue
+            if ev_ms >= cutoff_ms:
+                drains += 1
+    except Exception:  # noqa: BLE001 — advisory fail-safe
+        pass
+
+    return _qs.QueueEvidence(
+        arrivals=arrivals, drains=drains, pending=pending,
+        window_seconds=window_seconds,
+    )
+
+
+def cmd_queue_saturation(args: argparse.Namespace) -> int:
+    """`dos queue-saturation` — is the HUMAN escalation rung draining, or already drowned?
+
+    The always-on verdict (docs/121 §4.1): every recovery path in the kernel escalates
+    to a HUMAN, assuming a human reads it in time. When decisions arrive faster than a
+    human drains them, "escalate to a human" is a silent no-op. This verb gathers the
+    arrival/drain counts of the HUMAN decisions queue over a recent window AT THIS
+    BOUNDARY, folds them with the pure `queue_saturation.classify`, and reports
+    DRAINING / SATURATING / SATURATED — so an unattended fleet (or an auto-degrade
+    consumer) can SEE that the rung is gone instead of queuing one more unread line.
+
+    Read-only / advisory (docs/99): it REPORTS the verdict; it takes no lease, stops no
+    run, sheds nothing — the ACT (shed / HUMAN->JUDGE / auto-approve a safe class) is a
+    host/driver decision. Exit 0 on DRAINING, 1 on SATURATING/SATURATED (so a cron can
+    trip on a saturated rung), or with --json always 0 (the machine surface).
+    """
+    _apply_workspace(args)
+    import time
+    from dos import queue_saturation as _qs
+
+    cfg = _config.active()
+    now_ms = args.now_ms if getattr(args, "now_ms", None) is not None else int(time.time() * 1000)
+    window_seconds = int(getattr(args, "window", 3600) or 3600)
+
+    ev = _gather_queue_evidence(cfg, now_ms=now_ms, window_seconds=window_seconds)
+    verdict = _qs.classify(ev, cfg.queue_saturation)
+
+    if getattr(args, "json", False):
+        print(json.dumps(verdict.to_dict(), indent=2, sort_keys=True))
+        return 0
+
+    print(f"{verdict.verdict.value}  ρ={verdict.load_factor:.2f}  "
+          f"({ev.arrivals} arrivals / {ev.drains} drains / {ev.pending} pending "
+          f"over {window_seconds}s)")
+    print(f"  {verdict.reason}")
+    return 0 if verdict.verdict is _qs.Saturation.DRAINING else 1
 
 
 # ---------------------------------------------------------------------------
@@ -7684,6 +7997,22 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     h = _config.active_home()
     n_projects = len(_home_list_projects())
     print(f"dos home            {h.home}  ({n_projects} project(s) indexed)")
+    # issue #200 — surface the grade verb on the default path. A skill's
+    # trustworthiness is undecidable from its own text (a self-certified "done"
+    # reads identically to a grounded one); `dos skillify --grade` is the verb
+    # that turns that unknown into a verdict, but it is invisible to anyone who
+    # doesn't already know it. So when THIS workspace ships its own skills (the
+    # ones whose trust-seam no one audited), name the verb here. Read-only,
+    # fail-soft — a report row must never break doctor.
+    try:
+        _host_skills = cfg.paths.root / ".claude" / "skills"
+        _n_skills = len(list(_host_skills.rglob("SKILL.md"))) if _host_skills.is_dir() else 0
+        if _n_skills:
+            print(f"workspace skills    {_n_skills}  "
+                  f"(`dos skillify --grade --all` scores how well each grounds "
+                  f"its own claims)")
+    except Exception:  # noqa: BLE001 — never let the hint break the report
+        pass
     # The env-override hazard (docs/75 §6.4): under the `.dos/` layout, a stray
     # DISPATCH_STATE_PATH / JOB_FANOUT_STATE_PATH in the shell makes verify/judge
     # read THAT file, not the .dos/ one. Surface it loudly rather than inherit it.
@@ -10207,6 +10536,14 @@ def build_parser() -> argparse.ArgumentParser:
     pln.add_argument("--host-id", default="", metavar="HOST",
                      help="the host the pid was recorded on; if it differs from this "
                           "host the proc rung stays silent (a pid is host-local)")
+    pln.add_argument("--proc-starttime", dest="proc_starttime", type=int,
+                     default=None, metavar="TICKS",
+                     help="the OS process-creation stamp recorded when --pid was "
+                          "first captured (docs/95 §4.2 PID-reuse defense): a pid "
+                          "that exists but whose live starttime differs is a "
+                          "recycled number, NOT this run — the rung refuses it "
+                          "(stays silent) rather than read a stranger as alive. "
+                          "Absent ⇒ existence-only, byte-identical to before")
     pln.add_argument("--no-proc", action="store_true",
                      help="disable the OS proc-liveness probe even when --pid is given")
     pln.add_argument("--usage-json", dest="usage_json", default=None, metavar="PATH",
@@ -10419,6 +10756,65 @@ def build_parser() -> argparse.ArgumentParser:
                            "next_consecutive_reverts, reason, evidence}")
     _add_output_flag(pimp)
     pimp.set_defaults(func=cmd_improve)
+
+    # enforce-tune (docs/358) — the self-tuning ENFORCEMENT-POLICY keep-gate. The
+    # PEP-feedback loop's per-cycle verdict: it measures a candidate enforcement
+    # policy's net_task_delta over the labelled corpus (the intervention_eval metric)
+    # and rides improve.classify — so the loop cannot keep a policy edit it merely
+    # narrated as good (the metric is kernel-measured, the keep-bit non-forgeable).
+    petu = sub.add_parser(
+        "enforce-tune",
+        help="self-tuning enforcement-policy keep-gate: score a candidate policy's "
+             "net_task_delta and KEEP/REVERT/ESCALATE (docs/358)",
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    _add_workspace_flags(petu)
+    petu.add_argument("--cases", required=True, metavar="PATH",
+                      help="the labelled InterventionCase corpus (JSONL) the candidate "
+                           "policy is scored over — the docs/143 §13.2 ground truth")
+    petu.add_argument("--policy-toml", dest="policy_toml", default=None, metavar="PATH",
+                      help="the CANDIDATE worktree's dos.toml — the policy + ladder edit "
+                           "to score (the candidate's actual knobs, never the claim). "
+                           "Default: the active workspace's policy")
+    petu.add_argument("--baseline-work", dest="baseline_work", type=int, default=0,
+                      metavar="UNITS",
+                      help="the scaled net_task_delta of the BASELINE policy — KEEP needs "
+                           "the candidate to strictly beat it (an env-measured gain)")
+    petu.add_argument("--suite-passed", dest="suite_passed", action="store_true",
+                      help="the suite passed on the candidate worktree (MISSING ⇒ red)")
+    petu.add_argument("--truth-clean", dest="truth_clean", action="store_true",
+                      help="the truth syscall is clean (MISSING ⇒ dirty)")
+    petu.add_argument("--changed-files", dest="changed_files", nargs="*", default=None,
+                      metavar="PATH",
+                      help="the candidate commit's diff path list — a file in the "
+                           "SELF_MODIFY runtime set forces a REVERT regardless of the "
+                           "metric (the autonomy hard rail, docs/358)")
+    petu.add_argument("--tokens", type=int, default=0, metavar="N",
+                      help="tokens the proposing agent spent (efficiency rung)")
+    petu.add_argument("--consecutive-reverts", dest="consecutive_reverts", type=int,
+                      default=0, metavar="N",
+                      help="the carried breaker count (the Nth reaching --max-reverts ⇒ "
+                           "ESCALATE to a human)")
+    petu.add_argument("--max-reverts", dest="max_reverts", type=int, default=None,
+                      metavar="N",
+                      help="ESCALATE after this many non-keeps in a row (default 3)")
+    petu.add_argument("--narrated", type=str, default=None, metavar="TEXT",
+                      help="the candidate's own description — carried, parsed for NOTHING")
+    petu.add_argument("--json", action="store_true",
+                      help="machine-readable verdict + measured_work + runtime_logic_hits")
+    _add_output_flag(petu)
+    petu.set_defaults(func=cmd_enforce_tune)
+
+    # enforce-outcomes (docs/358) — the read-only PEP-feedback projection: the live
+    # false-DENY / held-catch ledger folded from the OP_ENFORCE journal. What the
+    # enforcement seam acted on, and which acts the operator later overturned.
+    peno = sub.add_parser(
+        "enforce-outcomes",
+        help="the live false-DENY / held-catch ledger folded from the enforcement "
+             "journal (read-only, docs/358)")
+    _add_workspace_flags(peno)
+    peno.add_argument("--json", action="store_true",
+                      help="machine-readable {metric, outcomes} — what the cadence reads")
+    peno.set_defaults(func=cmd_enforce_outcomes)
 
     # retire (docs/350) — the library-retention gate; the third leaf of the
     # keep-only-what-a-witness-confirms family (after improve), aimed at the agent's
@@ -11774,6 +12170,39 @@ def build_parser() -> argparse.ArgumentParser:
                         help="machine-readable {digest, notification, result, notifier}; "
                              "always emitted, even when the digest is empty")
     ppulse.set_defaults(func=cmd_pulse)
+
+    # queue-saturation — is the HUMAN escalation rung still a real target (docs/121
+    # §4.1, the always-on regime)? Every recovery path escalates to a HUMAN assuming a
+    # human reads it in time; when decisions arrive faster than they drain, that is a
+    # silent no-op. This verb folds the arrival/drain rate of the HUMAN decisions queue
+    # into a DRAINING / SATURATING / SATURATED verdict so an unattended fleet can SEE
+    # the rung is gone. Read-only / advisory — it reports; the ACT is host policy.
+    pqsat = sub.add_parser(
+        "queue-saturation",
+        help="is the HUMAN escalation rung draining or saturated? (the always-on regime)",
+        description=(
+            "Adjudicate whether the HUMAN escalation rung is still a meaningful target. "
+            "Every recovery path in DOS escalates to a HUMAN (breaker on_trip=HUMAN, the "
+            "decisions queue, pulse pending_human), silently assuming a human reads it in "
+            "time. In an always-on fleet, decisions arrive faster than a human drains "
+            "them and 'escalate to a human' becomes a no-op (docs/121 §4.1). This verb "
+            "gathers the arrival/drain counts of the HUMAN decisions queue over a recent "
+            "window AT THIS BOUNDARY, folds them with the pure queue_saturation.classify, "
+            "and reports DRAINING / SATURATING / SATURATED with the computed load factor. "
+            "Fail-to-abstain: thin evidence (few arrivals) is DRAINING, never a false "
+            "accusation. Read-only / advisory (docs/99): it REPORTS; the ACT (shed / "
+            "HUMAN->JUDGE / auto-approve a safe class) is host policy. Exit 1 on "
+            "SATURATING/SATURATED so a cron can trip."),
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    _add_workspace_flags(pqsat)
+    pqsat.add_argument("--window", type=int, default=3600, metavar="SECONDS",
+                       help="the recent window the arrival/drain rate is measured over "
+                            "(default 3600 = 1h)")
+    pqsat.add_argument("--now-ms", type=int, default=None,
+                       help="inject the wall clock (epoch-ms) for deterministic runs")
+    pqsat.add_argument("--json", action="store_true",
+                       help="machine-readable verdict {verdict, load_factor, counts}")
+    pqsat.set_defaults(func=cmd_queue_saturation)
 
     # trace — the cross-surface join (docs/137): walk one run across the spine,
     # the intent ledger, the WAL, and git, joined by its run_id. A read-only
