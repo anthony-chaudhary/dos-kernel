@@ -8,6 +8,10 @@
 > data. An `Agent` SPAWN is now VISIBLE on the journal's new axis (and a per-holder
 > fold surfaces a fan-out storm) while the FILE-collision clean-pass is preserved
 > byte-for-byte.
+>
+> **Phase stamp.** Phase `P1` (the type + the visibility leg) shipped as
+> `9bc315f`; `dos verify --workspace . docs/371 P1` resolves it via this commit's
+> `(docs/371 P1)` trailer. The refusing spawn-gate is P2 — out of scope here.
 
 ## The blind axis
 
