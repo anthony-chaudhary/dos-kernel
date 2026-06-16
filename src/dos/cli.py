@@ -6950,6 +6950,72 @@ def cmd_trace(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# transcript  (the agent OUTPUT-STREAM browser — read-only projection; sibling
+# of trace.py. Walks the agent's narration/tool-calls/results, with modular
+# show/hide, so a headless run is as inspectable as an interactive one.)
+# ---------------------------------------------------------------------------
+def cmd_transcript(args: argparse.Namespace) -> int:
+    """Browse an agent's output stream from its transcript JSONL.
+
+    Resolution order: explicit ``--transcript PATH`` (always correct — the
+    headless caller knows its file) › best-effort discovery of the host's
+    session files for ``--cwd`` (``--session ID`` to disambiguate). Discovery is a
+    convenience, never a correctness path: a miss prints how to pass a path.
+
+    The host projects-dir location (`~/.claude/projects/<encoded>/`) is HOST
+    knowledge resolved HERE, at the composition layer, via the driver
+    (`drivers.witnessed_leak_test.projects_dir_for` — "exactly why this is a
+    driver"); the `transcript_view` helper stays host-agnostic (it scans a
+    directory we hand it). So there is one host-slug encoder in the tree, reused.
+    """
+    _apply_workspace(args)
+    from dos import transcript_view as _tv
+
+    path = (getattr(args, "transcript", None) or "").strip()
+    note = ""
+    if not path:
+        cwd = (getattr(args, "cwd", None) or "").strip() or str(_config.active().root)
+        session = (getattr(args, "session", None) or "").strip()
+        # Resolve the host session dir via the driver (host knowledge lives there).
+        # Resolved by NAME through importlib so the no-kernel-module-imports-a-
+        # driver litmus holds (the sanctioned pattern, mirroring _resolve_driver_*).
+        try:
+            import importlib
+            _wlt = importlib.import_module("dos.drivers.witnessed_leak_test")
+            projects_dir = _wlt.projects_dir_for(cwd)
+        except Exception:
+            projects_dir = None
+        found = _tv.discover_transcripts(projects_dir, session=session) if projects_dir else []
+        if not found:
+            print(
+                "transcript: no transcript found — pass --transcript PATH (a "
+                "session JSONL). Headless runs write one too; point at its file.",
+                file=sys.stderr,
+            )
+            return 2
+        path = str(found[0])
+        if len(found) > 1 and not session:
+            note = (f"newest of {len(found)} sessions for this project — "
+                    f"--session ID to pick another")
+
+    records = _tv.load_records(path)
+    flt = _tv.StreamFilter(
+        shown=_tv.resolve_shown(
+            getattr(args, "show", None), getattr(args, "hide", None)),
+        last=int(getattr(args, "last", 0) or 0),
+        grep=(getattr(args, "grep", None) or ""),
+        tools=tuple(getattr(args, "tools", None) or ()),
+        errors_only=bool(getattr(args, "errors", False)),
+    )
+    view = _tv.build_view(records, flt, source=path, note=note)
+    if getattr(args, "json", False):
+        print(json.dumps(view.to_dict(), indent=2, default=str))
+    else:
+        print(_tv.render_text(view, full=bool(getattr(args, "full", False))))
+    return 0 if view.records else 1
+
+
+# ---------------------------------------------------------------------------
 # observe  (the verdict-journal projection — every adjudication, folded; docs/262)
 # ---------------------------------------------------------------------------
 def cmd_observe(args: argparse.Namespace) -> int:
@@ -12166,6 +12232,47 @@ def build_parser() -> argparse.ArgumentParser:
     ptr.add_argument("--json", action="store_true",
                      help="machine-readable {spine, intent, wal, git} join")
     ptr.set_defaults(func=cmd_trace)
+
+    # transcript — the agent OUTPUT-STREAM browser (read-only projection): walk
+    # the agent's narration / tool-calls / results, with modular show/hide, so a
+    # headless run is as inspectable as an interactive one.
+    ptx = sub.add_parser(
+        "transcript",
+        help="browse an agent's output stream (narration, tool calls/results) "
+             "with modular show/hide — headless as inspectable as interactive")
+    _add_workspace_flags(ptx)
+    ptx.add_argument("--transcript", metavar="PATH", default=None,
+                     help="the transcript JSONL to browse (always correct; the "
+                          "headless caller knows its file)")
+    ptx.add_argument("--cwd", metavar="DIR", default=None,
+                     help="best-effort: discover this project's session files "
+                          "(default: the workspace root)")
+    ptx.add_argument("--session", metavar="ID", default=None,
+                     help="pick the session whose file stem matches ID")
+    ptx.add_argument("--show", metavar="KINDS", default=None,
+                     type=lambda s: [x for x in s.split(",") if x],
+                     help="ADD record kinds to the view (text,tool_call,"
+                          "tool_result,thinking,user,synthetic_death,meta; or "
+                          "'all')")
+    ptx.add_argument("--hide", metavar="KINDS", default=None,
+                     type=lambda s: [x for x in s.split(",") if x],
+                     help="remove record kinds from the view")
+    ptx.add_argument("--tools", metavar="NAMES", default=None,
+                     type=lambda s: [x for x in s.split(",") if x],
+                     help="keep only tool calls/results for these tool names")
+    ptx.add_argument("--grep", metavar="PAT", default=None,
+                     help="keep only records whose text/tool/input contains PAT "
+                          "(case-insensitive)")
+    ptx.add_argument("--errors", action="store_true",
+                     help="keep only error tool-results + synthetic deaths")
+    ptx.add_argument("--last", metavar="N", type=int, default=0,
+                     help="keep only the last N matching records")
+    ptx.add_argument("--full", action="store_true",
+                     help="expand each record's full body (default: one line)")
+    ptx.add_argument("--json", action="store_true",
+                     help="machine-readable {source, counts, records[]} "
+                          "(an UNSTABLE projection, not an ABI)")
+    ptx.set_defaults(func=cmd_transcript)
 
     # observe — the verdict-journal projection (docs/262): fold every adjudication
     # the kernel recorded (verify/liveness/efficiency/…) into per-dimension counts,

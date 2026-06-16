@@ -1656,6 +1656,39 @@ a lease with no run_id surfaced as `(unattributed)`, never guessed by time.
 
 Exit code: 0 if any surface was found for the run_id, 1 if none.
 
+### § `cmd_transcript`
+
+Browse an agent's OUTPUT STREAM from its transcript JSONL — the read-only
+*browser* `dos trace` is not. Where `trace` walks what the KERNEL adjudicated
+about a run (verified steps, commits, refusals), `transcript` walks the agent's
+own narration: its text, the tool calls it made, the results it got back, the
+thinking, the harness-synthesized deaths — turn by turn, with **modular
+show/hide** of each record kind. A headless `claude -p` run writes the same JSONL
+an interactive session renders live, so this makes the two equally inspectable.
+
+A read-only projection (the `trace` / `decisions` / `top` posture): it stores
+nothing, takes no lease, mints no belief, adjudicates nothing new. The one
+DOS-authored label — `synthetic_death` — is the unforgeable `model ==
+"<synthetic>"` harness-authorship fact (`result_state`'s rung), decided from the
+authored markers only, never from content. The transcript byte-read is reused
+from `claim_extract` so the readers can't drift.
+
+Resolution: `--transcript PATH` (always correct — the headless caller knows its
+file) › best-effort `--cwd` discovery of the host's session files (`--session
+ID` to disambiguate). The host session-dir location is HOST knowledge resolved at
+the CLI layer via the driver (`drivers.witnessed_leak_test.projects_dir_for`),
+by name through importlib so the no-kernel-imports-a-driver litmus holds; the
+`transcript_view` helper stays host-agnostic (it scans a directory it is handed).
+
+Knobs: `--show/--hide KINDS` (text, tool_call, tool_result, thinking, user,
+synthetic_death, meta; or `all`), `--last N`, `--grep PAT`, `--tools NAME`,
+`--errors` (only error results + synthetic deaths), `--full` (expand bodies),
+`--json` (an UNSTABLE derived projection, not an ABI — the raw JSONL stays the
+stable source). MCP tool ids render humanized (`mcp__srv__tool` → `srv · tool`);
+the per-call `caller` is surfaced (main agent vs a spawned child).
+
+Exit code: 0 if any record matched the filter, 1 if none.
+
 ### § `cmd_observe`
 
 Project the verdict journal: the kernel's own adjudication stream (docs/262).
