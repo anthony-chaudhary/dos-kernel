@@ -1667,6 +1667,7 @@ story, start at the [README](../../README.md) or the
 | Mutation testing vs a test-witness gate for AI tests? | `dos test-witness` | [mutation-testing-vs-test-witness-for-ai-tests](mutation-testing-vs-test-witness-for-ai-tests.md) |
 | How do I make an AI agent write tests that actually assert something? | `dos test-witness` | [make-ai-write-tests-that-actually-assert](make-ai-write-tests-that-actually-assert.md) |
 | I have 100% coverage but the AI's tests are worthless | `dos test-witness` / `dos coverage` | [coverage-is-green-but-tests-are-worthless](coverage-is-green-but-tests-are-worthless.md) |
+| How does DOS fit into my CI/CD pipeline? | `dos commit-audit` / `dos verify` / `dos arbitrate` | [dos-for-ci-cd](dos-for-ci-cd.md) |
 
 ## How to read the numbers on these pages
 
