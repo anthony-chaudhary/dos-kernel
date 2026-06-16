@@ -27,7 +27,7 @@ That is the exact same check the board runs, on your history — before you trus
 
 ## Start here — the auditor grades itself
 
-We ran the check on our own repo first and published whatever it said. It says **non-zero** — a few commits that claim a fix but touched nothing. They're a deliberate house convention, and the page shows exactly why. We left them in. A scoreboard that airbrushed its own page to zero wouldn't be worth reading.
+We ran the check on our own repo first and published whatever it said. It says **non-zero** — a few deliberate empty re-stamp commits, whose subject re-anchors a plan after a renumber, so the claim rests on the subject text alone by house convention. The page shows each one, and the methodology explains why the auditor is right to count them. We left them in. A scoreboard that airbrushed its own page to zero wouldn't be worth reading.
 
 - **[anthony-chaudhary/dos-kernel](anthony-chaudhary/dos-kernel.md)** — our own grade, every flag explained.
 

@@ -81,13 +81,18 @@ pointing it at anyone else's, then hand-adjudicated **every** fire:
   was fixed the same way, after one false positive in a small sweep
   produced a 100% drift headline. Lesson: **small denominators lie**; we
   report denominators everywhere and set a floor on corpus membership.
-- After the fixes, this repository's own sweep reads **3 unwitnessed of 129
-  checkable (2.3%)** — and all three are deliberate empty "re-stamp"
-  commits, a workspace convention here where an empty commit's subject
-  re-anchors a plan phase after a renumber. The witness is *right* that
-  those claims rest on subject text alone; the intent is benign. Lesson: a
-  raw drift rate includes convention-driven subject-only commits, not just
-  over-claims.
+- After the fixes, this repository's own sweep reads **5 unwitnessed of 315
+  checkable (1.6%)** — as the history this page audits has grown since the
+  first publication (the count was 3 of 129 then; the as-of block on the
+  [self page](anthony-chaudhary/dos-kernel.md) always pins the live range).
+  Four of the five are deliberate empty "re-stamp" commits, a workspace
+  convention here where an empty commit's subject re-anchors a plan phase
+  after a renumber. The fifth carries a `fix(…)` subject on a docs-only edit
+  (a one-line ship-stamp fix in a doc), so the code-effect verb finds no
+  source file — a sloppy subject, not an over-claim. The witness is *right*
+  in every case that the claim rests on subject text alone; the intent is
+  benign. Lesson: a raw drift rate includes convention-driven and
+  sloppy-subject commits, not just over-claims.
 
 So: expect a few points of any reported drift rate to be auditor
 imprecision and convention noise rather than over-claiming. That is why the

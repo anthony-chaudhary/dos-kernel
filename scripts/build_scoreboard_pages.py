@@ -160,8 +160,25 @@ def render(root: Path, out_dir: Path, date: str) -> list[str]:
         dest.write_text(page, encoding="utf-8")
         written.append(out_rel)
         print(f"  wrote {out_rel}")
+    _copy_assets(root, out_dir)
     _write_sitemap_fragment(written, out_dir, date)
     return written
+
+
+def _copy_assets(root: Path, out_dir: Path) -> None:
+    """Copy the front-door SVG charts into the site so the index's
+    ``<img src="assets/…svg">`` resolves. The README embeds them by relative
+    path; without this they 404 on the Pages site (the published-effect-vs-
+    source-diff gap — a valid render that ships a dead resource). Byte copy, no
+    rewrite — an SVG is a leaf asset, not a page with links."""
+    src = root / "docs" / "scoreboard" / "assets"
+    if not src.is_dir():
+        return
+    dest = out_dir / "scoreboard" / "assets"
+    dest.mkdir(parents=True, exist_ok=True)
+    for svg in sorted(src.glob("*.svg")):
+        (dest / svg.name).write_bytes(svg.read_bytes())
+        print(f"  copied assets/{svg.name}")
 
 
 def _write_sitemap_fragment(out_rels: list[str], out_dir: Path, date: str) -> None:

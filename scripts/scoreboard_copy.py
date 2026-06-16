@@ -240,10 +240,12 @@ def index_self_section(self_page: str) -> str:
         "## Start here — the auditor grades itself",
         "",
         "We ran the check on our own repo first and published whatever it said. "
-        "It says **non-zero** — a few commits that claim a fix but touched "
-        "nothing. They're a deliberate house convention, and the page shows "
-        "exactly why. We left them in. A scoreboard that airbrushed its own "
-        "page to zero wouldn't be worth reading.",
+        "It says **non-zero** — a few deliberate empty re-stamp commits, whose "
+        "subject re-anchors a plan after a renumber, so the claim rests on the "
+        "subject text alone by house convention. The page shows each one, and "
+        "the methodology explains why the auditor is right to count them. We "
+        "left them in. A scoreboard that airbrushed its own page to zero "
+        "wouldn't be worth reading.",
         "",
         f"- **[{self_page}]({org}/{name}.md)** — our own grade, every flag "
         "explained.",
@@ -269,17 +271,21 @@ def index_clean_empty_placeholder() -> str:
             "runs and the operator publishes to Pages, #98)_")
 
 
-def index_fine_print(audited: int, withheld: int) -> str:
+def index_fine_print(audited: int, withheld: int | None) -> str:
     """The 'fine print' section — the ethics line, the deeper links, and the
     withheld count kept as a NUMBER (docs/311 §2: a withheld repo is a count,
     never a name). Relocated here, after the hook, so the front door is legible.
 
     ``audited`` is the number of NAMED pages above (a count we publish);
     ``withheld`` is how many more were checked but not named — the two are
-    disjoint, so the sentence reads honestly without double-counting.
+    disjoint, so the sentence reads honestly without double-counting. Pass
+    ``withheld=None`` when the withheld count is not known from the rendered
+    inputs (e.g. the front door is rebuilt from the committed per-repo data
+    alone, which carries no record of the corpus run's withheld set): the
+    "Another N repos…" sentence is then OMITTED rather than asserting a false
+    zero — a count we cannot back is not published.
     """
     repo_noun = "repo" if audited == 1 else "repos"
-    more_noun = "repo was" if withheld == 1 else "repos were"
     L = [
         "## The fine print (it matters)",
         "",
@@ -302,11 +308,20 @@ def index_fine_print(audited: int, withheld: int) -> str:
         "result before it publishes. See the methodology's registration "
         "section.",
         "",
-        f"The pages above are the {audited} {repo_noun} we've audited and "
-        f"named. Another {withheld} {more_noun} checked but not named — a "
-        "non-clean or unadjudicated verdict is reported only as a count, never "
-        f"as a named page ({_index_schema_link()} §2).",
     ]
+    if withheld is None:
+        L.append(
+            f"The pages above are the {audited} {repo_noun} we've audited and "
+            "named. A repo is named only when its verdict is published; a "
+            "non-clean or unadjudicated verdict is reported only as a count, "
+            f"never as a named page ({_index_schema_link()} §2).")
+    else:
+        more_noun = "repo was" if withheld == 1 else "repos were"
+        L.append(
+            f"The pages above are the {audited} {repo_noun} we've audited and "
+            f"named. Another {withheld} {more_noun} checked but not named — a "
+            "non-clean or unadjudicated verdict is reported only as a count, "
+            f"never as a named page ({_index_schema_link()} §2).")
     return "\n".join(L)
 
 
@@ -316,6 +331,104 @@ def _index_schema_link() -> str:
 
 
 INDEX_TAGLINE = "> The kernel is the part that doesn't believe the agents."
+
+
+# ---------------------------------------------------------------------------
+# The OBSERVATORY framing (the 100x reframe) — assembled by scoreboard_index.py.
+#
+# The original index leads with "AI commit messages can lie" — the auditor's
+# pitch. True, but the honest answer across real popular repos is "almost
+# everything checks out", which reads as a wall of identical green. The
+# observatory reframe leads instead with the comparison a reader actually wants:
+# how AI builds the popular software they already use — how much, which agent,
+# what kind of work — and keeps the claim-vs-diff audit as the trust column that
+# makes the rest believable. Same data, a reason to read it.
+# ---------------------------------------------------------------------------
+
+def observatory_hook() -> str:
+    """The H1 hook for the observatory front door. Leads with the comparison —
+    how AI built the popular repos you already depend on — then names the one
+    thing this board does that a star count or a changelog can't: it reads the
+    diff, not the message, so the picture is backed by what git recorded."""
+    return "\n".join([
+        "# How AI built the software you already use",
+        "",
+        "Agents now write a real share of the popular open-source projects you "
+        "depend on — and they write their own commit messages too. This board "
+        "looks at the recent history of well-known repos and asks three plain "
+        "questions: **how much of it did AI write, which agent did it, and what "
+        "kind of work was it** — fixes, tests, docs.",
+        "",
+        "The catch is that a commit *message* is just text the agent typed; the "
+        "**diff** is what git actually recorded, and the two can disagree. So "
+        "every number here is checked against the diff, never the message "
+        "alone. That is the difference between this board and a star count: it "
+        "reads the thing that can't be talked up.",
+    ])
+
+
+def observatory_charts_intro() -> str:
+    """The section heading above the three SVG charts — the visual front door."""
+    return "\n".join([
+        "## The picture",
+        "",
+        "Three views of the same audited history. Every figure is generated "
+        "from the committed per-repo data — no live calls, reproducible offline "
+        "by anyone who clones the repo.",
+    ])
+
+
+def observatory_insight(*, top_agent: str | None, top_agent_share: float,
+                        n_agents: int, code_pct: float, repos: int) -> str:
+    """The one-line cross-set insight under the charts — the 'so what'. Computed
+    from the folded set: which agent dominates the build, how many distinct
+    toolchains show up, and how lopsided the work is toward shipping code (vs
+    tests/docs). Pure; the numbers come from the caller. Returns "" with no data.
+    """
+    if repos <= 0 or not top_agent:
+        return ""
+    repo_noun = "repo" if repos == 1 else "repos"
+    bits = [
+        f"Across these **{repos} {repo_noun}**, **{top_agent}** is the most "
+        f"prolific agent — it wrote **{top_agent_share:.0%}** of all the "
+        "AI-authored commits here"
+    ]
+    if n_agents > 1:
+        bits.append(f"with **{n_agents - 1}** other "
+                    f"{'toolchain' if n_agents == 2 else 'toolchains'} sharing "
+                    "the rest")
+    bits.append(f"and **{code_pct:.0%}** of what they all claimed was "
+                "shipping code, not tests or docs")
+    return "> " + ", ".join(bits) + "."
+
+
+def observatory_score_your_repo() -> str:
+    """The call-to-action block — the one-command self-check, kept verbatim from
+    the original so the honesty pitch (run it on your own history, no upload) is
+    not lost in the reframe."""
+    return "\n".join([
+        "## Score your own repo in one command",
+        "",
+        "```bash",
+        "pip install dos-kernel",
+        "dos commit-audit --sweep --workspace . BASE..HEAD",
+        "```",
+        "",
+        "That is the exact same check the board runs, on your history — before "
+        "you trust the next \"done\". No account, no upload, no one named.",
+    ])
+
+
+def observatory_leaderboard_intro() -> str:
+    """Heading above the comparison table. Frames it as the per-repo detail
+    behind the charts, sorted by how much of each repo AI built."""
+    return "\n".join([
+        "## Repo by repo",
+        "",
+        "The detail behind the charts — each repo's AI-built share, the agents "
+        "that did it, and whether every checkable claim was backed by its own "
+        "diff. Sorted by AI-built share. Click a repo for the full receipt.",
+    ])
 
 
 # ---------------------------------------------------------------------------
