@@ -1,0 +1,86 @@
+name: pulse
+
+# DOS's standing self-watch heartbeat, on a cloud cadence (docs/121 §4.1).
+#
+# `dos pulse` folds every live run's liveness + the HUMAN decisions queue + the
+# breaker into ONE digest and pushes anything wrong — SILENT when all-clear (the
+# silence rule). It is REQUEST-RESPONSE by construction; nothing in the kernel runs
+# it on its own. This workflow is the standing cron the feature was designed for:
+# the absent operator's proxy, the always-on reader for the queue that otherwise
+# goes unread when nobody is watching.
+#
+# WHY A SCHEDULED ACTION (not just the in-session cron):
+#   The in-session `CronCreate` heartbeat beats only while a Claude REPL is open and
+#   dies with the session (and auto-expires in 7 days). This run is durable: it fires
+#   in the cloud on a fixed cadence regardless of whether anyone is at a terminal —
+#   which is the whole point of an unattended heartbeat.
+#
+# WHAT FIRES WHEN:
+#   schedule (every 6h)  → fold the workspace pulse, push anything wrong
+#   workflow_dispatch    → the same, on demand (test the wiring / force a beat)
+#
+# THE HEARTBEAT-IS-UP CONTRACT:
+#   `dos pulse` exits 0 on an all-clear fold AND on a clean push; it exits non-zero
+#   ONLY when a real send was attempted and FAILED. So a RED run here means the
+#   transport is broken (the pulse can't be heard) — exactly the failure a cron must
+#   surface. With no transport configured the job runs `--json` against the null
+#   sink: the run log itself is the heartbeat record, and the job staying green is
+#   the liveness proof. Wire a real transport by setting the repo variables below.
+#
+# DELIVERY (optional — set as repo Variables/Secrets to actually notify):
+#   PULSE_NOTIFIER   the notifier name the notify seam resolves (e.g. "slack").
+#                    Unset ⇒ "null" (the run log is the record; the job is a canary).
+#   PULSE_WEBHOOK    the transport URL (a Slack webhook, etc.), passed as --url.
+#                    A Secret, not a Variable — it is a credential.
+
+on:
+  workflow_dispatch:
+  # Every 6 hours, on an odd minute (top-of-hour crons queue worst — GitHub's own
+  # guidance, the same rule ci.yml's weekly canary follows). The HUMAN queue + the
+  # breaker change slowly on a CI-less repo, so 6h is the right durable cadence; the
+  # in-session 17-min beat covers the fine-grained, attended window.
+  schedule:
+    - cron: "37 */6 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  # One pulse at a time; a newer scheduled tick supersedes a still-running one (the
+  # freshest fold is the one whose verdict matters), and a manual dispatch never
+  # cancels a scheduled run or vice versa.
+  group: pulse-${{ github.event_name }}
+  cancel-in-progress: false
+
+jobs:
+  pulse:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install (editable, with the mcp extra)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[mcp]"
+
+      - name: Beat — fold the workspace pulse and push anything wrong
+        shell: bash
+        env:
+          PULSE_NOTIFIER: ${{ vars.PULSE_NOTIFIER }}
+          PULSE_WEBHOOK: ${{ secrets.PULSE_WEBHOOK }}
+        run: |
+          notifier="${PULSE_NOTIFIER:-null}"
+          # `dos pulse --json` always emits the machine surface, so the run log
+          # carries the digest whether or not a transport is configured. A non-zero
+          # exit means a REAL send failed (a broken transport) — let it fail the run.
+          if [ "$notifier" = "null" ]; then
+            dos pulse --json --workspace . --notifier null
+          else
+            dos pulse --json --workspace . --notifier "$notifier" --url "$PULSE_WEBHOOK"
+          fi
