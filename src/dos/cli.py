@@ -7837,6 +7837,16 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         findings.extend(_state_findings)
         if _state_findings:
             gating = True
+        # Skill-grounding rail (#201, docs/370): do THIS workspace's own skills
+        # ground their belief-bits on a `dos` verb, or self-certify them? INFO by
+        # default (surfaced, never blocks — a workspace may ship a pure-prose
+        # skill, and the honesty floor only fails a DENSE self-certifier);
+        # `--skill-strict` promotes it to a gating finding for a host that wants
+        # its skills' grounding enforced in CI.
+        _skill_findings = _skill_grounding_findings(cfg)
+        findings.extend(_skill_findings)
+        if _skill_findings and bool(getattr(args, "skill_strict", False)):
+            gating = True
 
     # SKP Phase 1a — `dos doctor --json`: the machine-readable workspace report a
     #   (full prose: docs/CLI.md § "SKP Phase 1a — `dos doctor --json`: the machine-readable wor")
@@ -8073,15 +8083,22 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     # doesn't already know it. So when THIS workspace ships its own skills (the
     # ones whose trust-seam no one audited), name the verb here. Read-only,
     # fail-soft — a report row must never break doctor.
-    try:
-        _host_skills = cfg.paths.root / ".claude" / "skills"
-        _n_skills = len(list(_host_skills.rglob("SKILL.md"))) if _host_skills.is_dir() else 0
-        if _n_skills:
-            print(f"workspace skills    {_n_skills}  "
-                  f"(`dos skillify --grade --all` scores how well each grounds "
-                  f"its own claims)")
-    except Exception:  # noqa: BLE001 — never let the hint break the report
-        pass
+    #
+    # #201 dedupe: under `--check` the skill-grounding rail ABOVE does the real
+    # grading (and names any self-certifier), so this nudge would double-surface
+    # the same concern. Suppress the hint when `check_requested` — the operator
+    # sees the verdict once (the rail under `--check`, this hint on a bare
+    # `dos doctor`).
+    if not check_requested:
+        try:
+            _host_skills = cfg.paths.root / ".claude" / "skills"
+            _n_skills = len(list(_host_skills.rglob("SKILL.md"))) if _host_skills.is_dir() else 0
+            if _n_skills:
+                print(f"workspace skills    {_n_skills}  "
+                      f"(`dos skillify --grade --all` scores how well each grounds "
+                      f"its own claims)")
+        except Exception:  # noqa: BLE001 — never let the hint break the report
+            pass
     # The env-override hazard (docs/75 §6.4): under the `.dos/` layout, a stray
     # DISPATCH_STATE_PATH / JOB_FANOUT_STATE_PATH in the shell makes verify/judge
     # read THAT file, not the .dos/ one. Surface it loudly rather than inherit it.
@@ -8818,6 +8835,51 @@ def _state_health_findings(cfg: _config.SubstrateConfig) -> list[str]:
     for line in verdict.findings():
         out.append(f"{path.name}: {line}")
     return out
+
+
+def _skill_grounding_findings(cfg: _config.SubstrateConfig) -> list[str]:
+    """The skill-grounding rail (#201, docs/370): do the skills THIS workspace
+    ships ground their own belief-bits on a `dos` verb, or self-certify them?
+
+    Grades every `SKILL.md` under the workspace's OWN `.claude/skills/` (NOT the
+    wheel's generic pack — those are first-party and pinned green by the suite;
+    the host's own skills are the ones whose trust-seam no one audited) with the
+    pure `skill_grade.check_verdict`, which carries the honesty floor itself: a
+    sparse skill (< `_CHECK_MIN_SCORED` belief-bits) or a pure-prose / all-grounded
+    one (`grounded_fraction is None`) is SKIPPED, never failed. Only a DENSE
+    self-certifier (the scanner clearly sees the bits and a meaningful share have
+    no `dos` verb in their step) yields a `fail` → one finding naming the skill and
+    carrying the re-derivable `why`.
+
+    Fail-soft: any resolve/read/grade error is swallowed — a report row must never
+    break `doctor`. Returns the finding strings (empty when every skill passes,
+    skips, or there are no host skills to grade)."""
+    findings: list[str] = []
+    try:
+        skills_dir = cfg.paths.root / ".claude" / "skills"
+        if not skills_dir.is_dir():
+            return []
+        from dos import skill_grade as _sg
+
+        # The `dos doctor` facts the grader reads for the canonical verb names
+        # (data, not a literal) — the same contract `dos skillify --grade` uses.
+        facts = {"exit_codes": _exit_code_contract()}
+        for md in sorted(skills_dir.rglob("SKILL.md")):
+            try:
+                text = md.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            grade = _sg.grade_skill(text, facts, name=md.parent.name)
+            verdict, why = _sg.check_verdict(grade)
+            if verdict == "fail":
+                findings.append(
+                    f"skill {md.parent.name!r} self-certifies its belief-bits: "
+                    f"{why} — run `dos skillify --grade {md.parent}` for the "
+                    f"per-bit review candidates."
+                )
+    except Exception:  # noqa: BLE001 — the rail must never break the report
+        return findings
+    return findings
 
 
 def _stamp_coverage_finding(cfg: _config.SubstrateConfig) -> str | None:
@@ -12565,6 +12627,11 @@ def build_parser() -> argparse.ArgumentParser:
                          "#190): per runtime WIRED/DRIFTED/NOT_WIRED; exit 1 on a "
                          "DRIFTED runtime (a previously-wired host now partially "
                          "unwired)")
+    pd.add_argument("--skill-strict", action="store_true",
+                    help="under --check, promote the skill-grounding rail (#201) "
+                         "from INFO to a gating finding: exit 1 if any of THIS "
+                         "workspace's own .claude/skills/ self-certifies its "
+                         "belief-bits instead of grounding them on a `dos` verb")
     pd.add_argument("--json", action="store_true",
                     help="machine-readable workspace report (paths/lanes/stamp/git) "
                          "— what a generic skill reads to discover its layout (SKP)")
