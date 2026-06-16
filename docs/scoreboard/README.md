@@ -4,6 +4,8 @@ Agents now write a real share of the popular open-source projects you depend on 
 
 The catch is that a commit *message* is just text the agent typed; the **diff** is what git actually recorded, and the two can disagree. So every number here is checked against the diff, never the message alone. That is the difference between this board and a star count: it reads the thing that can't be talked up.
 
+![The board at a glance](assets/stat-band.svg)
+
 ## The picture
 
 Three views of the same audited history. Every figure is generated from the committed per-repo data — no live calls, reproducible offline by anyone who clones the repo.
@@ -16,6 +18,21 @@ Three views of the same audited history. Every figure is generated from the comm
 
 > Across these **19 repos**, **claude** is the most prolific agent — it wrote **63%** of all the AI-authored commits here, with **7** other toolchains sharing the rest, and **75%** of what they all claimed was shipping code, not tests or docs.
 
+## Who builds whose repo
+
+One agent shows up far more than the rest: **claude** is the single biggest committer in **12 of 18** repos on this board. The exceptions are the tell — they are mostly a vendor's own tool building the vendor's own project:
+
+- **OpenInterpreter/open-interpreter** — led by `codex` (its makers' own agent)
+- **charmbracelet/crush** — led by `crush` (its makers' own agent)
+- **microsoft/autogen** — led by `copilot` (its makers' own agent)
+- **openai/codex** — led by `codex` (its makers' own agent)
+
+And `claude` does not stay in its lane: it turns up inside the histories of repos another agent leads —
+
+`29` commits in **crewAIInc/crewAI**, `15` commits in **langchain-ai/langchain**, `10` commits in **OpenInterpreter/open-interpreter**, `10` commits in **openai/codex**, `2` commits in **microsoft/autogen**, and `1` commit in **charmbracelet/crush**.
+
+None of this is a quality or honesty judgment — it is just who pressed the keys, read straight from the commit attribution. It is the kind of picture a star count can't show.
+
 ## Score your own repo in one command
 
 ```bash
@@ -27,7 +44,7 @@ That is the exact same check the board runs, on your history — before you trus
 
 ## Start here — the auditor grades itself
 
-We ran the check on our own repo first and published whatever it said. It says **non-zero** — a few commits that claim a fix but touched nothing. They're a deliberate house convention, and the page shows exactly why. We left them in. A scoreboard that airbrushed its own page to zero wouldn't be worth reading.
+We ran the check on our own repo first and published whatever it said. It says **non-zero** — a few deliberate empty re-stamp commits, whose subject re-anchors a plan after a renumber, so the claim rests on the subject text alone by house convention. The page shows each one, and the methodology explains why the auditor is right to count them. We left them in. A scoreboard that airbrushed its own page to zero wouldn't be worth reading.
 
 - **[anthony-chaudhary/dos-kernel](anthony-chaudhary/dos-kernel.md)** — our own grade, every flag explained.
 
