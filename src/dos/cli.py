@@ -7457,6 +7457,16 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             # declared phase grammar, anti-churn windows, and plan-class lifecycle.
             "enumerate": cfg.enumerate_grammar.to_dict(),
             "cooldown": cfg.cooldown.to_dict(),
+            # issue #37 — the loop-economics floors a workspace has ARMED as
+            # `[efficiency]`/`[improve]`/`[productivity]`/`[efficiency_trend]`
+            # tables, so an operator sees at a glance which thresholds are live
+            # (dead-by-default until declared; mirrors `cooldown` above).
+            "economics": {
+                "efficiency": dataclasses.asdict(cfg.efficiency),
+                "improve": dataclasses.asdict(cfg.improve),
+                "productivity": dataclasses.asdict(cfg.productivity),
+                "efficiency_trend": dataclasses.asdict(cfg.efficiency_trend),
+            },
             "lifecycle": cfg.lifecycle.to_dict(),
             # docs/99 — the always-on supervisor's standing population policy
             # (target + reap posture) a skill/operator reads to discover how many

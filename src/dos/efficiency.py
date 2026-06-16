@@ -349,3 +349,60 @@ def classify(
         ),
         evidence=evidence,
     )
+
+
+# ---------------------------------------------------------------------------
+# The `[efficiency]` config seam (issue #37) — modelled on `dos.cooldown`.
+#
+# The loop-economics thresholds were reachable only via a CLI flag or the
+# dataclass default; this pair arms them as declared `dos.toml` data. Every
+# bound is already validated by the frozen policy's `__post_init__`, so the
+# loader never re-implements a bound — it builds the policy and lets the
+# dataclass refuse a bad value (the same `ValueError` path as an unknown key).
+# ---------------------------------------------------------------------------
+
+
+def policy_from_table(table: dict, *, base: "EfficiencyPolicy" = DEFAULT_POLICY) -> "EfficiencyPolicy":
+    """Build a `EfficiencyPolicy` from a parsed `[efficiency]` TOML table. PURE.
+
+    Each field the table names overrides ``base``; omitted fields inherit. An
+    unknown key raises ``ValueError`` (the `stamp.convention_from_table` /
+    `cooldown.policy_from_table` posture); a wrong-typed or out-of-bound value
+    raises via the dataclass ``__post_init__``.
+    """
+    import dataclasses as _dc
+    if not isinstance(table, dict):
+        raise ValueError(f"[efficiency] must be a table, got {type(table).__name__}")
+    known = {"min_tokens", "floor"}
+    unknown = set(table) - known
+    if unknown:
+        raise ValueError(
+            f"[efficiency] has unknown key(s) {sorted(unknown)}; "
+            f"known keys are {sorted(known)}"
+        )
+    overrides = {k: table[k] for k in known if k in table}
+    return _dc.replace(base, **overrides)
+
+
+def load_from_toml(path, *, base: "EfficiencyPolicy" = DEFAULT_POLICY) -> "EfficiencyPolicy":
+    """Build a `EfficiencyPolicy` from a `dos.toml`'s `[efficiency]` table.
+
+    Returns ``base`` unchanged (the SAME object) when the file is absent, has no
+    `[efficiency]` table, or it is empty. A present-but-malformed table raises.
+    Mirrors `cooldown.load_from_toml` (incl. the `utf-8-sig` BOM strip)."""
+    from pathlib import Path as _Path
+    p = _Path(path)
+    if not p.exists():
+        return base
+    try:
+        import tomllib as _toml
+    except ModuleNotFoundError:  # pragma: no cover - py<3.11 fallback
+        try:
+            import tomli as _toml  # type: ignore
+        except ModuleNotFoundError:
+            return base
+    data = _toml.loads(p.read_text(encoding="utf-8-sig"))
+    table = data.get("efficiency")
+    if not isinstance(table, dict) or not table:
+        return base
+    return policy_from_table(table, base=base)

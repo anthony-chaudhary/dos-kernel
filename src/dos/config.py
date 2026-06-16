@@ -46,6 +46,10 @@ from dos.precursor_gate import PrecursorGrammar, EMPTY_GRAMMAR as EMPTY_PRECURSO
 from dos.stamp import StampConvention, JOB_STAMP_CONVENTION, GENERIC_STAMP_CONVENTION
 from dos.enumerate import EnumerateGrammar, GENERIC_GRAMMAR
 from dos.cooldown import CooldownPolicy, DEFAULT_COOLDOWN_POLICY
+from dos.efficiency import EfficiencyPolicy, DEFAULT_POLICY as DEFAULT_EFFICIENCY_POLICY
+from dos.improve import ImprovePolicy, DEFAULT_POLICY as DEFAULT_IMPROVE_POLICY
+from dos.productivity import ProductivityPolicy, DEFAULT_POLICY as DEFAULT_PRODUCTIVITY_POLICY
+from dos.efficiency_trend import TrendPolicy, DEFAULT_POLICY as DEFAULT_TREND_POLICY
 from dos.supervise import SupervisePolicy, DEFAULT_POLICY as DEFAULT_SUPERVISE_POLICY
 from dos.lifecycle import LifecyclePolicy, GENERIC_LIFECYCLE
 from dos.reason_morphology import MorphologyRuleset, GENERIC_REASON_MORPHOLOGY
@@ -645,6 +649,15 @@ class SubstrateConfig:
     precursors: PrecursorGrammar = EMPTY_PRECURSOR_GRAMMAR
     enumerate_grammar: "EnumerateGrammar" = GENERIC_GRAMMAR
     cooldown: "CooldownPolicy" = DEFAULT_COOLDOWN_POLICY
+    # The loop-economics floors as data (issue #37): each verdict's thresholds,
+    # armable as a `dos.toml [efficiency]`/`[improve]`/`[productivity]`/
+    # `[efficiency_trend]` table. Default to the module DEFAULT_POLICY, so a
+    # workspace that declared nothing is byte-identical to today (the floors stay
+    # dead-by-default until ARMED).
+    efficiency: "EfficiencyPolicy" = DEFAULT_EFFICIENCY_POLICY
+    improve: "ImprovePolicy" = DEFAULT_IMPROVE_POLICY
+    productivity: "ProductivityPolicy" = DEFAULT_PRODUCTIVITY_POLICY
+    efficiency_trend: "TrendPolicy" = DEFAULT_TREND_POLICY
     lifecycle: "LifecyclePolicy" = GENERIC_LIFECYCLE
     supervise: "SupervisePolicy" = DEFAULT_SUPERVISE_POLICY
     marker: MarkerPolicy = DEFAULT_MARKER_POLICY
@@ -1190,6 +1203,32 @@ def load_workspace_config(
         "cooldown",
         lambda: _cooldown.load_from_toml(toml_path, base=cfg.cooldown),
         cfg.cooldown))
+    # [efficiency] / [improve] / [productivity] / [efficiency_trend] — OVERRIDE
+    # the loop-economics floors (issue #37). A present key overrides that
+    # threshold; absent inherits the generic default (every floor dead-by-default
+    # until ARMED). Each floor is a HINT to an advisory verdict, so malformed
+    # warns + keeps base — a bad floor can never manufacture a COSTLY/WASTEFUL
+    # accusation, only stay off.
+    from dos import efficiency as _eff
+    cfg = dataclasses.replace(cfg, efficiency=_layer(
+        "efficiency",
+        lambda: _eff.load_from_toml(toml_path, base=cfg.efficiency),
+        cfg.efficiency))
+    from dos import improve as _improve
+    cfg = dataclasses.replace(cfg, improve=_layer(
+        "improve",
+        lambda: _improve.load_from_toml(toml_path, base=cfg.improve),
+        cfg.improve))
+    from dos import productivity as _prod
+    cfg = dataclasses.replace(cfg, productivity=_layer(
+        "productivity",
+        lambda: _prod.load_from_toml(toml_path, base=cfg.productivity),
+        cfg.productivity))
+    from dos import efficiency_trend as _trend
+    cfg = dataclasses.replace(cfg, efficiency_trend=_layer(
+        "efficiency_trend",
+        lambda: _trend.load_from_toml(toml_path, base=cfg.efficiency_trend),
+        cfg.efficiency_trend))
     # [supervise] — OVERRIDE the always-on population policy (docs/99): the
     # target live-worker count + whether a spinner counts as up + whether a
     # STALLED worker is reaped. A present key overrides; absent inherits the
