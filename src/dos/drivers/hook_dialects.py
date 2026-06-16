@@ -778,3 +778,74 @@ def tabnine_install_spec() -> HostHookSpec:
              "DOS wires --dialect antigravity (the matching renderer). The wired `dos hook` "
              "command must be on PATH in the Tabnine session.",
     )
+
+
+def factory_install_spec() -> HostHookSpec:
+    """Factory AI's **Droid** CLI — `.factory/hooks.json` (a pure Claude-Code alias).
+
+    Droid's hook contract is Claude-Code-identical (verified against the Factory docs,
+    2026-06-16): `.factory/hooks.json` (project) holds a top-level `hooks` map of
+    group-wrapped `{"matcher":…,"hooks":[{"type":"command","command":…}]}` entries, and
+    its PreToolUse deny OUTPUT is the NESTED `{"hookSpecificOutput":{"permissionDecision":
+    "deny","permissionDecisionReason":…}}` (stdout, exit 0) — byte-identical to Claude
+    Code. So NO `--dialect` (the default CC envelope), `json_group_wraps=True`. Zero new
+    renderer — the augment/qwen/continue precedent. (Droid also reads
+    `~/.factory/hooks.json` user-global and a `hooks` key in `~/.factory/settings.json`;
+    DOS wires the project `.factory/hooks.json` — the explicit, workspace-scoped binding.)
+    """
+    return HostHookSpec(
+        host="factory",
+        config_path=(".factory", "hooks.json"),
+        fmt=ConfigFormat.JSON,
+        pre_events=("PreToolUse",),
+        post_events=("PostToolUse",),
+        stop_events=("Stop",),
+        dialect_flag="",          # CC-identical nested deny output — the default IS the envelope.
+        json_entry_has_type=True,
+        json_group_wraps=True,    # CC-shaped: entries nest under {"hooks": [...]} groups.
+        json_version=None,
+        note="Factory AI's Droid CLI has a Claude-Code-identical hook contract — "
+             ".factory/hooks.json group-wrapped + nested hookSpecificOutput/permissionDecision "
+             "deny output — so the default CC envelope is wired (no --dialect). Droid also "
+             "reads ~/.factory/hooks.json and ~/.factory/settings.json; DOS wires the project "
+             "file. The wired `dos hook` command must be on PATH in the Droid session.",
+    )
+
+
+def copilot_install_spec() -> HostHookSpec:
+    """GitHub **Copilot agent mode** (VS Code Agent hooks) — `.github/hooks/dos.json` (claude-code).
+
+    The VS Code Copilot "Agent hooks" surface is a Claude-Code alias (verified against
+    code.visualstudio.com/docs/agent-customization/hooks + the microsoft/vscode-copilot-chat
+    source, 2026-06-16): PascalCase events (`PreToolUse`/`PostToolUse`/`Stop`), a
+    group-wrapped `{"hooks":{"PreToolUse":[{"type":"command","command":…}]}}` config (it even
+    reads `.claude/settings.json`), and a NESTED `{"hookSpecificOutput":{"permissionDecision":
+    "deny","permissionDecisionReason":…}}` deny OUTPUT — byte-identical to Claude Code, and it
+    fails CLOSED (a hook error denies). So NO `--dialect`, `json_group_wraps=True`. DOS wires a
+    dedicated `.github/hooks/dos.json` (Copilot loads every `.github/hooks/*.json`) so the
+    binding is explicit and never collides with the `claude-code` host's `.claude/settings.json`.
+    Zero new renderer.
+
+    (The GitHub Copilot *CLI* is a SIBLING surface with camelCase events and a FLAT top-level
+    `{"permissionDecision":"deny"}` output — a NOVEL grammar, NOT this host; it needs its own
+    renderer and is tracked separately.)
+    """
+    return HostHookSpec(
+        host="copilot",
+        config_path=(".github", "hooks", "dos.json"),
+        fmt=ConfigFormat.JSON,
+        pre_events=("PreToolUse",),
+        post_events=("PostToolUse",),
+        stop_events=("Stop",),
+        dialect_flag="",          # CC-identical nested deny output — the default IS the envelope.
+        json_entry_has_type=True,
+        json_group_wraps=True,    # CC-shaped: entries nest under {"hooks": [...]} groups.
+        json_version=None,
+        note="GitHub Copilot agent mode (VS Code Agent hooks) is a Claude-Code alias — "
+             "PascalCase PreToolUse/PostToolUse/Stop, group-wrapped config (it reads "
+             ".claude/settings.json too), nested hookSpecificOutput/permissionDecision deny "
+             "output, fails CLOSED — so the default CC envelope is wired (no --dialect). DOS "
+             "writes a dedicated .github/hooks/dos.json (Copilot loads every "
+             ".github/hooks/*.json). The Copilot CLI is a separate host (flat permissionDecision "
+             "output — a novel grammar). The wired `dos hook` command must be on PATH.",
+    )

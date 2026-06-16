@@ -355,6 +355,14 @@ openhands = "dos.drivers.hook_dialects:openhands_install_spec"
 # top-level {"decision":"deny"} deny OUTPUT, so it reuses the antigravity renderer
 # (--dialect antigravity). BeforeTool/AfterTool/AfterAgent events. Existing renderer; install spec only.
 tabnine = "dos.drivers.hook_dialects:tabnine_install_spec"
+# Factory AI's Droid CLI -- `.factory/hooks.json`, a PURE claude-code alias (CC-identical
+# group-wrapped config + nested hookSpecificOutput/permissionDecision deny), so NO --dialect.
+factory = "dos.drivers.hook_dialects:factory_install_spec"
+# GitHub Copilot agent mode (VS Code Agent hooks) -- `.github/hooks/dos.json`, a claude-code
+# alias (PascalCase events, group-wrapped config that also reads .claude/settings.json, nested
+# permissionDecision deny, fails closed). NO --dialect. (The Copilot CLI is a separate host --
+# flat top-level permissionDecision, a novel grammar.)
+copilot = "dos.drivers.hook_dialects:copilot_install_spec"
 
 # The memory-STORE providers (docs/314 P2/P3) — where a fleet's memories live, so
 # the recall gate (docs/103) and the write gate (`dos memory admit`) can run against

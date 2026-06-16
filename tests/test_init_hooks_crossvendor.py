@@ -303,6 +303,34 @@ def test_tabnine_writes_cc_config_with_antigravity_dialect(tmp_path: Path):
     assert set(cfg["hooks"]["BeforeTool"][0]) == {"hooks"}
 
 
+def test_factory_droid_writes_factory_hooks_as_claude_code_alias(tmp_path: Path):
+    """Factory AI's Droid is a pure claude-code alias: `.factory/hooks.json`, group-
+    wrapped, nested permissionDecision deny -- NO --dialect."""
+    dest = tmp_path / "svc"
+    assert _cli("init", "--hooks", "factory", str(dest)).returncode == 0
+    spec = hi.host_spec("factory")
+    assert spec.config_path == (".factory", "hooks.json")
+    cfg = _json_config(dest, spec)
+    assert _flat_commands(cfg, "PreToolUse") == ["dos hook pretool --workspace ."]
+    assert _flat_commands(cfg, "Stop") == ["dos hook stop --workspace ."]
+    assert set(cfg["hooks"]["PreToolUse"][0]) == {"hooks"}
+
+
+def test_copilot_vscode_writes_github_hooks_as_claude_code_alias(tmp_path: Path):
+    """GitHub Copilot agent mode (VS Code Agent hooks) is a claude-code alias:
+    `.github/hooks/dos.json`, PascalCase events, group-wrapped, nested permissionDecision
+    deny -- NO --dialect. (The Copilot CLI is a separate host with a novel flat grammar.)"""
+    dest = tmp_path / "svc"
+    assert _cli("init", "--hooks", "copilot", str(dest)).returncode == 0
+    spec = hi.host_spec("copilot")
+    assert spec.config_path == (".github", "hooks", "dos.json")
+    cfg = _json_config(dest, spec)
+    assert _flat_commands(cfg, "PreToolUse") == ["dos hook pretool --workspace ."]
+    assert _flat_commands(cfg, "PostToolUse") == ["dos hook posttool --workspace ."]
+    assert _flat_commands(cfg, "Stop") == ["dos hook stop --workspace ."]
+    assert set(cfg["hooks"]["PreToolUse"][0]) == {"hooks"}
+
+
 def test_claude_cowork_writes_the_shared_claude_settings_file(tmp_path: Path):
     """Claude Cowork is the SHARED-surface host (docs/298): it runs the Claude Code
     harness, so its hook surface IS `.claude/settings.json` — and the wired command
@@ -485,7 +513,7 @@ def test_cursor_merge_preserves_user_hooks_and_keys(tmp_path: Path):
 def test_idempotent_rerun_does_not_duplicate(tmp_path: Path):
     for host in ("cursor", "codex", "gemini", "antigravity", "claude-cowork", "hermes",
                  "augment", "devin", "cursor-cli", "crush", "qwen", "continue",
-                 "openhands", "tabnine"):
+                 "openhands", "tabnine", "factory", "copilot"):
         dest = tmp_path / host
         assert _cli("init", "--hooks", host, str(dest)).returncode == 0
         proc = _cli("init", "--hooks", host, str(dest))
