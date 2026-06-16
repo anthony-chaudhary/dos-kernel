@@ -1,0 +1,262 @@
+name: Release cadence
+
+# The AUTOMATED release cadence (docs/357). Every release today is a human
+# running the `/release` skill: a person reads the commits since the last tag,
+# judges whether they are a shippable unit, picks the semver level, and cuts the
+# tag. That manual gate stalls — the proof this workflow was born from is 240+
+# commits sitting unreleased behind v0.26.0 while the version stayed at 0.26.0.
+#
+# This workflow IS the cadence: on a schedule it asks `release_decide.py` whether
+# to release (commits-since-tag + a green CI base + parseable workflows + no
+# version drift) and at what level (the conventional-commit semver auto-rule). If
+# yes, `release_cut.py` performs the mechanical bump + auto-drafted notes + the
+# tag-last witness + a pathspec commit, then this workflow pushes master, WAITS
+# for CI to go green on the new commit, and pushes the `vX.Y.Z` tag. The tag push
+# hands off to `publish.yml`, which has its OWN ci-green witness + TestPyPI
+# rehearsal + install-smoke gates before the PyPI upload.
+#
+# UNATTENDED to PyPI (operator directive 2026-06-16): the cadence is meant to run
+# with zero human touch through to the upload. The machine witnesses — the
+# publish ci-green gate and the TestPyPI install-smoke read-back — remain the
+# guard on the irreversible step; the HUMAN approval is what is removed. That last
+# switch is NOT in this file: it is the `pypi` GitHub Environment's "Required
+# reviewers" setting (repo Settings → Environments → pypi), which lives in web
+# config, not a tracked workflow. Remove it there for true zero-touch; until then
+# the cadence is unattended up to the tag and the publish pauses for one click.
+# (docs/357 §4 records this.)
+#
+# DOS discipline this workflow keeps:
+#   * Decide from evidence, not a clock alone — a tick with a red CI base, a
+#     drifted version, or nothing to ship is a quiet no-op (logged to the step
+#     summary), never a forced release.
+#   * Tag-after-green — push master, poll ci.yml to a `success` on the exact new
+#     SHA, only THEN tag (the docs/295 rule: a tag is a claim, CI is the witness;
+#     mint the claim only once the witness is in).
+#   * Never burn a version number on red — release_cut runs the tag-last witness
+#     and resets the commit if it fails, so a bad cut tags nothing.
+#   * Pathspec commits — release_cut stages an explicit file set (the bump
+#     report + the notes), never `git add -A`, so a concurrent loop's in-flight
+#     edits are not swept into a release commit (the hot-tree discipline).
+
+on:
+  # Twice a week, off-peak, a non-:00 minute so this repo's tick doesn't land on
+  # the same instant as every other cron on the fleet. Mondays + Thursdays 06:17
+  # UTC. Adjust the cadence here; the gates make a too-frequent tick a cheap
+  # no-op rather than churn.
+  schedule:
+    - cron: "17 6 * * 1,4"
+  # Manual arm: run the cadence on demand, optionally as a dry-run that decides
+  # and plans the cut WITHOUT pushing or tagging (the live read-back proof).
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Decide + plan the cut, but do not commit/push/tag"
+        type: boolean
+        default: true
+      require_ci_green:
+        description: "Treat an unknown CI state as a blocker (default: soft-pass)"
+        type: boolean
+        default: true
+
+# Never run two cadence ticks at once — a second tick mid-cut would race the
+# first's push/tag. Do NOT cancel-in-progress: a cut mid-flight should finish.
+concurrency:
+  group: release-cadence
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  cadence:
+    name: decide & cut
+    # Same repo guard as publish.yml: this pushes commits + tags to the trunk and
+    # the tag fires the publish pipeline, so it must only ever run on the canonical
+    # public repo — never a fork or the private archive.
+    if: github.repository == 'anthony-chaudhary/dos-kernel'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write   # push the release commit + the vX.Y.Z tag
+      actions: read     # gh run list — poll ci.yml for the tag-after-green wait
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # Full history + tags: release_decide reads commits-since-tag and
+          # release_cut's notes cluster the whole range; a shallow clone would
+          # miss the base tag.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install the package (the scripts import dos for the lease fold)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Decide — release or hold?
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          flags="--json"
+          # On a manual dispatch, honor the require_ci_green input; on the cron,
+          # demand a green base (no silent release on an unknown CI state).
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            [ "${{ inputs.require_ci_green }}" = "true" ] && flags="$flags --require-ci-green"
+          else
+            flags="$flags --require-ci-green"
+          fi
+          python scripts/release_decide.py $flags > decision.json || true
+          cat decision.json
+          decision="$(python -c 'import json;print(json.load(open("decision.json"))["decision"])')"
+          level="$(python -c 'import json;print(json.load(open("decision.json")).get("level") or "")')"
+          next="$(python -c 'import json;print(json.load(open("decision.json")).get("next_version") or "")')"
+          reason="$(python -c 'import json;print(json.load(open("decision.json")).get("reason") or "")')"
+          themes="$(python -c 'import json;print(",".join(json.load(open("decision.json")).get("themes") or []))')"
+          echo "decision=$decision" >> "$GITHUB_OUTPUT"
+          echo "level=$level"       >> "$GITHUB_OUTPUT"
+          echo "next=$next"         >> "$GITHUB_OUTPUT"
+          echo "themes=$themes"     >> "$GITHUB_OUTPUT"
+          {
+            echo "## Release cadence — $decision"
+            echo ""
+            echo "$reason"
+            if [ "$decision" = "release" ]; then echo ""; echo "Planned: \`v$next\` ($level)"; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Hold — quiet no-op (the DOS silent-when-clear discipline)
+        if: steps.decide.outputs.decision != 'release'
+        run: |
+          echo "cadence: HOLD — nothing to do this tick. See the step summary for the reason."
+
+      - name: Cut the release commit (bump + notes + tag-last witness)
+        id: cut
+        if: steps.decide.outputs.decision == 'release'
+        run: |
+          set -uo pipefail
+          # CI runs the full suite on the push below, so the cut skips its own
+          # in-worktree dry-run suite (the docs/295 witness) here to save ~5 min —
+          # the tag-after-green wait is the binding suite gate. The cut still
+          # validates the bump report + drafts notes + commits with a pathspec.
+          python scripts/release_cut.py "${{ steps.decide.outputs.next }}" \
+            --execute --skip-dry-run \
+            --level "${{ steps.decide.outputs.level }}" \
+            --themes "${{ steps.decide.outputs.themes }}" \
+            > cut.json
+          cat cut.json
+          ok="$(python -c 'import json;print(json.load(open("cut.json"))["ok"])')"
+          if [ "$ok" != "True" ]; then
+            echo "::error::release_cut aborted — $(python -c 'import json;print(json.load(open("cut.json")).get("aborted"))')"
+            exit 1
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Leak gate — refuse to push a commit that carries a secret
+        if: steps.decide.outputs.decision == 'release'
+        run: |
+          set -uo pipefail
+          # The canonical leak scanner (scripts/leak_scan.py) is a gitignored sync
+          # of the private tool and is ABSENT on a CI runner. The cadence commit is
+          # machine-generated (version markers + notes auto-drafted from commit
+          # subjects that already passed the author-time gate), so the residual
+          # risk is low; but if the scanner IS present (a self-hosted runner that
+          # vendors it), run it fail-closed over the release commit's diff. Absent
+          # → log and proceed (the author-time pre-push hook is the primary gate).
+          if [ -f scripts/leak_scan.py ]; then
+            if git show --no-color HEAD | python scripts/leak_scan.py --stdin; then
+              echo "leak gate: clean"
+            else
+              echo "::error::leak scanner flagged the release commit — refusing to push."
+              exit 1
+            fi
+          else
+            echo "::notice::leak scanner absent on this runner — relying on the author-time pre-push gate (expected on hosted CI)."
+          fi
+
+      - name: Dry-run — stop before pushing (manual dispatch only)
+        if: >-
+          steps.decide.outputs.decision == 'release' &&
+          github.event_name == 'workflow_dispatch' && inputs.dry_run
+        run: |
+          echo "## Dry-run — cut planned, NOT pushed" >> "$GITHUB_STEP_SUMMARY"
+          echo "Would tag \`v${{ steps.decide.outputs.next }}\` on $(git rev-parse --short HEAD)." >> "$GITHUB_STEP_SUMMARY"
+          echo "cadence: dry-run — the release commit was built locally on the runner but is NOT pushed and the tree is discarded."
+
+      - name: Push master + tag-after-green + push the tag
+        if: >-
+          steps.decide.outputs.decision == 'release' &&
+          !(github.event_name == 'workflow_dispatch' && inputs.dry_run)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name  "dos-release-cadence[bot]"
+          git config user.email "dos-release-cadence@users.noreply.github.com"
+          sha="$(git rev-parse HEAD)"
+          ver="${{ steps.decide.outputs.next }}"
+
+          # 1. Push the release commit to master (fast-forward only — if a sibling
+          #    pushed since checkout, abort cleanly; the next tick re-decides on
+          #    the new base rather than force-pushing over them).
+          if ! git push origin "HEAD:${{ github.ref_name }}"; then
+            echo "::warning::push rejected (master advanced since checkout) — a concurrent commit landed. No tag cut; the next cadence tick re-decides on the new base."
+            exit 0
+          fi
+          echo "pushed release commit $sha to master"
+
+          # 2. Tag-after-green: poll ci.yml for a success on THIS sha before
+          #    tagging (the docs/295 rule). Bounded by the job timeout.
+          echo "waiting for CI to go green on $sha before tagging…"
+          start=$SECONDS
+          while :; do
+            runs="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml \
+                      --commit "$sha" --json status,conclusion 2>/dev/null || echo '[]')"
+            success="$(jq '[.[] | select(.conclusion == "success")] | length' <<<"$runs")"
+            failed="$(jq '[.[] | select(.status == "completed" and .conclusion != "success")] | length' <<<"$runs")"
+            pending="$(jq '[.[] | select(.status != "completed")] | length' <<<"$runs")"
+            total="$(jq 'length' <<<"$runs")"
+            if [ "$success" -gt 0 ]; then
+              echo "CI green on $sha — tagging."
+              break
+            fi
+            if [ "$failed" -gt 0 ] && [ "$pending" -eq 0 ]; then
+              echo "::error::CI is RED on the pushed release commit $sha — NOT tagging. The commit is on master; fix forward, then the next tick (or a manual /release) cuts the tag. No version number was burned."
+              exit 1
+            fi
+            if [ "$total" -eq 0 ] && [ $((SECONDS - start)) -gt 240 ]; then
+              echo "::error::no CI run registered for $sha after 4 min — push webhook may have missed it. Re-run CI on the commit, then tag manually."
+              exit 1
+            fi
+            echo "  …CI not green yet ($pending in flight, $total total) — waiting 30s"
+            sleep 30
+          done
+
+          # 3. Mint + push the annotated tag (this fires publish.yml).
+          git tag -a "v$ver" "$sha" -m "v$ver" -m "cut by the automated release cadence (docs/357)"
+          git push origin "v$ver"
+          echo "## Released \`v$ver\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Tag \`v$ver\` pushed on $sha — publish.yml now builds, gates (ci-green + TestPyPI rehearsal), and uploads to PyPI." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: GitHub release (notes from the drafted file)
+        if: >-
+          steps.decide.outputs.decision == 'release' &&
+          !(github.event_name == 'workflow_dispatch' && inputs.dry_run)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          ver="${{ steps.decide.outputs.next }}"
+          notes="docs/releases/v$ver.md"
+          if [ -f "$notes" ]; then
+            gh release create "v$ver" --repo "$GITHUB_REPOSITORY" --title "v$ver" \
+              --notes-file "$notes" --verify-tag || \
+              echo "::warning::gh release create did not complete (the tag + PyPI publish are unaffected)."
+          else
+            gh release create "v$ver" --repo "$GITHUB_REPOSITORY" --title "v$ver" \
+              --generate-notes --verify-tag || true
+          fi
