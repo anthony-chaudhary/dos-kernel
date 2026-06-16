@@ -83,3 +83,20 @@ def test_non_string_backend_warns_and_falls_back(tmp_path: Path):
     cfg = load_workspace_config(tmp_path, warn=lambda label, msg: warnings.append((label, msg)))
     assert cfg.vcs_backend == "git"
     assert any(label == "vcs" for label, _ in warnings)
+
+
+def test_bootstrap_reads_vcs_backend_from_env(tmp_path, monkeypatch):
+    """The oracle→phase_shipped subprocess hand-off: the child's bootstrap installs
+    the backend NAME the parent set in ENV_VCS_BACKEND (docs/360 slice 5)."""
+    import dataclasses
+    from dos import phase_shipped as ps
+
+    base = dataclasses.replace(default_config(tmp_path), vcs_backend="git")
+    c.set_active(base)
+    try:
+        monkeypatch.setenv(c.ENV_VCS_BACKEND, "null")
+        ps._bootstrap_active_config()
+        # The child now serves the parent's chosen backend, not its git default.
+        assert c.active().vcs_backend == "null"
+    finally:
+        c.set_active(default_config())  # restore the process-active config

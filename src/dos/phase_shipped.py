@@ -476,18 +476,30 @@ def _bootstrap_active_config() -> None:
     resolve). A malformed `dos.toml [stamp]` IS surfaced on the CLI's own
     `_apply_workspace` path; here, in the shelled-out rung, we stay defensive.
     """
+    import dataclasses
     import json
     import os
     from dos import config as _config
     from dos import stamp as _stamp
 
+    # (A) The vcs-backend NAME handed down by the parent (docs/360) — installed FIRST
+    # and independently of the stamp resolution below, so the rung's own git reads
+    # (`_git_log` → `active_vcs`) honour a `null`/plugin backend the parent selected.
+    # A plain name string; an absent/empty var leaves the default `git`.
     cur = _config.active()
-    # (1) explicit convention handed down by the parent process.
+    vcs_name = os.environ.get(_config.ENV_VCS_BACKEND, "").strip()
+    if vcs_name and vcs_name != cur.vcs_backend:
+        try:
+            cur = dataclasses.replace(cur, vcs_backend=vcs_name)
+            _config.set_active(cur)
+        except Exception:
+            pass  # never block the rung on a bad backend name — stay on the default
+
+    # (1) explicit stamp convention handed down by the parent process.
     raw = os.environ.get(_config.ENV_STAMP_CONVENTION)
     if raw:
         try:
             conv = _stamp.StampConvention.from_dict(json.loads(raw))
-            import dataclasses
             _config.set_active(dataclasses.replace(cur, stamp=conv))
             return
         except Exception:
@@ -497,7 +509,6 @@ def _bootstrap_active_config() -> None:
         toml_path = cur.paths.root / "dos.toml"
         conv = _stamp.load_from_toml(toml_path, base=cur.stamp)
         if conv is not cur.stamp:
-            import dataclasses
             _config.set_active(dataclasses.replace(cur, stamp=conv))
     except Exception:
         pass  # (3) leave the default convention in place
