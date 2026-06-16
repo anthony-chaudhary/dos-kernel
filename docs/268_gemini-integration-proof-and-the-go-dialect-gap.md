@@ -10,6 +10,11 @@
 > per-dialect parity test (`parity_dialect_test.go`) re-pins Go == Python for every
 > (verdict, dialect) pair. **§4 below records the original gap; the fix landed as
 > designed in §"The fix".**
+>
+> **Phase stamp.** Phase `P1` (the Go fast-path dialect renderer + the Go==Python
+> per-dialect parity that closes the `renderGemini` fail-open) shipped as
+> `61bd487`; `dos verify --workspace . docs/268 P1` resolves it via this commit's
+> `(docs/268 P1)` trailer — the oracle does not read the `Status:` sentence above.
 
 ## What was asked
 
