@@ -23,9 +23,14 @@ Add a doc to llms.txt and the next build inlines it; rename one and the llms.txt
 rot pin (tests/test_llms_txt.py) goes red before this script even runs.
 
 Assembly is deliberately dumb: a spec-shaped header (H1 + blockquote), a
-generated-file banner, then each document verbatim, opened by an HTML comment
-naming its source path. Idempotent: LF endings, single trailing newline.
-`--check` makes no changes and exits non-zero on drift — the mode
+generated-file banner, then each rostered document verbatim (opened by a `source:`
+comment), THEN the full answer corpus — every `docs/answers/*.md` page inlined
+(opened by a distinct `answer:` comment). The roster links only the corpus INDEX;
+inlining the pages themselves is what lets an arriving agent get the whole
+knowledge base in one fetch instead of having to walk the routing table. The
+corpus pages are a DERIVED glob (not a second hand-kept list), so a page added to
+the corpus is inlined on the next build. Idempotent: LF endings, single trailing
+newline. `--check` makes no changes and exits non-zero on drift — the mode
 `tests/test_llms_full.py` runs.
 
 Usage
@@ -45,6 +50,7 @@ from pathlib import Path
 
 LLMS = Path("llms.txt")
 LLMS_FULL = Path("llms-full.txt")
+ANSWERS_DIR = Path("docs/answers")
 
 # A link that names a FILE in this repo, in either fetchable spelling — the same
 # pattern tests/test_llms_txt.py resolves, so the two readers cannot disagree.
@@ -69,8 +75,9 @@ HEADER = (
     "# DOS — the Dispatch Operating System (dos-kernel) — llms-full.txt\n"
     "\n"
     "> The one-fetch expansion of llms.txt: every document that index points at\n"
-    "> (outside its Optional section), concatenated in index order. Each section\n"
-    "> opens with an HTML comment naming its source file in the repository\n"
+    "> (outside its Optional section), concatenated in index order, FOLLOWED BY the\n"
+    "> full answer corpus (every docs/answers/*.md page inlined). Each section opens\n"
+    "> with an HTML comment naming its source file in the repository\n"
     "> (https://github.com/anthony-chaudhary/dos-kernel).\n"
 )
 
@@ -99,13 +106,52 @@ def roster(llms_text: str) -> list[str]:
     return paths
 
 
+ANSWERS_HEADER = (
+    "<!-- ====== the answer corpus (docs/answers/*.md) ====== -->\n"
+    "\n"
+    "# DOS answer corpus — the high-intent questions, answered in full\n"
+    "\n"
+    "> The llms.txt roster above links the answer-corpus INDEX (the routing\n"
+    "> table). What follows is the corpus itself: every sourced, self-contained\n"
+    "> answer page inlined, so an arriving agent gets the whole knowledge base in\n"
+    "> this one fetch — each page a high-intent question answered with an evidence\n"
+    "> table whose every number links to the file that proves it. The pages are a\n"
+    "> DERIVED glob of docs/answers/*.md (not a second hand-kept list), so a page\n"
+    "> added to the corpus is inlined here on the next build. Each opens with an\n"
+    "> `answer:` marker naming its source file.\n"
+)
+
+
+def answer_pages(repo_root: Path) -> list[str]:
+    """The answer-corpus pages, sorted, as repo-relative paths — a DERIVED glob.
+
+    Excludes README.md (already inlined via the llms.txt roster) and the generated
+    index.jsonl (machine data, not prose). Pure on the repo root so the drift test
+    can call it. The same derived-set discipline `discoverability_inventory` keeps:
+    the glob IS the list, never a parallel hand-kept one.
+    """
+    out: list[str] = []
+    for p in sorted((repo_root / ANSWERS_DIR).glob("*.md")):
+        if p.name == "README.md":
+            continue
+        out.append(str(p.relative_to(repo_root)).replace("\\", "/"))
+    return out
+
+
 def assemble(repo_root: Path) -> str:
-    """Concatenate the rostered documents into the llms-full.txt text."""
+    """Concatenate the rostered documents + the full answer corpus into the text."""
     llms_text = (repo_root / LLMS).read_text(encoding="utf-8")
     chunks = [HEADER, BANNER]
     for path in roster(llms_text):
         body = (repo_root / path).read_text(encoding="utf-8").strip("\n")
         chunks.append(f"<!-- ====== source: {path} ====== -->\n\n{body}\n")
+    # The answer corpus, inlined in full after the roster. A DISTINCT `answer:`
+    # marker (not the roster's `source:` marker) keeps the roster drift test exact
+    # — the roster markers still equal llms.txt's roster, no more, no less.
+    chunks.append(ANSWERS_HEADER)
+    for path in answer_pages(repo_root):
+        body = (repo_root / path).read_text(encoding="utf-8").strip("\n")
+        chunks.append(f"<!-- ====== answer: {path} ====== -->\n\n{body}\n")
     return "\n".join(chunks)
 
 

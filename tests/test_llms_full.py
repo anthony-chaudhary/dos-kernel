@@ -79,3 +79,36 @@ def test_no_local_machine_paths() -> None:
     assert not re.search(r"[A-Za-z]:\\", _LLMS_FULL.read_text(encoding="utf-8")), (
         "llms-full.txt must carry no local absolute path"
     )
+
+
+def test_full_answer_corpus_is_inlined() -> None:
+    """Every docs/answers/*.md page is inlined under its own `answer:` marker.
+
+    The roster links only the corpus INDEX (README.md); the point of this section
+    is that the PAGES themselves travel in the one-fetch file. A DERIVED glob, so
+    the assertion is: one `answer:` marker per corpus page, covering them all.
+    """
+    mod = _load_builder()
+    pages = mod.answer_pages(_REPO)
+    text = _LLMS_FULL.read_text(encoding="utf-8")
+    markers = re.findall(r"<!-- ====== answer: (\S+) ====== -->", text)
+    assert markers == pages, (
+        "llms-full.txt answer markers do not match the docs/answers glob — run: "
+        "python scripts/build_llms_full.py"
+    )
+    assert len(pages) >= 5, "the shipped corpus floor (docs/325)"
+    # README is inlined via the roster (source: marker), NOT duplicated as an answer
+    assert "docs/answers/README.md" not in pages
+
+
+def test_roster_and_answer_markers_are_disjoint() -> None:
+    """The two marker namespaces don't overlap — the roster test stays exact.
+
+    The corpus uses `answer:`, the roster uses `source:`; if a page leaked into
+    the roster (or vice versa) the byte-compare would still pass but the roster
+    drift test's contract would quietly weaken. Pin the separation directly.
+    """
+    text = _LLMS_FULL.read_text(encoding="utf-8")
+    source_markers = set(re.findall(r"<!-- ====== source: (\S+) ====== -->", text))
+    answer_markers = set(re.findall(r"<!-- ====== answer: (\S+) ====== -->", text))
+    assert not (source_markers & answer_markers)
