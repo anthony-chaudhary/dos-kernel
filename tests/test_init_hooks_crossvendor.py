@@ -43,6 +43,20 @@ def _json_config(dest: Path, spec: hi.HostHookSpec) -> dict:
     return json.loads(dest.joinpath(*spec.config_path).read_text(encoding="utf-8"))
 
 
+def _yaml_config(dest: Path, spec: hi.HostHookSpec) -> dict:
+    import yaml
+    return yaml.safe_load(dest.joinpath(*spec.config_path).read_text(encoding="utf-8"))
+
+
+def _yaml_commands(config: dict, event: str) -> list[str]:
+    """Every `command` wired under `event` in a YAML host config (Hermes flat entries)."""
+    cmds: list[str] = []
+    for item in (config or {}).get("hooks", {}).get(event, []):
+        if isinstance(item, dict) and "command" in item:
+            cmds.append(item["command"])
+    return cmds
+
+
 def _flat_commands(config: dict, event: str) -> list[str]:
     """Every `command` wired under `event` in a host config (flat or group-wrapped)."""
     cmds: list[str] = []
@@ -202,6 +216,97 @@ def test_claude_cowork_and_claude_code_share_one_set_of_hooks(tmp_path: Path):
             assert len(dos_cmds) == 1, (first, second, ev, dos_cmds)
 
 
+def test_hermes_writes_cli_config_yaml_with_its_shell_hook_events(tmp_path: Path):
+    """Hermes is the YAML host (docs/278): `cli-config.yaml`, a top-level `hooks:`
+    map keyed by the SHELL-hook event names (`pre_tool_call` / `post_tool_call`),
+    each a list of FLAT `{command: …}` entries — wired with `--dialect hermes` (its
+    deny is `{"decision":"block","reason":…}` on stdout). Hermes documents NO
+    stop/agent-end shell hook, so DOS wires only the two moments it fires — the
+    honest-coverage discipline (docs/294), pinned here so a future stop-event
+    addition is a conscious change."""
+    dest = tmp_path / "svc"
+    proc = _cli("init", "--hooks", "hermes", str(dest))
+    assert proc.returncode == 0, proc.stderr
+    spec = hi.host_spec("hermes")
+    # The right file at the right path: a root-level cli-config.yaml (one path part).
+    assert spec.config_path == ("cli-config.yaml",)
+    assert spec.fmt is hi.ConfigFormat.YAML
+    cfg = _yaml_config(dest, spec)
+    # Hermes' own shell-hook event vocabulary, each wired to the right verb + dialect.
+    assert _yaml_commands(cfg, "pre_tool_call") == ["dos hook pretool --workspace . --dialect hermes"]
+    assert _yaml_commands(cfg, "post_tool_call") == ["dos hook posttool --workspace . --dialect hermes"]
+    # NO stop event is wired (Hermes documents none) — neither a stop key nor a
+    # stop CHANGE leaks into the file, and the success message omits the stop clause.
+    assert "stop" not in cfg["hooks"]
+    assert "wired 2 DOS hook(s)" in proc.stdout
+    assert "(stop)" not in proc.stdout
+    # The Hermes WARN-degrades-to-pass coverage note is surfaced to the operator.
+    assert "WARN" in proc.stdout and "non-blocking pass" in proc.stdout
+
+
+def test_hermes_yaml_merge_preserves_user_keys_and_per_entry_timeout(tmp_path: Path):
+    """The YAML merge keeps the user's own top-level keys, their own hook entries,
+    AND per-entry extras like Hermes' `timeout` — appending the DOS entry alongside
+    (the merge_json flat-entry discipline, on a YAML round trip)."""
+    dest = tmp_path / "svc"
+    dest.mkdir()
+    (dest / "cli-config.yaml").write_text(
+        "model: hermes-3\n"
+        "hooks:\n"
+        "  pre_tool_call:\n"
+        "  - command: my-own-linter\n"
+        "    timeout: 30\n",
+        encoding="utf-8",
+    )
+    proc = _cli("init", "--hooks", "hermes", str(dest))
+    assert proc.returncode == 0, proc.stderr
+    cfg = _yaml_config(dest, hi.host_spec("hermes"))
+    # The user's unrelated key survives.
+    assert cfg["model"] == "hermes-3"
+    # The user's own hook survives ALONGSIDE the DOS one (merge, not clobber)...
+    pre = cfg["hooks"]["pre_tool_call"]
+    assert {"command": "my-own-linter", "timeout": 30} in pre
+    assert any(e.get("command") == "dos hook pretool --workspace . --dialect hermes" for e in pre)
+    # ...and the user's per-entry `timeout` is preserved verbatim (not flattened away).
+    user_entry = next(e for e in pre if e["command"] == "my-own-linter")
+    assert user_entry["timeout"] == 30
+
+
+def test_hermes_idempotent_and_force_repair(tmp_path: Path):
+    """A second plain run is the idempotent path (no duplicate); --force strips and
+    re-adds exactly one DOS entry per event (the YAML repair path)."""
+    dest = tmp_path / "svc"
+    assert _cli("init", "--hooks", "hermes", str(dest)).returncode == 0
+    proc = _cli("init", "--hooks", "hermes", str(dest))
+    assert proc.returncode == 0, proc.stderr
+    assert "untouched" in proc.stdout
+    cfg = _yaml_config(dest, hi.host_spec("hermes"))
+    for ev in ("pre_tool_call", "post_tool_call"):
+        dos_cmds = [c for c in _yaml_commands(cfg, ev) if c.startswith("dos hook ")]
+        assert len(dos_cmds) == 1, (ev, dos_cmds)
+    # --force re-adds exactly one (repair, not duplicate).
+    assert _cli("init", "--hooks", "hermes", "--force", str(dest)).returncode == 0
+    cfg = _yaml_config(dest, hi.host_spec("hermes"))
+    assert len([c for c in _yaml_commands(cfg, "pre_tool_call") if c.startswith("dos hook ")]) == 1
+
+
+def test_malformed_yaml_is_reported_then_force_rescues(tmp_path: Path):
+    """A present-but-unreadable YAML config is a reported error (never lost); --force
+    rescues it — the merge_json malformed-JSON precedent, on the YAML branch."""
+    dest = tmp_path / "svc"
+    dest.mkdir()
+    # Invalid YAML (a bad indent / unterminated flow) — safe_load raises.
+    (dest / "cli-config.yaml").write_text("hooks:\n  pre_tool_call: [unterminated\n", encoding="utf-8")
+    proc = _cli("init", "--hooks", "hermes", str(dest))
+    assert proc.returncode == 1
+    assert "valid yaml" in proc.stderr.lower()
+    # With --force it is rescued and the DOS hooks land.
+    proc = _cli("init", "--hooks", "hermes", "--force", str(dest))
+    assert proc.returncode == 0, proc.stderr
+    cfg = _yaml_config(dest, hi.host_spec("hermes"))
+    assert _yaml_commands(cfg, "pre_tool_call") == ["dos hook pretool --workspace . --dialect hermes"]
+
+
 def test_claude_code_via_hooks_flag_matches_with_hooks(tmp_path: Path):
     """`--hooks claude-code` and `--with-hooks` produce the IDENTICAL CC file."""
     a = tmp_path / "a"
@@ -242,7 +347,7 @@ def test_cursor_merge_preserves_user_hooks_and_keys(tmp_path: Path):
 
 
 def test_idempotent_rerun_does_not_duplicate(tmp_path: Path):
-    for host in ("cursor", "codex", "gemini", "antigravity", "claude-cowork"):
+    for host in ("cursor", "codex", "gemini", "antigravity", "claude-cowork", "hermes"):
         dest = tmp_path / host
         assert _cli("init", "--hooks", host, str(dest)).returncode == 0
         proc = _cli("init", "--hooks", host, str(dest))
@@ -254,6 +359,11 @@ def test_idempotent_rerun_does_not_duplicate(tmp_path: Path):
             # Exactly one DOS block, one DOS pretool command.
             assert text.count(hi.TOML_FENCE_OPEN) == 1
             assert text.count("dos hook pretool") == 1
+        elif spec.fmt is hi.ConfigFormat.YAML:
+            cfg = _yaml_config(dest, spec)
+            for ev in spec.pre_events:
+                dos_cmds = [c for c in _yaml_commands(cfg, ev) if c.startswith("dos hook ")]
+                assert len(dos_cmds) == 1, (host, ev, dos_cmds)
         else:
             cfg = _json_config(dest, spec)
             for ev in spec.pre_events:
