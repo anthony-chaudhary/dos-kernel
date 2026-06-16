@@ -1,11 +1,13 @@
 # docs/357 — the automated release cadence (decide → cut → tag-after-green → publish)
 
-> **Status:** shipped. `scripts/release_decide.py` (the decision + semver
-> auto-rule), `scripts/release_cut.py` (the mechanical bump + notes + commit),
-> and `.github/workflows/release-cadence.yml` (the cron) are in the tree with
-> 24 witness tests green. The one piece NOT reachable from a code edit — the
-> `pypi` Environment's required-reviewer toggle for true zero-touch upload — is
-> named in §4 for the operator to flip.
+> **Status:** shipped + zero-touch live. `scripts/release_decide.py` (the
+> decision + semver auto-rule), `scripts/release_cut.py` (the mechanical bump +
+> notes + commit), and `.github/workflows/release-cadence.yml` (the cron) are in
+> the tree with 24 witness tests green. The one piece NOT reachable from a code
+> edit — the `pypi` Environment's required-reviewer toggle for true zero-touch
+> upload — **has been removed by the operator (2026-06-16)**, so a cron tick now
+> carries a release all the way to PyPI with no human in the loop (§4 keeps the
+> record of that switch).
 
 ## Why this exists
 
@@ -102,16 +104,25 @@ Output: a JSON manifest `{version, tag, commit_sha, paths, dry_run, …}`.
 The operator directive (2026-06-16) is that the cadence run **fully unattended
 through to the PyPI upload** — automate the reversible decision *and* the
 irreversible publish. Everything reachable from a code edit is shipped here. One
-piece is **not** in any tracked file:
+piece was **not** in any tracked file:
 
 > **GitHub → repo Settings → Environments → `pypi` → remove "Required
 > reviewers".**
 
-That required-reviewer gate is what pauses `publish.yml` for a human approval
+> **DONE (operator, 2026-06-16).** The required-reviewer gate on the `pypi`
+> environment has been removed. The path is now genuinely zero-touch: a cron
+> tick decides → cuts → tags, and `publish.yml` builds, gates on its machine
+> witnesses, and uploads to PyPI with **no human in the loop**. This §4 is kept
+> as the record of the one web-config switch the automation depends on — if a
+> future audit re-adds a reviewer to that environment, the cadence silently
+> reverts to pausing for a click, and this is where to look.
+
+That required-reviewer gate is what paused `publish.yml` for a human approval
 click before the OIDC upload. It lives in GitHub *web* config, not a workflow
-file, so a code edit cannot flip it. **Until it is removed**, the cadence is
-unattended up to the tag and the publish pauses for one click. **After** it is
-removed, a cron tick can carry a release all the way to PyPI with no human.
+file, so a code edit cannot flip it — which is why it is named here rather than
+wired. **Before** it was removed, the cadence was unattended up to the tag and
+the publish paused for one click; **now** that it is removed, a cron tick carries
+a release all the way to PyPI with no human.
 
 This is honest about the trade and keeps the DOS discipline intact: removing the
 HUMAN gate does **not** remove the MACHINE witnesses on the irreversible step.
