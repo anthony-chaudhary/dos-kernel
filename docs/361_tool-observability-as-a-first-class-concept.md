@@ -10,6 +10,12 @@
 Status: design. No code shipped by this doc. It records a decision and scopes
 the one addition that makes the concept coherent.
 
+**Phase stamp.** The surviving addition — the `dos tool-trace` per-call read
+projection scoped here — shipped as `5e5278b` (phase `P1`);
+`dos verify --workspace . docs/361 P1` resolves it via this commit's
+`(docs/361 P1)` trailer. The doc itself records the decision; `5e5278b` is the
+git witness that the spine landed.
+
 ---
 
 ## 1. The question
