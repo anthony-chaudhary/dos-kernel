@@ -212,10 +212,10 @@ claude-cowork = "dos.drivers.hook_dialects:ClaudeCoworkDialect"
 # Hermes Agent (Nous Research) — its `pre_tool_call` SHELL hook is a real
 # stdout-JSON deny surface (`{"decision":"block","reason":…}`), docs/278. (OpenClaw's
 # real hook is an in-process TS return, not stdout — no renderer consumer; SwarmClaw
-# documents no pre-tool veto — so neither gets a dialect.) No install_spec yet:
-# Hermes' config is YAML (`cli-config.yaml`), which `hook_install.ConfigFormat`
-# (JSON/TOML) does not encode — wiring it is a separate kernel lift; the dialect
-# renderer (the high-value, kernel-clean half) ships now.
+# documents no pre-tool veto — so neither gets a dialect.) Its install_spec now lands
+# too (registered under dos.hook_installs below): the YAML branch of hook_install
+# (`ConfigFormat.YAML`, PyYAML — the kernel's one dep) encodes Hermes' `cli-config.yaml`,
+# closing the lift docs/278 deferred.
 hermes = "dos.drivers.hook_dialects:HermesDialect"
 
 # The plan-DIALECT sources (docs/293). The kernel seam (`dos.plan_source`) holds
@@ -292,6 +292,7 @@ paste_log = "dos.drivers.paste_log:PasteLogSource"          # operator-pasted te
 citation_resolve = "dos.drivers.citation_resolve:CitationResolveSource"  # legal cite resolves in a reporter (THIRD_PARTY, docs/277/279)
 content_diff = "dos.drivers.content_diff:ContentDiffEvidenceSource"  # blob CONTENT vs a gold — the W2→W3 climb (rung capped at min(blob,gold), docs/192)
 provider_ledger = "dos.drivers.provider_ledger:ProviderLedgerEvidenceSource"  # external-effect vs a different-principal ledger — the THIRD_PARTY band (docs/261)
+slack_approval = "dos.drivers.slack_approval:SlackApprovalSource"  # "an accountable human approved this" via the Slack envelope (THIRD_PARTY, docs/93 §3)
 
 # The cross-vendor hook INSTALL specs (docs/221) — the install-side sibling of the
 # dialect renderers above: where/how `dos init --hooks <host>` wires the DOS hooks
@@ -311,6 +312,13 @@ antigravity = "dos.drivers.hook_dialects:antigravity_install_spec"
 # note carries the one Cowork-specific fact: the product does not fire hooks yet
 # (anthropics/claude-code#63360, docs/298).
 claude-cowork = "dos.drivers.hook_dialects:claude_cowork_install_spec"
+# Hermes Agent (Nous Research) — `cli-config.yaml` (YAML, flat `{command: …}` entries
+# under a top-level `hooks:` map keyed by `pre_tool_call` / `post_tool_call`). The
+# dialect renderer shipped earlier (above); this install spec lands once the YAML
+# branch of `hook_install` (ConfigFormat.YAML, PyYAML) exists — the lift docs/278
+# deferred. No stop event: Hermes' shell hook documents none, so DOS wires only the
+# two moments it fires (the honest-coverage rule, the Trae/docs-294 discipline).
+hermes = "dos.drivers.hook_dialects:hermes_install_spec"
 
 # The memory-STORE providers (docs/314 P2/P3) — where a fleet's memories live, so
 # the recall gate (docs/103) and the write gate (`dos memory admit`) can run against

@@ -101,6 +101,7 @@ class ConfigFormat(enum.Enum):
 
     JSON = "json"  # Claude Code, Cursor, Gemini
     TOML = "toml"  # Codex
+    YAML = "yaml"  # Hermes (cli-config.yaml) — PyYAML is the one kernel dep already
 
 
 @dataclass(frozen=True)
@@ -473,6 +474,66 @@ def merge_json(
 
 
 # ---------------------------------------------------------------------------
+# YAML merge (Hermes — `cli-config.yaml`). Hermes' hook-config is a top-level
+# `hooks:` map keyed by the SHELL-hook event name (`pre_tool_call` /
+# `post_tool_call`), each a LIST of flat `{command: …}` entries that may carry
+# extra keys (e.g. `timeout: 30`) — the shape docs/278 §"Wiring the Hermes shell
+# hook by hand" records from the real CLI. Structurally that is the SAME flat-entry
+# model `merge_json` handles when `json_group_wraps=False` / `json_entry_has_type=
+# False` (Cursor's shape), so this merge reuses `_json_entry` / `_entry_is_dos_command`
+# verbatim — the only difference is the serializer at the boundary (PyYAML, not
+# json). PURE: a parsed dict in, a parsed dict out; the file read/parse/dump is the
+# CLI boundary's, exactly like merge_json. PyYAML is already the kernel's one
+# dependency (the `pyyaml>=6.0` floor), so this adds NO new dep.
+#
+# A YAML host MUST set `json_group_wraps=False` and `json_entry_has_type=False` in
+# its spec (Hermes entries are bare `{command: …}`), so `_json_entry` produces the
+# right shape and `_entry_is_dos_command` recognizes it — the merge asserts neither,
+# it simply honors the spec flags the same way merge_json does.
+# ---------------------------------------------------------------------------
+def merge_yaml(
+    existing: dict, spec: HostHookSpec, *, force: bool = False
+) -> tuple[dict, list[str], list[str]]:
+    """Add the DOS hooks to a parsed YAML hook-config (Hermes). PURE.
+
+    Returns `(merged, wired, already)` — the new config object (to be dumped by the
+    caller), the events newly wired, and the events that already had a DOS entry
+    (skipped — idempotent). Every non-DOS key/entry the user has is preserved,
+    including extra per-entry keys like Hermes' `timeout`. `force` drops an existing
+    DOS entry and re-adds the canonical one (the repair path), mirroring merge_json.
+
+    Hermes hangs its events directly under a top-level `hooks:` map (no `version`,
+    no group wrapper), so this is `merge_json`'s flat-entry branch with a YAML round
+    trip instead of a JSON one — the logic is intentionally identical so the two
+    paths cannot drift.
+    """
+    settings: dict = dict(existing) if isinstance(existing, dict) else {}
+
+    hooks = settings.get("hooks")
+    hooks = dict(hooks) if isinstance(hooks, dict) else {}
+    settings["hooks"] = hooks
+
+    wired: list[str] = []
+    already: list[str] = []
+
+    for event, command in spec.events_and_commands():
+        entries = hooks.get(event)
+        entries = list(entries) if isinstance(entries, list) else []
+        present = any(_entry_is_dos_command(e) for e in entries)
+        if present and not force:
+            already.append(event)
+            hooks[event] = entries
+            continue
+        if present and force:
+            entries = [e for e in entries if not _entry_is_dos_command(e)]
+        entries.append(_json_entry(spec, command))
+        hooks[event] = entries
+        wired.append(event)
+
+    return settings, wired, already
+
+
+# ---------------------------------------------------------------------------
 # Codex TOML merge. Codex's config.toml is hand-edited and comment-rich, and the
 # stdlib has no comment-preserving TOML writer (`tomllib` is read-only; `tomlkit`
 # would break the PyYAML-only kernel dependency floor). So we APPEND a fenced block
@@ -556,6 +617,26 @@ def wired_events_toml(existing_text: str, spec: HostHookSpec) -> list[str]:
     # The DOS block wires ALL of the host's events at once (it is written as a unit),
     # so the presence of the fence means every event is wired.
     return [ev for ev, _ in spec.events_and_commands()]
+
+
+def wired_events_yaml(existing: dict, spec: HostHookSpec) -> list[str]:
+    """Which of `spec`'s events already run a `dos hook …` command in a YAML config.
+
+    The YAML flat-entry shape is identical to the JSON flat shape (a `hooks:` map of
+    event → list of `{command: …}` entries), so detection is `wired_events_json`'s
+    flat branch — a per-entry `_entry_is_dos_command` scan. PURE: the caller does
+    the file read + YAML parse, hands in the parsed dict."""
+    if not isinstance(existing, dict):
+        return []
+    hooks = existing.get("hooks")
+    if not isinstance(hooks, dict):
+        return []
+    found: list[str] = []
+    for event in [ev for ev, _ in spec.events_and_commands()]:
+        entries = hooks.get(event)
+        if isinstance(entries, list) and any(_entry_is_dos_command(e) for e in entries):
+            found.append(event)
+    return found
 
 
 # ---------------------------------------------------------------------------

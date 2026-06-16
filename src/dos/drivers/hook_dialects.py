@@ -416,6 +416,54 @@ def antigravity_install_spec() -> HostHookSpec:
     )
 
 
+def hermes_install_spec() -> HostHookSpec:
+    """Nous Research's **Hermes Agent** — `cli-config.yaml` (YAML, flat entries).
+
+    Hermes' shell-hook config is a top-level `hooks:` map keyed by the SHELL-hook
+    event name, each a list of flat `{command: …}` entries (which may carry extra
+    keys like `timeout: 30` — preserved by `merge_yaml`). This is the exact shape
+    docs/278 §"Wiring the Hermes shell hook by hand" records from the real CLI:
+
+        hooks:
+          pre_tool_call:
+            - command: "dos hook pretool --workspace . --dialect hermes"
+
+    Hermes' shell hook fires `pre_tool_call` and `post_tool_call` (verified against
+    the Hermes hooks doc, 2026-06-09 — `hermes-agent.nousresearch.com/docs/user-
+    guide/features/hooks`); there is NO documented stop/agent-end shell-hook event,
+    so `stop_events` is empty — DOS wires only the two moments Hermes actually fires
+    (the honest-coverage discipline: never invent an event name a host won't call).
+    The `post_tool_call` hook cannot HALT a finished tool, a host coverage matter the
+    `HermesDialect` docstring already records; DOS wires the right bytes regardless.
+
+    The wired command carries `--dialect hermes` (the `HermesDialect` renderer above):
+    a DENY emits `{"decision":"block","reason":…}` on stdout, the canonical block
+    shape Hermes reads. Format is YAML — `ConfigFormat.YAML` (PyYAML, already the
+    kernel's one dep), which is why this spec could only land once the YAML branch of
+    `hook_install` existed (the lift docs/278 deferred). Entries are flat
+    (`json_entry_has_type=False`, `json_group_wraps=False` — the Cursor-shape flags
+    `merge_yaml` honors), no `version` key.
+    """
+    return HostHookSpec(
+        host="hermes",
+        config_path=("cli-config.yaml",),
+        fmt=ConfigFormat.YAML,
+        pre_events=("pre_tool_call",),
+        post_events=("post_tool_call",),
+        stop_events=(),              # Hermes' shell hook documents no stop/agent-end event.
+        dialect_flag="--dialect hermes",
+        json_entry_has_type=False,   # Hermes entries are flat {command: …}.
+        json_group_wraps=False,
+        json_version=None,
+        note="Hermes wires the shell hook in cli-config.yaml (pre_tool_call / "
+             "post_tool_call). It documents no stop/agent-end shell hook, so DOS wires "
+             "only those two moments. A DENY prints {\"decision\":\"block\",\"reason\":…} "
+             "on stdout; a WARN degrades to a non-blocking pass (Hermes' shell hook has "
+             "no add-context channel). The wired `dos hook` command must be on PATH in "
+             "the Hermes session.",
+    )
+
+
 def claude_cowork_install_spec() -> HostHookSpec:
     """Claude Cowork — the SHARED surface: the same `.claude/settings.json` Claude
     Code reads, because Cowork runs the same agent harness (docs/298).

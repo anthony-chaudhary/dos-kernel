@@ -919,6 +919,30 @@ def _install_host_hooks(
     spec = _hi.host_spec(host)  # fail-LOUD on an unknown host name.
     config_path = dest_root.joinpath(*spec.config_path)
 
+    if spec.fmt is _hi.ConfigFormat.YAML:
+        # YAML hosts (Hermes — cli-config.yaml). PyYAML is the kernel's one dep.
+        import yaml
+
+        existing_yaml: dict = {}
+        if config_path.exists():
+            try:
+                loaded_y = yaml.safe_load(config_path.read_text(encoding="utf-8-sig"))
+            except (yaml.YAMLError, OSError) as e:
+                if not force:
+                    raise ValueError(
+                        f"{config_path} is not valid YAML ({e}); fix it or pass "
+                        f"--force to overwrite the hooks block") from e
+                loaded_y = {}
+            existing_yaml = loaded_y if isinstance(loaded_y, dict) else {}
+        merged_y, wired, already = _hi.merge_yaml(existing_yaml, spec, force=force)
+        # Block style, keys in our insertion order (the user's untouched keys keep
+        # their order; `hooks` is updated in place), trailing newline.
+        new_text = yaml.safe_dump(merged_y, default_flow_style=False, sort_keys=False)
+        if not dry_run:
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            config_path.write_text(new_text, encoding="utf-8")
+        return spec, config_path, wired, already, new_text
+
     if spec.fmt is _hi.ConfigFormat.TOML:
         existing_text = ""
         if config_path.exists():
@@ -1127,9 +1151,19 @@ def cmd_init(args: argparse.Namespace) -> int:
             if already:
                 print(f"left {len(already)} existing DOS hook(s) untouched "
                       f"(use --force to repair): {', '.join(already)}")
-            print(f"  bound to {spec.host}: a refused call is DENIED (pretool), "
-                  "a stalled stream is re-surfaced (posttool), a stop on an "
-                  "unverified claim is refused (stop).")
+            # Describe only the moments THIS host actually wires — a host whose
+            # spec has no stop_events (e.g. Hermes' shell hook) must not be told a
+            # stop is refused when none is wired (the honest-coverage discipline, the
+            # docs/294 rule applied to the operator message).
+            clauses = []
+            if spec.pre_events:
+                clauses.append("a refused call is DENIED (pretool)")
+            if spec.post_events:
+                clauses.append("a stalled stream is re-surfaced (posttool)")
+            if spec.stop_events:
+                clauses.append("a stop on an unverified claim is refused (stop)")
+            if clauses:
+                print(f"  bound to {spec.host}: " + ", ".join(clauses) + ".")
             if also_covers:
                 print(f"  also covers {', '.join(also_covers)} — the same config "
                       "file, one set of hooks.")
@@ -7171,6 +7205,10 @@ def _runtime_hook_status(root: Path) -> list[tuple[str, list[str]]]:
                 continue
             if spec.fmt is _hi.ConfigFormat.TOML:
                 evs = _hi.wired_events_toml(path.read_text(encoding="utf-8"), spec)
+            elif spec.fmt is _hi.ConfigFormat.YAML:
+                import yaml
+                evs = _hi.wired_events_yaml(
+                    yaml.safe_load(path.read_text(encoding="utf-8-sig")) or {}, spec)
             else:
                 evs = _hi.wired_events_json(json.loads(path.read_text(encoding="utf-8")), spec)
             out.append((name, evs))
@@ -7202,6 +7240,10 @@ def _wiring_drift_rows(root: Path) -> list[dict]:
                 try:
                     if spec.fmt is _hi.ConfigFormat.TOML:
                         wired = _hi.wired_events_toml(path.read_text(encoding="utf-8"), spec)
+                    elif spec.fmt is _hi.ConfigFormat.YAML:
+                        import yaml
+                        wired = _hi.wired_events_yaml(
+                            yaml.safe_load(path.read_text(encoding="utf-8-sig")) or {}, spec)
                     else:
                         wired = _hi.wired_events_json(
                             json.loads(path.read_text(encoding="utf-8")), spec)
