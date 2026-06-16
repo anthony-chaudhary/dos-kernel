@@ -134,9 +134,61 @@ A real judge — a debate, a learned verifier, a build/test oracle — replaces 
 of `rule`; the *shape* and the **fail-to-abstain** discipline are what to copy. See
 `docs/HACKING.md` §6 for the full contract.
 
+## 4. The host-policy axis — a whole DRIVER via `entry_points` (Axis 1)
+
+`dos_ext/driver.py` defines `acme_config` — a host-policy DRIVER, the *whole config*
+(its lanes, paths, facts) a host supplies, not just one axis. Where the renderer/predicate/
+judge each plug into ONE seam, a driver assembles the entire `SubstrateConfig`. This was
+the one seam that used to require forking the kernel (it loaded only via a hardcoded
+`dos.drivers.<name>` import); now `acme` ships HERE, in a third-party package, registered
+under the `dos.drivers` group:
+
+```toml
+[project.entry-points."dos.drivers"]
+acme = "dos_ext.driver:acme_config"
+```
+
+```bash
+pip install -e examples/dos_ext                       # registers `acme`
+dos --driver acme --workspace /some/repo doctor       # resolves the acme lanes (mobile/cloud/ship)
+dos plugins                                           # lists `acme` under dos.drivers (third-party)
+```
+
+In-tree packs (`workshop`/`job`) resolve FIRST and are unshadowable — a third-party `acme`
+is found only after the in-tree miss, the same built-in-first contract every seam shares.
+The factory gathers workspace facts so the SELF_MODIFY guard is workspace-scoped (the
+kernel also backfills this, but a well-formed pack gathers its own). See `docs/HACKING.md`
+§"The driver itself".
+
+## 5. The MCP-surface axis — a tool/verb via `entry_points` (`dos.mcp_tools`)
+
+`dos_ext/mcp_tools.py` defines `register(mcp)` — it ADDS an MCP tool (`acme_lane_hint`) to
+the `dos` MCP server a host talks to, with no fork. `register` is handed the running server
+and calls `mcp.tool()` itself, so its tool gets the same call-deadline + deep-answer
+wrapping the built-in `dos_*` tools get. Registered under the `dos.mcp_tools` group:
+
+```toml
+[project.entry-points."dos.mcp_tools"]
+acme = "dos_ext.mcp_tools:register"
+```
+
+```bash
+pip install -e "examples/dos_ext" && pip install "dos-kernel[mcp]"   # the server extra
+# the `dos` MCP server now exposes `acme_lane_hint` alongside the built-in dos_* tools
+```
+
+The seam is ADDITIVE — a plugin adds a verb, never replaces a built-in — and a broken
+plugin is skipped, never crashing the server.
+
 ## The rule of thumb
 
 - **Data** (reasons, lanes, paths) → declare in `dos.toml`.
 - **Behavior** (renderers, admission predicates) → ship as code via `entry_points`.
 - **Adjudication** (judges, the JUDGE rung) → ship as code via `entry_points`
   (`dos.judges`); measure it with `dos judge-eval`.
+- **A whole host pack** (lanes/paths/facts) → ship as a `dos.drivers` driver
+  (`dos --driver <name>`); in-tree packs are unshadowable.
+- **An MCP tool/verb** → ship as a `dos.mcp_tools` `register(mcp)` plugin.
+
+Run `dos plugins` to see every seam, its built-in floor, and what you've installed; run
+`dos plugin new <seam> --name <yours>` to scaffold any of them.
