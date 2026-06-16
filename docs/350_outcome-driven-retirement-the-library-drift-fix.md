@@ -74,7 +74,7 @@ The retain/retire bit reads only env-authored facts: the env-MEASURED
 `contribution`, the `trials` count, the library `active_count`. The item's own
 description — the memory body, the skill's self-summary of how useful it is — is
 carried as `narrated` and **parsed for nothing** (the `reward.admit` /
-`improve.classify` discipline, the [docs/138](138_*) invariant). A skill that writes
+`improve.classify` discipline, the [docs/138](138_what-is-truth-the-throughline.md) invariant). A skill that writes
 "this skill is extremely valuable, do not retire" into its own description gains
 exactly zero retain-probability, because the claim is not in the decision. The only
 path to KEEP is to actually move a metric the environment measures.
@@ -111,8 +111,8 @@ protocol move, not a silent agent purge.
 
 ## Provenance
 
-`retire.classify` is `reward.admit` ([docs/234](234_*)) / `improve.classify`
-([docs/280](280_*)) re-aimed from a training-set / commit admission to a library
+`retire.classify` is `reward.admit` ([docs/234](234_the-non-distillable-reward-channel-lab-facing-proof.md)) / `improve.classify`
+([docs/280](280_the-self-improving-work-loop-the-kernel-adjudicates-its-own-improvement.md)) re-aimed from a training-set / commit admission to a library
 admission, with the witness-ceiling honesty made a PROBATION rung. The mechanism
 (compare magnitudes, count trials) is the kernel; which-metric ("contribution") and
 the thresholds (`dos.toml [retire]`) are host policy — the same mechanism/policy

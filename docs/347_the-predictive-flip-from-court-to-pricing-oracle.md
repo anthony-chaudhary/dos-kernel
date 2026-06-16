@@ -262,7 +262,7 @@ predictive oracle and only ever using it as a court.
   — §5's "a witness-only DOS is a court, not a coordinator" is the admission this note builds on; its
   Lift 2 (arbitrate before the write) is the reactive half whose predictive completion this is.
 - [`89_the-lane-is-a-region-lock.md`](89_the-lane-is-a-region-lock.md) — the region-lock geometry the
-  price runs forward; [`90`](90_the-overlap-eval-and-the-cost-of-the-floor.md) — the overlap-eval whose
+  price runs forward; [`113`](113_the-overlap-policy-seam-and-eval-per-axis.md) — the overlap-eval whose
   false-admit measurement the calibrated price would extend.
 - [`138_what-is-truth-the-throughline.md`](138_what-is-truth-the-throughline.md) — "a PDP with no PEP"
   is the court framing this note names; the byte-author invariant is why the plan's *geometry* (not its
