@@ -18,3 +18,4 @@ you want to run something in the next minute.
 | [`dos_ext/`](dos_ext/) | a complete extension package occupying the plugin seams (judge, overlap policy, predicate, renderer) — the hackability surface as working code |
 | [`drivers/`](drivers/) | a minimal host policy pack — what a layer-4 driver looks like |
 | [`plans/`](plans/) | an example phased-plan doc in the dialect the plan harvester parses |
+| [`residual_review/`](residual_review/) | the next-generation diff — project `commit-audit` per-commit so review attention sorts to the **residual** (the claims the kernel could not witness), spends ~0 on the witnessed set, and re-adds an advisory semantic lens |
