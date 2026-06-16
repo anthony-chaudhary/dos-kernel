@@ -8,6 +8,11 @@
 > upload — **has been removed by the operator (2026-06-16)**, so a cron tick now
 > carries a release all the way to PyPI with no human in the loop (§4 keeps the
 > record of that switch).
+>
+> **Phase stamp.** Phase `P1` (the decide→cut→tag-after-green→publish cadence)
+> shipped as `90ea637`; `dos verify --workspace . docs/357 P1` resolves it via
+> this commit's `(docs/357 P1)` trailer — the oracle does not read the `Status:`
+> sentence above (it is a self-report, by design).
 
 ## Why this exists
 
