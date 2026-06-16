@@ -1481,3 +1481,46 @@ class TestEnforceStormResolution:
         rows = D._from_enforce_storms(
             cfg_long, now=D._now(), live_holders=frozenset())
         assert rows[0].resolved is False
+
+
+class TestResumeProposalsSurface:
+    """`_from_resume_proposals` — the wire from `dos resume`'s RESUME_PROPOSED
+    ledger op to the operator queue (issue #19). A stalled run adjudicated
+    RESUMABLE records a RESUME_PROPOSED entry on a successor's intent ledger; this
+    reader lifts it into a HUMAN decision so the run is re-dispatched, not silently
+    reaped."""
+
+    def _seed_resume_proposed(self, cfg, *, successor: str, predecessor: str,
+                              resume_sha: str = "abc123def456",
+                              residual=("P2",), goal: str = "ship the thing") -> None:
+        from dos import intent_ledger as L
+        L.append(successor, L.intent_entry(goal=goal, plan="P", phase="P1"), cfg=cfg)
+        L.append(successor, L.resume_proposed_entry(
+            predecessor_run_id=predecessor, resume_sha=resume_sha,
+            residual=list(residual)), cfg=cfg)
+
+    def test_resume_proposed_surfaces_as_human_decision(self, tmp_path: Path):
+        cfg = default_config(tmp_path)
+        self._seed_resume_proposed(cfg, successor="succ-run", predecessor="dead-run")
+        rows = D._from_resume_proposals(cfg)
+        assert len(rows) == 1
+        r = rows[0]
+        assert r.kind is D.DecisionKind.RESUME_PROPOSAL
+        assert r.resolver_kind is D.ResolverKind.HUMAN  # the operator re-dispatches
+        assert r.run_id == "dead-run"                   # the PREDECESSOR being resumed
+        assert "RESUMABLE run dead-run" in r.reason_text
+        assert "P2" in r.reason_text                    # the residual, not the whole goal
+        assert "--resume dead-run" in r.proposed_command
+
+    def test_no_archive_is_empty_not_an_error(self, tmp_path: Path):
+        # The conservative floor: a workspace with no run archive yields no
+        # resume decisions rather than raising (fail-soft, like every other reader).
+        cfg = default_config(tmp_path)
+        assert D._from_resume_proposals(cfg) == []
+
+    def test_resume_proposal_joins_the_collected_queue(self, tmp_path: Path):
+        # End-to-end through collect_decisions: the #19 reader is actually wired in.
+        cfg = default_config(tmp_path)
+        self._seed_resume_proposed(cfg, successor="s1", predecessor="dead-1")
+        kinds = [d.kind.value for d in D.collect_decisions(cfg)]
+        assert "RESUME_PROPOSAL" in kinds

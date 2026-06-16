@@ -11,7 +11,7 @@ queue of live *instances* and the way into each one.)
 
 This module is a **read-only projection**, never a store (DOM Design-rules 1 & 4,
 and the `dos.reasons` thesis): it stores nothing of its own. `collect_decisions`
-joins five sources that already persist their decisions —
+joins six sources that already persist their decisions —
 
     arbiter refusals    <- lane_journal.jsonl `OP_REFUSE` entries (already journaled)
     WEDGE / gate surfaces <- output/next-up/.verdict-<tag>.json envelopes
@@ -20,6 +20,10 @@ joins five sources that already persist their decisions —
     enforcement storms  <- lane_journal.jsonl `OP_ENFORCE` denies, folded through
                            the docs/223 breaker (issue #14 — a hook deny whose only
                            remedy is a human, recurring, IS an operator decision)
+    resume proposals    <- `RESUME_PROPOSED` ops in run-archive intent ledgers
+                           (issue #19 — a stalled run adjudicated RESUMABLE by
+                           `dos resume` has a minted re-entry point; surface it so
+                           the operator can re-dispatch instead of silently reaping)
 
 — normalizes each into one `Decision`, and renders. The detail/action text is a
 projection of the active `ReasonRegistry` (`config.reasons`), exactly as
@@ -91,6 +95,9 @@ class DecisionKind(str, enum.Enum):
                                            # tripped the docs/223 breaker (issue #14): the
                                            # refusal's only remedy is a human, so N
                                            # identical denies fold to ONE HUMAN decision
+    RESUME_PROPOSAL = "RESUME_PROPOSAL"    # a stalled run adjudicated RESUMABLE by
+                                           # `dos resume` — a minted re-entry point waiting
+                                           # for operator re-dispatch (issue #19, docs/107)
 
     def __str__(self) -> str:  # pragma: no cover - trivial
         return self.value
@@ -1115,6 +1122,75 @@ def _from_soaks(config) -> list[Decision]:
     return out
 
 
+def _from_resume_proposals(config, *, now: dt.datetime | None = None) -> list[Decision]:
+    """Resume proposals — `RESUME_PROPOSED` entries in run-archive intent ledgers.
+
+    When `dos resume` adjudicates a stalled run as RESUMABLE it records a
+    `RESUME_PROPOSED` op on that run's intent ledger (idempotent — §5 req 4). This
+    reader lifts each such entry into a Decision so the operator sees "this run can
+    be re-dispatched" in the queue (issue #19: the wire from the resume verdict to
+    operator attention). A DIVERGED run surfaces here too when the supervisor has
+    recorded one. Degrades to [] on a missing/unreadable archive dir.
+    """
+    runs_dir = getattr(config.paths, "fanout_runs", None)
+    if not runs_dir or not Path(runs_dir).exists():
+        return []
+    # Import lazily so the module stays fast when the run archive is absent.
+    from dos import intent_ledger as _ledger  # noqa: PLC0415 (local import intentional)
+    out: list[Decision] = []
+    try:
+        run_dirs = sorted(p for p in Path(runs_dir).iterdir() if p.is_dir())
+    except OSError:
+        return []
+    for run_dir in run_dirs:
+        run_id = run_dir.name
+        try:
+            entries = _ledger.read_all(run_id=run_id, cfg=config)
+        except Exception:
+            continue
+        # One pass: fold INTENT for context, collect RESUME_PROPOSED entries.
+        goal = ""
+        plan_str = ""
+        phase_str = ""
+        for e in entries:
+            op = e.get("op")
+            if op == _ledger.OP_INTENT:
+                goal = str(e.get("goal") or "")
+                plan_str = str(e.get("plan") or "")
+                phase_str = str(e.get("phase") or "")
+            elif op == _ledger.OP_RESUME_PROPOSED:
+                predecessor = str(e.get("predecessor_run_id") or run_id)
+                resume_sha = str(e.get("resume_sha") or "")
+                residual = e.get("residual") or []
+                ts = str(e.get("ts") or "")
+                age = _age_seconds(ts, now=now)
+                residual_str = ", ".join(str(r) for r in residual) if residual else "(whole goal)"
+                lane = plan_str or phase_str or ""
+                sha_hint = resume_sha[:12] if resume_sha else "(start)"
+                redispatch = (
+                    f"dos loop dispatch --resume {predecessor}"
+                    f"  # re-enter at {sha_hint}, do: {residual_str}"
+                )
+                evidence_parts: list[str] = [f"resume_sha={sha_hint}"]
+                if residual_str != "(whole goal)":
+                    evidence_parts.append(f"residual={residual_str}")
+                if goal:
+                    evidence_parts.append(f"goal={goal[:60]}")
+                out.append(Decision(
+                    kind=DecisionKind.RESUME_PROPOSAL,
+                    resolver_kind=ResolverKind.HUMAN,
+                    lane=lane,
+                    reason_token="",
+                    reason_text=f"RESUMABLE run {predecessor} — residual: {residual_str}",
+                    run_id=predecessor,
+                    age_seconds=age,
+                    source_path=str(run_dir / _ledger.INTENT_JSONL_NAME),
+                    evidence=tuple(evidence_parts),
+                    proposed_command=redispatch,
+                ))
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Collection + ranking.
 # ---------------------------------------------------------------------------
@@ -1135,6 +1211,9 @@ _KIND_RANK = {
     DecisionKind.ENFORCE_BREAKER: 1,
     DecisionKind.PREFLIGHT_REFUSE: 2,
     DecisionKind.WEDGE: 3,
+    # A resume proposal is a stalled run waiting for re-dispatch — same urgency tier
+    # as a WEDGE (a no-pick the loop reported). Neither is burning budget right now.
+    DecisionKind.RESUME_PROPOSAL: 3,
     DecisionKind.SOAK_GATE: 4,
 }
 
@@ -1242,6 +1321,7 @@ def collect_decisions(
     decisions.extend(_from_enforce_storms(cfg, now=clock, live_holders=live_holders))
     decisions.extend(_from_verdict_envelopes(cfg, now=clock))
     decisions.extend(_from_soaks(cfg))
+    decisions.extend(_from_resume_proposals(cfg, now=clock))
 
     # Recency gate — reuse the retention policy's `journal_max_age_days` cutoff as
     # the one staleness number (no new config knob; same seam the WAL compaction +
@@ -1323,6 +1403,17 @@ def next_steps(decision: Decision, config=None) -> list[tuple[str, str]]:
             # the opaque handle the watchdog recorded.
             steps.append(("k", f"# stop the run with handle: {decision.handle}"))
         steps.append(("l", "# let it ride (take no action)"))
+        steps.append(("c", "<copy selected command>"))
+        return steps
+
+    # A resume proposal's action is the pre-minted re-dispatch command (the kernel
+    # already computed the residual + re-entry SHA when it recorded the proposal).
+    # The operator either pastes the `dos loop dispatch --resume` command or skips.
+    if decision.kind is DecisionKind.RESUME_PROPOSAL:
+        if decision.proposed_command:
+            steps.append(("d", decision.proposed_command))
+        run_ref = decision.run_id or "?"
+        steps.append(("s", f"dos resume --run-id {run_ref}  # re-inspect the proposal"))
         steps.append(("c", "<copy selected command>"))
         return steps
 

@@ -77,12 +77,33 @@ the supervisor counts it alive and does not launch a second worker on the same
 lane. The supervisor itself never takes a lease; it only counts them and fills
 the gap. Launch exactly the lanes the plan named — no more, no fewer.
 
-## Step 2 — Per REAP scavenge, per FLAG surface
+## Step 2 — Per REAP consult resume then scavenge, per FLAG surface
 
-For each lane in the plan's `reap` list (a STALLED worker): release/scavenge its
-lease so the lane is free to refill on the next tick. The worker is not making
-progress by the kernel's temporal verdict, so its claim on the lane is the only
-thing being reclaimed — the lane returns to the roster as a spawn candidate.
+For each lane in the plan's `reap` list (a STALLED worker): **before scavenging,
+ask `dos resume` whether the run can be continued** (docs/107, issue #19):
+
+```bash
+dos resume --workspace . --run-id <run_id> --json
+```
+
+The verdict shapes the action:
+
+- **RESUMABLE** — the kernel minted a re-entry point and recorded a
+  `RESUME_PROPOSED` on the ledger. **Do NOT scavenge**; the proposal surfaces
+  automatically in `dos decisions` for the operator to re-dispatch. The lane
+  remains held until the operator acts.
+- **DIVERGED** — ground truth advanced past the resume point; re-dispatch would
+  overwrite fresh work. **Do NOT scavenge**; surface the decision to the operator
+  the same way (the RESUME_PROPOSAL row in `dos decisions` carries the DIVERGED
+  context). A human must decide.
+- **UNRESUMABLE** or **COMPLETE** — no viable continuation (no intent, corrupt
+  ledger, or all steps already verified). **Scavenge** as before: release the
+  lease so the lane is free to refill on the next tick.
+
+`dos resume` is **inspect-only for DIVERGED** (it never records a proposal for a
+diverged run); the decision surfaces because the supervisor logs the verdict as
+context when it leaves the lease in place. For COMPLETE/UNRESUMABLE the
+scavenge path is unchanged — only the RESUMABLE/DIVERGED branch is new.
 
 For each lane in the plan's `flag` list (a SPINNING worker, or an excess over
 target): **surface it to the operator and move on.** Do NOT kill a SPINNING
