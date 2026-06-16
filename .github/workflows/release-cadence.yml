@@ -110,29 +110,31 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -uo pipefail
-          flags="--json"
+          flags=(--json)
           # On a manual dispatch, honor the require_ci_green input; on the cron,
           # demand a green base (no silent release on an unknown CI state).
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            [ "${{ inputs.require_ci_green }}" = "true" ] && flags="$flags --require-ci-green"
+            [ "${{ inputs.require_ci_green }}" = "true" ] && flags+=(--require-ci-green)
             # `force` is the "specifically requested" escape: bypass the
             # significance floor so a deliberate manual run cuts even a churn-only
             # range (the CI/drift/parse gates still bind).
-            [ "${{ inputs.force }}" = "true" ] && flags="$flags --force"
+            [ "${{ inputs.force }}" = "true" ] && flags+=(--force)
           else
-            flags="$flags --require-ci-green"
+            flags+=(--require-ci-green)
           fi
-          python scripts/release_decide.py $flags > decision.json || true
+          python scripts/release_decide.py "${flags[@]}" > decision.json || true
           cat decision.json
           decision="$(python -c 'import json;print(json.load(open("decision.json"))["decision"])')"
           level="$(python -c 'import json;print(json.load(open("decision.json")).get("level") or "")')"
           next="$(python -c 'import json;print(json.load(open("decision.json")).get("next_version") or "")')"
           reason="$(python -c 'import json;print(json.load(open("decision.json")).get("reason") or "")')"
           themes="$(python -c 'import json;print(",".join(json.load(open("decision.json")).get("themes") or []))')"
-          echo "decision=$decision" >> "$GITHUB_OUTPUT"
-          echo "level=$level"       >> "$GITHUB_OUTPUT"
-          echo "next=$next"         >> "$GITHUB_OUTPUT"
-          echo "themes=$themes"     >> "$GITHUB_OUTPUT"
+          {
+            echo "decision=$decision"
+            echo "level=$level"
+            echo "next=$next"
+            echo "themes=$themes"
+          } >> "$GITHUB_OUTPUT"
           {
             echo "## Release cadence — $decision"
             echo ""

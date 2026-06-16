@@ -42,3 +42,4 @@ lives on a focused page — find the question you arrived with and jump:
 | *"How do I bend it to my org without forking it?"* | [Extending it](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/guide/extending.md) — the seven axes, the docs index, the playbooks |
 | *"What is actually proven, and can I re-run it?"* | [For researchers](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/guide/for-researchers.md) — claims → invariants → reproduction |
 | *"I'm an AI agent orienting in this repo."* | **[AGENTS.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/AGENTS.md)** — what DOS is in three lines, build/test/check, the ~5 files worth reading |
+| *"What surfaces are stable and what's the deprecation window?"* | **[docs/STABILITY.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/STABILITY.md)** — the compatibility promise, what the version number means, and what will never break |
