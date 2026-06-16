@@ -131,6 +131,66 @@ def test_completion_covers_every_verb():
 
 
 # ---------------------------------------------------------------------------
+# dos completion --values (issue #167 — dynamic VALUE completion, lazy)
+# ---------------------------------------------------------------------------
+
+
+def test_completion_values_lane_emits_workspace_lanes():
+    """`dos completion bash --workspace . --values lane` prints the workspace's
+    lanes, one per line — the dynamic value source the script shells out to.
+    Pinned against THIS repo, whose taxonomy includes `src`/`docs`/`global`."""
+    repo_root = str(Path(dos.__file__).parents[2])
+    proc = _cli("completion", "bash", "--workspace", repo_root, "--values", "lane")
+    assert proc.returncode == 0, proc.stderr
+    lanes = [ln for ln in proc.stdout.splitlines() if ln.strip()]
+    # The kernel repo declares these (dos doctor --json `lanes`); a few anchors.
+    for lane in ("src", "docs", "global"):
+        assert lane in lanes, f"{lane} missing from --values lane output: {lanes}"
+
+
+def test_completion_values_lane_is_workspace_resolved():
+    """The value source resolves the workspace's OWN taxonomy (not a hardcoded
+    set): a generic/empty workspace yields the generic default lanes, never the
+    kernel repo's. Pins that the source reads config, not a literal list."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        proc = _cli("completion", "bash", "--workspace", td, "--values", "lane")
+        assert proc.returncode == 0, proc.stderr
+        lanes = [ln for ln in proc.stdout.splitlines() if ln.strip()]
+        # A bare dir has the generic default taxonomy (main/global), NOT src/docs.
+        assert "global" in lanes
+        assert "src" not in lanes
+
+
+def test_completion_values_unknown_kind_rejected():
+    proc = _cli("completion", "bash", "--values", "bogus")
+    assert proc.returncode == 2  # argparse choices rejects it
+
+
+def test_each_shell_script_invokes_the_lane_value_source():
+    """The done-condition witness (#167): every emitted script LAZILY queries the
+    value source for `--lane` — it contains the `dos completion <shell> --values
+    lane` shell-out, so a `--lane <TAB>` offers live lanes. Verb/flag completion
+    stays a pure in-shell add (the call sits behind a `--lane`/prev guard)."""
+    for shell in ("bash", "zsh", "fish"):
+        proc = _cli("completion", shell)
+        assert proc.returncode == 0, proc.stderr
+        assert f"completion {shell} --values lane" in proc.stdout, (
+            f"{shell} script does not invoke the dynamic lane value source")
+
+
+def test_completion_value_source_is_lazy_not_inlined():
+    """Laziness contract: the script must SHELL OUT for lanes, never bake a static
+    lane list in (which would rot + couple the script to one workspace). The lane
+    names must NOT appear as literals in the generated bash script body."""
+    proc = _cli("completion", "bash")
+    assert proc.returncode == 0, proc.stderr
+    # The shell-out is present; a concrete lane name is NOT baked in as a literal.
+    assert "--values lane" in proc.stdout
+    assert "\"global\"" not in proc.stdout and " global " not in proc.stdout
+
+
+# ---------------------------------------------------------------------------
 # dos start-here
 # ---------------------------------------------------------------------------
 

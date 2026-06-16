@@ -2739,11 +2739,18 @@ def cmd_efficiency(args: argparse.Namespace) -> int:
     _apply_workspace(args)
     from dos import efficiency
 
+    # The base policy is the workspace's loaded `[efficiency]` table (issue #37):
+    # an absent `--floor`/`--min-tokens` flag inherits the ARMED floor a workspace
+    # declared in `dos.toml`, NOT the dead-by-default dataclass constant. With no
+    # table the loaded config IS the dataclass default, so this is byte-identical
+    # to today for an un-armed workspace; a `[efficiency] floor = ...` table makes
+    # the floor reachable with no flag — the issue's done-condition.
+    base_policy = getattr(_config.active(), "efficiency", efficiency.DEFAULT_POLICY)
     policy = efficiency.EfficiencyPolicy(
         min_tokens=args.min_tokens if args.min_tokens is not None
-        else efficiency.DEFAULT_POLICY.min_tokens,
+        else base_policy.min_tokens,
         floor=args.floor if args.floor is not None
-        else efficiency.DEFAULT_POLICY.floor,
+        else base_policy.floor,
     )
     try:
         breakdown = _read_usage_breakdown(args)
@@ -7828,10 +7835,19 @@ def _completion_script(shell: str) -> str:
             "    local cur prev words cword\n"
             "    COMPREPLY=()\n"
             '    cur="${COMP_WORDS[COMP_CWORD]}"\n'
+            '    prev="${COMP_WORDS[COMP_CWORD-1]}"\n'
             "    if [ \"$COMP_CWORD\" -eq 1 ]; then\n"
             f"        COMPREPLY=( $(compgen -W \"{verbs_line}\" -- \"$cur\") )\n"
             "        return 0\n"
             "    fi\n"
+            "    # issue #167 — dynamic VALUE completion, lazy: only shell out to\n"
+            "    # `dos` when completing a --lane argument (the common verb/flag path\n"
+            "    # below never pays for it). Fail-soft: no lanes -> no completions.\n"
+            '    case "$prev" in\n'
+            "        --lane)\n"
+            '            COMPREPLY=( $(compgen -W "$(dos completion bash --values lane 2>/dev/null)" -- "$cur") )\n'
+            "            return 0 ;;\n"
+            "    esac\n"
             '    local verb="${COMP_WORDS[1]}" opts=""\n'
             "    case \"$verb\" in\n"
             f"{cases}\n"
@@ -7852,6 +7868,13 @@ def _completion_script(shell: str) -> str:
             f"    verbs=({verbs_line})\n"
             "    if (( CURRENT == 2 )); then\n"
             "        _describe 'dos command' verbs\n"
+            "        return\n"
+            "    fi\n"
+            "    # issue #167 — dynamic VALUE completion, lazy: only shell out for\n"
+            "    # a --lane value; verb/flag completion stays a pure in-shell add.\n"
+            '    if [[ "${words[CURRENT-1]}" == "--lane" ]]; then\n'
+            '        local -a lanes; lanes=(${(f)"$(dos completion zsh --values lane 2>/dev/null)"})\n'
+            "        compadd -- $lanes\n"
             "        return\n"
             "    fi\n"
             '    case "${words[2]}" in\n'
@@ -7876,7 +7899,44 @@ def _completion_script(shell: str) -> str:
             lines.append(
                 f"complete -c dos -n '__fish_seen_subcommand_from {v}' "
                 f"-l {opt.lstrip('-')}")
+    # issue #167 — dynamic VALUE completion, lazy: offer the workspace lanes only
+    # when the token being completed follows `--lane` (the `-l lane -x -a` form
+    # binds the candidates to that option's argument). Fish calls the value
+    # source on demand, so verb/flag completion never shells out.
+    lines.append(
+        "complete -c dos -l lane -x -a "
+        "'(dos completion fish --values lane 2>/dev/null)'")
     return "\n".join(lines) + "\n"
+
+
+# issue #167 — the dynamic-value sources the completion script can lazily query.
+# v1 completed verbs + flags (instant, no shell-out); this adds the FIRST value
+# source: the workspace's declared lanes for `--lane`. Lazy by construction — the
+# generated script only invokes `dos completion <shell> --values lane` when the
+# user is completing a `--lane` argument, so the common verb/flag path stays a
+# pure in-shell `compgen` with zero `dos` subprocess. Each source is a one-line-
+# per-value print read off `dos doctor`'s OWN data (the lane taxonomy), never a
+# second source of truth.
+_COMPLETION_VALUE_KINDS = ("lane",)
+
+
+def _completion_values(kind: str) -> list[str]:
+    """The dynamic completion values for `kind` (issue #167). Fail-soft: any error
+    resolving the workspace yields an empty list (a completion source must never
+    crash the user's shell), so a broken/foreign cwd just offers no values."""
+    try:
+        if kind == "lane":
+            cfg = _config.active()
+            # The full lane vocabulary the arbiter accepts: concurrent + exclusive,
+            # de-duped in declaration order (the same set `dos doctor` reports).
+            seen: list[str] = []
+            for lane in list(cfg.lanes.concurrent) + list(cfg.lanes.exclusive):
+                if lane and lane not in seen:
+                    seen.append(lane)
+            return seen
+    except Exception:
+        return []
+    return []
 
 
 def cmd_completion(args: argparse.Namespace) -> int:
@@ -7884,6 +7944,16 @@ def cmd_completion(args: argparse.Namespace) -> int:
 
     Detail: docs/CLI.md § cmd_completion.
     """
+    # issue #167 — the value-source mode: `dos completion <shell> --values lane`
+    # prints one completion value per line (lanes). This is what the generated
+    # script shells out to when completing a `--lane` argument; it is lazy (only
+    # called on `--lane <TAB>`), so verb/flag completion never pays for it.
+    values_kind = getattr(args, "values", None)
+    if values_kind is not None:
+        _apply_workspace(args)
+        for v in _completion_values(values_kind):
+            print(v)
+        return 0
     shell = args.shell
     if shell not in _COMPLETION_SHELLS:
         return _fail(
@@ -9762,11 +9832,20 @@ def build_parser() -> argparse.ArgumentParser:
             "  bash:  source <(dos completion bash)      # or write to a completions dir\n"
             "  zsh:   source <(dos completion zsh)\n"
             "  fish:  dos completion fish | source\n\n"
-            "Put the line in your shell rc to make it permanent. v1 completes "
-            "verbs + flags; value completion (plan/phase/lane) is future work."),
+            "Put the line in your shell rc to make it permanent. Completes verbs "
+            "+ flags, plus dynamic --lane values from this workspace's taxonomy "
+            "(lazy: the value source is queried only when completing --lane)."),
         formatter_class=argparse.RawDescriptionHelpFormatter)
     pcomp.add_argument("shell", choices=_COMPLETION_SHELLS,
                        help="the shell to emit a completion script for")
+    # issue #167 — the value-source mode the generated script shells out to when
+    # completing a dynamic argument (e.g. `--values lane`). Hidden from the verb
+    # list's headline use; it is plumbing the script calls, not an operator verb.
+    pcomp.add_argument("--values", choices=_COMPLETION_VALUE_KINDS, default=None,
+                       help="print dynamic completion values (one per line) for a "
+                            "kind, e.g. `--values lane` — what the generated script "
+                            "lazily queries; not for direct use")
+    _add_workspace_flags(pcomp)
     pcomp.set_defaults(func=cmd_completion)
 
     pv = sub.add_parser("verify", help="the truth syscall: did (plan,phase) ship?",
