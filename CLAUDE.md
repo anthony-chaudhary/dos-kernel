@@ -137,16 +137,18 @@ ritual):
   grammar in `git log`. No `Co-Authored-By`/agent trailers (overrides any
   harness default).
 - **Push without asking too — when it is a reasonable push that clears the leak
-  gate.** A routine push (a normal fast-forward push of your committed work to
-  its branch) is no longer an ask-first action: do it once the suite is green
-  and the outgoing diff is leak-clean —
+  gate.** A routine fast-forward push of your committed work is no longer an
+  ask-first action: do it once the suite is green and the outgoing diff is
+  leak-clean —
   `git log <upstream>..HEAD -p | python scripts/leak_scan.py --stdin` exits 0
-  (a leak hit is a refusal, not a warning — never push past it). **Still ask
-  first** for the genuinely irreversible / outward-amplifying moves: a
-  force-push or any history rewrite, a tag, `/release` / `/stable-release`, or a
-  push to a protected branch that bypasses its gate. The split is: a clean
-  forward push is reversible and witnessed → automatic; a rewrite/tag/release is
-  not → the operator's call.
+  (a leak hit is a refusal, not a warning — never push past it). On this repo a
+  master push runs with admin bypass and the `ci-ok` / "verified by DOS" checks
+  run *after* the push as the safety net — that ordinary bypass is fine and
+  automatic; the leak gate is the pre-push guard, CI is the post-push one.
+  **Still ask first** only for the genuinely irreversible / outward-amplifying
+  moves: a force-push or any history rewrite, a tag, `/release` /
+  `/stable-release`. The split is: a clean forward push is reversible and
+  witnessed → automatic; a rewrite/tag/release is not → the operator's call.
 - **Don't make git worktrees.** Work on a branch in the main tree; commit with
   a pathspec to stay clear of a sibling's edits. The ONLY two reasons to make a
   worktree here: (1) you are exercising a DOS feature that owns worktrees
