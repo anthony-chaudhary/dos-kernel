@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="182" viewBox="0 0 720 182" role="img" aria-label="What kind of work AI commits claimed" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <title>What kind of work AI commits claimed</title>
+  <desc>A single stacked bar of checkable claims by kind across the published set.</desc>
+  <rect x="0" y="0" width="720" height="182" fill="#f6f8fa" rx="8" stroke="#d0d7de" stroke-width="1"/>
+  <text x="16" y="28" font-size="16" fill="#1f2328" font-weight="bold">What kind of work AI commits claimed</text>
+  <text x="16" y="48" font-size="12" fill="#59636e">checkable claims across the published set, by kind</text>
+  <rect x="16" y="64" width="688" height="34" fill="#e7ebef" rx="4"/>
+  <rect x="16" y="64" width="512.63" height="34" fill="#0969da"/>
+  <rect x="528.63" y="64" width="157.52" height="34" fill="#8957e5"/>
+  <rect x="686.15" y="64" width="17.85" height="34" fill="#1a7f37"/>
+  <rect x="16" y="113" width="13" height="13" fill="#0969da" rx="2"/>
+  <text x="36" y="124" font-size="12" fill="#1f2328">code (fix/add/remove) — 1,292 (75%)</text>
+  <rect x="245.33" y="113" width="13" height="13" fill="#8957e5" rx="2"/>
+  <text x="265.33" y="124" font-size="12" fill="#1f2328">docs — 397 (23%)</text>
+  <rect x="474.67" y="113" width="13" height="13" fill="#1a7f37" rx="2"/>
+  <text x="494.67" y="124" font-size="12" fill="#1f2328">tests — 45 (3%)</text>
+  <text x="16" y="170" font-size="12" fill="#1a7f37" font-weight="bold">1,734 of 1,739 claims backed by the diff (99.7%)</text>
+</svg>

@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="689" viewBox="0 0 720 689" role="img" aria-label="Which agent built which repo" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <title>Which agent built which repo</title>
+  <desc>One stacked bar per repository over its agent marker counts, normalized to the repo total.</desc>
+  <rect x="0" y="0" width="720" height="689" fill="#f6f8fa" rx="8" stroke="#d0d7de" stroke-width="1"/>
+  <text x="16" y="24" font-size="16" fill="#1f2328" font-weight="bold">Which agent built which repo</text>
+  <rect x="16" y="32" width="12" height="12" fill="#d97757" rx="2"/>
+  <text x="34" y="42" font-size="12" fill="#1f2328">claude 1,466</text>
+  <rect x="188" y="32" width="12" height="12" fill="#10a37f" rx="2"/>
+  <text x="206" y="42" font-size="12" fill="#1f2328">codex 571</text>
+  <rect x="360" y="32" width="12" height="12" fill="#8250df" rx="2"/>
+  <text x="378" y="42" font-size="12" fill="#1f2328">copilot 109</text>
+  <rect x="532" y="32" width="12" height="12" fill="#0fb5c0" rx="2"/>
+  <text x="550" y="42" font-size="12" fill="#1f2328">crush 86</text>
+  <rect x="16" y="54" width="12" height="12" fill="#2f81f7" rx="2"/>
+  <text x="34" y="64" font-size="12" fill="#1f2328">devin 78</text>
+  <rect x="188" y="54" width="12" height="12" fill="#e3b341" rx="2"/>
+  <text x="206" y="64" font-size="12" fill="#1f2328">cursor 17</text>
+  <rect x="360" y="54" width="12" height="12" fill="#bf3989" rx="2"/>
+  <text x="378" y="64" font-size="12" fill="#1f2328">aider 4</text>
+  <rect x="532" y="54" width="12" height="12" fill="#fb8500" rx="2"/>
+  <text x="550" y="64" font-size="12" fill="#1f2328">jules 3</text>
+  <text x="16" y="100.32" font-size="13" fill="#1f2328">kenn-io/roborev</text>
+  <rect x="240" y="84" width="464" height="24" fill="#e7ebef" rx="4"/>
+  <rect x="240" y="84" width="461.85" height="24" fill="#d97757"/>
+  <rect x="701.85" y="84" width="1.07" height="24" fill="#8250df"/>
+  <rect x="702.93" y="84" width="1.07" height="24" fill="#e3b341"/>
+  <text x="16" y="133.32" font-size="13" fill="#1f2328">JuliusBrussee/caveman</text>
+  <rect x="240" y="117" width="464" height="24" fill="#e7ebef" rx="4"/>
+  <rect x="240" y="117" width="464" height="24" fill="#d97757"/>
+  <text x="16" y="166.32" font-size="13" fill="#1f2328">getzep/graphiti</text>
+  <rect x="240" y="150" width="464" height="24" fill="#e7ebef" rx="4"/>
+  <rect x="240" y="150" width="464" height="24" fill="#d97757"/>
+  <text x="16" y="199.32" font-size="13" fill="#1f2328">pydantic/pydantic-ai</text>
+  <rect x="240" y="183" width="464" height="24" fill="#e7ebef" rx="4"/>
+  <rect x="240" y="183" width="436.16" height="24" fill="#d97757"/>
+  <rect x="676.16" y="183" width="16.24" height="24" fill="#2f81f7"/>
+  <rect x="692.4" y="183" width="9.28" height="24" fill="#8250df"/>
+  <rect x="701.68" y="183" width="2.32" height="24" fill="#e3b341"/>
+  <text x="16" y="232.32" font-size="13" fill="#1f2328">openai/codex</text>
+  <rect x="240" y="216" width="464" height="24" fill="#e7ebef" rx="4"/>
+  <rect x="240" y="216" width="446.47" height="24" fill="#10a37f"/>
+  <rect x="686.47" y="216" width="13.49" height="24" fill="#d97757"/>
+  <rect x="699.95" y="216" width="4.05" height="24" fill="#8250df"/>
+  <text x="16" y="265.32" font-size="13" fill="#1f2328">exo-explore/exo</text>
+  <rect x="240" y="249" width="464" height="24" fill="#e7ebef" rx="4"/>
+  <rect x="240" y="249" width="454.81" height="24" fill="#d97757"/>
+  <rect x="694.81" y="249" width="4.59" height="24" fill="#e3b341"/>
+  <rect x="699.41" y="249" width="4.59" height="24" fill="#fb8500"/>
+  <text x="16" y="298.32" font-size="13" fill="#1f2328">OpenInterpreter/open-interpreter</text>
+  <rect x="240" y="282" width="464" height="24" fill="#e7ebef" rx="4"/>
+  <rect x="240" y="282" width="440.16" height="24" fill="#10a37f"/>
+  <rect x="680.16" y="282" width="18.34" height="24" fill="#d97757"/>
+  <rect x="698.5" y="282" width="5.5" height="24" fill="#8250df"/>
+  <text x="16" y="331.32" font-size="13" fill="#1f2328">assistant-ui/assistant-ui</text>
+  <rect x="240" y="315" width="464" height="24" fill="#e7ebef" rx="4"/>
+  <rect x="240" y="315" width="406" height="24" fill="#d97757"/>
+  <rect x="646" y="315" width="40.94" height="24" fill="#8250df"/>
+  <rect x="686.94" y="315" width="6.82" height="24" fill="#2f81f7"/>
+  <rect x="693.76" y="315" width="6.82" height="24" fill="#fb8500"/>
+  <rect x="700.59" y="315" width="3.41" height="24" fill="#e3b341"/>
+  <text x="16" y="364.32" font-size="13" fill="#1f2328">crewAIInc/crewAI</text>
+  <rect x="240" y="348" width="464" height="24" fill="#e7ebef" rx="4"/>
+  <rect x="240" y="348" width="272" height="24" fill="#2f81f7"/>
+  <rect x="512" y="348" width="154.67" height="24" fill="#d97757"/>
+  <rect x="666.67" y="348" width="16" height="24" fill="#bf3989"/>
+  <rect x="682.67" y="348" width="16" height="24" fill="#e3b341"/>
+  <rect x="698.67" y="348" width="5.33" height="24" fill="#8250df"/>
+  <text x="16" y="397.32" font-size="13" fill="#1f2328">mem0ai/mem0</text>
+  <rect x="240" y="381" width="464" height="24" fill="#e7ebef" rx="4"/>
+  <rect x="240" y="381" width="464" height="24" fill="#d97757"/>
+  <text x="16" y="430.32" font-size="13" fill="#1f2328">agno-agi/agno</text>
+  <rect x="240" y="414" width="464" height="24" fill="#e7ebef" rx="4"/>
+  <rect x="240" y="414" width="439.14" height="24" fill="#d97757"/>
+  <rect x="679.14" y="414" width="19.33" height="24" fill="#8250df"/>
+  <rect x="698.48" y="414" width="2.76" height="24" fill="#bf3989"/>
+  <rect x="701.24" y="414" width="2.76" height="24" fill="#2f81f7"/>
+  <text x="16" y="463.32" font-size="13" fill="#1f2328">charmbracelet/crush</text>
+  <rect x="240" y="447" width="464" height="24" fill="#e7ebef" rx="4"/>
+  <rect x="240" y="447" width="415.67" height="24" fill="#0fb5c0"/>
+  <rect x="655.67" y="447" width="43.5" height="24" fill="#8250df"/>
+  <rect x="699.17" y="447" width="4.83" height="24" fill="#d97757"/>
+  <text x="16" y="496.32" font-size="13" fill="#1f2328">farion1231/cc-switch</text>
+  <rect x="240" y="480" width="464" height="24" fill="#e7ebef" rx="4"/>
+  <rect x="240" y="480" width="441.9" height="24" fill="#d97757"/>
+  <rect x="681.9" y="480" width="11.05" height="24" fill="#8250df"/>
+  <rect x="692.95" y="480" width="11.05" height="24" fill="#e3b341"/>
+  <text x="16" y="529.32" font-size="13" fill="#1f2328">livekit/agents</text>
+  <rect x="240" y="513" width="464" height="24" fill="#e7ebef" rx="4"/>
+  <rect x="240" y="513" width="294.08" height="24" fill="#d97757"/>
+  <rect x="534.08" y="513" width="111.1" height="24" fill="#2f81f7"/>
+  <rect x="645.18" y="513" width="39.21" height="24" fill="#e3b341"/>
+  <rect x="684.39" y="513" width="19.61" height="24" fill="#8250df"/>
+  <text x="16" y="562.32" font-size="13" fill="#1f2328">danny-avila/LibreChat</text>
+  <rect x="240" y="546" width="464" height="24" fill="#e7ebef" rx="4"/>
+  <rect x="240" y="546" width="293.05" height="24" fill="#d97757"/>
+  <rect x="533.05" y="546" width="158.74" height="24" fill="#8250df"/>
+  <rect x="691.79" y="546" width="12.21" height="24" fill="#e3b341"/>
+  <text x="16" y="595.32" font-size="13" fill="#1f2328">microsoft/autogen</text>
+  <rect x="240" y="579" width="464" height="24" fill="#e7ebef" rx="4"/>
+  <rect x="240" y="579" width="433.07" height="24" fill="#8250df"/>
+  <rect x="673.07" y="579" width="30.93" height="24" fill="#d97757"/>
+  <text x="16" y="628.32" font-size="13" fill="#1f2328">unslothai/unsloth</text>
+  <rect x="240" y="612" width="464" height="24" fill="#e7ebef" rx="4"/>
+  <rect x="240" y="612" width="430.86" height="24" fill="#d97757"/>
+  <rect x="670.86" y="612" width="33.14" height="24" fill="#e3b341"/>
+  <text x="16" y="661.32" font-size="13" fill="#1f2328">langchain-ai/langchain</text>
+  <rect x="240" y="645" width="464" height="24" fill="#e7ebef" rx="4"/>
+  <rect x="240" y="645" width="285.54" height="24" fill="#8250df"/>
+  <rect x="525.54" y="645" width="178.46" height="24" fill="#d97757"/>
+</svg>
