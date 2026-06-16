@@ -7,6 +7,11 @@
 > belief-bits, or self-certify them?* — over the workspace's OWN skills, honoring
 > the existing honesty floor. INFO-severity by default (surface, don't block);
 > `--skill-strict` opts into a gating verdict.
+>
+> **Phase stamp.** Phase `P1` (the skill-grounding rail) shipped as `c743791`;
+> `dos verify --workspace . docs/370 P1` resolves it via this commit's
+> `(docs/370 P1)` trailer (the oracle does not read the `Status:` line — by
+> design, that sentence is a self-report).
 
 ## The gap
 
