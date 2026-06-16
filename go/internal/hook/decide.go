@@ -59,6 +59,15 @@ type Inputs struct {
 	// (`SubagentInLaneFromEnv`) — it requires only a CONTAINED write; an ESCAPE leaves
 	// the flag false, so the hard deny stands. The SELF_MODIFY refusal is NEVER softened.
 	SubagentInLane bool
+	// CallShape is the workspace's declared [call_shape] policy (docs/364, OWASP
+	// ASI02), read at the boundary off `dos.toml` or the zero value when the
+	// workspace declares none. The zero CallShapeRuleset isEmpty() and the
+	// predicate short-circuits to admit before touching any bytes, so the
+	// default-install decider stays byte-identical. A FORBIDDEN_CALL_SHAPE refusal
+	// is a hard deny for EVERYONE — it carries a reason_class that is neither
+	// SELF_MODIFY nor "", so none of the softening/override branches (all keyed on
+	// those two) ever convert it, exactly mirroring the Python leaf.
+	CallShape CallShapeRuleset
 }
 
 // Decide runs the PRE division on one event — port of `dos.pretool_sensor.decide`
@@ -97,12 +106,15 @@ func Decide(e *Event, in Inputs) Decision {
 		}
 	}
 
+	cmd, argValues := callShapeInputs(e)
 	req := admissionRequest{
-		lane: laneFor(e),
-		kind: "tool-call",
-		tree: tree,
+		lane:      laneFor(e),
+		kind:      "tool-call",
+		tree:      tree,
+		command:   cmd,
+		argValues: argValues,
 	}
-	av := runPredicates(req, in.LiveLeases, in.RuntimeFiles)
+	av := runPredicates(req, in.LiveLeases, in.RuntimeFiles, in.CallShape)
 	if !av.admitted {
 		reason := av.reason
 		if reason == "" {

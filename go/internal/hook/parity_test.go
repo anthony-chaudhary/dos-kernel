@@ -33,6 +33,50 @@ type parityCase struct {
 	// disarmed default: in.OverrideFacts nil, in.Now zero — byte-unchanged).
 	Now      string          `json:"now"`
 	Override *corpusOverride `json:"override"`
+	// CallShape carries the docs/364 declared [call_shape] policy the Python oracle
+	// injected. Absent on every non-call-shape case (nil ⇒ the OFF-by-default empty
+	// ruleset: in.CallShape zero value, byte-unchanged). The Go replay rebuilds the
+	// same CallShapeRuleset and injects it into Inputs.CallShape.
+	CallShape *corpusCallShape `json:"call_shape"`
+}
+
+// corpusCallShape / corpusCallShapePolicy mirror `_call_shape_to_json` in
+// gen_corpus.py — the serialized CallShapeRuleset the Go replay rebuilds. Command
+// prefixes arrive already tokenized (lists of token lists), so the Go side does not
+// re-tokenize.
+type corpusCallShape struct {
+	WorkspaceWide corpusCallShapePolicy            `json:"workspace_wide"`
+	PerLane       map[string]corpusCallShapePolicy `json:"per_lane"`
+}
+
+type corpusCallShapePolicy struct {
+	ForbiddenCommandPrefixes [][]string `json:"forbidden_command_prefixes"`
+	ForbiddenArgPatterns     []string   `json:"forbidden_arg_patterns"`
+	ForbiddenPathGlobs       []string   `json:"forbidden_path_globs"`
+}
+
+// callShapeFromCorpus rebuilds a CallShapeRuleset from a corpus line, or the zero
+// value (empty ⇒ admit) when the line carries no `call_shape` block. Byte-twinned
+// with the Python `_call_shape_to_json`.
+func callShapeFromCorpus(c parityCase) CallShapeRuleset {
+	if c.CallShape == nil {
+		return CallShapeRuleset{}
+	}
+	pol := func(p corpusCallShapePolicy) CallShapePolicy {
+		return CallShapePolicy{
+			ForbiddenCommandPrefixes: p.ForbiddenCommandPrefixes,
+			ForbiddenArgPatterns:     p.ForbiddenArgPatterns,
+			ForbiddenPathGlobs:       p.ForbiddenPathGlobs,
+		}
+	}
+	perLane := make(map[string]CallShapePolicy, len(c.CallShape.PerLane))
+	for lane, p := range c.CallShape.PerLane {
+		perLane[lane] = pol(p)
+	}
+	return CallShapeRuleset{
+		WorkspaceWide: pol(c.CallShape.WorkspaceWide),
+		PerLane:       perLane,
+	}
 }
 
 // corpusOverride is the JSON shape of a corpus line's injected armed window — the
@@ -126,6 +170,7 @@ func TestParityCorpus(t *testing.T) {
 				LiveLeases:      leasesFromCorpus(c.Leases),
 				RuntimeFiles:    c.RuntimeFiles,
 				OperatorSession: c.OperatorSession,
+				CallShape:       callShapeFromCorpus(c),
 			}
 			if facts, now := overrideFromCorpus(t, c); facts != nil {
 				in.OverrideFacts = facts

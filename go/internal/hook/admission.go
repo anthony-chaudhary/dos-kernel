@@ -29,11 +29,17 @@ type lease struct {
 }
 
 // admissionRequest is the requested lease as the pure datum a predicate sees —
-// port of `dos.admission.AdmissionRequest`.
+// port of `dos.admission.AdmissionRequest`. `command`/`argValues` are the call's
+// agent-authored argument bytes (docs/364) the DeclaredCallShapePredicate reads —
+// FOOTPRINT content, not identity (the vendor-agnostic litmus still holds: the
+// predicates that ignore them, disjointness/self-modify, are unaffected). Both
+// empty for a non-Bash tool with no string args.
 type admissionRequest struct {
-	lane string
-	kind string
-	tree []string
+	lane      string
+	kind      string
+	tree      []string
+	command   string
+	argValues []string
 }
 
 // disjointnessVerdict is the DisjointnessPredicate against ONE live lease — port
@@ -82,14 +88,23 @@ func selfModifyVerdict(req admissionRequest, runtimeFiles []string) admissionVer
 
 // runPredicates runs the conjunction: every predicate against every live lease,
 // returning the FIRST refusal (lease-outer, predicate-inner — disjointness THEN
-// self-modify), else admit. Port of `dos.admission.run_predicates` with the
-// built-in conjunction [DisjointnessPredicate, SelfModifyPredicate].
+// self-modify THEN call-shape), else admit. Port of `dos.admission.run_predicates`
+// with the built-in conjunction [DisjointnessPredicate, SelfModifyPredicate,
+// DeclaredCallShapePredicate].
 //
 // With no live leases the conjunction still runs ONCE against a synthetic empty
-// lease, so the request-absolute SelfModifyPredicate fires on an idle repo (the
-// closed idle-repo gap), while DisjointnessPredicate sees the empty lease, hits
-// its "empty lease tree -> admit" branch, and contributes nothing.
-func runPredicates(req admissionRequest, liveLeases []lease, runtimeFiles []string) admissionVerdict {
+// lease, so the request-absolute SelfModifyPredicate AND DeclaredCallShapePredicate
+// fire on an idle repo (the closed idle-repo gap), while DisjointnessPredicate
+// sees the empty lease, hits its "empty lease tree -> admit" branch, and
+// contributes nothing.
+//
+// call-shape is appended LAST (after disjointness + self-modify), so it can only
+// ADD a refusal, never displace the two structural guards — and an empty ruleset
+// (the OFF-by-default / generic-workspace case) short-circuits to admit before
+// touching any bytes, so the conjunction stays byte-identical in VERDICT to the
+// prior two-predicate list (docs/364). Byte-twinned with the Python
+// `built_in_predicates` order.
+func runPredicates(req admissionRequest, liveLeases []lease, runtimeFiles []string, callShape CallShapeRuleset) admissionVerdict {
 	leases := liveLeases
 	if len(leases) == 0 {
 		leases = []lease{{}} // the synthetic empty-lease sentinel
@@ -99,6 +114,9 @@ func runPredicates(req admissionRequest, liveLeases []lease, runtimeFiles []stri
 			return v
 		}
 		if v := selfModifyVerdict(req, runtimeFiles); !v.admitted {
+			return v
+		}
+		if v := callShapeVerdict(req, callShape); !v.admitted {
 			return v
 		}
 	}

