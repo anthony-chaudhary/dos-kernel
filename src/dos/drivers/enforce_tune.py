@@ -60,7 +60,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
-from dos import enforce_outcomes, improve, intervention, intervention_eval
+from dos import improve, intervention, intervention_eval
 from dos.drivers import self_improve
 
 # The runtime-logic blast radius the autonomy rail refuses to auto-merge into. Read
