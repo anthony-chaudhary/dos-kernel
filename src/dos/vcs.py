@@ -518,6 +518,39 @@ class GitBackend:
             return None
         return res.stdout.splitlines()
 
+    def history_search(self, **kwargs: object) -> list[Commit] | None:
+        # The pickaxe / path-archaeology reads `memory_recall` needs (docs/360). Three
+        # modes, each newest-match-first, restricted to one `path`:
+        #   mode="pickaxe", literal=<str>  → `git log -S<literal> -- <path>`
+        #   mode="deleted"                 → `git log --diff-filter=D -- <path>`
+        #   mode="tracked"                 → `git log --all -- <path>`
+        # Returns `[Commit]` (possibly empty) or None on a read failure. A non-git
+        # backend leaves the base `history_search` returning None → the caller keeps
+        # its UNKNOWN abstention, never a false verdict.
+        mode = str(kwargs.get("mode", ""))
+        path = str(kwargs.get("path", ""))
+        limit = int(kwargs.get("limit", 1) or 1)
+        if not mode or not path:
+            return None
+        if mode == "pickaxe":
+            literal = str(kwargs.get("literal", ""))
+            if not literal:
+                return None
+            args = ["log", "-S", literal, "-n", str(limit),
+                    "--pretty=format:%h%x09%s", "--", path]
+        elif mode == "deleted":
+            args = ["log", "--diff-filter=D", "-n", str(limit),
+                    "--pretty=format:%h%x09%s", "--", path]
+        elif mode == "tracked":
+            args = ["log", "--all", "-n", str(limit),
+                    "--pretty=format:%h%x09%s", "--", path]
+        else:
+            return None
+        res = _run_git(args, root=self._root)
+        if res is None or res.returncode != 0:
+            return None
+        return _parse_tab_log(res.stdout)
+
     def read_blob(self, sha: str, path: str) -> bytes | None:
         s = (sha or "").strip()
         if not s or not path:

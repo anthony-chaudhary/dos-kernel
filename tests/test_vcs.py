@@ -316,3 +316,29 @@ def test_gitbackend_log_records_with_files_and_body(tmp_path: Path):
     # path-restricted records
     only_two = gb.log_records(limit=10, paths=("src/two.py",))
     assert [r.subject for r in only_two] == ["feat: second commit"]
+
+
+# --- the slice-6 archaeology read: history_search --------------------------
+
+
+@gitmark
+def test_gitbackend_history_search_pickaxe(tmp_path: Path):
+    _init_repo(tmp_path)  # src/two.py was created with the literal "y = 2"
+    rows = GitBackend(root=tmp_path).history_search(
+        mode="pickaxe", literal="y = 2", path="src/two.py", limit=1)
+    assert rows and rows[0].subject == "feat: second commit"
+
+
+@gitmark
+def test_gitbackend_history_search_tracked_vs_never(tmp_path: Path):
+    _init_repo(tmp_path)
+    gb = GitBackend(root=tmp_path)
+    # A tracked path → a row; a never-tracked path → [] (NOT None — git exits 0).
+    assert gb.history_search(mode="tracked", path="src/two.py") != []
+    assert gb.history_search(mode="tracked", path="never/here.py") == []
+
+
+def test_history_search_bad_mode_is_none(tmp_path: Path):
+    assert GitBackend(root=tmp_path).history_search(mode="bogus", path="x") is None
+    assert GitBackend(root=tmp_path).history_search() is None  # no mode/path
+    assert NullVcs().history_search(mode="pickaxe", path="x", literal="z") is None
