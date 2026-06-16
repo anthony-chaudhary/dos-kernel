@@ -4455,14 +4455,23 @@ def cmd_override(args: argparse.Namespace) -> int:
                          sort_keys=True))
         return 1
     armed = now <= facts.until
-    print(json.dumps({
+    out = {
         "armed": armed,
         "expired": not armed,
         "until": facts.until.isoformat(),
         "reason": facts.reason,
         "scope": list(facts.scope),
         "path": str(p),
-    }, sort_keys=True))
+    }
+    # issue #159 — surface the lapse at a glance: how long ago the window
+    # expired, so the operator reads "re-arm", not "arming did nothing". Only
+    # present on the expired branch (a live window has no lapse to report).
+    if not armed:
+        _mins = int((now - facts.until).total_seconds() // 60)
+        out["expired_ago"] = (
+            f"{_mins} min ago" if _mins >= 1 else "less than a min ago"
+        )
+    print(json.dumps(out, sort_keys=True))
     return 0 if armed else 1
 
 
@@ -7163,6 +7172,56 @@ def _runtime_hook_status(root: Path) -> list[tuple[str, list[str]]]:
     return out
 
 
+def _wiring_drift_rows(root: Path) -> list[dict]:
+    """Per-runtime DOS-hook wiring drift (issue #190). READ-ONLY, fail-soft.
+
+    The read-side mirror of `dos init --hooks`: for each known runtime, re-read
+    its config and classify the DOS wiring WIRED / DRIFTED / NOT_WIRED via the
+    pure `hook_install.classify_wiring_drift`. Reuses `host_spec` (the install
+    path's own source of truth for the config path/format) — no second source.
+    A row carries {host, verdict, config_path, exists, expected, wired,
+    regression}."""
+    from dos import hook_install as _hi
+
+    rows: list[dict] = []
+    for name in _hi.host_names():
+        try:
+            spec = _hi.host_spec(name)
+            path = root.joinpath(*spec.config_path)
+            expected = [ev for ev, _ in spec.events_and_commands()]
+            exists = path.exists()
+            wired: list[str] = []
+            if exists:
+                try:
+                    if spec.fmt is _hi.ConfigFormat.TOML:
+                        wired = _hi.wired_events_toml(path.read_text(encoding="utf-8"), spec)
+                    else:
+                        wired = _hi.wired_events_json(
+                            json.loads(path.read_text(encoding="utf-8")), spec)
+                except Exception:
+                    # A present-but-unreadable config: no events resolved → the
+                    # classifier reports it relative to `expected` (fail toward flag).
+                    wired = []
+            verdict = _hi.classify_wiring_drift(expected, wired, config_exists=exists)
+            rows.append({
+                "host": name,
+                "verdict": verdict,
+                "config_path": "/".join(spec.config_path),
+                "exists": exists,
+                "expected": expected,
+                "wired": list(wired),
+                "regression": _hi.wiring_drift_is_regression(verdict),
+            })
+        except Exception:
+            # A broken spec is reported, never a crashed report (doctor is read-only).
+            rows.append({
+                "host": name, "verdict": _hi.WIRING_NOT_WIRED,
+                "config_path": "", "exists": False,
+                "expected": [], "wired": [], "regression": False,
+            })
+    return rows
+
+
 def _dot_dos_facts(cfg: "_config.SubstrateConfig") -> dict:
     """The `.dos` surface, sized (docs/313 P4): the policy provenance (`dos.toml`
     declared vs the generic default), the schema-versioned identity card, and
@@ -7323,6 +7382,13 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     # (SKP Phase 1a fix: a `--json` path that skipped `--check` would silently drop
     # the contract `test_stamp_doctor` pins). `check_requested` gates the exit code.
     check_requested = bool(getattr(args, "check", False))
+    # issue #190 — the wiring-drift rail: re-read each runtime's config and
+    # classify its DOS hook block WIRED/DRIFTED/NOT_WIRED. Independent of
+    # `--check` (which audits config DECLARATIONS, not host-config wiring drift);
+    # a DRIFTED runtime gates the exit non-zero (a silent unwire is a regression).
+    wiring_requested = bool(getattr(args, "wiring", False))
+    wiring_rows: list[dict] = _wiring_drift_rows(cfg.paths.root) if wiring_requested else []
+    wiring_regressed = any(r.get("regression") for r in wiring_rows)
     findings: list[str] = []
     # `info`-severity config-lint findings (a dead doc cross-ref) are surfaced but
     # do NOT gate the exit code (docs/227 §4: info is cosmetic). `gating` tracks
@@ -7434,9 +7500,14 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         }
         if check_requested:
             report["findings"] = list(findings)
+        if wiring_requested:
+            report["wiring"] = wiring_rows
         print(json.dumps(report, sort_keys=True))
         # Gate on `gating` (error/warn), not the raw findings list — an info-only
-        # report (a dead doc cross-ref) is surfaced but exits 0 (docs/227 §4).
+        # report (a dead doc cross-ref) is surfaced but exits 0 (docs/227 §4). A
+        # DRIFTED runtime (issue #190) gates independently of `--check`.
+        if wiring_requested and wiring_regressed:
+            return 1
         return 1 if (check_requested and gating) else 0
 
     print(f"DOS v{__import__('dos').__version__}")
@@ -7582,8 +7653,23 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             print(f"finding: {f}", file=sys.stderr)
         # Gate on `gating` (error/warn), not the raw findings list — an info-only
         # report (a dead doc cross-ref) is surfaced but exits 0 (docs/227 §4).
-        return 1 if gating else 0
-    return 0
+        if not (wiring_requested and wiring_regressed):
+            return 1 if gating else 0
+    # issue #190 — the wiring-drift rail (`--wiring`): report each runtime's DOS
+    # hook block status and exit non-zero on a DRIFTED one (a silent unwire).
+    if wiring_requested:
+        print("hook wiring         (--wiring drift check)")
+        for r in wiring_rows:
+            mark = "DRIFTED" if r["regression"] else r["verdict"]
+            detail = (f"{len(r['wired'])}/{len(r['expected'])} events"
+                      if r["exists"] else "no config")
+            print(f"  {r['host']:<16} {mark:<10} {r['config_path']}  ({detail})")
+        if wiring_regressed:
+            drifted = [r["host"] for r in wiring_rows if r["regression"]]
+            print(f"finding: hook wiring DRIFTED for {', '.join(drifted)} — re-run "
+                  f"`dos init --hooks <runtime>` to repair", file=sys.stderr)
+            return 1
+    return 1 if (check_requested and gating) else 0
 
 
 def cmd_lint(args: argparse.Namespace) -> int:
@@ -11825,6 +11911,12 @@ def build_parser() -> argparse.ArgumentParser:
                     help="run completeness checks (a declared [stamp] that matches "
                          "none of this repo's ship-shaped commits; a lane declared "
                          "without a [lanes.trees] entry); exit 1 if any finding fires")
+    pd.add_argument("--wiring", action="store_true",
+                    help="re-check that the DOS hooks are still installed in each "
+                         "runtime's config (the provision --verify drift check, "
+                         "#190): per runtime WIRED/DRIFTED/NOT_WIRED; exit 1 on a "
+                         "DRIFTED runtime (a previously-wired host now partially "
+                         "unwired)")
     pd.add_argument("--json", action="store_true",
                     help="machine-readable workspace report (paths/lanes/stamp/git) "
                          "— what a generic skill reads to discover its layout (SKP)")

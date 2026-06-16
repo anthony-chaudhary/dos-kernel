@@ -559,6 +559,78 @@ def wired_events_toml(existing_text: str, spec: HostHookSpec) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Wiring-drift detection (issue #190 — the read-side mirror of the install path,
+# the `provision --verify` gap). DOS writes its enforcement (`dos init --hooks`)
+# but never re-checks the wiring is STILL installed; an IDE upgrade or a
+# teammate's settings edit can silently unwire the PEP. This is the pure
+# classifier: expected vs. actually-wired events + whether the config exists →
+# a typed verdict. PURE (no I/O — the boundary caller reads the config and hands
+# in the facts), so it composes the same way every other kernel verdict does.
+# No vendor name enters here: the per-host facts ride the `HostHookSpec` the
+# caller already resolved (litmus: tests/test_vendor_agnostic_kernel.py).
+# ---------------------------------------------------------------------------
+
+#: The closed wiring-drift verdict vocabulary.
+WIRING_WIRED = "WIRED"          # every expected DOS hook event is present
+WIRING_DRIFTED = "DRIFTED"      # config present, SOME (not all) expected events wired
+WIRING_NOT_WIRED = "NOT_WIRED"  # config absent, or present with ZERO DOS events
+
+
+def classify_wiring_drift(
+    expected_events: "list[str] | tuple[str, ...]",
+    wired_events: "list[str] | tuple[str, ...]",
+    *,
+    config_exists: bool,
+) -> str:
+    """Classify one runtime's DOS-hook wiring: WIRED / DRIFTED / NOT_WIRED. PURE.
+
+    The truth table, fail-toward-drift (the seam-floor "can only be more
+    conservative" direction — an ambiguous read is never silently WIRED):
+
+    * No config file at all → ``NOT_WIRED`` (the host was never wired here, or
+      its config was removed wholesale). A whole-file removal is reported as
+      absence, not drift, because there is nothing to have drifted FROM.
+    * Config present, EVERY expected event wired → ``WIRED``.
+    * Config present, SOME but not all expected events wired → ``DRIFTED`` (a
+      partial rewrite — exactly the silent-unwire this verb exists to catch).
+    * Config present, ZERO expected events wired → ``NOT_WIRED`` (the DOS block
+      is entirely gone, indistinguishable from never-wired without a persisted
+      install record, which DOS deliberately does not keep).
+
+    `expected_events` is what the host SHOULD carry (``spec.events_and_commands``
+    keys); `wired_events` is what the config ACTUALLY carries
+    (``wired_events_json`` / ``wired_events_toml``). A host that declares no
+    events at all (degenerate spec) classifies WIRED iff its config exists (it
+    cannot drift — nothing was expected)."""
+    expected = list(dict.fromkeys(expected_events or ()))  # stable de-dupe
+    wired = set(wired_events or ())
+    if not config_exists:
+        return WIRING_NOT_WIRED
+    if not expected:
+        # A spec that wires nothing cannot drift; an existing config is WIRED.
+        return WIRING_WIRED
+    present = [ev for ev in expected if ev in wired]
+    if not present:
+        # No DOS events at all — absent, not drifted (no install record to
+        # distinguish "removed" from "never wired"; report the conservative
+        # NOT_WIRED so a never-wired host is not flagged as a regression).
+        return WIRING_NOT_WIRED
+    if len(present) == len(expected):
+        return WIRING_WIRED
+    return WIRING_DRIFTED  # partial — something rewrote the config
+
+
+def wiring_drift_is_regression(verdict: str) -> bool:
+    """True iff this verdict should make `dos doctor --wiring` exit non-zero.
+
+    Only ``DRIFTED`` is a regression: a config that HAD the DOS block now carries
+    a partial one (the silent unwire). ``NOT_WIRED`` is not a failure — a host
+    this repo never wired is expected to be absent, and gating on it would make
+    the verb fail on every unconfigured runtime. ``WIRED`` is the clean case."""
+    return verdict == WIRING_DRIFTED
+
+
+# ---------------------------------------------------------------------------
 # Driver-spec discovery (boundary I/O — at resolve time, never inside a merge). The
 # `dos.hook_installs` entry-point group, the same mechanism `hook_dialect` uses for
 # `dos.hook_dialects`. Kept defensive: a broken plugin never breaks the default.
