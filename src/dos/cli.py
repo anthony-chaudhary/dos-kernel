@@ -4944,7 +4944,28 @@ def cmd_hook_stop(args: argparse.Namespace) -> int:
         ev_cwd = event.get("cwd")
         if isinstance(ev_cwd, str) and ev_cwd:
             args.workspace = ev_cwd
-    _apply_workspace(args)
+    try:
+        _apply_workspace(args)
+    except Exception as exc:
+        # Fail-to-abstain on a torn config load (docs/360 / issue #206). A kernel
+        # reader importing a leaf that a SIBLING loop is mid-editing must never
+        # hard-crash the host's Stop hook — a crashing stop hook (a SystemExit
+        # traceback in the operator's terminal) is strictly worse than letting the
+        # agent stop. A half-finished `config.py` edit on disk raises AttributeError
+        # / ImportError / ValueError out of `load_workspace_config`; we degrade to
+        # the same abstain the anti-loop and no-claims paths take — let it stop —
+        # with a one-line stderr note instead of the traceback. This is the
+        # fail-to-abstain rung (judges.py's direction of safe failure) applied to
+        # the substrate's OWN config load: an inability to read is never a richer
+        # claim than "we couldn't check, so don't block."
+        print(
+            f"dos hook stop: could not load the workspace config "
+            f"({type(exc).__name__}: {exc}); abstaining (letting the agent stop). "
+            f"A concurrent edit of a kernel leaf may be mid-flight.",
+            file=sys.stderr,
+        )
+        _emit(blocked=False, results=[], checked=0)
+        return 0
 
     # 4. Gather claims. Frontmatter rung (explicit flags) + transcript rungs.
     claims = list(claim_extract.claim_from_frontmatter(

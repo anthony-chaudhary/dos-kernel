@@ -167,6 +167,54 @@ def test_workspace_falls_back_to_event_cwd(repo, monkeypatch, capsys):
     assert out["ok"] is False  # it found the repo via cwd and verified the claim
 
 
+def test_torn_config_load_lets_agent_stop_without_crashing(repo, monkeypatch, capsys):
+    # issue #206: a SIBLING loop mid-editing a kernel leaf (config.py) leaves a torn
+    # write on disk that raises AttributeError out of `load_workspace_config` (the
+    # documented `cfg.vcs_backend` crash). A kernel reader — the Stop hook is itself
+    # part of the trust substrate — must NOT hard-crash the host's stop on that: a
+    # SystemExit traceback in the operator's terminal is strictly worse than letting
+    # the agent stop. Fail-to-abstain (judges.py's safe-failure direction) applied to
+    # the substrate's own config load. Fails-unpatched (the AttributeError used to
+    # propagate straight up cmd_hook_stop); passes-patched (degrades to exit 0 + a
+    # one-line stderr note). The error class stands in for any torn-edit failure
+    # (AttributeError / ImportError / ValueError) out of the config load.
+    def boom(*a, **k):
+        raise AttributeError(
+            "'SubstrateConfig' object has no attribute 'vcs_backend'")
+    monkeypatch.setattr("dos.config.load_workspace_config", boom)
+
+    tx = _transcript(repo, "DOS-CLAIM: NOPE PHASE9")  # a claim that WOULD block
+    event = {"transcript_path": tx, "cwd": str(repo)}
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(event)))
+    # No exception escapes; the agent is allowed to stop (the abstain shape).
+    rc = cli.main(["hook", "stop", "--json", "--workspace", str(repo)])
+    captured = capsys.readouterr()  # one drain — both streams
+    out = json.loads(captured.out.strip())
+    assert rc == 0
+    assert out["ok"] is True       # abstain, not a block
+    assert out["checked"] == 0     # nothing was checked — we couldn't read the workspace
+    # The one-line note went to stderr (a diagnostic, not the host-parsed stdout).
+    assert "could not load the workspace config" in captured.err
+
+
+def test_torn_config_load_default_surface_emits_nothing(repo, monkeypatch, capsys):
+    # The DEFAULT (CC-dialect) surface on the same torn-config abstain: a non-block
+    # emits NOTHING to stdout (an empty stdout is CC's "let it stop"), and never a
+    # traceback. The companion to the --json witness above on the bytes CC parses.
+    def boom(*a, **k):
+        raise ImportError("partially initialized module 'dos.config'")
+    monkeypatch.setattr("dos.config.load_workspace_config", boom)
+
+    tx = _transcript(repo, "DOS-CLAIM: NOPE PHASE9")
+    event = {"transcript_path": tx, "cwd": str(repo)}
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(event)))
+    rc = cli.main(["hook", "stop", "--workspace", str(repo)])
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert captured.out.strip() == ""  # no block object → the agent stops
+    assert "could not load the workspace config" in captured.err
+
+
 # ---------------------------------------------------------------------------
 # The DEFAULT surface (no --json): the EXACT Claude-Code Stop dialect. This is
 # the load-bearing fix (docs/165 §2) — the bytes real CC parses to block a stop.
