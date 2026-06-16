@@ -118,6 +118,43 @@ SPAWN_TTL_MS = 120_000
 # TTL: while a window is open the banner shows it regardless of the deny's age.
 SELF_MODIFY_BLOCK_TTL_MS = 2 * 60 * 60 * 1000
 
+# How long a journaled BACKGROUND event stays worth surfacing on `dos top`. These
+# are the kernel's OWN out-of-band actions — a watchdog HALT proposal, a reaper
+# SCAVENGE, a crash-recovery RECONCILE, a breaker ENFORCE — taken on a timer or
+# from a separate process, not by the agent the operator is watching. They are
+# journaled but otherwise invisible on the live screen. 6h is long enough that a
+# halt the watchdog proposed while the operator was away is still on screen when
+# they return, short enough that a stale event ages off on its own (the same
+# self-heal `SPAWN_TTL_MS` / `SELF_MODIFY_BLOCK_TTL_MS` give — no mutation, the
+# WAL keeps the record; the panel just stops drawing it).
+BG_ACTIVITY_TTL_MS = 6 * 60 * 60 * 1000
+
+# The lane-journal ops that are BACKGROUND/automated actions worth surfacing: a
+# watchdog stop proposal, a reaper eviction, a crash-recovery reconcile, a breaker
+# enforcement. All four are FORENSIC ops (NOT in `lane_journal._STATE_MUTATING_OPS`
+# for HALT/ENFORCE; SCAVENGE/RECONCILE mutate but are still real background sweeps)
+# — the fold reads them from `read_all`, never `replay`. ACQUIRE/RELEASE/HEARTBEAT
+# are an agent's OWN foreground lease traffic (already on the lanes panel), so they
+# are deliberately excluded here. One home for the set so a new background op
+# surfaces as an explicit edit rather than silently never showing.
+_BG_OPS = frozenset({
+    lane_journal.OP_HALT,
+    lane_journal.OP_SCAVENGE,
+    lane_journal.OP_RECONCILE,
+    lane_journal.OP_ENFORCE,
+})
+
+# op -> one-glyph chip, the at-a-glance kind. Same fail-soft posture as
+# `_SPEND_CHIP` / `_CHIP_BY_LIVENESS`: an op with no chip renders blank, never an
+# error, so a future background op surfaces (with its bare op token) rather than
+# crashing the screen.
+_BG_CHIP = {
+    lane_journal.OP_HALT: "🛑 HALT",          # watchdog proposed stopping a hung run
+    lane_journal.OP_SCAVENGE: "🧹 SCAVENGE",   # reaper evicted a dead lease
+    lane_journal.OP_RECONCILE: "🔧 RECONCILE", # crash-recovery re-took a lease
+    lane_journal.OP_ENFORCE: "🚧 ENFORCE",     # breaker/handler proposed an effect
+}
+
 
 # ---------------------------------------------------------------------------
 # Time helpers (mirrors decisions.py — same tolerant ISO parse + compact age).
@@ -475,6 +512,10 @@ class Frame:
     # (issue #145). None ⇒ the banner draws nothing — the byte-identical pre-#145
     # frame for a workspace with no fresh kernel-edit deny.
     self_modify_block: "SelfModifyBlock | None" = None
+    # The kernel's own recent BACKGROUND/automated actions (watchdog HALT, reaper
+    # SCAVENGE, crash RECONCILE, breaker ENFORCE) — defaulted empty so every
+    # existing `Frame(...)` constructor stays byte-compatible.
+    background: tuple[BackgroundEvent, ...] = ()
 
     def to_dict(self) -> dict:
         return {
@@ -487,6 +528,7 @@ class Frame:
             "self_modify_block": (
                 self.self_modify_block.to_dict() if self.self_modify_block else None
             ),
+            "background": [b.to_dict() for b in self.background],
         }
 
 
@@ -630,6 +672,95 @@ def _spawning_lanes(
         # hand-built/torn entry from vanishing silently (the row renders age `—`).
         out[lane] = SpawnIntent(holder=str(e.get("holder") or ""), age_ms=age)
     return out
+
+
+# ---------------------------------------------------------------------------
+# Background activity — the kernel's OWN out-of-band actions, surfaced. `dos top`
+# is the screen an operator watches DURING a fleet run; until now it showed the
+# agents' foreground traffic (leases, verdicts, commits) but NOT the automated,
+# timer-/sweep-driven things the kernel does on its own — the watchdog proposing a
+# HALT on a hung run, the reaper SCAVENGE-ing a dead lease, a crash RECONCILE, a
+# breaker ENFORCE. Those are journaled and otherwise invisible: nobody is watching
+# the WAL by hand. This is the "background processes" panel — PURE folds over the
+# lane-journal entries `snapshot()` already read (zero new I/O), the same posture
+# as `_spawning_lanes`.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class BackgroundEvent:
+    """One recent background/automated lane-journal action, normalized to a row.
+
+    Built by `recent_background_events` from a `read_all` entry whose `op` is in
+    `_BG_OPS`. Pure data — no rich objects. `kind_chip` is the at-a-glance glyph
+    from `_BG_CHIP` (blank for an unrecognized op, the fail-soft posture); `reason`
+    carries the WAL's own `reason` field when present (the watchdog/breaker writes
+    one), `holder` the lease's `host:pid` when the record carried it (HALT/SCAVENGE
+    correlate to the lease they targeted). Every field is env-authored — the event
+    was recorded by the actor downstream of its decision, never agent narration.
+    """
+
+    op: str                        # HALT | SCAVENGE | RECONCILE | ENFORCE
+    kind_chip: str = ""            # a _BG_CHIP value, or "" for an unknown op
+    lane: str = ""                 # the lane the action targeted, when recorded
+    holder: str = ""               # host:pid of the targeted lease, when recorded
+    reason: str = ""               # the WAL's reason field, when present
+    age_ms: int | None = None      # age of the event as of `now`
+
+    def to_dict(self) -> dict:
+        return {
+            "op": self.op,
+            "kind_chip": self.kind_chip,
+            "lane": self.lane,
+            "holder": self.holder,
+            "reason": self.reason,
+            "age_ms": self.age_ms,
+        }
+
+
+def recent_background_events(
+    entries: list[dict],
+    *,
+    now: dt.datetime,
+    ttl_ms: int = BG_ACTIVITY_TTL_MS,
+    limit: int = 8,
+) -> list[BackgroundEvent]:
+    """Fold lane-journal entries → the recent BACKGROUND actions, newest-first. PURE.
+
+    Keeps only ops in `_BG_OPS` (the automated/out-of-band set — watchdog HALT,
+    reaper SCAVENGE, crash RECONCILE, breaker ENFORCE), ages off anything older than
+    ``ttl_ms`` (a stale background event self-heals off the screen, the
+    `_spawning_lanes` rule), and returns the newest ``limit``. Reads the raw
+    `read_all` entries — these are forensic events the operator wants to SEE happen,
+    not lease state to replay. An entry with an unparseable/absent `ts` is KEPT (age
+    `—`) rather than dropped, the conservative direction `_spawning_lanes` takes —
+    `append` always stamps a `ts`, so a real journaled event has a live TTL and this
+    only protects a hand-built/torn entry from vanishing silently. Pure over the
+    already-read entries; the journal read is the caller's (snapshot's) boundary I/O.
+    """
+    rows: list[tuple[str, BackgroundEvent]] = []
+    for e in entries:
+        op = str(e.get("op") or "")
+        if op not in _BG_OPS:
+            continue
+        ts = _entry_ts(e)
+        age = _age_ms(ts, now=now)
+        if age is not None and age > ttl_ms:
+            continue  # a stale background event ages off on its own
+        rows.append((ts, BackgroundEvent(
+            op=op,
+            kind_chip=_BG_CHIP.get(op, ""),
+            lane=str(e.get("lane") or ""),
+            holder=str(e.get("holder") or e.get("host_id") or ""),
+            reason=str(e.get("reason") or ""),
+            age_ms=age,
+        )))
+    # Newest-first by stamp. ISO-8601 sorts lexically, so a string sort orders by
+    # time without parsing; an empty/torn ts sorts to the end (oldest), which is the
+    # right place for an event we can't time. Stable within equal stamps (append
+    # order preserved) so a re-sort is deterministic in tests.
+    rows.sort(key=lambda r: r[0], reverse=True)
+    return [ev for _, ev in rows[:limit]]
 
 
 # ---------------------------------------------------------------------------
@@ -811,6 +942,16 @@ def snapshot(
     except Exception:
         self_modify_block = None
 
+    # --- background activity (the kernel's own out-of-band actions) -----------
+    # The seventh fold, fail-soft like the rest: it reuses the `entries` already
+    # read above (zero new I/O) and surfaces the watchdog/reaper/breaker actions
+    # that are journaled but otherwise invisible on the live screen. A torn fold
+    # yields no panel rows, never an error (the row-3 read-only discipline).
+    try:
+        background = tuple(recent_background_events(entries, now=now))
+    except Exception:
+        background = ()
+
     return Frame(
         workspace=str(cfg.root),
         now_iso=now.replace(microsecond=0).isoformat(),
@@ -819,6 +960,7 @@ def snapshot(
         activity=tuple(activity),
         initialized=(cfg.root / "dos.toml").exists(),
         self_modify_block=self_modify_block,
+        background=background,
     )
 
 
@@ -1025,6 +1167,31 @@ def render_activity_text(commits: tuple[dict, ...], *, limit: int = 10) -> str:
     return "\n".join(out)
 
 
+def render_background_text(events: tuple[BackgroundEvent, ...], *, limit: int = 8) -> str:
+    """The BACKGROUND ACTIVITY panel — the kernel's own out-of-band actions. PURE.
+
+    One line per recent automated action (newest-first), each with its kind chip,
+    the lane it targeted, and the WAL's own reason. `(none)` when there is nothing —
+    the steady-state of a quiet fleet, and the byte-stable floor a new repo shows.
+    """
+    out = ["BACKGROUND ACTIVITY    [automated/out-of-band — watchdog · reaper · breaker]"]
+    if not events:
+        out.append("  (none)")
+    for ev in events[:limit]:
+        chip = ev.kind_chip or ev.op
+        lane = ev.lane or "-"
+        reason = f"  {ev.reason}" if ev.reason else ""
+        # Truncate the whole line to the screen width — a watchdog/breaker `reason`
+        # can be a paragraph (the SELF_MODIFY ENFORCE reason is multi-sentence), and
+        # an unbounded line wraps and mangles the panel. The fixed prefix
+        # (age+chip+lane) always fits; only the trailing reason is clipped, the same
+        # discipline `render_activity_text` keeps for a long commit subject.
+        out.append(
+            f"  {_fmt_age(ev.age_ms):>4}  {chip:<13} {lane:<12}{reason}".rstrip()[: _WIDTH + 2]
+        )
+    return "\n".join(out)
+
+
 def render_self_modify_banner(block: "SelfModifyBlock | None") -> str:
     """The SELF_MODIFY-blocked-edit banner, or "" when there is nothing to show (issue #145).
 
@@ -1077,6 +1244,11 @@ def render_frame_text(frame: Frame) -> str:
     out.append(render_lanes_text(frame.lanes))
     out.append("")
     out.append(render_verdicts_text(frame.verdicts))
+    out.append("")
+    # Background activity rides between the verdicts (the agents' decisions) and the
+    # commits (ground truth) — the natural reading order: what was decided, what the
+    # kernel did on its own, what actually landed.
+    out.append(render_background_text(frame.background))
     out.append("")
     out.append(render_activity_text(frame.activity))
     out.append("─" * _WIDTH)

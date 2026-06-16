@@ -885,3 +885,184 @@ class TestTuiApproveKey:
         assert "'a' arm" in armable and "press 'a'" in armable
         quiet = _render_to_text(T.Frame(workspace="w", now_iso="t"))
         assert "'a' arm" not in quiet and "press 'a'" not in quiet
+
+
+# ---------------------------------------------------------------------------
+# BACKGROUND ACTIVITY panel — the kernel's OWN out-of-band actions (watchdog HALT,
+# reaper SCAVENGE, crash RECONCILE, breaker ENFORCE), surfaced on `dos top`. These
+# are the "background processes" an operator otherwise can't see: journaled, but
+# nobody watches the WAL by hand. PURE fold over the entries snapshot() already
+# reads; ages off on a TTL; `(none)` on a quiet fleet.
+# ---------------------------------------------------------------------------
+
+
+def _bg(op: str, *, lane: str = "main", age_min: float = 0.1,
+        reason: str = "", holder: str = "h:1") -> dict:
+    """A background lane-journal entry `age_min` minutes old (its `ts` drives the TTL)."""
+    return {"op": op, "lane": lane, "holder": holder, "reason": reason,
+            "ts": _iso(age_min)}
+
+
+class TestBackgroundActivityFold:
+    def test_surfaces_a_fresh_halt(self):
+        events = T.recent_background_events(
+            [_bg(lane_journal.OP_HALT, reason="spinning past budget")], now=NOW)
+        assert len(events) == 1
+        assert events[0].op == lane_journal.OP_HALT
+        assert events[0].kind_chip == T._BG_CHIP[lane_journal.OP_HALT]
+        assert events[0].reason == "spinning past budget"
+
+    def test_surfaces_scavenge_reconcile_enforce(self):
+        entries = [
+            _bg(lane_journal.OP_SCAVENGE, lane="docs", age_min=1),
+            _bg(lane_journal.OP_RECONCILE, lane="src", age_min=2),
+            _bg(lane_journal.OP_ENFORCE, lane="global", age_min=3),
+        ]
+        ops = {e.op for e in T.recent_background_events(entries, now=NOW)}
+        assert ops == {lane_journal.OP_SCAVENGE, lane_journal.OP_RECONCILE,
+                       lane_journal.OP_ENFORCE}
+
+    def test_foreground_lease_ops_are_excluded(self):
+        """ACQUIRE/RELEASE/HEARTBEAT/SPAWN are an agent's OWN foreground traffic
+        (already on the lanes panel) — the background fold ignores them."""
+        entries = [
+            lane_journal.acquire_entry(_lease("main", acquired_min=1, hb_min=0.5)),
+            {"op": lane_journal.OP_HEARTBEAT, "lane": "main", "ts": _iso(0.5)},
+            _spawn("main", age_min=0.2),
+            _bg(lane_journal.OP_HALT, age_min=0.1),  # the one background op
+        ]
+        events = T.recent_background_events(entries, now=NOW)
+        assert [e.op for e in events] == [lane_journal.OP_HALT]
+
+    def test_stale_event_ages_off(self):
+        stale_min = (T.BG_ACTIVITY_TTL_MS / 60_000) + 1  # one minute past the TTL
+        assert T.recent_background_events(
+            [_bg(lane_journal.OP_HALT, age_min=stale_min)], now=NOW) == []
+
+    def test_event_just_inside_ttl_is_kept(self):
+        fresh_min = (T.BG_ACTIVITY_TTL_MS / 60_000) - 1
+        events = T.recent_background_events(
+            [_bg(lane_journal.OP_HALT, age_min=fresh_min)], now=NOW)
+        assert len(events) == 1
+
+    def test_newest_first_and_limit_capped(self):
+        # Ten HALTs at decreasing age; newest (smallest age) must lead, cap at limit.
+        entries = [_bg(lane_journal.OP_HALT, lane=f"l{i}", age_min=float(i))
+                   for i in range(10, 0, -1)]  # oldest first in the list
+        events = T.recent_background_events(entries, now=NOW, limit=3)
+        assert len(events) == 3
+        # Newest = age 1m (lane l1), then 2m, then 3m.
+        assert [e.lane for e in events] == ["l1", "l2", "l3"]
+
+    def test_unparseable_ts_is_kept_not_dropped(self):
+        """A hand-built/torn entry with no `ts` reads age `—` and is KEPT (the
+        conservative direction `_spawning_lanes` takes), never silently vanished."""
+        events = T.recent_background_events(
+            [{"op": lane_journal.OP_HALT, "lane": "main"}], now=NOW)
+        assert len(events) == 1 and events[0].age_ms is None
+
+
+class TestBackgroundActivityRender:
+    def test_empty_renders_none(self):
+        txt = T.render_background_text(())
+        assert "BACKGROUND ACTIVITY" in txt and "(none)" in txt
+
+    def test_populated_render_shows_op_lane_reason(self):
+        ev = T.BackgroundEvent(op=lane_journal.OP_HALT,
+                               kind_chip=T._BG_CHIP[lane_journal.OP_HALT],
+                               lane="src", reason="spinning past budget",
+                               age_ms=5 * 60 * 1000)
+        txt = T.render_background_text((ev,))
+        assert T._BG_CHIP[lane_journal.OP_HALT] in txt
+        assert "src" in txt and "spinning past budget" in txt
+
+    def test_unknown_op_renders_bare_token_not_blank_line(self):
+        """A future background op with no chip still shows its bare op token (the
+        fail-soft posture — surface it, never crash or render an empty row)."""
+        ev = T.BackgroundEvent(op="FUTURE_OP", kind_chip="", lane="main")
+        assert "FUTURE_OP" in T.render_background_text((ev,))
+
+
+class TestBackgroundActivitySnapshot:
+    def test_snapshot_surfaces_a_halt_from_the_wal(self, tmp_path: Path):
+        """End-to-end: a HALT written to the WAL (the watchdog's stop proposal)
+        surfaces on the BACKGROUND ACTIVITY panel of a real snapshot frame."""
+        repo = _git_repo(tmp_path, commits=("seed",))
+        cfg = default_config(repo)
+        lj = cfg.paths.lane_journal
+        lj.parent.mkdir(parents=True, exist_ok=True)
+        entry = lane_journal.halt_entry(
+            "pid:4321", reason="spinning past budget", lane="main", loop_ts="L")
+        entry["ts"] = _iso(5)  # a real append would stamp this; pin it for the clock
+        lj.write_text(json.dumps(entry) + "\n", encoding="utf-8")
+
+        frame = T.snapshot(cfg, verify=lambda p, ph: False, now=NOW)
+        assert len(frame.background) == 1
+        assert frame.background[0].op == lane_journal.OP_HALT
+        text = T.render_frame_text(frame)
+        assert "BACKGROUND ACTIVITY" in text
+        assert "spinning past budget" in text
+
+    def test_snapshot_surfaces_a_scavenge_alongside_a_live_lease(self, tmp_path: Path):
+        """A reaper SCAVENGE shows on the background panel even though replay folds
+        it as an eviction — the fold reads raw entries, not the replayed lease set."""
+        repo = _git_repo(tmp_path, commits=("seed",))
+        cfg = default_config(repo)
+        lj = cfg.paths.lane_journal
+        lj.parent.mkdir(parents=True, exist_ok=True)
+        rows = [
+            lane_journal.acquire_entry(_lease("main", acquired_min=60, hb_min=1)),
+            {**lane_journal.scavenge_entry(
+                {"lane": "docs", "loop_ts": "L2", "host_id": "h", "pid": 9},
+                reason="orphaned"), "ts": _iso(3)},
+        ]
+        lj.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+        frame = T.snapshot(cfg, verify=lambda p, ph: False, now=NOW)
+        bg_ops = {e.op for e in frame.background}
+        assert lane_journal.OP_SCAVENGE in bg_ops
+
+    def test_snapshot_no_background_renders_none_panel(self, tmp_path: Path):
+        """A quiet fleet shows the panel with `(none)` — present, not absent, so the
+        operator learns the watchdog/reaper simply hasn't acted (vs. a missing panel
+        that reads as 'this build doesn't have it')."""
+        repo = _git_repo(tmp_path, commits=("seed",))
+        cfg = default_config(repo)
+        frame = T.snapshot(cfg, verify=lambda p, ph: False, now=NOW)
+        assert frame.background == ()
+        text = T.render_frame_text(frame)
+        assert "BACKGROUND ACTIVITY" in text and "(none)" in text
+
+    def test_snapshot_torn_journal_never_crashes(self, tmp_path: Path):
+        repo = _git_repo(tmp_path, commits=("seed",))
+        cfg = default_config(repo)
+        lj = cfg.paths.lane_journal
+        lj.parent.mkdir(parents=True, exist_ok=True)
+        lj.write_text("not json\n{partial\n", encoding="utf-8")
+        frame = T.snapshot(cfg, verify=lambda p, ph: False, now=NOW)
+        assert frame.background == ()  # fail-soft
+
+    def test_frame_to_dict_carries_background(self, tmp_path: Path):
+        ev = T.BackgroundEvent(op=lane_journal.OP_HALT,
+                               kind_chip=T._BG_CHIP[lane_journal.OP_HALT],
+                               lane="main", age_ms=1000)
+        frame = T.Frame(workspace="w", now_iso="t", background=(ev,))
+        d = frame.to_dict()
+        assert d["background"][0]["op"] == lane_journal.OP_HALT
+        json.dumps(d)  # serializable
+        # Empty default serializes as [], never a missing key.
+        assert T.Frame(workspace="w", now_iso="t").to_dict()["background"] == []
+
+    def test_tui_panel_includes_background_activity(self):
+        """The rich TUI surfaces the panel too (matching the plain-text order)."""
+        import importlib
+        if importlib.util.find_spec("rich") is None:
+            pytest.skip("rich not installed — panel render is the [tui] extra")
+        from rich.console import Console
+        ev = T.BackgroundEvent(op=lane_journal.OP_HALT,
+                               kind_chip=T._BG_CHIP[lane_journal.OP_HALT],
+                               lane="main", reason="hung", age_ms=1000)
+        frame = T.Frame(workspace="w", now_iso="t", background=(ev,))
+        out = Console(width=100, file=__import__("io").StringIO())
+        out.print(TUI._renderable_for(frame))
+        rendered = out.file.getvalue()
+        assert "background activity" in rendered and "hung" in rendered

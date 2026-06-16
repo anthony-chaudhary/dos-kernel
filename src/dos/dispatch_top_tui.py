@@ -246,6 +246,9 @@ def _renderable_for(frame):
     sections.extend([
         _panel("lanes", _body(_top.render_lanes_text(frame.lanes)), "cyan"),
         _panel("recent verdicts", _body(_top.render_verdicts_text(frame.verdicts)), "magenta"),
+        # The kernel's own out-of-band actions (watchdog · reaper · breaker) — the
+        # "background processes" panel, between the agents' verdicts and the commits.
+        _panel("background activity", _body(_top.render_background_text(frame.background)), "yellow"),
         _panel("recent commits", _body(_top.render_activity_text(frame.activity)), "green"),
         Text(f"{_keys} · arming is the only write this screen can make", style="dim"),
     ])
