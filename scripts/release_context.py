@@ -670,10 +670,20 @@ def compute_ci_on_head(default_branch: str) -> dict:
     # folding it to red would cry wolf, folding it to green would lie. Walk the
     # recent completed runs and report the first one whose conclusion actually
     # adjudicates the bytes.
+    #
+    # The window is 30, not 5, on purpose: master's `cancel-in-progress` cancels
+    # the in-flight CI of every superseded push, so on a HOT trunk a long burst
+    # of pushes produces a long run of cancelled (indecisive) completed runs. A
+    # 5-deep window routinely sees ZERO decisive runs and folds to `none`, which
+    # makes the cadence HOLD forever during any active push burst — the exact
+    # failure that left PyPI stale. Reading deeper finds the last green ancestor;
+    # this is only an advisory pre-check anyway (publish.yml's ci-green job
+    # re-runs CI on the exact tagged SHA before the upload — that is the binding
+    # gate, and a tag push gets its own uncancellable run).
     _DECISIVE = {"success", "failure", "timed_out", "startup_failure"}
     latest_trunk = _run_gh_json([
         "run", "list", "--workflow", "ci.yml", "--branch", default_branch,
-        "--status", "completed", "--limit", "5",
+        "--status", "completed", "--limit", "30",
         "--json", "conclusion,headSha,updatedAt",
     ])
     trunk_ci: dict | None = None
