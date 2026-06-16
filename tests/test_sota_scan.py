@@ -170,6 +170,10 @@ def test_empty_scan_writes_zero_new_digest(ledger, monkeypatch):
 # The leak gate — runs before any post; a verdict refuses (exit 1).
 # ---------------------------------------------------------------------------
 def test_open_issue_refused_when_leak_gate_flags(ledger, monkeypatch):
+    # Pin LEAK_SCAN at an always-present file so the mock's non-zero returncode
+    # is what refuses — not the missing-scanner guard (the scanner is gitignored,
+    # so on CI the guard would otherwise refuse for the wrong reason).
+    monkeypatch.setattr(ss, "LEAK_SCAN", ss.REPO / "pyproject.toml")
     monkeypatch.setattr(ss, "gather", lambda topics, since: _fixture_items())
     posted = {"called": False}
 
@@ -187,6 +191,12 @@ def test_open_issue_refused_when_leak_gate_flags(ledger, monkeypatch):
 
 
 def test_open_issue_posts_when_leak_gate_clean(ledger, monkeypatch):
+    # The leak scanner is gitignored (absent on CI), so pin LEAK_SCAN at a file
+    # that always exists — otherwise leak_clean() fail-closes on the missing-scanner
+    # guard BEFORE reaching the mocked subprocess, and the clean path never runs.
+    # (The genuine missing-scanner refusal is covered by
+    # test_leak_clean_fail_closed_when_scanner_missing.)
+    monkeypatch.setattr(ss, "LEAK_SCAN", ss.REPO / "pyproject.toml")
     monkeypatch.setattr(ss, "gather", lambda topics, since: _fixture_items())
     calls = []
 
