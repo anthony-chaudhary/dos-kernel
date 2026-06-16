@@ -38,7 +38,7 @@
 </p>
 
 An AI agent will tell you it finished. DOS checks the real world instead of
-taking its word — and the nearest piece of the real world is your git history.
+taking its word. The nearest piece of the real world is your git history.
 
 An agent says it shipped the login endpoint. Did it? Run one command,
 `dos verify`, and it answers from the artifacts the work actually left behind,
@@ -79,7 +79,7 @@ zero config, and the only thing you ever install is one small Python package.
 > entries there undoes it. (No runtime detected? It says so and lists the
 > names to pick from — it never guesses.)
 
-<sub>**v0.26.0** · 3900+ tests · CI: Python 3.11–3.13 on Linux + a Windows 3.13
+<sub>**v0.26.0** · 5,600+ tests · CI: Python 3.11–3.13 on Linux + a Windows 3.13
 smoke run · the only runtime dependency is **PyYAML** · **MIT**.</sub>
 
 > 🧭 **Want it in plain words first?** What DOS is, what it catches, and what
@@ -127,8 +127,8 @@ its own front door: **[AGENTS.md](https://github.com/anthony-chaudhary/dos-kerne
 
 A coding agent does some work, then tells you how it went. Usually the story is
 true. Sometimes it isn't — the cheerful *"all work completed!"* from a worker
-that actually shipped nothing is the single most common failure in agent
-fleets. With one agent you catch that yourself, because you read its work
+that actually shipped nothing is one of the most common, and most expensive,
+failures in agent fleets. With one agent you catch that yourself, because you read its work
 before trusting it — which is a real cost you're already paying, you just
 haven't called it one: re-reading the output is the tax for taking the report
 on faith.
@@ -199,6 +199,7 @@ dos init .                                       # writes one dos.toml
 git init -q
 git config user.email you@example.com            # skip if you have a global git identity
 git config user.name  "You"
+git config commit.gpgsign false                  # this throwaway repo has no signing key
 echo 'def login(): ...' > login.py
 git add -A
 git commit -m "AUTH1: ship the login endpoint"   # stamp AUTH1 shipped: <PHASE-ID>: <message>
@@ -386,6 +387,40 @@ truth) — covered in [Three live projections](#three-live-projections-read-only
 below and walked end-to-end in
 **[Debug a stuck fleet](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/06_debug-a-stuck-fleet.md)**.
 
+### "I could write this in 20 lines of bash"
+
+You could — and that instinct is correct. The core of `dos verify` really is
+"grep git history for a stamp." DOS is that script taken seriously across the
+six places the 20-line version quietly breaks:
+
+1. **The stamp grammar is forgeable** unless it's a *closed, declared*
+   vocabulary the agent can't widen on the fly — a bare grep believes any
+   string the agent learns to print.
+2. **Concurrent agents need a crash-safe lease journal**, not a grep: deciding
+   whether two workers may touch the same tree is arbitration, and it has to
+   survive a kill mid-write.
+3. **"Spinning vs. stalled" is a failure detector with FLP edges**, not a
+   timeout — a wedged run and a slow-but-live one look identical to `sleep`.
+4. **One verdict shape has to render byte-identically across hosts** to be a
+   standard a fleet can depend on, instead of a different ad-hoc check per tool.
+5. **A skeptic-checkable signed receipt** (`dos attest`) is something a bash
+   script the agent's own host runs simply cannot mint.
+6. **`commit-audit` (claim-vs-diff) isn't greppable** — it reads what the diff
+   *did* against what the subject *said*.
+
+The load-bearing point under all six: a script your agent's own host runs can't
+credibly be *the part that doesn't believe the agent*. The whole value is being
+the layer that is structurally not talked past — and that's exactly the thing a
+home-grown check, run inside the loop it's auditing, can't be.
+
+This also answers the most sophisticated objection — **"doesn't durable
+execution (Temporal) already do this?"** Durable execution guarantees the step
+*ran* and durably records what it *returned*; if an agent step returns
+`"deployed successfully"`, the history correctly records that the step *said
+so*. DOS adjudicates exactly that residue: the claim against the world. They're
+orthogonal layers. (The full comparison — evals, guardrails, in-toto, CI — is
+in **[docs/ALTERNATIVES.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/ALTERNATIVES.md)**.)
+
 The referee grows along two axes: deterministic *verdicts* that read artifacts
 (`verify`, `liveness`, `scope`), and provider-backed *judges* — a model, a
 debate — that rule on what no deterministic check can, kept outside the kernel
@@ -487,8 +522,10 @@ prevented at a 32-agent fleet) projects these real per-run rates onto fleet
 math — it's geometry on top of measured numbers, not a measured fleet run.
 
 **🎲 A bet — stated as one.** Where this goes if the floor holds: a frozen,
-cross-vendor trust standard (the "deny" message is already byte-identical
-across Claude Code, Codex, and Qwen — a de-facto standard waiting to be named),
+cross-vendor trust standard (the "deny" message already renders from one
+verdict across every wired host, and is byte-identical on the ones that share
+Claude Code's envelope — Codex and Claude Cowork, pinned in
+`tests/test_hook_dialect.py` — a de-facto standard waiting to be named),
 a shared arbiter for real-world effects, the claim-vs-reality corpus only a
 neutral party can hold, and a notary that proves what an agent did *to a
 skeptic who wasn't in the room* (the mechanism already ships — `dos attest`
@@ -746,8 +783,8 @@ contract, the JUDGE-rung seam. The full map is in **[CLAUDE.md](https://github.c
 
 ## Install
 
-Pick the row that matches how you work — the full matrix (every OS, every
-channel, upgrade/uninstall, WSL, troubleshooting) is in
+Requires **Python 3.11+**. Pick the row that matches how you work — the full
+matrix (every OS, every channel, upgrade/uninstall, WSL, troubleshooting) is in
 **[docs/INSTALL.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/INSTALL.md)**:
 
 ```bash

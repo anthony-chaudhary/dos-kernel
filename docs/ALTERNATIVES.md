@@ -24,6 +24,29 @@ wrote that evidence?* Everything below sorts cleanly by its answer.
 
 ---
 
+## Orchestration frameworks (LangGraph, AutoGen, OpenAI Swarm)
+
+The most common first reaction is "isn't this just LangGraph / AutoGen /
+Swarm?" These are the default mental model for "a multi-agent thing," and they
+are good at what they do: [LangGraph](https://langchain-ai.github.io/langgraph/)
+models an agent system as a graph of nodes and edges with durable state;
+[AutoGen](https://microsoft.github.io/autogen/) and
+[OpenAI Swarm](https://github.com/openai/swarm) coordinate conversations and
+hand-offs between agents. They **decide what the agents do next**.
+
+**What DOS adds.** DOS decides whether to **believe what they did**. That is an
+orthogonal axis: an orchestrator routes the work; DOS adjudicates the claim the
+work produced, from evidence the agent didn't author. A graph edge that fires
+on a node's `"success"` is still trusting the node's self-report — DOS is the
+check you'd put *on* that edge. The composition is a "referee node": a graph
+step that runs a `dos verify` / `dos commit-audit` verdict and routes on its
+exit code instead of on the agent's word. The
+[fleet-framework cookbook](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/cookbook-fleet-frameworks.md)
+ships that recipe for LangGraph, AutoGen, and the Agents SDKs.
+
+**Use both.** The framework decides the route; DOS decides the belief. It runs
+beside any of them — DOS is a referee, not a competing coach.
+
 ## Hosted evals and observability (LangSmith-class)
 
 Evaluation and observability platforms like
@@ -220,6 +243,7 @@ needed.
 
 | Tool | Gates what | Reads what | When |
 |---|---|---|---|
+| Orchestration frameworks (LangGraph, AutoGen, Swarm) | what the agents do *next* | the graph/conversation state | as the work routes |
 | Evals / observability | quality of outputs | the run the app emitted | offline + online |
 | Framework guardrails | one task's output | the output text (DOS's drivers: a read-back) | at the checkpoint |
 | Temporal-class | execution progress | its own event history | continuously |

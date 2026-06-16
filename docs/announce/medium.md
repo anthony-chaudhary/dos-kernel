@@ -292,7 +292,7 @@ or just wire it in with `dos init --hooks auto` and let the counters
 accumulate.
 
 - **Repo:** [github.com/anthony-chaudhary/dos-kernel](https://github.com/anthony-chaudhary/dos-kernel) (MIT)
-- **Install:** `pip install dos-kernel` — v0.25.0, 3,900+ tests, the only
+- **Install:** `pip install dos-kernel` — v0.26.0, 5,600+ tests, the only
   runtime dependency is PyYAML
 - **Docs:** the README runs shallow → deep, and there's a no-code
   plain-words version up top

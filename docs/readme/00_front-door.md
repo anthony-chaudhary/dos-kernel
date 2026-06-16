@@ -32,7 +32,7 @@
 </p>
 
 An AI agent will tell you it finished. DOS checks the real world instead of
-taking its word — and the nearest piece of the real world is your git history.
+taking its word. The nearest piece of the real world is your git history.
 
 An agent says it shipped the login endpoint. Did it? Run one command,
 `dos verify`, and it answers from the artifacts the work actually left behind,

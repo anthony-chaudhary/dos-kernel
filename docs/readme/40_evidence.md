@@ -62,8 +62,10 @@ prevented at a 32-agent fleet) projects these real per-run rates onto fleet
 math — it's geometry on top of measured numbers, not a measured fleet run.
 
 **🎲 A bet — stated as one.** Where this goes if the floor holds: a frozen,
-cross-vendor trust standard (the "deny" message is already byte-identical
-across Claude Code, Codex, and Qwen — a de-facto standard waiting to be named),
+cross-vendor trust standard (the "deny" message already renders from one
+verdict across every wired host, and is byte-identical on the ones that share
+Claude Code's envelope — Codex and Claude Cowork, pinned in
+`tests/test_hook_dialect.py` — a de-facto standard waiting to be named),
 a shared arbiter for real-world effects, the claim-vs-reality corpus only a
 neutral party can hold, and a notary that proves what an agent did *to a
 skeptic who wasn't in the room* (the mechanism already ships — `dos attest`

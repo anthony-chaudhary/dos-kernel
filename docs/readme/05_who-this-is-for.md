@@ -24,8 +24,8 @@ its own front door: **[AGENTS.md](https://github.com/anthony-chaudhary/dos-kerne
 
 A coding agent does some work, then tells you how it went. Usually the story is
 true. Sometimes it isn't — the cheerful *"all work completed!"* from a worker
-that actually shipped nothing is the single most common failure in agent
-fleets. With one agent you catch that yourself, because you read its work
+that actually shipped nothing is one of the most common, and most expensive,
+failures in agent fleets. With one agent you catch that yourself, because you read its work
 before trusting it — which is a real cost you're already paying, you just
 haven't called it one: re-reading the output is the tax for taking the report
 on faith.

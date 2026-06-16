@@ -1,7 +1,7 @@
 ## Install
 
-Pick the row that matches how you work — the full matrix (every OS, every
-channel, upgrade/uninstall, WSL, troubleshooting) is in
+Requires **Python 3.11+**. Pick the row that matches how you work — the full
+matrix (every OS, every channel, upgrade/uninstall, WSL, troubleshooting) is in
 **[docs/INSTALL.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/INSTALL.md)**:
 
 ```bash

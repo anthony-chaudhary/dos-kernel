@@ -28,7 +28,7 @@ uv tool install "dos-kernel[mcp]"      # puts `dos` and `dos-mcp` on PATH
 ```
 
 This installs two console scripts: `dos` (the CLI) and `dos-mcp` (the MCP
-server). No other system dependency is required (Python 3.10+).
+server). No other system dependency is required (Python 3.11+).
 
 ## Step 2 — register the server with the host
 

@@ -65,7 +65,7 @@ from the long README:
 
 ```bash
 pip install -e ".[dev,mcp]"       # editable + the test/lint toolchain (exactly what CI installs)
-python -m pytest -q               # the full kernel suite — must stay green (~4,900 tests, ~4–5 min)
+python -m pytest -q               # the full kernel suite — must stay green (~5,600 tests, ~4–5 min)
 python scripts/dev.py fast        # the inner loop: pytest -m "not slow" (skips the ~150s of heavies)
 python scripts/dev.py verify-self # doctor --check + a real SHIPPED/NOT_SHIPPED round-trip (the CI smoke)
 dos doctor --workspace .          # what IS this workspace? (the config seam, made visible)

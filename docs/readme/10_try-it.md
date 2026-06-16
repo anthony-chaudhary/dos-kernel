@@ -29,6 +29,7 @@ dos init .                                       # writes one dos.toml
 git init -q
 git config user.email you@example.com            # skip if you have a global git identity
 git config user.name  "You"
+git config commit.gpgsign false                  # this throwaway repo has no signing key
 echo 'def login(): ...' > login.py
 git add -A
 git commit -m "AUTH1: ship the login endpoint"   # stamp AUTH1 shipped: <PHASE-ID>: <message>

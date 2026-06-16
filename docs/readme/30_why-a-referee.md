@@ -27,6 +27,40 @@ truth) — covered in [Three live projections](#three-live-projections-read-only
 below and walked end-to-end in
 **[Debug a stuck fleet](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/06_debug-a-stuck-fleet.md)**.
 
+### "I could write this in 20 lines of bash"
+
+You could — and that instinct is correct. The core of `dos verify` really is
+"grep git history for a stamp." DOS is that script taken seriously across the
+six places the 20-line version quietly breaks:
+
+1. **The stamp grammar is forgeable** unless it's a *closed, declared*
+   vocabulary the agent can't widen on the fly — a bare grep believes any
+   string the agent learns to print.
+2. **Concurrent agents need a crash-safe lease journal**, not a grep: deciding
+   whether two workers may touch the same tree is arbitration, and it has to
+   survive a kill mid-write.
+3. **"Spinning vs. stalled" is a failure detector with FLP edges**, not a
+   timeout — a wedged run and a slow-but-live one look identical to `sleep`.
+4. **One verdict shape has to render byte-identically across hosts** to be a
+   standard a fleet can depend on, instead of a different ad-hoc check per tool.
+5. **A skeptic-checkable signed receipt** (`dos attest`) is something a bash
+   script the agent's own host runs simply cannot mint.
+6. **`commit-audit` (claim-vs-diff) isn't greppable** — it reads what the diff
+   *did* against what the subject *said*.
+
+The load-bearing point under all six: a script your agent's own host runs can't
+credibly be *the part that doesn't believe the agent*. The whole value is being
+the layer that is structurally not talked past — and that's exactly the thing a
+home-grown check, run inside the loop it's auditing, can't be.
+
+This also answers the most sophisticated objection — **"doesn't durable
+execution (Temporal) already do this?"** Durable execution guarantees the step
+*ran* and durably records what it *returned*; if an agent step returns
+`"deployed successfully"`, the history correctly records that the step *said
+so*. DOS adjudicates exactly that residue: the claim against the world. They're
+orthogonal layers. (The full comparison — evals, guardrails, in-toto, CI — is
+in **[docs/ALTERNATIVES.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/ALTERNATIVES.md)**.)
+
 The referee grows along two axes: deterministic *verdicts* that read artifacts
 (`verify`, `liveness`, `scope`), and provider-backed *judges* — a model, a
 debate — that rule on what no deterministic check can, kept outside the kernel
