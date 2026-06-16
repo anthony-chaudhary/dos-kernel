@@ -36,8 +36,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-from dos._tree import norm_tree_prefix as _norm_tree_prefix
 from dos._tree import prefixes_collide as _prefixes_collide
+# Lock-aware normalization: a `lock://NAME` named-mutex region (docs/363) maps to a
+# reserved, file-disjoint prefix; a FILE entry passes through to the unchanged
+# `_tree.norm_tree_prefix` verbatim — so the file:// algebra (and every existing
+# verdict) is byte-identical, and a richer region (a named critical section with no
+# file backing) rides this UNCHANGED ratio/exact-glob logic. This is the single
+# call site that turns "deconfliction beyond file paths" on for the overlap policy:
+# `lock://gh-pages-publish` on both sides hits REFUSE_EXACT_GLOB (same reserved
+# prefix), two different locks are disjoint, a lock never collides with a file.
+from dos.named_lock import normalize_entry as _norm_tree_prefix
 
 # Ratio threshold: shared/requested above this = refuse. ⅓ is NOT a calibrated
 # soundness bound — it is a STAND-IN that admits a known hazard. The prior-art
