@@ -294,6 +294,35 @@ class LaneOutcomeShape:
         return self.runs >= self._MIN_RUNS
 
 
+@dataclass(frozen=True)
+class LaneYield:
+    """Typed slice of the pick-oracle verdict for the lane scout is about to lease
+    (yield-aware scout, the `job` repo's docs/_design/dispatch-yield-aware-scout-plan.md
+    Phase 1). It names the missing FOURTH kernel question — "is there anything to
+    act on?" — so a chooser that routes activities no longer pays a full
+    `claude -p` child ($5-15, 15-45 min) just to discover the lane it leased will
+    DRAIN at the empty-packet gate.
+
+    `count`: the SAME `int | None` the lane arbiter's pick-oracle
+    (`fanout_state._build_pick_oracle`) already produces — a confident count of
+    pickable member phases. `>= 1` = has work, `0` = drained (confirmed empty),
+    `None` = uncertain (the oracle withholds rather than inventing). The adapter
+    reduces the oracle verdict to this slice at the I/O edge; the kernel only READS
+    it (the same don't-recompute seam as `health`/`scoreboard`/`lane_outcome`).
+
+    `basis`: which oracle produced it (data-trust-floor: name the artefact).
+
+    SAFETY ASYMMETRY (load-bearing): ONLY a CONFIRMED `0` ever changes anything —
+    `None` and `>= 1` leave the decision byte-identical to before this field
+    existed (the dormant `None` default => the surfacing rung is inert). So the
+    worst case of a wrong oracle is "we surfaced/launched anyway, same as today";
+    the change can never CAUSE a launch that wasn't already going to happen.
+    """
+
+    count: Optional[int] = None
+    basis: str = ""                  # e.g. "fanout_state._build_pick_oracle"
+
+
 # ───────────────────────────── the input type ────────────────────────────────
 @dataclass(frozen=True)
 class ScoutState:
@@ -443,6 +472,17 @@ class ScoutState:
     # existing drained-twice machinery stops the loop). The adapter reduces the
     # decision→outcome ledger to this per-lane slice; the kernel only routes on it.
     lane_outcome: Optional[LaneOutcomeShape] = None     # → rule-10 replan pre-empt
+
+    # YIELD-AWARE SCOUT (docs/_design/dispatch-yield-aware-scout-plan.md, Phase 1):
+    # the pick-oracle verdict for the lane scout is about to lease, reduced to a
+    # typed slice at the I/O edge. Phase 1 only SURFACES a confirmed-drain
+    # (count == 0) as one extra evidence line on the DISPATCH terminal — the
+    # decision STAYS dispatch (Phase 2 promotes it to a REPLAN-refill rung). The
+    # reserved-input convention: default None ⇒ the surfacing is inert ⇒
+    # byte-identical to before this field existed. The safety asymmetry is the
+    # whole point — ONLY a confident 0 surfaces; None (uncertain) and >= 1 (has
+    # work) preserve today's exact decision.
+    lane_yield: Optional[LaneYield] = None              # → rule-9 confirmed-drain surfacing
 
     @property
     def health_action(self) -> HealthAction:
@@ -764,6 +804,21 @@ def choose(state: ScoutState) -> ScoutDecision:
                      "persists, a /replan to re-prioritize may beat more dispatch")
         ev.append(f"lane_ship_rate={lo.shipped_runs}/{lo.runs}")
 
+    # ── yield-aware surfacing (Phase 1 — docs/_design/dispatch-yield-aware-scout-plan.md) ──
+    #    The lane scout is about to DISPATCH was checked against the SAME pick-oracle
+    #    the arbiter consults (reduced to a LaneYield slice at the I/O edge). Phase 1
+    #    SURFACES a CONFIRMED drain (count == 0) as exactly ONE evidence line — the
+    #    decision STAYS dispatch (Phase 2 promotes this to a REPLAN-refill rung once
+    #    the monitor has proven prediction == outcome). The safety asymmetry is
+    #    load-bearing: ONLY a confident 0 adds anything; None (uncertain) and >= 1
+    #    (has work) leave the decision byte-identical, so a wrong oracle can only ever
+    #    have "surfaced anyway", never suppressed work. So the operator/loop now SEES
+    #    the predicted drain at second-zero, before paying a child to discover it.
+    ly = state.lane_yield
+    if ly is not None and ly.count == 0:
+        ev.append(f"lane-yield:0 (confirmed drained — "
+                  f"{ly.basis or 'fanout_state._build_pick_oracle'})")
+
     reason = ("dispatch the next pick — "
               + ("; ".join(notes) if notes
                  else "health gate clean, no escalated decision, replan not due, "
@@ -836,6 +891,7 @@ def check(
     scoreboard: Optional[ScoreboardShape] = None,
     closed_loop: Optional[ClosedLoopSignal] = None,
     lane_outcome: Optional[LaneOutcomeShape] = None,
+    lane_yield: Optional[LaneYield] = None,
 ) -> ScoutDecision:
     """Thin in-kernel composition: ALREADY-gathered field values in (the host
     adapter did the I/O), one `ScoutDecision` out. Does no I/O itself — it just
@@ -861,6 +917,7 @@ def check(
         scoreboard=scoreboard,
         closed_loop=closed_loop,
         lane_outcome=lane_outcome,
+        lane_yield=lane_yield,
     ))
 
 

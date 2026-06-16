@@ -25,13 +25,16 @@ from dos.scout import (
     ClosedLoopSignal,
     Confidence,
     LaneOutcomeShape,
+    LaneYield,
     ScoreboardShape,
     ScoutActivity,
     ScoutDecision,
     ScoutState,
     build_parser,
+    check,
     choose,
     cmd_check,
+    decision_to_dict,
 )
 
 
@@ -757,3 +760,75 @@ class TestClosedLoopFocusBias:
         })
         args = build_parser().parse_args(["--state-json", blob])
         assert cmd_check(args) == 0
+
+
+class TestLaneYieldSurfacing:
+    """Yield-aware scout, Phase 1 (the `job` repo's
+    docs/_design/dispatch-yield-aware-scout-plan.md): the lane scout is about to
+    DISPATCH is checked against the arbiter's pick-oracle, reduced to a `LaneYield`
+    slice at the I/O edge. Phase 1 SURFACES a CONFIRMED drain (count == 0) as
+    exactly one extra evidence line — the decision STAYS dispatch (Phase 2 promotes
+    it to a REPLAN-refill rung). The safety asymmetry is the whole contract: ONLY a
+    confident 0 changes anything; `None` (uncertain) and `>= 1` (has work) are
+    byte-identical to before the field existed.
+    """
+
+    def test_none_is_byte_identical_to_no_field(self):
+        # The reserved-input invariant: lane_yield=None ⇒ identical to omitting it.
+        base = dict(scope="apply", health=_proceed())
+        a = choose(ScoutState(**base))
+        b = choose(ScoutState(**base, lane_yield=None))
+        assert decision_to_dict(a) == decision_to_dict(b)
+
+    def test_has_work_count_is_byte_identical(self):
+        # count >= 1 (the lane has pickable work) ⇒ NO surfacing ⇒ byte-identical to
+        # the no-field decision. The load-bearing half of the safety asymmetry: a
+        # populated, has-work slice must never perturb today's exact decision.
+        base = dict(scope="apply", health=_proceed())
+        baseline = choose(ScoutState(**base))
+        for n in (1, 5, 42):
+            d = choose(ScoutState(**base, lane_yield=LaneYield(count=n, basis="x")))
+            assert d.activity is ScoutActivity.DISPATCH
+            assert decision_to_dict(d) == decision_to_dict(baseline), (
+                f"count={n} (has work) must leave the decision byte-identical")
+
+    def test_confirmed_drain_adds_exactly_one_evidence_line(self):
+        # count == 0 ⇒ SAME activity (still dispatch, rule 9 — Phase 1 surfaces, it
+        # does not reroute) + EXACTLY one extra evidence line vs the no-yield baseline.
+        base = dict(scope="apply", health=_proceed())
+        baseline = choose(ScoutState(**base))
+        d = choose(ScoutState(
+            **base,
+            lane_yield=LaneYield(count=0, basis="fanout_state._build_pick_oracle")))
+        assert d.activity is ScoutActivity.DISPATCH and d.rule_id == 9
+        assert len(d.evidence) == len(baseline.evidence) + 1, (
+            "a confirmed drain must add EXACTLY one evidence line")
+        extra = [e for e in d.evidence if e not in baseline.evidence]
+        assert len(extra) == 1
+        assert extra[0].startswith("lane-yield:0")
+        assert "confirmed drained" in extra[0]
+        assert "fanout_state._build_pick_oracle" in extra[0]
+
+    def test_drain_surfacing_only_on_dispatch_not_on_a_route(self):
+        # Phase 1 surfaces ONLY when the decision is DISPATCH. A confirmed-0 lane
+        # that ALSO routes UNSTICK (an earlier rung wins) gets NO line — the decision
+        # is byte-identical to the same UNSTICK without the yield slice.
+        base = dict(scope="apply", health=_unstick("renderer_sidecar_drop"))
+        routed = choose(ScoutState(**base))
+        with_yield = choose(ScoutState(**base, lane_yield=LaneYield(count=0, basis="x")))
+        assert routed.activity is ScoutActivity.UNSTICK and routed.rule_id == 4
+        assert decision_to_dict(routed) == decision_to_dict(with_yield)
+
+    def test_check_kwarg_threads_lane_yield(self):
+        # The thin in-kernel `check()` composition accepts the new kwarg and threads
+        # it through to choose() (the exact path the job-side adapter uses).
+        d = check(scope="apply", health=_proceed(),
+                  lane_yield=LaneYield(count=0, basis="oracle"))
+        assert d.activity is ScoutActivity.DISPATCH
+        assert any(e.startswith("lane-yield:0") for e in d.evidence)
+
+    def test_default_lane_yield_is_none(self):
+        # The dormant default — the reserved-input convention that keeps the whole
+        # existing suite byte-identical.
+        assert ScoutState().lane_yield is None
+        assert LaneYield().count is None and LaneYield().basis == ""
