@@ -245,6 +245,17 @@ code (`0` shipped / `1` not). No parsing, no plan, no config — the
 end-to-end. To run it on a repo shaped like yours, start with
 [Onboard a repo in 10 minutes](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/01_onboard-a-repo.md).
 
+Point the same witness at a **review queue** when commits pile up faster than
+anyone can read them. [Residual review](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/residual_review/)
+folds `commit-audit`'s per-commit verdict into three bands — **CLEARED** (the
+diff witnessed the claim, so spend ~0 attention re-asking "did it do what it
+said"), **RESIDUAL** (a claim git couldn't back — the human's 100%), and the
+no-claim rest. On this repo's own last 200 commits it cleared 170 of 171
+checkable claims: that's the re-review you skip, proven by git rather than a
+model's confidence score. (CLEARED means the change's *shape* matched its
+claim — **not** that the code is correct; correctness review still applies to
+every commit. The band can only ever ask for *more* eyes, never fewer.)
+
 *Next level up — wire the verdict into your own stack: [How you plug it in](#how-you-plug-it-in).*
 
 ## What goes wrong in a fleet
@@ -315,6 +326,16 @@ without parsing a word.
 step through one frame at a time — clone the repo and open
 [`docs/assets/loop_visual.html`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/assets/loop_visual.html) in a browser. (It's an
 HTML file, so GitHub shows its source rather than running it — open it locally.)</sub>
+
+**Lease scope — single filesystem today.** The verification half (`verify`,
+`commit-audit`, `liveness`) travels across machines freely because it reads git
+history. The admission half (`arbitrate`, lane leases) is local-filesystem only:
+the WAL lives on one disk, and workers on separate machines share no
+serialization point. A fleet that runs all its workers on one machine or in one
+shared filesystem is fully covered; a fleet spanning multiple hosts should treat
+`dos arbitrate` as advisory (not a hard mutex) until a remote-lease driver
+ships. See [docs/366](docs/366_single-filesystem-lease-boundary.md) for the
+design.
 
 ### How far you take it
 
@@ -1667,6 +1688,11 @@ story, start at the [README](../../README.md) or the
 | Mutation testing vs a test-witness gate for AI tests? | `dos test-witness` | [mutation-testing-vs-test-witness-for-ai-tests](mutation-testing-vs-test-witness-for-ai-tests.md) |
 | How do I make an AI agent write tests that actually assert something? | `dos test-witness` | [make-ai-write-tests-that-actually-assert](make-ai-write-tests-that-actually-assert.md) |
 | I have 100% coverage but the AI's tests are worthless | `dos test-witness` / `dos coverage` | [coverage-is-green-but-tests-are-worthless](coverage-is-green-but-tests-are-worthless.md) |
+| How do I stop re-reviewing code a machine already verified? | `dos commit-audit` (residual review) | [stop-re-reviewing-code-the-machine-already-verified](stop-re-reviewing-code-the-machine-already-verified.md) |
+| How does DOS fit into my CI/CD pipeline? | `dos commit-audit` / `dos verify` / `dos arbitrate` | [dos-for-ci-cd](dos-for-ci-cd.md) |
+| How does DOS implement zero trust for AI agents? | `dos verify` / `dos arbitrate` / `dos refuse` | [zero-trust-for-ai-agents](zero-trust-for-ai-agents.md) |
+| Never trust, always verify — applying zero trust to AI agent fleets | `dos verify` / `dos commit-audit` | [never-trust-always-verify-for-ai-agent-fleets](never-trust-always-verify-for-ai-agent-fleets.md) |
+| Zero trust access control for AI agents — scoped leases and structured refusal | `dos arbitrate` / `dos refuse` | [zero-trust-agent-access-control](zero-trust-agent-access-control.md) |
 
 ## How to read the numbers on these pages
 
@@ -3729,8 +3755,8 @@ edit to one is never an edit to the substrate:
 | `reward()` | `dos.reward` (join: `dos.effect_witness` → `dos.evidence`) | the **reward-set admission verdict** (docs/230/234) — "may a fine-tune *train* on this trajectory?" The on-ramp that puts the deterministic floor *inside a training loop*: `admit(claim_present, readbacks) -> ACCEPT / REJECT_POISON / ABSTAIN / NO_CLAIM`. `effect_witness`'s lab-facing consumer — a self-judged sampler banks every "resolved" claim as a positive (training the policy to over-claim more); this purges the poison a non-forgeable witness REFUTES (the dispreferred DPO member). The **non-distillable label**: the accept bit is a pure function of the witness the agent authors zero bytes of, so no answer text can move it reject→accept (inherits `believe_under_floor`; a forgeable read-back is structurally ignored). PURE, no I/O, names no host (the claim extractor + witness are the host's). Advisory. CLI: `dos reward --claim --witness {confirm,refute,none} [--forgeable]` (ACCEPT 0 / REJECT_POISON 3 / ABSTAIN 4 / NO_CLAIM 5). |
 | `model_health()` / `model_reroute` | `dos.model_health`, `dos.provider_limit` (driver: `dos.drivers.model_reroute`) | the **per-MODEL fleet-death rollup + reroute heal** (docs/272 neighborhood) — "which model is down across the children and grandchildren, and what do I route AWAY from?" `model_health` is a PURE fold over already-adjudicated `result_state` death verdicts + a boundary reader that walks ONE session JSONL, builds the sub-agent tree by `parentUuid` depth, and attributes each `MODEL_UNAVAILABLE` death to the model NAME parsed from its own (un-forgeable) error text. `provider_limit` is the heal-taxonomy that splits a MODEL being down/suspended from an account-budget window. ADVISORY (PDP): it REPORTS `reroute_targets`; the `model_reroute` DRIVER (the only home for a model roster) PROPOSES a sibling and ESCALATEs a policy-suspended model (#140) — neither launches a worker. The kernel half of the safe heterogeneous-fleet migration story; the floor-still-catches-a-stronger-model proof is docs/272. CLI: `dos model-health --session T` (healthy 0 / model_down 3) · `dos model-reroute --roster …` (healed 0 / escalate 5). |
 | `refuse(reason_class)` | `dos.wedge_reason`, `dos.picker_oracle` (vocabulary: `dos.reasons`) | **structured refusal** — a closed reason vocabulary, simultaneously emittable, verifiable, refusable. The reason set is `SubstrateConfig.reasons` (a `dos.reasons.ReasonRegistry`, base `BASE_REASONS`), declarable per-workspace in `dos.toml` `[reasons]`. |
-| `lease()` / `arbitrate()` | `dos.arbiter` | the **pure admission kernel** — `arbitrate(request, live_leases, config) -> decision`, state-in / decision-out, no I/O. |
-| `spawn()` / `reap()` | `dos.run_id`, `dos.lane_journal` | the **correlation spine** (sortable, lineage-carrying run-ids) + the lease **write-ahead log**. |
+| `lease()` / `arbitrate()` | `dos.arbiter` | the **pure admission kernel** — `arbitrate(request, live_leases, config) -> decision`, state-in / decision-out, no I/O. **Scope:** the lease WAL is a local filesystem file; workers on separate machines that share only a git remote have no common serialization point — cross-machine mutual exclusion requires a remote-lease driver (docs/366, not yet shipped). |
+| `spawn()` / `reap()` | `dos.run_id`, `dos.lane_journal` | the **correlation spine** (sortable, lineage-carrying run-ids) + the lease **write-ahead log** (local filesystem only — see `lease()` scope note above). |
 | `pickable()` / `enumerate()` / `cooldown()` / `reconcile()` | `dos.pickable`, `dos.enumerate`, `dos.cooldown`, `dos.reconcile` (grammar: `dos.toml` `[enumerate]`/`[cooldown]`/`[lifecycle]`) | the **picker substrate** (docs/168 + docs/207) — the producers/gates that decide *is there anything pickable, why-not, have I tried it, and did the claim hold?* `enumerate` produces the `declared` phase set; `pickable` is the pre-dispatch gate (OFFERABLE / HELD); `cooldown` is the anti-churn fold over `OP_ATTEMPT` (CLEAR / RECENTLY_ATTEMPTED — the cross-run memory breaking the re-pick storm); `reconcile` is the quiet-completion join (VERIFIED / QUIET_INCOMPLETE / HONEST_OPEN, fail-closed on the claim). All PURE; reads at the CLI boundary. CLI: `dos pickable`/`enumerate`/`cooldown`/`reconcile`. |
 | `notify()` | `dos.notify` (transport: a `dos.notifiers` driver, e.g. `dos.drivers.notify_slack`) | the **notification spine** (docs/225) — "push *what needs a human* / *what's running* to where the operator is (Slack first)." NOT a verdict: the FOURTH pure-protocol + by-name-resolver seam, on the DELIVERY side. Two PURE adapters turn the `decisions`/`dispatch_top` projections into one transport-agnostic `Notification`; `send_safely` delivers FAIL-SOFT (a transport raise → a non-delivered result, never a crashed producer); the built-in `null` sink is the safe default. Advisory (docs/99): reads a projection → push; takes no lease, stops no run. CLI: `dos notify {decisions,top} [--notifier slack --channel NAME] [--dry-run] [--json]`. |
 | `lint()` | `dos.config_lint` (algebra: `dos._tree`) | the **config-integrity linter** (docs/227, G1 from docs/189) — "is there *dead policy* in this workspace's own declarations?" A PURE `lint(LaneTaxonomy, ReasonRegistry) -> tuple[Finding, ...]`, the `detectUnreachableRules` analogue. Finds a treeless lane, a concurrent∩exclusive contradiction, a dangling autopick/alias/`see_also` target, an order-sensitive roster, and the real unreachable-rule case — a concurrent lane whose region is a strict subset of another's (`LANE_REGION_SHADOWED`). SHADOW (subset → remove) vs OVERLAP (intersection → disjoin) is the load-bearing split. Typed `Finding` (closed `LintKind` + `Severity`). Advisory. CLI: `dos lint [--strict] [--json]` (0 clean / 1 error-or-warn), folded into `dos doctor --check`. |
@@ -4066,6 +4092,45 @@ This doc is the *how-to* those two motivate.
 
 The rule of thumb: **data in `dos.toml`, behavior in `entry_points`, provider surface in a driver, workflow in a shipped skill.**
 
+### Every pluggable seam, in one table
+
+The behavior/driver rows above are not three seams but **one pattern applied to ~18
+entry-point groups**. Each follows the identical shape — `resolve_X(name)` → built-ins
+first (unshadowable) → `entry_points(group="dos.X")` by name → fail-loud (selectors) or
+fail-soft (advisory occupants). To extend any of them: ship a small pip package, register
+one entry point, `pip install`. The kernel never imports your package; it discovers it by
+name at the call boundary.
+
+`dos plugins` prints this table live (with what's installed); `dos plugin new <seam>
+--name <yours>` scaffolds a correct stub. The authoritative roster (with the stability
+floor) is [`STABILITY.md`](STABILITY.md).
+
+| Group | Axis | Occupant contract | Safety invariant | I/O? |
+|---|---|---|---|---|
+| `dos.drivers` | 1 — host policy | `<name>_config(workspace) -> SubstrateConfig` | selector → fail-loud; in-tree packs unshadowable; kernel attaches workspace facts | pure |
+| `dos.judges` | 6 — adjudicators | `Judge.rule(claim, config) -> JudgeVerdict` | advisory; FAILS TO ABSTAIN (never auto-AGREE) | I/O |
+| `dos.predicates` | 3 — admission | `AdmissionPredicate.check(request, config)` | CONJUNCTIVE-ONLY — can only REFUSE, never force-admit | pure |
+| `dos.overlap_policies` | 7 — disjointness | `OverlapPolicy.overlap(a, b) -> float` | AND-ed UNDER the prefix floor — only ever STRICTER | pure |
+| `dos.renderers` | 4 — presentation | `Renderer.render(verdict) -> str` | PURE presentation — decides nothing, mutates nothing | pure |
+| `dos.exporters` | — observability | `Exporter.export(events) -> ExportResult` | FAIL-SOFT — never crashes the observed verb | I/O |
+| `dos.notifiers` | — notification | `Notifier.send(note) -> NotifyResult` | FAIL-SOFT — a dead transport never crashes a verb | I/O |
+| `dos.evidence_sources` | — witness | `EvidenceSource.gather(subject, config)` | believe-UNDER-floor; FAIL-SAFE to NO_SIGNAL | I/O |
+| `dos.enforce_handlers` | — actuation | `EnforcementHandler.handle(event)` | advisory side-effects; never overrides allow/deny | I/O |
+| `dos.hook_dialects` | — host output | `HookDialect.render(verdict) -> dict` | OUTPUT downstream of the verdict — formats, never decides | pure |
+| `dos.hook_installs` | — host wiring | `HostHookSpec` | install-spec data; `claude-code` default unshadowable | pure |
+| `dos.plan_sources` | — planning | `PlanSource.plans() -> list` | FAIL-TO-EMPTY — a broken source never crashes a sweep | I/O |
+| `dos.stop_policies` | — loop halt | `StopPolicy.decide(...)` | AND-ed UNDER the `resource_blocked` floor — only ADDs a halt | I/O |
+| `dos.log_sources` | — log routing | `LogSource` | pure routing by accountability | I/O |
+| `dos.scope_sources` | — completion mode | `ScopeSource` | pure selection | pure |
+| `dos.memory_stores` | — memory | `MemoryStore` | READ-ONLY; `file` store unshadowable | I/O |
+| `dos.vcs` | — version control | `VcsBackend(root)` | `git`/`null` unshadowable; READS history only | I/O |
+| `dos.mcp_tools` | — MCP surface | `register(mcp)` or a bare tool callable | ADDITIVE — adds a verb, never replaces a built-in | I/O |
+
+The "I/O?" column is the litmus for *where* an occupant lives: a **pure** occupant may be a
+plain entry-point class; an **I/O** occupant (a provider, network, subprocess, disk) lives
+in a `drivers/` module the kernel points to but never imports. Either way the kernel stays
+pure — the I/O is downstream of the verdict, behind the resolver.
+
 > **Calling vs. extending — the MCP server (`docs/80_*`).** The four rows above
 > are how you *extend* DOS. A different axis is how an **agent** *calls* it: the
 > shipped MCP server (`pip install dos-kernel[mcp]`; the `dos-mcp` console script)
@@ -4303,16 +4368,31 @@ shape. A driver is exactly **two pieces**, the same two `job` has:
 > applies even here: the facts are gathered once at config-build time so the pure
 > `arbitrate` verdict stays workspace-aware without re-probing the disk.
 
-**The by-convention loader (`dos --driver <name>`).** The CLI resolves a driver by
-name, never by a hardcoded host string: `dos --driver <name>` imports
-`dos.drivers.<name>` and calls its `<name>_config(workspace)`
-(`_resolve_driver_config`, `src/dos/cli.py:45`). So a new host is a single module
-under `src/dos/drivers/` and the CLI (a layer-3 helper) never learns its name —
-the same one-way arrow the kernel obeys. `--job` is just the back-compat spelling
-of `--driver job`. A dotted or path-y name (`foo.bar`, `../evil`) is rejected up
-front as "unknown" (a path-traversal guard), and a `ModuleNotFoundError` from a
-driver's own *broken internal import* is re-raised, never masked as "no such
-driver" — a genuine bug in your driver fails loud.
+**The by-name loader (`dos --driver <name>`).** The CLI resolves a driver by name,
+never by a hardcoded host string, through the `dos.drivers_seam` resolver
+(`_resolve_driver_config`). Resolution is the same built-in-first shape every seam
+shares: it tries the **in-tree** `dos.drivers.<name>` module + `<name>_config(workspace)`
+FIRST (unshadowable — a third-party `workshop` can't displace the reference one), then
+falls through to the **`dos.drivers` entry-point group**. So a new host is EITHER a module
+under `src/dos/drivers/` OR — and this is the part that no longer requires a fork — an
+entry point in your **own pip package**:
+
+```toml
+# in your package's pyproject.toml
+[project.entry-points."dos.drivers"]
+acme = "acme_pkg:acme_config"     # points DIRECTLY at the factory
+```
+
+After `pip install`, `dos --driver acme` resolves it by name; the CLI (a layer-3 helper)
+never learns the name, and the kernel never imports your package — the same one-way arrow
+the kernel obeys. `--job` is the back-compat spelling of `--driver job`. A dotted or path-y
+name (`foo.bar`, `../evil`) is rejected up front as "unknown" (a path-traversal guard on
+the in-tree branch; entry-point names like `acme-driver` are matched literally and may
+carry a hyphen). A `ModuleNotFoundError` from a driver's own *broken internal import* is
+re-raised, never masked as "no such driver" — a genuine bug in your driver fails loud. The
+resolver also attaches workspace facts if your factory left them unset, so the SELF_MODIFY
+guard scope stays kernel-owned. The reference third-party pack is
+[`examples/dos_ext/dos_ext/driver.py`](../examples/dos_ext/dos_ext/driver.py) (`acme`).
 
 ```bash
 # the same two pieces a [lanes] table declares, but the config is built in code:
@@ -5184,6 +5264,7 @@ leaves.
 
   | Entry-point group | Contract | Kernel seam module |
   |---|---|---|
+  | `dos.drivers` | `<name>_config(workspace) -> SubstrateConfig` factory | `dos.drivers_seam` |
   | `dos.judges` | `Judge` Protocol | `dos.judges` |
   | `dos.predicates` | `AdmissionPredicate` Protocol | `dos.admission` |
   | `dos.overlap_policies` | `OverlapPolicy` Protocol | `dos.overlap_policy` |
@@ -5199,6 +5280,8 @@ leaves.
   | `dos.enforce_handlers` | `EnforcementHandler` Protocol | `dos.enforce` |
   | `dos.hook_installs` | `HostHookSpec` spec | `dos.hook_install` |
   | `dos.memory_stores` | `MemoryStore` Protocol | `dos.memory_stores` |
+  | `dos.vcs` | `VcsBackend(root)` backend | `dos.vcs` |
+  | `dos.mcp_tools` | `register(mcp)` registrar or a bare tool callable | `dos_mcp.server` |
 
 - **The `dos.toml` schema.** A declared key keeps its meaning; new keys are
   additive; an unknown key keeps failing loud where it does today.
@@ -5431,6 +5514,14 @@ limits before relying on DOS:
   trusted policy from the workspace operator. Running DOS against a workspace whose
   `dos.toml` or installed entry-point plugins you do not control is equivalent to
   running untrusted configuration/code — don't.
+- **Lease coordination is local-filesystem only.** The lane-lease WAL and its
+  O_EXCL mutex live on one disk. Workers on separate machines that share only a
+  git remote have no common serialization point for `arbitrate` — two hosts can
+  each be granted the same lane simultaneously. The *verification* half (`verify`,
+  `commit-audit`, `liveness`) travels across machines fine because it reads git
+  history; the *admission* half does not. Do not rely on `dos arbitrate` for
+  cross-machine mutual exclusion until a remote-lease driver exists. See
+  [docs/366](docs/366_single-filesystem-lease-boundary.md).
 - **It's pre-1.0.** Interfaces and guarantees can change.
 
 ## Dependencies
@@ -5487,6 +5578,638 @@ as a local, fail-closed pre-push gate. Two things about it are deliberate:
 If you spot what looks like leaked private content in the published tree or its
 history, please report it through the vulnerability channel at the top of this
 file rather than opening a public issue.
+
+<!-- ====== source: docs/ZERO_TRUST.md ====== -->
+
+# DOS and Zero Trust — the full mapping
+
+> **One sentence:** DOS is zero trust re-grounded on authorship — every effect
+> is verified against bytes the claiming agent did not write, every access grant
+> is scoped and time-bounded, and every refusal is typed and auditable.
+
+This document maps DOS to each zero trust pillar, explains the novel properties
+that go beyond the standard ZT playbook, and names the honest gaps.
+
+For the quick version: [`docs/answers/zero-trust-for-ai-agents.md`](answers/zero-trust-for-ai-agents.md).
+For install: `pip install dos-kernel` (distribution name `dos-kernel`; the bare `dos` on PyPI is an unrelated squatter).
+
+---
+
+## Why standard zero trust doesn't transfer to agents
+
+Zero trust (ZT) was designed for networks. The adversary is an external attacker
+who may have already breached a segment. The controls are: verify identity,
+scope the access token, log the session, encrypt the channel.
+
+For AI agent fleets the adversary is different. It is not an external attacker;
+it is the agent's own tendency to narrate a done that didn't happen, or to write
+over a sibling's work without knowing it. The failure mode is not a breach — it
+is a plausible English sentence that is quietly wrong. The agent has no static
+identity (it's a process, maybe a hundred of them); its "effects" are commits and
+file writes, not API calls; and its most common lie is not forged credentials but
+an optimistic self-report.
+
+The DOS answer is to shift the trust axis from *identity* to *authorship*:
+
+> **A belief bit may only be set by bytes the claimant did not author.**
+
+This is the byte-author axiom. It is the single rule all six ZT pillars below
+reduce to when applied to agents.
+
+---
+
+## Pillar 1 — Verify explicitly
+
+**Standard ZT:** Authenticate using all available data. Don't assume a valid
+token means a trusted session.
+
+**DOS form:** `dos verify` adjudicates "did this effect actually happen?" from
+git ancestry, counterparty logs, or OS exit codes — never from the agent's
+self-report. The agent claiming success is a *request* for verification, not a
+result. The verdict names its witness: "SHIPPED via grep-subject" means a git
+commit whose stamp matched the grammar. The agent's narration is not cited.
+
+`dos commit-audit` applies the same rule at the commit grain: the subject line
+is forgeable (the agent wrote it); the diff is not (the commit machinery wrote
+it). A subject that claims a code change against an empty diff is
+`CLAIM_UNWITNESSED` — exit 1, regardless of how confident the subject sounds.
+
+The `evidence` seam makes this structural. Its `believe_under_floor` rule:
+
+- `OS_RECORDED` or `THIRD_PARTY` source attestation → belief is granted.
+- `AGENT_AUTHORED` source (pasted receipt, agent stdout, an mtime the agent set) → structurally incapable of granting belief.
+
+The forgeable class literally has no enum value in the evidence corpus type — a
+boundary that tried to fold an assistant turn into the trust corpus has no enum
+to tag it with. The rule is not enforced by a runtime check; it is enforced by
+the type.
+
+**The `arg_provenance` module** goes one step further: the corpus that proves an
+argument was legitimately resolved (not minted from nowhere) may only contain
+`TOOL_RESULT` or `TASK_TEXT` entries — env-authored bytes the agent saw but did
+not write. There is deliberately no `AGENT_AUTHORED` member in that corpus
+type either.
+
+**Empirical result:**
+A gate that reads a witness the agent didn't author admits 0 / 18 (0.0%) forged
+done-claims in the forge-arena benchmark. A gate that believes the agent's text
+admits 18 / 18 (100.0%).
+Source: [`benchmark/forge_arena/RESULTS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/forge_arena/RESULTS.md).
+
+---
+
+## Pillar 2 — Least-privilege / just-in-time access
+
+**Standard ZT:** Scope access grants to the minimum needed, for the minimum
+time. Use JIT (Just-in-Time) credentials.
+
+**DOS form:** Before any agent may touch a file-tree region, it must hold a
+**lane lease** — a time-bounded, scoped predicate-lock acquired by `dos
+arbitrate`. The arbiter is a pure admission function: state in, decision out, no
+I/O. It can be unit-tested without spawning a live process, and its decision
+logic can be formally verified.
+
+Leases are:
+- Scoped to a named lane (a glob-set of file-tree prefixes).
+- Time-bounded (a `global` lock on the workspace is exclusive; concurrent lanes
+  must be disjoint).
+- Revokable (the lane journal records the lease; `dos reap` scavenges expired
+  ones).
+- Visible (the operator can read the full lease state at any time; nothing is
+  hidden).
+
+The `global` lane is exclusive — a system-wide lock for work that touches
+everything. `ci` and `meta` are curated zones. Concurrent agents must hold
+provably disjoint lanes; the arbiter refuses if they don't.
+
+`dos refuse(reason_class)` turns every admission denial into a typed, legible
+record. "No" is a first-class outcome — not silence, not prose.
+
+---
+
+## Pillar 3 — Micro-segmentation
+
+**Standard ZT:** Divide the network into small zones. Limit lateral movement.
+
+**DOS form:** The workspace is divided into named lanes, each mapped to a
+file-tree prefix region. The disjointness algebra (`_tree.lane_trees_disjoint`,
+`lane_overlap.overlap_verdict`) is the predicate-intersection test. An overlap
+policy can only **refuse-MORE** — it is AND-ed under the prefix-disjointness
+floor, so no swappable scorer can ever admit a collision the floor rejects.
+
+The `lock://` named-mutex region (docs/363) extends segmentation beyond the file
+tree to any named resource — a database table, a deployment slot, a named API
+endpoint. An agent breached in one lane cannot reach another's territory even if
+the breach is silent.
+
+**Empirical result:**
+A lease-based arbiter prevents 8 / 8 (100%) lost-update clobbers on a shared
+state region that two independently-spawned agents both attempted to write, in a
+setting where single-agent admission checks couldn't catch the collision.
+Source: [`benchmark/tau2coord/RESULTS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/tau2coord/RESULTS.md).
+
+---
+
+## Pillar 4 — Assume breach / continuous monitoring
+
+**Standard ZT:** Assume adversaries are already inside. Instrument everything.
+Alert on anomalies. Minimize the detection window.
+
+**DOS form:** DOS does not trust any run to report its own health. The temporal
+verdict family classifies run state from independently-authored data:
+
+- `dos liveness`: ADVANCING or SPINNING? — from git commit deltas and journal
+  heartbeats, never from the agent's "making progress" self-report.
+- `dos tool-stream`: did the tool results advance, or did the same
+  `(tool, args, result_digest)` triple recur N times? — detects replay /
+  tight-loop pathology without the agent knowing it's being watched.
+- `dos productivity`: is the per-step work rate fading? — DIMINISHING is
+  detectable before the run ends; a run can be `liveness`-ADVANCING yet
+  `productivity`-DIMINISHING.
+- `dos efficiency`: is the work/token ratio degrading? — WASTEFUL (zero work,
+  meaningful spend) is always armed.
+- `dos noop-streak`: any turn that replayed full context and moved zero ground
+  truth counts, regardless of what the agent said.
+
+All are advisory (policy decision point, not enforcement point). They report;
+they do not block on their own. The consumer decides the intervention —
+WARN/BLOCK/DEFER — via the `intervention` ladder.
+
+`dos hook-observation` gives the operator a per-call telemetry record for every
+hook invocation: verb, outcome, exit, latency, and an `intervention_rate` fold
+— what fraction of calls DOS actually intervened on. This is the continuous
+monitoring plane.
+
+---
+
+## Pillar 5 — Escalate, don't block forever
+
+**Standard ZT:** When a policy decision is uncertain, escalate to a higher
+authority. Don't fail open and don't fail hard-closed indefinitely.
+
+**DOS form:** The `breaker` circuit breaker carries two counters — `consecutive`
+(a sustained outage, reset on success) and `total` (a flapping failure a streak
+misses, never reset). It trips on either. When OPEN, the verdict names an
+`Escalation` rung:
+
+```
+ORACLE → JUDGE → HUMAN
+```
+
+- ORACLE: the deterministic kernel verdict. Always runs first.
+- JUDGE: a non-deterministic adjudicator (typically an LLM) that rules on what
+  the oracle ABSTAINed on. Advisory and fail-to-abstain — if the judge cannot
+  produce a verdict, the answer is ABSTAIN, never a fabricated ruling.
+- HUMAN: the last rung. The human-judgment bottleneck as a typed kernel rule.
+
+The kernel does not keep refusing identically on stalemate; it escalates the
+rung. A HUMAN escalation is visible, logged, and actionable — not a silent hang.
+
+---
+
+## Pillar 6 — Structured, auditable decisions
+
+**Standard ZT:** Policy decisions must be logged, typed, and auditable. An
+access grant or denial is not a free-text string — it is a structured record
+with a reason, a timestamp, and an accountable issuer.
+
+**DOS form:** `dos refuse(reason_class)` uses a closed vocabulary declared in
+`dos.toml`. Every refusal is a typed `ReasonSpec` — not a prose sentence. A
+closed vocabulary prevents agents from narrating their way to a refusal class
+they prefer (the "structured-refusal as ZT" discipline).
+
+`durable_schema` ensures every durable record carries a `schema:` tag. A record
+a newer kernel wrote that an older reader encounters is REFUSED, not misparsed
+or silently dropped. The lane journal, intent ledger, and lease WAL are all
+operator-visible by design — a complete, tamper-evident audit trail.
+
+`dos commit-audit --sweep BASE..HEAD` produces a DRIFT RATE over a commit range
+— a fleet-level audit, not a single-commit check.
+
+---
+
+## Novel properties beyond the standard ZT playbook
+
+### The byte-author floor (stronger than identity verification)
+
+Standard ZT verifies identity (who presented the credential). DOS verifies
+authorship (who wrote the bytes). An agent can present a stolen credential; it
+cannot change who authored the git commit's diff. The byte-author invariant is
+strictly stronger for the agent threat model.
+
+### `reward` — the non-distillable label
+
+`dos reward` gates fine-tune training data. The `admit` bit is a pure function
+of witness bytes the agent authored zero of. No answer text can move
+reject → accept. This closes the specific attack where a model learns to claim
+success and then gets trained on its own claims — the training data is
+self-poisoning by a ZT-naive admit policy.
+
+### `improve` — no self-grading
+
+The self-improving loop keep-gate (`dos improve`) requires suite-green AND
+truth-clean AND a strict env-measured metric gain to KEEP. The agent's narration
+about the candidate is carried for the operator and parsed for nothing. The only
+path to KEEP is to actually move the metric on an isolated candidate tree. The
+loop cannot grade its own homework.
+
+### Advisory + fail-to-abstain
+
+Most DOS verdicts are advisory (PDP, not PEP). The kernel cannot be wrong in a
+blocking way. A judge that cannot rule ABSTAINs — it never fabricates. The
+safe-direction bias: the worst a buggy or hostile evidence source can do is
+withhold an attestation it should have given (a safe-direction loss), never
+manufacture a belief the agent could forge.
+
+---
+
+## Honest gaps — what DOS does not supply
+
+From [`SECURITY.md`](../SECURITY.md), plainly stated:
+
+**DOS is a referee, not a sandbox.** It adjudicates and serializes; it does not
+confine a malicious process or enforce OS-level isolation. Pair DOS with
+containers, VMs, least-privilege credentials, and capability-restricted runtimes
+for enforcement. DOS is the PDP; the OS/container is the enforcement point.
+
+**`dos verify` is only as strong as its artifact surface.** It can adjudicate
+effects that leave a checkable trace (a file changed, a registry entry, a merge
+ancestry). It cannot certify a judgment that leaves no artifact. "I thought
+carefully" has no oracle.
+
+**`SubstrateConfig`/`dos.toml` is trusted operator input.** Running DOS against
+a workspace whose `dos.toml` or installed entry-point plugins you do not control
+is equivalent to running untrusted configuration/code. The ZT extension would be
+signed config with a hardware trust anchor (TPM, TEE attestation) — that is
+outside the current scope.
+
+**The state plane is intentionally operator-visible.** DOS state is an audit
+trail, not a secret store. Credentials and PII belong in a real secrets manager,
+referenced but never stored in DOS-tracked state.
+
+---
+
+## In one table
+
+| ZT Pillar | DOS mechanism | Load-bearing property |
+|---|---|---|
+| Verify explicitly | `dos verify`, `dos commit-audit`, `effect_witness` | byte-author ≠ claimant; git ancestry + counterparty, never agent narration |
+| Least-privilege / JIT | `dos arbitrate`, `dos refuse`, lane leases | scoped, time-bounded, revokable; `global` exclusive |
+| Micro-segmentation | lane taxonomy, `lane_overlap`, `_tree`, `lock://` | disjointness floor; overlap policy can only refuse-MORE |
+| Continuous monitoring | `dos liveness`, `dos productivity`, `dos efficiency`, `dos tool-stream`, `dos noop-streak` | temporal verdicts independent of the agent's own claim |
+| Escalation on stalemate | `breaker`, ORACLE → JUDGE → HUMAN | circuit-breaker trips to next rung, not hard-kill or silent-pass |
+| Structured decisions | `dos refuse(reason_class)`, `durable_schema` | typed, closed-vocabulary, tamper-evident |
+| Supply chain / self-improvement | `dos reward`, `dos improve`, `arg_provenance` | env-authored evidence only; AGENT_AUTHORED unrepresentable as trust source |
+
+---
+
+## Install and verify
+
+```bash
+pip install dos-kernel           # distribution name is dos-kernel
+dos verify --workspace . PLAN PHASE     # pillar 1 — verify from artifacts
+dos arbitrate --workspace . --lane src  # pillar 2 — scope the access grant
+```
+
+Full quickstart: [`docs/QUICKSTART.md`](QUICKSTART.md).
+Full answer: [`docs/answers/zero-trust-for-ai-agents.md`](answers/zero-trust-for-ai-agents.md).
+
+<!-- ====== source: docs/answers/zero-trust-for-ai-agents.md ====== -->
+
+# Zero trust for AI agents — how DOS implements it
+
+> DOS is the zero trust substrate for autonomous agent fleets: every claim is
+> verified against an artifact the agent didn't author, every access grant is
+> scoped and time-bounded, and every decision is typed and auditable. `pip install
+> dos-kernel`. The PyPI name is `dos-kernel` — the bare `dos` package is an
+> unrelated squatter; never install that.
+
+## The short answer
+
+Zero trust says: never trust, always verify. For AI agents the stakes are higher
+than for network segments — an agent that fakes a done is harder to catch than a
+spoofed IP, because the agent writes its own story in plain English. The
+traditional ZT answer (validate identity, scope the token, log the access) does
+not transfer directly: agents don't have static identities, their "effects" are
+commits and file writes rather than API calls, and their most common failure
+mode is not a breach but an honest-looking lie.
+
+DOS is zero trust re-grounded on *authorship* rather than identity. The kernel
+axiom is: **a belief bit may only be set by bytes the claimant did not author**.
+`dos verify` checks whether a claimed effect actually happened — from git
+ancestry, a counterparty record, or an OS exit code — never from the agent's
+own words. `dos arbitrate` scopes every file-write to a named, time-bounded
+lease before the agent touches anything. `dos refuse` makes "no" a typed,
+machine-actionable outcome instead of silence. Every verdict is a pure
+`classify(evidence, policy)` — deterministic, unit-testable, and independent of
+whatever the agent said about itself.
+
+The result is a ZT architecture for agents: verify explicitly (from artifacts),
+least-privilege access (scoped leases), micro-segmentation (file-tree lanes),
+continuous monitoring (temporal verdicts), and structured refusal (closed
+reason vocabulary). The `AGENT_AUTHORED` accountability class is literally
+unrepresentable as a trust source in the evidence seam — the forgeable class
+does not exist in the type.
+
+## The evidence
+
+Each claim is grounded in a witness whose bytes the judged agent did not author.
+
+| Claim | Number | Witness (byte-author ≠ claimant) | Source |
+|---|---|---|---|
+| A witness-reading gate admits zero forged done-claims; a text-believing one admits all | witness floor **0 / 18 = 0.0%** vs text-believing **18 / 18 = 100.0%** | git ancestry / OS exit code the agent never touches | [`benchmark/forge_arena/RESULTS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/forge_arena/RESULTS.md) |
+| A lease-based arbiter serializes a shared region two single-agent checks can't | **J = 8/8** lost-update clobbers prevented (deterministic and live) | the τ²-bench DB-hash, authored by the environment | [`benchmark/tau2coord/RESULTS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/tau2coord/RESULTS.md) |
+
+A **J** is a count of failures blocked off ground truth, never a downstream
+outcome delta.
+
+## The commands
+
+```bash
+pip install dos-kernel        # install — the PyPI name is dos-kernel
+dos verify --workspace . PLAN PHASE   # verify explicitly: did it actually happen?
+dos arbitrate --workspace . --lane src # least-privilege: scope the access grant
+```
+
+A verify result names its witness so the gate knows what it's standing on:
+
+```text
+SHIPPED AUTH AUTH1 a1b2c3d (via grep-subject)   # exit 0 — work landed
+NOT_SHIPPED AUTH AUTH2      (via none)           # exit 1 — claim not backed
+```
+
+## The zero trust pillars, one by one
+
+**Verify explicitly.** `dos verify` reads git ancestry, counterparty logs, or an
+OS exit code — never the agent's self-report. `dos commit-audit` checks that the
+diff matches the subject line; the subject is forgeable, the diff is not.
+`dos effect-witness` does an out-of-trajectory read-back of world state authored
+by a witness the agent did not control.
+
+**Least-privilege / JIT access.** `dos arbitrate` is a pure admission function
+over time-bounded lane leases. Before any agent can touch a file-tree region it
+holds a scoped lease; the `global` lane is exclusive; leases are revokable and
+visible in the lane journal.
+
+**Micro-segmentation.** The workspace is divided into named lanes, each mapped to
+a file-tree prefix. The disjointness algebra ensures no two concurrent agents can
+hold overlapping leases. The `lock://` named-mutex region extends segmentation
+beyond the file tree to any named resource.
+
+**Assume breach / continuous monitoring.** `dos liveness`, `dos productivity`,
+`dos efficiency`, and `dos noop-streak` each classify the run's temporal state
+from independently-authored data (git deltas, journal heartbeats, tool results)
+— never from the agent's claim about its own progress.
+
+**Escalate on stalemate.** The `breaker` circuit breaker trips to the next trust
+rung (ORACLE → JUDGE → HUMAN) rather than looping or blocking forever. A judge
+is advisory and fail-to-abstain; a stalemate reaches a human reviewer.
+
+**Structured, auditable refusal.** `dos refuse` uses a closed vocabulary from
+`dos.toml`. Every refusal is typed, legible, and durable — not open-ended prose
+that a downstream consumer might ignore.
+
+## What DOS does — and does not — supply for zero trust
+
+DOS supplies the **verification, admission, and monitoring** layer — the PDP
+(policy decision point) for agent effects. It does not supply OS-level
+confinement (pair it with containers, VMs, or least-privilege credentials for
+that), and it cannot verify effects that leave no independently-checkable
+artifact. The state plane is intentionally operator-visible: an audit trail, not
+a secret store.
+
+## Sources / reproduce
+
+- [`SECURITY.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/SECURITY.md) — the threat model and what DOS explicitly does not do.
+- [`docs/ZERO_TRUST.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/ZERO_TRUST.md) — full pillar-by-pillar mapping and the novel properties.
+- [`docs/121`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/121_first-class-on-devices-and-unattended.md) — the evidence-source seam (Axis 8).
+- [`docs/102`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/102_when-to-trust-an-agent.md) — when to trust an agent.
+- [`benchmark/forge_arena/RESULTS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/forge_arena/RESULTS.md) — the witness-forgery challenge.
+- [What is a trust substrate for a fleet of autonomous AI agents](trust-substrate-for-a-fleet-of-autonomous-agents.md) — the broader context.
+- [How do I combine a deterministic check, an LLM judge, and a human reviewer](the-trust-ladder-oracle-judge-human.md) — the escalation ladder.
+- [Why can't I trust a model to judge its own work](why-you-cant-trust-a-model-to-judge-its-own-work.md) — the self-authorship problem.
+
+## Also asked as
+
+- zero trust for AI agents
+- zero trust architecture for autonomous agents
+- zero trust AI agent security
+- zero trust for LLM agent fleets
+- never trust always verify for AI agents
+- zero trust principles applied to agent systems
+- how to implement zero trust for a coding agent
+- zero trust access control for autonomous AI
+- ai agent security zero trust
+- zero trust for agentic AI
+- dos zero trust verification
+- how does DOS implement zero trust
+
+> The kernel is the part that doesn't believe the agents.
+
+<!-- ====== source: docs/answers/never-trust-always-verify-for-ai-agent-fleets.md ====== -->
+
+# Never trust, always verify — applying zero trust to AI agent fleets
+
+> The zero trust axiom applied to agents: no claim is believed on its word; every
+> effect is verified against an artifact the agent didn't author. `pip install
+> dos-kernel`. The PyPI name is `dos-kernel` — the bare `dos` package is an
+> unrelated squatter; never install that.
+
+## The short answer
+
+"Never trust, always verify" was designed for network perimeters. For an AI
+agent fleet the adversary is different: not an external attacker but the agent's
+own tendency to narrate a done that didn't happen, or to step on a sibling's
+work without knowing it. The failure mode is not a breach — it's a plausible
+English sentence that is quietly wrong.
+
+The zero trust move for agents is to shift trust from identity to *authorship*:
+who wrote the bytes that constitute the evidence? If the judged agent is the
+author, the evidence is forgeable. If a counterparty (git, an OS exit code, a
+test runner, a database hash) is the author, the evidence is not. `dos verify`
+operationalizes this: it reads the independently-authored artifact and returns a
+verdict the agent cannot influence. An agent that claims success is a *request
+for verification*, not a result.
+
+This is the `believe_under_floor` rule in the kernel's `evidence` seam: belief
+is granted only when at least one source whose accountability is `OS_RECORDED`
+or `THIRD_PARTY` attests the effect. An `AGENT_AUTHORED` source — a pasted
+receipt, the agent's own stdout — is structurally incapable of moving the
+verdict from abstain to believe. The forgeable class does not exist in the trust
+corpus type; this is not a runtime check, it's a type boundary.
+
+## The evidence
+
+| Claim | Number | Witness (byte-author ≠ claimant) | Source |
+|---|---|---|---|
+| Gate on an un-authored witness: zero forged done-claims pass. Gate on text: all pass. | **0 / 18 (0.0%)** vs **18 / 18 (100.0%)** | git ancestry / OS exit code the attacker never touches | [`benchmark/forge_arena/RESULTS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/forge_arena/RESULTS.md) |
+| Lease-scoped arbitration prevents clobbers that single-agent checks miss | **J = 8/8** lost-update clobbers prevented | τ²-bench DB-hash, authored by the environment | [`benchmark/tau2coord/RESULTS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/tau2coord/RESULTS.md) |
+
+## The command
+
+```bash
+pip install dos-kernel
+dos verify --workspace . PLAN PHASE   # never trust — always verify from artifacts
+```
+
+```text
+SHIPPED AUTH AUTH1 a1b2c3d (via grep-subject)   # exit 0 — artifact backs the claim
+NOT_SHIPPED AUTH AUTH2      (via none)           # exit 1 — no artifact found
+```
+
+The verdict names its witness. "via grep-subject" means a git commit whose
+subject line matched the stamp grammar. The agent's narration is not cited.
+
+## The three ways agents fake a done — and what catches each
+
+**1. Self-report:** agent says "I committed AUTH2." `dos verify` reads git;
+no matching commit exists. Exit 1.
+
+**2. Empty commit:** agent runs `git commit --allow-empty "AUTH2: shipped"`.
+`dos commit-audit` sees a commit with a code claim and an empty diff. Exit 1.
+
+**3. Claim drift:** agent ships AUTH2 content in the AUTH1 commit. `dos verify`
+finds AUTH1 SHIPPED and AUTH2 NOT_SHIPPED — the label matches the commit, not
+the content.
+
+Each failure path exits 1. A gate on the exit code — a pre-push hook, a CI
+step, a dispatch loop's done-condition — turns that into a refused merge or a
+re-dispatch, with no human needed to read the English.
+
+## Sources / reproduce
+
+- [`benchmark/forge_arena/RESULTS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/forge_arena/RESULTS.md) — the witness-forgery challenge.
+- [`docs/138`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/138_what-is-truth-the-throughline.md) — what "truth" means in DOS: the byte-author invariant.
+- [`docs/121`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/121_first-class-on-devices-and-unattended.md) — the evidence seam: who can attest, and what the floor means.
+- [Zero trust for AI agents — how DOS implements it](zero-trust-for-ai-agents.md) — full zero trust pillar mapping.
+- [Do AI coding agents lie about what they shipped](do-ai-coding-agents-lie-about-what-they-shipped.md) — the empirical case.
+- [Why can't I trust a model to judge its own work](why-you-cant-trust-a-model-to-judge-its-own-work.md) — the authorship problem.
+
+## Also asked as
+
+- never trust always verify for AI agents
+- never trust always verify autonomous agents
+- zero trust never trust always verify LLM agents
+- how to apply zero trust principles to AI agents
+- verify AI agent claims independently
+- independent verification of agent claims
+- agent effect verification without trusting self-report
+- how to stop trusting your AI agent's word
+- verify coding agent output independently
+- zero trust LLM security
+
+> The kernel is the part that doesn't believe the agents.
+
+<!-- ====== source: docs/answers/zero-trust-agent-access-control.md ====== -->
+
+# Zero trust access control for AI agents — scoped leases and structured refusal
+
+> DOS gives AI agents scoped, time-bounded access to file-tree regions and
+> refuses out-of-lane writes before they happen. `pip install dos-kernel`, then
+> `dos arbitrate`. The PyPI name is `dos-kernel` — the bare `dos` package is an
+> unrelated squatter; never install that.
+
+## The short answer
+
+Zero trust access control has two moves: scope the grant (least-privilege), and
+make every denial typed and legible (structured refusal). For an AI agent fleet
+the object being granted is not an API scope or a network segment — it is a
+region of the shared file tree, and the adversary is not an external attacker
+but a parallel agent that writes to a file it shouldn't, or a runaway agent that
+holds a region past its productive lifetime.
+
+`dos arbitrate` is the admission function: it checks whether the requesting lane
+is provably disjoint from every live lease before granting the lock. The check
+is a pure function — state in, decision out, no I/O — so the policy is
+unit-testable without spawning a live process. An overlap policy can only
+**refuse-MORE**, never admit a collision the floor rejects; a swappable policy
+scorer lives in a driver (never the kernel), so the floor is invariant even if
+the policy is customized.
+
+`dos refuse` makes "no" a typed outcome. Every refusal carries a reason class
+from the closed vocabulary in `dos.toml` — not a free-text sentence. A machine
+can act on a reason class; it cannot reliably act on prose. This is the ZT
+"structured policy decision" pillar applied to agent effects: every access
+denial is legible, durable, and auditable.
+
+## The evidence
+
+| Claim | Number | Witness (byte-author ≠ claimant) | Source |
+|---|---|---|---|
+| Lease-scoped arbitration prevents lost-update clobbers that single-agent checks miss | **J = 8/8** prevented | the τ²-bench DB-hash, authored by the environment | [`benchmark/tau2coord/RESULTS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/tau2coord/RESULTS.md) |
+| A witness-reading gate admits zero forged done-claims | **0 / 18 (0.0%)** forged claims pass | git ancestry / OS exit code | [`benchmark/forge_arena/RESULTS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/forge_arena/RESULTS.md) |
+
+## The commands
+
+```bash
+pip install dos-kernel
+
+# Before the agent writes — acquire the scoped lease:
+dos arbitrate --workspace . --lane src
+# → outcome: acquire  (lane: src, tree: [src/**])
+
+# If a collision exists:
+# → outcome: refuse   (reason: OCCUPIED_LANE, free_clusters: [tests, docs])
+
+# After the work — structure the denial:
+dos check-reason OCCUPIED_LANE    # typed reason, machine-actionable
+```
+
+## The access-control flow
+
+1. **Pre-flight:** `dos arbitrate` checks the requested lane against all live
+   leases. If the lane trees are disjoint, the lock is granted. If they
+   overlap, the request is refused with a `reason_class` and a list of free
+   clusters the agent could pick instead.
+
+2. **In-flight:** the `lock://` named-mutex region extends the same predicate
+   to any named resource — a database table, a deployment slot, a CI channel
+   — not just file-tree prefixes.
+
+3. **Post-flight:** `dos reap` scavenges expired leases. A stalled agent's
+   region becomes available again without a human needing to intervene.
+
+4. **Refusal:** every denied access is a typed `LaneDecision(outcome='refuse',
+   reason=..., free_clusters=[...])` — not a runtime exception, not silence.
+   The consumer (the dispatch loop) reads the reason class and acts.
+
+## What the disjointness floor means
+
+The overlap policy is AND-ed under the prefix-disjointness floor:
+
+```
+admit ⟺ floor.admissible AND policy.admissible
+```
+
+A customized `OverlapPolicy` registered via the `dos.overlap_policies`
+entry-point group can only refuse additional cases beyond what the floor already
+refuses. It can never admit a collision the floor would reject. This is the
+ZT "least-privilege as a floor, not a ceiling" principle applied to the arbiter.
+
+## Sources / reproduce
+
+- [`benchmark/tau2coord/RESULTS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/tau2coord/RESULTS.md) — the coordination study.
+- [`docs/89`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/89_the-lane-is-a-region-lock.md) — the lane as a region lock: the litmus for what belongs in the arbiter.
+- [`docs/113`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/113_the-overlap-policy-seam-and-eval-per-axis.md) — the overlap-policy seam and its floor discipline.
+- [Zero trust for AI agents — how DOS implements it](zero-trust-for-ai-agents.md) — full ZT pillar mapping.
+- [How do I block an out-of-lane file write at pretooluse](block-an-out-of-lane-file-write-at-pretooluse.md) — the enforcement hook.
+- [Lease-based file locking for parallel coding agents](lease-based-file-locking-for-parallel-agents.md) — the operational recipe.
+- [How do I refuse an agent action with a structured reason](refuse-an-agent-action-with-a-structured-reason.md) — structured refusal in depth.
+
+## Also asked as
+
+- zero trust access control for AI agents
+- zero trust least privilege for agent fleets
+- scoped access control for coding agents
+- just-in-time access grants for AI agents
+- structured refusal for agent actions
+- least privilege for autonomous agents
+- how to scope file access for parallel AI agents
+- access control for agent fleets
+- agent lease management zero trust
+- zero trust file write control for agents
+
+> The kernel is the part that doesn't believe the agents.
 
 <!-- ====== source: claude-plugin/README.md ====== -->
 
