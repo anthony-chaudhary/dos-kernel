@@ -130,6 +130,43 @@ _WRITE_TOOLS = frozenset({"Write", "Edit", "MultiEdit", "NotebookEdit"})
 # attach HERE, not to the read set.
 _NO_FOOTPRINT_TOOLS = frozenset({"Agent", "Task", "TaskCreate", "TaskUpdate", "ToolSearch"})
 
+# The typed NON-FILE blast-radius axis (#202, docs/371). The FILE axis above
+# (`_NO_FOOTPRINT_TOOLS` → known-empty tree → clean file-collision pass) is correct
+# and PRESERVED — these tools genuinely cannot collide on a file. But empty-FILE is
+# not empty-EFFECT: each mutates AGENT/FLEET state the file model cannot see. This
+# map names the SECOND axis for the CC orchestration tools. It is HOST data — it
+# names `Agent` (a CC tool), so it lives HERE in the host-shaped adapter, exactly as
+# the file-tree extraction (`_tree_from_event`, the CC edit/write tool names) is
+# host-shaped today; the kernel leaf `effect_kind` defines only the CLASSES, never a
+# tool. A tool absent from this map carries `EffectKind.NONE` (the file axis already
+# covers its blast radius). A host with other orchestration tools declares its own
+# mapping in a driver, the same seam `_tree_from_event` already documents.
+def _effect_kinds_map() -> dict:
+    """The CC tool→EffectKind map (built lazily so the enum import is local)."""
+    from dos.effect_kind import EffectKind
+    return {
+        "Agent": EffectKind.SPAWN,          # forks the fleet (a seat + tokens, recursive)
+        "Task": EffectKind.COORDINATION,    # mutates the shared work queue
+        "TaskCreate": EffectKind.COORDINATION,
+        "TaskUpdate": EffectKind.COORDINATION,
+        "ToolSearch": EffectKind.CAPABILITY,  # mutates the agent's own capability set
+    }
+
+
+def effect_from_event(event: dict):
+    """The NON-FILE effect this call carries → an `EffectKind`. PURE.
+
+    `EffectKind.NONE` for any tool not in the CC orchestration map (its blast
+    radius is already covered by the FILE axis). The host-shaped twin of
+    `_tree_from_event`: that extracts the FILE footprint, this the non-file one.
+    """
+    from dos.effect_kind import EffectKind
+    tool_name = event.get("tool_name") if isinstance(event, dict) else None
+    if not isinstance(tool_name, str):
+        return EffectKind.NONE
+    return _effect_kinds_map().get(tool_name, EffectKind.NONE)
+
+
 # The opt-in switch for the apply-gate binding turnstile (docs/126 Phase 1.5). The
 # apply-gate generalizes the always-on SELF_MODIFY deny from the kernel's own T1
 # files to ANY held lease's tree — a stronger gate the operator OPTS INTO (docs/126
@@ -782,6 +819,15 @@ def decide(
     from dos import override_facts as _ovr
     tree, tree_known = _tree_from_event(event)
 
+    # #202 (docs/371) — the typed NON-FILE blast-radius axis. Computed ONCE here,
+    # purely additive: it tags the forensic outcome record so a SPAWN/COORDINATION/
+    # CAPABILITY effect is VISIBLE in the journal (a fold can then count per-holder
+    # spawns and surface a fan-out storm). It changes NO verdict and NO dialect —
+    # `_NO_FOOTPRINT_TOOLS` still passes the FILE-collision check clean (the empty
+    # known tree above is untouched). `EffectKind.NONE` for ordinary calls.
+    _effect = effect_from_event(event)
+    _effect_extra = {"effect_kind": _effect.value} if _effect.is_non_file else {}
+
     # docs/296 — the override-arm PERIMETER, before admission and never subject
     # to the disposition below: an agent write that touches the operator's arm
     # file (`.dos/override/`) is denied outright. Arming is the operator's hand
@@ -1057,6 +1103,10 @@ def decide(
                 "reason": "proven no-footprint call (a read touches nothing) — "
                           "cannot collide with any live lease",
                 "tree_known": tree_known,
+                # #202 — a no-footprint orchestration call (Agent/Task*/ToolSearch)
+                # is provably file-clean AND carries a non-file effect: tag it so
+                # the SPAWN is visible on the journal's new axis. Additive only.
+                **_effect_extra,
             }
         outcome = {
             "rung": "admission",
@@ -1179,7 +1229,16 @@ def decide(
     # ---- Rung B: behavioral provenance (confidence-gated, fail-to-OBSERVE) ----
     call = toolcall_from_event(event)
     if call is None:
-        return None, {"rung": "none", "decision": "passthrough", "reason": "read / non-mutating call"}
+        # A read OR a no-footprint orchestration tool (Agent/Task*/ToolSearch).
+        # The dialect is still None (passthrough — no verdict changes), but the
+        # outcome carries the non-file `effect_kind` so an Agent SPAWN is VISIBLE
+        # on the journal's new axis even though it touched no file (#202).
+        return None, {
+            "rung": "none",
+            "decision": "passthrough",
+            "reason": "read / non-mutating call",
+            **_effect_extra,
+        }
     from dos import arg_provenance, intervention, enforce
     prior = prior_results(str(event.get("session_id") or ""), cfg)
     pverdict = arg_provenance.classify_call(call, prior, arg_provenance.DEFAULT_POLICY)
