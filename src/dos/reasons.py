@@ -393,6 +393,34 @@ BASE_REASONS = ReasonRegistry(specs=(
         see_also=("dos arbitrate", "dos man wedge CLASS_BUDGET_EXHAUSTED",
                   "dos man lane"),
     ),
+    # docs/364 — the typed refuse the declared-call-shape admission predicate
+    # emits (`dos.call_shape.DeclaredCallShapePredicate`). The kernel verdict for
+    # OWASP ASI02 (Tool Misuse) + the lethal-trifecta egress leg: a PreToolUse
+    # call whose AGENT-AUTHORED arguments (command-prefix / arg-substring / path-
+    # glob) match a shape the host DECLARED out-of-policy for the lane. It rolls
+    # up to OPERATOR_GATE, NOT MISROUTE: the call is correctly-routed work the
+    # operator's declared policy forbids (the SELF_MODIFY/UNKNOWN_LANE MISROUTE
+    # siblings are work aimed at the WRONG place — the kernel, a newer kernel, a
+    # non-lane). The unblock is an OPERATOR action — relax the declared shape, run
+    # outside the gated lane, or --force — exactly the OPERATOR_GATE remedy shape.
+    # It lives in BASE_REASONS, not dos.toml, because the kernel's OWN predicate
+    # emits it: a dos.toml-only token would be undeclared on a foreign workspace
+    # whose kernel still raises it (the SELF_MODIFY/NO_FREE_REGION rule). Declared
+    # here so it is simultaneously emittable, verifiable (`category_for`),
+    # refusable (`is_refusal`), and `dos man wedge FORBIDDEN_CALL_SHAPE`-documented.
+    ReasonSpec(
+        token="FORBIDDEN_CALL_SHAPE",
+        category="OPERATOR_GATE",
+        refusal=True,
+        summary="The proposed tool call's agent-authored arguments match a "
+                "host-declared forbidden shape (command-prefix / arg-pattern / "
+                "path-glob) for this lane — the declared [call_shape] policy.",
+        fix="Forbidden by the workspace's declared [call_shape] policy. Relax the "
+            "declared shape, run OUTSIDE the gated lane, or pass --force (the "
+            "operator override). OFF by default — a workspace that declares no "
+            "[call_shape] table never raises this.",
+        see_also=("dos man lane", "dos arbitrate", "dos man wedge SELF_MODIFY"),
+    ),
 ))
 
 

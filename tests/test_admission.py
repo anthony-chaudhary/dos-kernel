@@ -631,13 +631,18 @@ class TestPickCountConsistency:
 
 class TestActivePredicates:
     def test_built_ins_lead_in_order(self):
+        # docs/364 — the declared-call-shape guard is the THIRD built-in, appended
+        # AFTER the two structural guards (so it can only refuse-MORE, never
+        # displace them). It is always present but OFF by default (its EMPTY policy
+        # short-circuits to admit), so its addition changes the NAME list here but
+        # not the default admission VERDICT.
         names = [getattr(p, "name", type(p).__name__) for p in built_in_predicates()]
-        assert names == ["disjointness", "self-modify"]
+        assert names == ["disjointness", "self-modify", "call-shape"]
 
     def test_active_predicate_names_includes_built_ins(self):
         import io
         names = active_predicate_names(_stderr=io.StringIO())
-        assert names[:2] == ["disjointness", "self-modify"]
+        assert names[:3] == ["disjointness", "self-modify", "call-shape"]
 
     def test_active_predicates_returns_callables(self):
         import io

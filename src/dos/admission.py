@@ -139,11 +139,25 @@ class AdmissionRequest:
     stable, documented shape to read — ``lane`` / ``kind`` / ``tree`` — without
     being handed the arbiter's internals. Built by `arbiter.arbitrate` from its
     ``requested_*`` args just before the predicate sweep.
+
+    ``command`` / ``arg_values`` (both default-empty) carry the proposed CALL's
+    agent-authored argument bytes — the Bash command string and the flattened
+    string argument values — for a predicate that adjudicates the call's SHAPE
+    (`call_shape.DeclaredCallShapePredicate`, docs/364) rather than only its file
+    tree. They default empty so every existing construction site
+    (`arbiter.arbitrate`, the lane-only callers, the tests) is byte-unchanged and
+    the tree-only predicates (`DisjointnessPredicate`, `SelfModifyPredicate`)
+    never read them. Both are agent-authored, both present at PRE — so a predicate
+    reading them stays sound at the one moment a deny can prevent an effect. The
+    PreToolUse sensor (`pretool_sensor.decide`) populates them from the event it
+    already parses; a pure/test caller leaves them empty.
     """
 
     lane: str
     kind: str
     tree: tuple[str, ...]
+    command: str = ""
+    arg_values: tuple[str, ...] = ()
 
 
 class DisjointnessPredicate:
@@ -386,6 +400,7 @@ def built_in_predicates(*, workspace=None, config=None) -> list[AdmissionPredica
     """
     from dos.self_modify import SelfModifyPredicate, existing_runtime_files
     from dos.overlap_policy import active_overlap_policy
+    from dos.call_shape import DeclaredCallShapePredicate, EMPTY_CALL_SHAPE
     cached = getattr(config, "kernel_runtime_files", None) if config is not None else None
     if cached is not None:
         # I/O-free path: the config already probed the workspace at build time.
@@ -397,7 +412,17 @@ def built_in_predicates(*, workspace=None, config=None) -> list[AdmissionPredica
         # Conservative: no workspace info → guard against the full static set.
         guard = SelfModifyPredicate()
     policy = active_overlap_policy(config=config)
-    return [DisjointnessPredicate(policy=policy), guard]
+    # The declared-call-shape guard (docs/364, OWASP ASI02) — appended LAST so it
+    # can only ADD a refusal after the two structural guards, never displace them.
+    # The ruleset is read off the already-loaded config (I/O-free, resolved at the
+    # config-load boundary like `kernel_runtime_files`); a config that declares no
+    # `[call_shape]` yields `EMPTY_CALL_SHAPE`, and the predicate short-circuits to
+    # admit before touching any bytes — so the default conjunction is byte-identical
+    # in VERDICT to the prior two-predicate list (only `dos doctor`'s name list grows).
+    ruleset = getattr(config, "call_shape", None) if config is not None else None
+    call_shape_guard = DeclaredCallShapePredicate(
+        ruleset=ruleset if ruleset is not None else EMPTY_CALL_SHAPE)
+    return [DisjointnessPredicate(policy=policy), guard, call_shape_guard]
 
 
 def active_predicates(*, workspace=None, config=None, _stderr=None) -> list[AdmissionPredicate]:

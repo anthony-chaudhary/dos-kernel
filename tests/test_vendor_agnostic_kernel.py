@@ -63,14 +63,21 @@ def test_arbitrate_signature_has_no_identity_parameter():
 
 
 def test_admission_request_has_no_identity_field():
-    """The pure datum a predicate sees is `(lane, kind, tree)` — the footprint,
+    """The pure datum a predicate sees is the FOOTPRINT — where the work touches
+    (`lane`/`kind`/`tree`) and what the call DOES (`command`/`arg_values`, the
+    agent-authored argument bytes the docs/364 call-shape predicate matches) —
     never the footprint's AUTHOR. A workspace predicate therefore cannot branch on
-    vendor; it sees only what the work touches."""
+    vendor; it sees only what the work touches and what it would do, never WHO is
+    doing it. The load-bearing guard is the identity-leak check below; the positive
+    set just pins the known footprint fields so a NEW field is a deliberate review."""
     fields = {f for f in getattr(AdmissionRequest, "__dataclass_fields__", {})}
     leaked = {f for f in fields if any(c in f.lower() for c in _IDENTITY_CONCEPTS)}
     assert not leaked, f"AdmissionRequest grew an identity field: {leaked}"
-    # and positively: it is exactly the footprint triple.
-    assert fields == {"lane", "kind", "tree"}
+    # and positively: it is exactly the footprint fields — the where-it-touches
+    # triple plus the what-it-does pair (docs/364). `command`/`arg_values` are the
+    # CALL's own bytes (content), not identity: a predicate reads what the call
+    # would do, still never who proposed it.
+    assert fields == {"lane", "kind", "tree", "command", "arg_values"}
 
 
 def test_is_shipped_signature_has_no_identity_parameter():

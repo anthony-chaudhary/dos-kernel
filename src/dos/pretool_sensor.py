@@ -269,6 +269,40 @@ def _tree_from_event(event: dict) -> tuple[tuple[str, ...], bool]:
     return (), False
 
 
+def _call_shape_inputs(event: dict) -> tuple[str, tuple[str, ...]]:
+    """The proposed call's agent-authored argument bytes → ``(command, arg_values)``. PURE.
+
+    For the `call_shape.DeclaredCallShapePredicate` (docs/364): the raw Bash
+    command string (empty when the tool is not Bash) and the flattened string
+    argument values from `tool_input`. Both are agent-authored and present at PRE,
+    so a predicate reading them stays sound at the one moment a deny can prevent an
+    effect. Deliberately shallow — only top-level string values (and string items
+    of a top-level list) are collected; a nested-dict arg is not walked (the
+    declared substring-match is a coarse egress/secret tripwire, not a deep
+    inspector). The command string is reported separately AND included as an
+    arg value by the predicate's own arg-substring rung, so an egress URL embedded
+    in a Bash command is caught either way.
+    """
+    tool_input = event.get("tool_input")
+    if not isinstance(tool_input, dict):
+        return "", ()
+    command = ""
+    if event.get("tool_name") == "Bash":
+        cmd = tool_input.get("command")
+        if isinstance(cmd, str):
+            command = cmd
+    arg_values: list[str] = []
+    for v in tool_input.values():
+        if isinstance(v, str):
+            if v.strip():
+                arg_values.append(v)
+        elif isinstance(v, list):
+            for item in v:
+                if isinstance(item, str) and item.strip():
+                    arg_values.append(item)
+    return command, tuple(arg_values)
+
+
 def _repo_relative(path: str, event: dict) -> str:
     """Best-effort repo-relative POSIX form of a path (the shape a lane tree carries). PURE.
 
@@ -849,10 +883,16 @@ def decide(
         }
         return deny_payload(f"DOS PRE-admission: {reason}"), outcome
 
+    # docs/364 — the proposed call's agent-authored argument bytes, for the
+    # declared-call-shape predicate. Empty for a non-Bash tool with no string args
+    # → the predicate (and a workspace with no [call_shape]) sees nothing to match.
+    _cmd, _arg_values = _call_shape_inputs(event)
     request = admission.AdmissionRequest(
         lane=str(event.get("tool_name") or "tool"),
         kind="tool-call",
         tree=tree,
+        command=_cmd,
+        arg_values=_arg_values,
     )
     leases = live_leases_for(cfg)
 

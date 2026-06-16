@@ -57,6 +57,7 @@ from dos.concurrency_class import ClassBudgets, NO_CLASS_BUDGETS
 from dos.env_print import EnvPrint, gather_env_print
 from dos.retention import RetentionPolicy, GENERIC_RETENTION
 from dos.data_class import DataClassPolicy, GENERIC_DATA_CLASS
+from dos.call_shape import CallShapeRuleset, EMPTY_CALL_SHAPE, load_call_shape_from_toml
 
 # The default soft-overlap tolerance — mirrored from `dos.lane_overlap.
 # OVERLAP_RATIO_MAX` (⅓) by VALUE, not import: `config` (layer 2a) must not import
@@ -641,6 +642,13 @@ class SubstrateConfig:
     env: "EnvPrint | None" = None
     overlap_ratio_max: float = _DEFAULT_OVERLAP_RATIO_MAX
     overlap_policy_name: str = "prefix"
+    # docs/364 — the declared-call-shape policy (OWASP ASI02). A per-lane set of
+    # forbidden command-prefixes / arg-substrings / path-globs the
+    # `call_shape.DeclaredCallShapePredicate` refuses a PreToolUse call against.
+    # Defaults `EMPTY_CALL_SHAPE` (forbids nothing) → the predicate short-circuits
+    # to admit, so a workspace that declares no `[call_shape]` is byte-identical in
+    # admission VERDICT to before the seam. Refuse-MORE only.
+    call_shape: CallShapeRuleset = EMPTY_CALL_SHAPE
     class_budgets: ClassBudgets = NO_CLASS_BUDGETS
     retention: RetentionPolicy = GENERIC_RETENTION
     data_class: DataClassPolicy = GENERIC_DATA_CLASS
@@ -1280,6 +1288,16 @@ def load_workspace_config(
     )
     cfg = dataclasses.replace(
         cfg, overlap_ratio_max=_overlap[0], overlap_policy_name=_overlap[1])
+    # [call_shape] — the declared-call-shape policy (docs/364, OWASP ASI02). A
+    # present table declares per-lane forbidden command/arg/path shapes; absent
+    # inherits the EMPTY default (forbids nothing, byte-identical admission).
+    # Malformed RAISES (warn + keep base) — a forbidden-shape typo silently doing
+    # nothing is the exact hazard (an operator believing a ban is in force when it
+    # is not). Refuse-MORE only: it can never loosen admission.
+    cfg = dataclasses.replace(cfg, call_shape=_layer(
+        "call_shape",
+        lambda: load_call_shape_from_toml(toml_path, base=cfg.call_shape),
+        cfg.call_shape))
     # [retention] — OVERRIDE the scratch-retention caps (docs/106 §3.3). A present
     # key overrides that cap; absent inherits the generic default (generous, never
     # zero). Malformed warns + keeps the base — a bad cap can never loosen the
