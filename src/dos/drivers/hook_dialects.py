@@ -932,3 +932,63 @@ def copilot_cli_install_spec() -> HostHookSpec:
              "form would be a silent fail-open here). The wired `dos hook` command must be "
              "on PATH in the Copilot CLI session.",
     )
+
+
+def kimi_install_spec() -> HostHookSpec:
+    """MoonshotAI's **Kimi CLI** — `~/.kimi/config.toml` (flat TOML hooks, claude-code output).
+
+    Kimi's hook config is a FLAT TOML array-of-tables (verified against MoonshotAI/kimi-cli,
+    2026-06-16): `[[hooks]]` with `event = "PreToolUse"` (required), `command` (required),
+    optional `matcher`/`timeout` — NOT Codex's CC-shaped `[[hooks.EVENT]]` nesting. So this
+    spec sets `toml_event_key="event"` (the flat-block path of `_toml_block`). Its deny OUTPUT
+    is the NESTED `{"hookSpecificOutput":{"permissionDecision":"deny",…}}` — byte-identical to
+    Claude Code — so it carries NO `--dialect` (the default CC envelope). Zero new renderer.
+
+    The path is `~/.kimi/config.toml` (user-global); `dos init --hooks kimi <dir>` writes
+    `<dir>/.kimi/config.toml`, so an operator wiring their home runs it against `~` (or hand-
+    copies the fenced block). Events PreToolUse / PostToolUse / Stop.
+    """
+    return HostHookSpec(
+        host="kimi",
+        config_path=(".kimi", "config.toml"),
+        fmt=ConfigFormat.TOML,
+        pre_events=("PreToolUse",),
+        post_events=("PostToolUse",),
+        stop_events=("Stop",),
+        dialect_flag="",             # nested permissionDecision deny output = the CC default envelope.
+        toml_event_key="event",      # flat [[hooks]] with `event = "<Event>"`.
+        note="Kimi CLI's hooks live in a FLAT TOML array-of-tables in .kimi/config.toml "
+             "([[hooks]] with event=\"PreToolUse\"/…). Its deny output is the nested "
+             "hookSpecificOutput/permissionDecision form (claude-code), so the default CC "
+             "envelope is wired (no --dialect). The path is user-global (~/.kimi/config.toml); "
+             "the wired `dos hook` command must be on PATH in the Kimi session.",
+    )
+
+
+def vibe_install_spec() -> HostHookSpec:
+    """Mistral AI's **Vibe** CLI — `.vibe/hooks.toml` (flat TOML hooks, antigravity output).
+
+    Mistral Vibe's hook config is a FLAT TOML array-of-tables (verified 2026-06-16):
+    `[[hooks]]` with `type = "before_tool"` (the event), `match` (tool matcher), `command`,
+    `timeout` — NOT Codex's CC-shaped nesting. So this spec sets `toml_event_key="type"` (the
+    flat-block path) and names Vibe's own event vocabulary (`before_tool` / `after_tool` /
+    `post_agent_turn`). Its deny OUTPUT is a flat top-level `{"decision":"deny","reason":…}`
+    on stdout — byte-identical to `AntigravityDialect` — so it carries `--dialect antigravity`.
+    Hooks are gated behind `enable_experimental_hooks = true` in Vibe's config.toml (a host
+    enablement the operator sets; DOS wires the bytes). Zero new renderer.
+    """
+    return HostHookSpec(
+        host="vibe",
+        config_path=(".vibe", "hooks.toml"),
+        fmt=ConfigFormat.TOML,
+        pre_events=("before_tool",),
+        post_events=("after_tool",),
+        stop_events=("post_agent_turn",),
+        dialect_flag="--dialect antigravity",   # flat top-level {"decision":"deny"} output = antigravity.
+        toml_event_key="type",       # flat [[hooks]] with `type = "before_tool"`.
+        note="Mistral Vibe's hooks live in a FLAT TOML array-of-tables in .vibe/hooks.toml "
+             "([[hooks]] with type=\"before_tool\"/…), gated behind "
+             "enable_experimental_hooks=true in config.toml. Its deny output is a flat "
+             "top-level {\"decision\":\"deny\",\"reason\":…}, so DOS wires --dialect antigravity. "
+             "The wired `dos hook` command must be on PATH in the Vibe session.",
+    )

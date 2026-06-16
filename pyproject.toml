@@ -372,6 +372,14 @@ copilot = "dos.drivers.hook_dialects:copilot_install_spec"
 # of {type:command} objects, {"version":1}), camelCase events, FLAT top-level permissionDecision
 # deny OUTPUT -> the NEW copilot-cli renderer. A distinct host from the VS Code agent-hooks surface.
 copilot-cli = "dos.drivers.hook_dialects:copilot_cli_install_spec"
+# MoonshotAI's Kimi CLI -- `.kimi/config.toml`, a FLAT TOML array-of-tables ([[hooks]] with
+# event="PreToolUse") with a NESTED claude-code deny output, so NO --dialect. Uses the flat
+# TOML block (toml_event_key="event"). Existing renderer; install spec only.
+kimi = "dos.drivers.hook_dialects:kimi_install_spec"
+# Mistral AI's Vibe CLI -- `.vibe/hooks.toml`, a FLAT TOML array-of-tables ([[hooks]] with
+# type="before_tool") with a flat top-level {"decision":"deny"} output, so --dialect antigravity.
+# Uses the flat TOML block (toml_event_key="type"). Existing renderer; install spec only.
+vibe = "dos.drivers.hook_dialects:vibe_install_spec"
 
 # The memory-STORE providers (docs/314 P2/P3) — where a fleet's memories live, so
 # the recall gate (docs/103) and the write gate (`dos memory admit`) can run against

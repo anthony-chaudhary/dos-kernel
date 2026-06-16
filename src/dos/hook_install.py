@@ -153,6 +153,13 @@ class HostHookSpec:
     json_version: Optional[int] = None
     note: str = ""
     env_markers: tuple[str, ...] = ()
+    #: TOML hosts only: the field NAME that carries the event on a FLAT `[[hooks]]`
+    #: array-of-tables entry (`"event"` for Kimi CLI, `"type"` for Mistral Vibe), as
+    #: opposed to Codex's CC-shaped `[[hooks.EVENT]]` nesting. "" (the default) selects
+    #: the CC-shaped block; a non-empty value selects the flat `[[hooks]]` block where
+    #: each entry is `[[hooks]]` + `<toml_event_key> = "<event>"` + `command = "…"`.
+    #: Carried as DATA so the merge never compares a vendor literal.
+    toml_event_key: str = ""
 
     def command_for(self, verb: str) -> str:
         """The exact `dos hook …` command string this host wires for `verb`.
@@ -541,16 +548,34 @@ def merge_yaml(
 # opening fence marker. PURE: text in, text out.
 # ---------------------------------------------------------------------------
 def _toml_block(spec: HostHookSpec) -> str:
-    """The fenced `[[hooks.EVENT]]` block for a TOML host, as TOML text."""
+    """The fenced TOML block for a TOML host, as TOML text.
+
+    Two shapes, selected by `spec.toml_event_key` (DATA, never a vendor branch):
+
+    * `""` (default) — Codex's CC-shaped nested tables: `[[hooks.EVENT]]` →
+      `[[hooks.EVENT.hooks]]` with `type = "command"` + `command = …`.
+    * a field name (e.g. `"event"` for Kimi, `"type"` for Mistral Vibe) — a FLAT
+      `[[hooks]]` array-of-tables where each entry carries the event on that field:
+      `[[hooks]]` + `<key> = "<event>"` + `command = …`.
+    """
     lines = [TOML_FENCE_OPEN]
     for event, command in spec.events_and_commands():
         # TOML basic strings need backslashes/quotes escaped; the DOS commands use
         # neither, but escape defensively so a future command stays valid TOML.
         esc = command.replace("\\", "\\\\").replace('"', '\\"')
-        lines.append(f"[[hooks.{event}]]")
-        lines.append("[[hooks.%s.hooks]]" % event)
-        lines.append('type = "command"')
-        lines.append(f'command = "{esc}"')
+        if spec.toml_event_key:
+            # Flat `[[hooks]]` array-of-tables (Kimi / Mistral Vibe). The event rides
+            # the host's own field (`event`/`type`); the command is a sibling key.
+            ev_esc = event.replace("\\", "\\\\").replace('"', '\\"')
+            lines.append("[[hooks]]")
+            lines.append(f'{spec.toml_event_key} = "{ev_esc}"')
+            lines.append(f'command = "{esc}"')
+        else:
+            # CC-shaped nested tables (Codex).
+            lines.append(f"[[hooks.{event}]]")
+            lines.append("[[hooks.%s.hooks]]" % event)
+            lines.append('type = "command"')
+            lines.append(f'command = "{esc}"')
         lines.append("")  # blank line between tables for readability.
     lines.append(TOML_FENCE_CLOSE)
     return "\n".join(lines)

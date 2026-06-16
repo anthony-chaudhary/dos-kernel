@@ -352,6 +352,43 @@ def test_copilot_cli_writes_github_hooks_with_the_novel_dialect(tmp_path: Path):
     assert "hooks" not in entry
 
 
+def test_kimi_writes_flat_toml_hooks_as_claude_code_alias(tmp_path: Path):
+    """Kimi CLI uses a FLAT TOML array-of-tables ([[hooks]] with event="PreToolUse"),
+    a NESTED claude-code deny output -- so NO --dialect. Pins the flat-TOML block shape
+    (toml_event_key="event") distinct from Codex's CC-shaped [[hooks.EVENT]] nesting."""
+    import tomllib
+    dest = tmp_path / "svc"
+    assert _cli("init", "--hooks", "kimi", str(dest)).returncode == 0
+    spec = hi.host_spec("kimi")
+    assert spec.config_path == (".kimi", "config.toml")
+    text = dest.joinpath(*spec.config_path).read_text(encoding="utf-8")
+    parsed = tomllib.loads(text)
+    # Flat [[hooks]] array-of-tables: each entry carries the event on `event`, the command
+    # is dialect-less (claude-code default). NOT a nested hooks.<EVENT> table.
+    entries = parsed["hooks"]
+    assert isinstance(entries, list)
+    pre = [e for e in entries if e.get("event") == "PreToolUse"]
+    assert pre and pre[0]["command"] == "dos hook pretool --workspace ."
+    assert {e["event"] for e in entries} == {"PreToolUse", "PostToolUse", "Stop"}
+
+
+def test_vibe_writes_flat_toml_hooks_with_antigravity_dialect(tmp_path: Path):
+    """Mistral Vibe uses a FLAT TOML array-of-tables ([[hooks]] with type="before_tool"),
+    a flat top-level {"decision":"deny"} output -- so --dialect antigravity. Pins Vibe's
+    own event vocabulary on the `type` field (toml_event_key="type")."""
+    import tomllib
+    dest = tmp_path / "svc"
+    assert _cli("init", "--hooks", "vibe", str(dest)).returncode == 0
+    spec = hi.host_spec("vibe")
+    assert spec.config_path == (".vibe", "hooks.toml")
+    parsed = tomllib.loads(dest.joinpath(*spec.config_path).read_text(encoding="utf-8"))
+    entries = parsed["hooks"]
+    assert isinstance(entries, list)
+    bt = [e for e in entries if e.get("type") == "before_tool"]
+    assert bt and bt[0]["command"] == "dos hook pretool --workspace . --dialect antigravity"
+    assert {e["type"] for e in entries} == {"before_tool", "after_tool", "post_agent_turn"}
+
+
 def test_claude_cowork_writes_the_shared_claude_settings_file(tmp_path: Path):
     """Claude Cowork is the SHARED-surface host (docs/298): it runs the Claude Code
     harness, so its hook surface IS `.claude/settings.json` — and the wired command
@@ -534,7 +571,8 @@ def test_cursor_merge_preserves_user_hooks_and_keys(tmp_path: Path):
 def test_idempotent_rerun_does_not_duplicate(tmp_path: Path):
     for host in ("cursor", "codex", "gemini", "antigravity", "claude-cowork", "hermes",
                  "augment", "devin", "cursor-cli", "crush", "qwen", "continue",
-                 "openhands", "tabnine", "factory", "copilot", "copilot-cli"):
+                 "openhands", "tabnine", "factory", "copilot", "copilot-cli",
+                 "kimi", "vibe"):
         dest = tmp_path / host
         assert _cli("init", "--hooks", host, str(dest)).returncode == 0
         proc = _cli("init", "--hooks", host, str(dest))
