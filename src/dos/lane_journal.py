@@ -439,7 +439,7 @@ def replay(entries: Iterable[dict]) -> list[dict]:
                     k: e[k] for k in (
                         "lane", "lane_kind", "tree", "loop_ts", "host_id",
                         "pid", "acquired_at", "heartbeat_at", "ttl_minutes",
-                        "holder", "run_id",
+                        "holder", "run_id", "proc_starttime",
                     ) if k in e
                 }
             if key not in live:
@@ -462,9 +462,23 @@ def replay(entries: Iterable[dict]) -> list[dict]:
             # safe direction: you cannot adopt a lease no one holds).
             if key in live:
                 lease = live[key]
+                pid_changed = (
+                    "pid" in e and e["pid"] is not None
+                    and e["pid"] != lease.get("pid")
+                )
                 for fld in ("holder", "pid", "host_id"):
                     if fld in e and e[fld] is not None:
                         lease[fld] = e[fld]
+                # The OS process-identity baseline (docs/95 §4.2) must track the pid
+                # it corroborates. An ADOPT rewrites pid to the NEW holder, so a
+                # carried-over baseline from the OLD pid would falsely read as a
+                # PID-reuse mismatch. Prefer a new baseline on the entry; else, when
+                # the pid actually changed, DROP the stale one (→ existence-only, the
+                # safe degrade) rather than compare the new pid against the old stamp.
+                if "proc_starttime" in e and e["proc_starttime"] is not None:
+                    lease["proc_starttime"] = e["proc_starttime"]
+                elif pid_changed:
+                    lease.pop("proc_starttime", None)
                 hb = e.get("heartbeat_at") or e.get("ts")
                 if hb:
                     lease["heartbeat_at"] = hb
@@ -565,7 +579,8 @@ def lease_generations(entries: Iterable[dict]) -> dict[tuple[str, str], int]:
 
 
 def adopt_entry(lease: dict, *, new_holder: str, new_pid: Any = None,
-                new_host_id: str = "", heartbeat_at: str = "", reason: str = "") -> dict:
+                new_host_id: str = "", heartbeat_at: str = "", reason: str = "",
+                new_proc_starttime: Any = None) -> dict:
     """Build an ADOPT entry: transfer ownership of a live lease to `new_holder` (C5).
 
     The eviction-free sibling of `scavenge_entry`. Where SCAVENGE removes a lease
@@ -581,8 +596,14 @@ def adopt_entry(lease: dict, *, new_holder: str, new_pid: Any = None,
     op; the kernel provides only the transfer mechanism + the child-identity anchor
     `acquire_entry` records. `heartbeat_at` defaults to now so the adopted lease is not
     instantly stale under the new owner.
+
+    `new_proc_starttime` (OPTIONAL, docs/95 §4.2) is the OS process-identity baseline
+    for the NEW holder's pid. Supply it when the adopter knows its own `starttime` so
+    the PID-reuse defense keeps corroborating against the LIVE pid; absent, replay
+    drops the previous holder's stale baseline whenever the pid changes (degrading to
+    existence-only — the safe direction, never a stale stamp against a fresh pid).
     """
-    return {
+    e = {
         "op": OP_ADOPT,
         "lane": lease.get("lane"),
         "loop_ts": lease.get("loop_ts"),
@@ -593,6 +614,9 @@ def adopt_entry(lease: dict, *, new_holder: str, new_pid: Any = None,
         "heartbeat_at": heartbeat_at or journal_now_iso(),
         "reason": reason,
     }
+    if new_proc_starttime is not None:
+        e["proc_starttime"] = new_proc_starttime
+    return e
 
 
 def acquire_entry(lease: dict, *, reason: str = "", prev_holder: Any = None,

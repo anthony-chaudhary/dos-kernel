@@ -2593,8 +2593,14 @@ def cmd_liveness(args: argparse.Namespace) -> int:
         # (DISPATCH_HOST_ID override › hostname), so a --host-id read off a lease
         # compares against the same identity that lease recorded.
         this_host = _os.environ.get("DISPATCH_HOST_ID") or _hostname()
+        # --proc-starttime is the OPTIONAL PID-reuse baseline (docs/95 §4.2): the
+        # process-creation stamp recorded when this pid was first captured. Given it,
+        # a recycled pid (exists, but a different process) resolves to None instead of
+        # a false alive=True. Absent ⇒ existence-only, byte-identical to before.
+        _rec = getattr(args, "proc_starttime", None)
         process_alive = proc_delta.probe(
-            pid, host_id=getattr(args, "host_id", "") or "", this_host=this_host
+            pid, host_id=getattr(args, "host_id", "") or "", this_host=this_host,
+            recorded_starttime=_rec,
         ).alive
 
     # The OPTIONAL waste signal (docs/300 §7, issue #41): `--usage-json` feeds the
@@ -6537,8 +6543,13 @@ def cmd_pulse(args: argparse.Namespace) -> int:
                 from dos import proc_delta as _proc_delta
                 from dos.lane_lease import _hostname
                 this_host = _os.environ.get("DISPATCH_HOST_ID") or _hostname()
+                # The lease carries the OS process-identity baseline (docs/95 §4.2)
+                # captured at mint — pass it so a recycled pid no longer reads as the
+                # live holder. Absent ⇒ existence-only, byte-identical to before.
+                _rec = lease.get("proc_starttime")
                 process_alive = _proc_delta.probe(
-                    pid, host_id=str(lease.get("host_id") or ""), this_host=this_host).alive
+                    pid, host_id=str(lease.get("host_id") or ""), this_host=this_host,
+                    recorded_starttime=_rec if isinstance(_rec, int) else None).alive
             ev = liveness.ProgressEvidence(
                 run_started_ms=started_ms,
                 now_ms=now_ms,
@@ -10191,6 +10202,14 @@ def build_parser() -> argparse.ArgumentParser:
     pln.add_argument("--host-id", default="", metavar="HOST",
                      help="the host the pid was recorded on; if it differs from this "
                           "host the proc rung stays silent (a pid is host-local)")
+    pln.add_argument("--proc-starttime", dest="proc_starttime", type=int,
+                     default=None, metavar="TICKS",
+                     help="the OS process-creation stamp recorded when --pid was "
+                          "first captured (docs/95 §4.2 PID-reuse defense): a pid "
+                          "that exists but whose live starttime differs is a "
+                          "recycled number, NOT this run — the rung refuses it "
+                          "(stays silent) rather than read a stranger as alive. "
+                          "Absent ⇒ existence-only, byte-identical to before")
     pln.add_argument("--no-proc", action="store_true",
                      help="disable the OS proc-liveness probe even when --pid is given")
     pln.add_argument("--usage-json", dest="usage_json", default=None, metavar="PATH",

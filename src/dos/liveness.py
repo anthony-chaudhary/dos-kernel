@@ -169,7 +169,11 @@ class ProgressEvidence:
                              gathered by `proc_delta.probe` at the boundary):
                              True = the OS confirms the run's pid is up, False =
                              the OS confirms it is gone, None = could not tell
-                             (no pid / foreign host / unsupported platform). It is
+                             (no pid / foreign host / unsupported platform / a
+                             PID-REUSE mismatch — the pid exists but its OS
+                             starttime no longer matches the baseline the run
+                             recorded, so it is a recycled number, not this run;
+                             docs/95 §4.2). It is
                              **demote-only**: a confident `False` flips an
                              otherwise-SPINNING run to STALLED (a fresh heartbeat on
                              a dead process is the forgeable-beat gap this closes);

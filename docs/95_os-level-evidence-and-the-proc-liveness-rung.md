@@ -167,12 +167,20 @@ Platform readers, each degrading to `None`:
 - **POSIX** — `os.kill(pid, 0)` (signal 0 = existence/permission probe, kills
   nothing); `ProcessLookupError` → `alive=False`, `PermissionError` → the process
   exists but isn't ours (still informative: `alive=True` is *not* claimed — degrade
-  to `None`, the conservative read). Optional `/proc/<pid>/stat` field 22
-  (`starttime`) corroborates the run-start, catching PID reuse.
-- **Windows** — `OpenProcess(SYNCHRONIZE, …)` + `WaitForSingleObject(…, 0)`, or the
-  stdlib-only fallback of reading the process list; `CreationTime` corroborates the
-  start. (Use only stdlib + `ctypes`; the kernel's dep set stays PyYAML-only —
-  [CLAUDE.md](../CLAUDE.md).)
+  to `None`, the conservative read). **SHIPPED:** on Linux, `starttime()` reads
+  `/proc/<pid>/stat` field 22 (`starttime`) and `probe(recorded_starttime=…)`
+  corroborates the run-start, catching PID reuse — a pid that EXISTS but whose live
+  starttime ≠ the recorded baseline is a recycled number, so the probe returns
+  `None` (refuses to read the stranger as alive) instead of a false `True`. The
+  baseline is captured at lease-mint (`lane_lease`), rides the WAL on the nested
+  lease + survives ADOPT (`lane_journal`), and is fed at the `dos liveness` /
+  `dos pulse` boundary + the `_expire_dead` reclaim probe. Absent baseline ⇒
+  existence-only, byte-identical to before.
+- **Windows** — `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, …)` +
+  `GetExitCodeProcess` (alive iff `STILL_ACTIVE`); **SHIPPED:** `starttime()` reads
+  `GetProcessTimes` creation time as the win32 PID-reuse corroboration, the same
+  demote-to-`None`-on-mismatch shape as Linux. (Use only stdlib + `ctypes`; the
+  kernel's dep set stays PyYAML-only — [CLAUDE.md](../CLAUDE.md).)
 - **Anywhere else / unsupported** — `None`. The rung simply does not engage; the
   verdict still answers from the commit + journal + caller rungs. This is the
   no-plan rail ([`test_verify_no_plan`](../tests/test_verify_no_plan.py) sibling):
@@ -318,6 +326,22 @@ audit logs → driver oracles later (heavy, for journal-integrity/acceptance).**
 No new verb, no new exit code, no kernel dependency. One optional field, one new
 boundary reader, one demote-only branch — the smallest possible change that makes
 STALLED honest about a crashed-but-recently-beating run.
+
+> **Update — the PID-reuse rung is now SHIPPED (§4.2 fulfilled).** Steps 1–4 above
+> landed earlier; this note's one remaining sketch — the `/proc/<pid>/stat`
+> `starttime` corroboration that catches PID reuse — is now built. `proc_delta`
+> grows a `starttime(pid)` boundary reader (Linux `/proc/<pid>/stat` field 22;
+> win32 `GetProcessTimes`; any other platform/error → `None`) and `probe(…,
+> recorded_starttime=…)`: a pid that exists but whose live starttime ≠ the recorded
+> baseline is a recycled number → `None`, never a false `True`. The baseline is
+> captured at lease mint (`lane_lease`), travels the WAL on the nested lease and
+> through ADOPT (`lane_journal`, with the inline forward-compat key + a `pid`-change
+> drop so a stale stamp never accuses a fresh pid), and is fed at the `dos liveness`
+> / `dos pulse` boundaries and the `_expire_dead` reclaim probe. Absent baseline ⇒
+> existence-only, byte-identical to before — the same `None`-degrades-everywhere
+> discipline as the rest of the rung. This is "DOS into Linux" in the true sense:
+> the kernel reading procfs's own process-identity byte to make its liveness verdict
+> sound against the dominant long-running-host failure mode.
 
 ---
 

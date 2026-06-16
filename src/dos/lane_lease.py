@@ -291,10 +291,16 @@ def _lease_is_dead(lease: dict, *, now: dt.datetime, this_host: str) -> bool:
     # holder is genuinely gone → reclaim now rather than wait the full TTL.
     pid = lease.get("pid")
     host_id = lease.get("host_id", "") or ""
+    rec_start = lease.get("proc_starttime")
     probe = proc_delta.probe(
         pid if isinstance(pid, int) else None,
         host_id=host_id,
         this_host=this_host,
+        # The PID-reuse baseline (docs/95 §4.2): a recycled pid whose starttime no
+        # longer matches resolves to None (not a live holder), so it cannot keep a
+        # stale lease alive — but a None mismatch is NOT a confident-False either, so
+        # it does not over-evict on a coincidental read. Absent ⇒ existence-only.
+        recorded_starttime=rec_start if isinstance(rec_start, int) else None,
     )
     if probe.alive is False and age_min is not None:
         # Past the grace (checked above) AND the holder process is confirmed gone →
@@ -449,16 +455,26 @@ def acquire(
         )
         journaled = False
         if decision.outcome == "acquire":
+            _pid = os.getpid()
             lease = {
                 "lane": decision.lane or lane,
                 "lane_kind": kind,
                 "tree": list(decision.tree or tree),
                 "loop_ts": loop_ts,
                 "host_id": os.environ.get("DISPATCH_HOST_ID") or _hostname(),
-                "pid": os.getpid(),
+                "pid": _pid,
                 "holder": owner,
                 "acquired_at": _now_iso(),
             }
+            # The OS process-identity baseline (docs/95 §4.2 PID-reuse defense):
+            # capture this pid's creation stamp at the SAME instant we capture the
+            # pid, so a later reclaim probe can tell THIS holder from a recycled pid.
+            # OPTIONAL — omitted when unreadable (non-Linux/win32, or any error), so
+            # a host that cannot read it journals + replays byte-identically.
+            from dos import proc_delta as _proc_delta
+            _starttime = _proc_delta.starttime(_pid)
+            if _starttime is not None:
+                lease["proc_starttime"] = _starttime
             if run_id:
                 lease["run_id"] = run_id  # the WAL↔spine join key (docs/137)
             lane_journal.append(

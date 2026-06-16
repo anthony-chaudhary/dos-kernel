@@ -612,3 +612,77 @@ def test_replay_spawn_then_release_leaves_no_lease():
     leaves the live set empty — the SPAWN never created anything to remove."""
     spawn = spawn_entry(lane="apply", loop_ts="2026-06-01T14:00Z")
     assert replay([spawn, release_entry(_LEASE)]) == []
+
+
+# ── proc_starttime: the PID-reuse baseline rides through the WAL (docs/95 §4.2) ──
+
+
+def test_acquire_carries_proc_starttime_through_replay():
+    """A lease minted with proc_starttime replays WITH it — the baseline travels on
+    the nested lease dict, so the reclaim/liveness probe can corroborate identity."""
+    lease = dict(_LEASE, proc_starttime=987654)
+    live = replay([acquire_entry(lease)])
+    assert len(live) == 1
+    assert live[0]["proc_starttime"] == 987654
+
+
+def test_acquire_without_proc_starttime_replays_unchanged():
+    """No baseline (a host that can't read it) ⇒ the key is simply absent — the
+    forward-compat contract, byte-identical to before this field existed."""
+    live = replay([acquire_entry(_LEASE)])
+    assert "proc_starttime" not in live[0]
+
+
+def test_inline_acquire_carries_proc_starttime():
+    """The forward-compat inline path (an ACQUIRE with fields flattened, no nested
+    `lease`) must also reconstruct proc_starttime from the known-keys list."""
+    inline = {
+        "op": OP_ACQUIRE,
+        "lane": "apply", "lane_kind": "concurrent", "tree": ["a/*"],
+        "loop_ts": "t1", "host_id": "host-a", "pid": 4242,
+        "acquired_at": "2026-06-01T14:00:03Z", "proc_starttime": 555,
+    }
+    live = replay([inline])
+    assert len(live) == 1 and live[0]["proc_starttime"] == 555
+
+
+def test_compact_preserves_replay_equivalence_with_proc_starttime():
+    """The differential invariant holds with the new field: replay(compact(E)) ==
+    replay(E) for a still-live lease that carries proc_starttime (the checkpoint
+    snapshot must round-trip the baseline, not silently drop it)."""
+    from dos.lane_journal import compact
+
+    lease = dict(_LEASE, proc_starttime=424242)
+    entries = [acquire_entry(lease), heartbeat_entry(lease, heartbeat_at="2026-06-01T14:05Z")]
+    before = replay(entries)
+    after = replay(compact(entries))
+    assert before == after
+    assert before[0]["proc_starttime"] == 424242
+
+
+def test_adopt_with_new_baseline_rewrites_proc_starttime():
+    """ADOPT to a new holder/pid WITH a supplied baseline rewrites proc_starttime to
+    the new holder's stamp — so the reuse defense keeps corroborating the LIVE pid."""
+    from dos.lane_journal import adopt_entry
+
+    lease = dict(_LEASE, proc_starttime=111)
+    adopt = adopt_entry(lease, new_holder="host-b:99", new_pid=99,
+                        new_host_id="host-a", new_proc_starttime=222)
+    live = replay([acquire_entry(lease), adopt])
+    assert len(live) == 1
+    assert live[0]["pid"] == 99
+    assert live[0]["proc_starttime"] == 222
+
+
+def test_adopt_changing_pid_without_baseline_drops_stale_starttime():
+    """ADOPT that changes the pid but supplies NO new baseline must DROP the old
+    holder's proc_starttime (degrade to existence-only), never keep a stale stamp
+    that would falsely read the new pid as a PID-reuse mismatch."""
+    from dos.lane_journal import adopt_entry
+
+    lease = dict(_LEASE, proc_starttime=111)
+    adopt = adopt_entry(lease, new_holder="host-b:99", new_pid=99, new_host_id="host-a")
+    live = replay([acquire_entry(lease), adopt])
+    assert len(live) == 1
+    assert live[0]["pid"] == 99
+    assert "proc_starttime" not in live[0]

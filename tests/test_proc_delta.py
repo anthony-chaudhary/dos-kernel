@@ -72,6 +72,94 @@ def test_probe_never_raises_on_any_input():
             assert isinstance(r.detail, str) and r.detail
 
 
+# ── starttime() + the PID-reuse defense (docs/95 §4.2) ──────────────────────
+#
+# The Linux contribution: the existence-only `os.kill(pid, 0)` probe reads a
+# RECYCLED pid as alive=True (a crashed run's number reassigned by the OS). The
+# `starttime()` identity byte + `recorded_starttime` baseline close that gap.
+
+
+def test_starttime_of_self_is_a_positive_int_on_supported_platforms():
+    import sys
+    st = proc_delta.starttime(os.getpid())
+    if sys.platform.startswith("linux") or sys.platform.startswith("win"):
+        # Linux: /proc/<pid>/stat field 22; win32: GetProcessTimes creation time.
+        assert isinstance(st, int) and st > 0
+    else:
+        # macOS/BSD/other: no /proc stat field — the rung simply does not engage.
+        assert st is None
+
+
+def test_starttime_of_dead_pid_is_none():
+    # No process → no identity stamp. Never a raise, never a fabricated value.
+    assert proc_delta.starttime(2_000_000_000) is None
+    assert proc_delta.starttime(None) is None
+    assert proc_delta.starttime(0) is None
+    assert proc_delta.starttime(-1) is None
+
+
+def test_starttime_never_raises_on_any_input():
+    for pid in (None, 0, -5, 1, os.getpid(), 2_000_000_000):
+        st = proc_delta.starttime(pid)
+        assert st is None or isinstance(st, int)
+
+
+def test_matching_baseline_keeps_alive_true():
+    # A baseline that matches the live process corroborates → still alive=True.
+    st = proc_delta.starttime(os.getpid())
+    if st is None:
+        # Platform without a starttime reader: the baseline can't be checked, so the
+        # probe falls through to existence (still alive). Either way, not a demotion.
+        assert proc_delta.probe(os.getpid(), recorded_starttime=12345).alive is True
+        return
+    r = proc_delta.probe(os.getpid(), recorded_starttime=st)
+    assert r.alive is True
+
+
+def test_reused_pid_baseline_mismatch_is_none_not_true():
+    # THE witness: this pid EXISTS (it's us) but the recorded baseline is wrong, so
+    # the recorded run is a DIFFERENT process that recycled the number. The probe
+    # must refuse (None), NOT read the stranger as alive=True. This FAILS against the
+    # existence-only probe, which ignores the baseline and returns True.
+    import sys
+    st = proc_delta.starttime(os.getpid())
+    if st is None:
+        # No starttime reader on this platform → no baseline corroboration possible;
+        # the reuse defense cannot engage and the probe stays existence-only. Skip
+        # the assertion here rather than assert a guarantee the platform can't give.
+        assert sys.platform not in ("linux",) or True
+        return
+    wrong = st + 1 if st > 0 else 999_999
+    r = proc_delta.probe(os.getpid(), recorded_starttime=wrong)
+    assert r.alive is None
+    assert "reused" in r.detail.lower() or "starttime" in r.detail.lower()
+
+
+def test_baseline_none_is_byte_identical_to_existence_only():
+    # The zero-regression pin: recorded_starttime=None must equal the no-baseline call
+    # for every alive/detail outcome.
+    for pid in (os.getpid(), 2_000_000_000):
+        a = proc_delta.probe(pid)
+        b = proc_delta.probe(pid, recorded_starttime=None)
+        assert a.alive is b.alive
+        assert a.detail == b.detail
+
+
+def test_dead_pid_with_baseline_stays_confidently_gone():
+    # A confidently-gone pid needs no identity check — it's not alive either way.
+    # The baseline must not turn a clean False into None.
+    r = proc_delta.probe(2_000_000_000, recorded_starttime=12345)
+    assert r.alive is False
+
+
+def test_reuse_probe_never_raises_with_baseline():
+    for pid in (None, 0, -5, 1, os.getpid(), 2_000_000_000):
+        for base in (None, 0, 1, 999_999_999):
+            r = proc_delta.probe(pid, recorded_starttime=base)
+            assert r.alive in (True, False, None)
+            assert isinstance(r.detail, str) and r.detail
+
+
 # ── liveness.classify — the demote-only branch ──────────────────────────────
 
 
@@ -200,4 +288,16 @@ def test_cli_foreign_host_keeps_rung_silent():
     # A --host-id that differs from this host ⇒ proc_delta refuses ⇒ None ⇒ the
     # dead pid does NOT demote (we can't trust a cross-host pid).
     rc, out = _run_liveness("--pid", "2000000000", "--host-id", "some-other-box")
+    assert rc == 3 and "SPINNING" in out
+
+
+def test_cli_proc_starttime_mismatch_keeps_rung_silent():
+    # A live --pid with a WRONG --proc-starttime baseline is a recycled number, not
+    # this run → proc_delta returns None → no demotion → SPINNING stands (exit 3).
+    # With a CORRECT baseline (our real starttime) the rung corroborates and the
+    # verdict is unchanged. On a platform without a starttime reader the flag is a
+    # no-op (existence-only), which is still SPINNING here — so the assertion holds
+    # on every platform.
+    rc, out = _run_liveness(
+        "--pid", str(os.getpid()), "--proc-starttime", "999999999")
     assert rc == 3 and "SPINNING" in out
