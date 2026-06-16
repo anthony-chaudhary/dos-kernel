@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="352" viewBox="0 0 720 352" role="img" aria-label="What the kernel did to every agent action" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <title>What the kernel did to every agent action</title>
+  <desc>A full-width true-scale bar of all adjudicated tool calls, nearly all passed, with the tiny stopped slice broken out and magnified into a second bar split into warn, deny and block.</desc>
+  <rect x="0" y="0" width="720" height="352" fill="#f6f8fa" rx="8" stroke="#d0d7de" stroke-width="1"/>
+  <text x="16" y="26" font-size="16" fill="#1f2328" font-weight="bold">What the kernel did to 79,986 agent actions</text>
+  <text x="16" y="46" font-size="12" fill="#59636e">every live tool call, adjudicated by the hook — almost all pass, but it is always watching</text>
+  <rect x="16" y="72" width="688" height="40" fill="#e7ebef" rx="4"/>
+  <rect x="16" y="72" width="506.45" height="40" fill="#1a7f37"/>
+  <text x="269.22" y="96.8" font-size="12" fill="#ffffff" text-anchor="middle" font-weight="bold">passed through 58,879 (74%)</text>
+  <rect x="522.45" y="72" width="164.06" height="40" fill="#57606a"/>
+  <text x="604.48" y="96.8" font-size="12" fill="#ffffff" text-anchor="middle" font-weight="bold">19,073 (24%)</text>
+  <rect x="686.5" y="72" width="8.21" height="40" fill="#afb8c1"/>
+  <rect x="694.71" y="72" width="6.61" height="40" fill="#bf8700"/>
+  <rect x="701.32" y="72" width="2.66" height="40" fill="#cf222e"/>
+  <rect x="703.98" y="72" width="1" height="40" fill="#82071e"/>
+  <line x1="694.71" y1="112" x2="694.71" y2="126" stroke="#59636e" stroke-width="1.5"/>
+  <line x1="694.71" y1="126" x2="704" y2="126" stroke="#59636e" stroke-width="1.5"/>
+  <line x1="704" y1="122" x2="704" y2="130" stroke="#59636e" stroke-width="1.5"/>
+  <line x1="694.71" y1="126" x2="694.71" y2="168" stroke="#59636e" stroke-width="1" stroke-dasharray="4 3"/>
+  <line x1="694.71" y1="168" x2="704" y2="168" stroke="#59636e" stroke-width="1" stroke-dasharray="4 3"/>
+  <text x="16" y="162" font-size="12" fill="#cf222e" font-weight="bold">the 1,080 stopped calls (warn + deny + block), magnified</text>
+  <rect x="16" y="172" width="688" height="34" fill="#e7ebef" rx="4"/>
+  <rect x="16" y="172" width="489.88" height="34" fill="#bf8700"/>
+  <text x="260.94" y="193.76" font-size="12" fill="#ffffff" text-anchor="middle" font-weight="bold">warned 769</text>
+  <rect x="505.88" y="172" width="196.84" height="34" fill="#cf222e"/>
+  <text x="604.3" y="193.76" font-size="12" fill="#ffffff" text-anchor="middle" font-weight="bold">denied 309</text>
+  <rect x="702.73" y="172" width="3" height="34" fill="#82071e"/>
+  <rect x="16" y="225" width="13" height="13" fill="#bf8700" rx="2"/>
+  <text x="36" y="236" font-size="12" fill="#1f2328">warned 769 (71%)</text>
+  <rect x="16" y="251" width="13" height="13" fill="#cf222e" rx="2"/>
+  <text x="36" y="262" font-size="12" fill="#1f2328">denied 309 (29%)</text>
+  <rect x="16" y="277" width="13" height="13" fill="#82071e" rx="2"/>
+  <text x="36" y="288" font-size="12" fill="#1f2328">hard-blocked 2 — the kernel said NO</text>
+  <text x="16" y="340" font-size="12" fill="#1f2328" font-weight="bold">1,080 of 79,986 calls stopped (1.4%)  ·  median pretool latency 7.3ms</text>
+</svg>
