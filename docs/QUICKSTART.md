@@ -174,6 +174,7 @@ as shipped by naming it at the start of a commit subject, `<PHASE-ID>: <message>
 git init -q
 git config user.email you@example.com    # if you haven't set a global identity
 git config user.name "You"
+git config commit.gpgsign false          # this throwaway repo has no signing key
 
 # do the work...
 echo "def login(): ..." > login.py
