@@ -392,6 +392,10 @@ help but pass.
 - [`358_review-the-residual-not-the-diff-the-product-wedge.md`](358_review-the-residual-not-the-diff-the-product-wedge.md)
   — the throttle of §1–§2 as a shipped product; the "subtract surface, don't add
   opinion" wedge.
+- [`365_the-review-surface-is-the-product-the-four-question-law.md`](365_the-review-surface-is-the-product-the-four-question-law.md)
+  — §1's attention-allocation leg seen from the reviewer's screen: the four
+  questions a review surface must answer fast, and why a smarter model makes a
+  bad surface feel worse.
 - [`170_frontier-lift-where-it-lives-and-the-features-that-grow-it.md`](170_frontier-lift-where-it-lives-and-the-features-that-grow-it.md)
   — the regime-bound discipline and the decay data §6's bear case stands on
   (0.00pp frontier; the simulated coordination bet).
