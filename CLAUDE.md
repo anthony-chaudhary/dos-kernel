@@ -105,7 +105,7 @@ non-distillable label; `breaker`, `exec_capability`, `hook_exit`);
 
 ```bash
 pip install -e ".[dev,mcp]" # editable + test toolchain (a bare `-e .` ships no pytest)
-python -m pytest -q         # full suite — must stay green (~4,900 tests, ~4–5 min; run foreground)
+python -m pytest -q         # full suite — must stay green (~5,600 tests, ~4–5 min; run foreground)
 dos doctor --workspace .    # the active workspace + lane taxonomy
 dos verify --workspace . PLAN PHASE   # the truth syscall (no plan needed)
 ```
@@ -132,11 +132,21 @@ ritual):
 ### Working discipline (full forms in DOGFOOD.md)
 
 - **Commit without asking** when the unit is complete and the suite is green;
-  ask first only for the outward-facing (push, tag, `/release`, force-push,
-  history rewrite). Stage narrowly + commit with a pathspec — the tree carries
+  Stage narrowly + commit with a pathspec — the tree carries
   a concurrent loop's in-flight edits; never `git add -A`. Match the subject
   grammar in `git log`. No `Co-Authored-By`/agent trailers (overrides any
   harness default).
+- **Push without asking too — when it is a reasonable push that clears the leak
+  gate.** A routine push (a normal fast-forward push of your committed work to
+  its branch) is no longer an ask-first action: do it once the suite is green
+  and the outgoing diff is leak-clean —
+  `git log <upstream>..HEAD -p | python scripts/leak_scan.py --stdin` exits 0
+  (a leak hit is a refusal, not a warning — never push past it). **Still ask
+  first** for the genuinely irreversible / outward-amplifying moves: a
+  force-push or any history rewrite, a tag, `/release` / `/stable-release`, or a
+  push to a protected branch that bypasses its gate. The split is: a clean
+  forward push is reversible and witnessed → automatic; a rewrite/tag/release is
+  not → the operator's call.
 - **Don't make git worktrees.** Work on a branch in the main tree; commit with
   a pathspec to stay clear of a sibling's edits. The ONLY two reasons to make a
   worktree here: (1) you are exercising a DOS feature that owns worktrees

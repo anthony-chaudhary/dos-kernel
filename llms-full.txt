@@ -1225,7 +1225,7 @@ from the long README:
 
 ```bash
 pip install -e ".[dev,mcp]"       # editable + the test/lint toolchain (exactly what CI installs)
-python -m pytest -q               # the full kernel suite — must stay green (~4,900 tests, ~4–5 min)
+python -m pytest -q               # the full kernel suite — must stay green (~5,600 tests, ~4–5 min)
 python scripts/dev.py fast        # the inner loop: pytest -m "not slow" (skips the ~150s of heavies)
 python scripts/dev.py verify-self # doctor --check + a real SHIPPED/NOT_SHIPPED round-trip (the CI smoke)
 dos doctor --workspace .          # what IS this workspace? (the config seam, made visible)
@@ -1675,6 +1675,29 @@ wrote that evidence?* Everything below sorts cleanly by its answer.
 
 ---
 
+## Orchestration frameworks (LangGraph, AutoGen, OpenAI Swarm)
+
+The most common first reaction is "isn't this just LangGraph / AutoGen /
+Swarm?" These are the default mental model for "a multi-agent thing," and they
+are good at what they do: [LangGraph](https://langchain-ai.github.io/langgraph/)
+models an agent system as a graph of nodes and edges with durable state;
+[AutoGen](https://microsoft.github.io/autogen/) and
+[OpenAI Swarm](https://github.com/openai/swarm) coordinate conversations and
+hand-offs between agents. They **decide what the agents do next**.
+
+**What DOS adds.** DOS decides whether to **believe what they did**. That is an
+orthogonal axis: an orchestrator routes the work; DOS adjudicates the claim the
+work produced, from evidence the agent didn't author. A graph edge that fires
+on a node's `"success"` is still trusting the node's self-report — DOS is the
+check you'd put *on* that edge. The composition is a "referee node": a graph
+step that runs a `dos verify` / `dos commit-audit` verdict and routes on its
+exit code instead of on the agent's word. The
+[fleet-framework cookbook](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/cookbook-fleet-frameworks.md)
+ships that recipe for LangGraph, AutoGen, and the Agents SDKs.
+
+**Use both.** The framework decides the route; DOS decides the belief. It runs
+beside any of them — DOS is a referee, not a competing coach.
+
 ## Hosted evals and observability (LangSmith-class)
 
 Evaluation and observability platforms like
@@ -1871,6 +1894,7 @@ needed.
 
 | Tool | Gates what | Reads what | When |
 |---|---|---|---|
+| Orchestration frameworks (LangGraph, AutoGen, Swarm) | what the agents do *next* | the graph/conversation state | as the work routes |
 | Evals / observability | quality of outputs | the run the app emitted | offline + online |
 | Framework guardrails | one task's output | the output text (DOS's drivers: a read-back) | at the checkpoint |
 | Temporal-class | execution progress | its own event history | continuously |
@@ -3853,7 +3877,7 @@ non-distillable label; `breaker`, `exec_capability`, `hook_exit`);
 
 ```bash
 pip install -e ".[dev,mcp]" # editable + test toolchain (a bare `-e .` ships no pytest)
-python -m pytest -q         # full suite — must stay green (~4,900 tests, ~4–5 min; run foreground)
+python -m pytest -q         # full suite — must stay green (~5,600 tests, ~4–5 min; run foreground)
 dos doctor --workspace .    # the active workspace + lane taxonomy
 dos verify --workspace . PLAN PHASE   # the truth syscall (no plan needed)
 ```
@@ -3880,11 +3904,21 @@ ritual):
 ### Working discipline (full forms in DOGFOOD.md)
 
 - **Commit without asking** when the unit is complete and the suite is green;
-  ask first only for the outward-facing (push, tag, `/release`, force-push,
-  history rewrite). Stage narrowly + commit with a pathspec — the tree carries
+  Stage narrowly + commit with a pathspec — the tree carries
   a concurrent loop's in-flight edits; never `git add -A`. Match the subject
   grammar in `git log`. No `Co-Authored-By`/agent trailers (overrides any
   harness default).
+- **Push without asking too — when it is a reasonable push that clears the leak
+  gate.** A routine push (a normal fast-forward push of your committed work to
+  its branch) is no longer an ask-first action: do it once the suite is green
+  and the outgoing diff is leak-clean —
+  `git log <upstream>..HEAD -p | python scripts/leak_scan.py --stdin` exits 0
+  (a leak hit is a refusal, not a warning — never push past it). **Still ask
+  first** for the genuinely irreversible / outward-amplifying moves: a
+  force-push or any history rewrite, a tag, `/release` / `/stable-release`, or a
+  push to a protected branch that bypasses its gate. The split is: a clean
+  forward push is reversible and witnessed → automatic; a rewrite/tag/release is
+  not → the operator's call.
 - **Don't make git worktrees.** Work on a branch in the main tree; commit with
   a pathspec to stay clear of a sibling's edits. The ONLY two reasons to make a
   worktree here: (1) you are exercising a DOS feature that owns worktrees
