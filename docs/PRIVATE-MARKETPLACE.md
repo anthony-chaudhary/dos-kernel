@@ -380,6 +380,59 @@ Two more env vars worth knowing for locked-down networks:
 
 ---
 
+## Per-`CLAUDE_CONFIG_DIR` profile pools (account rotation)
+
+Steps 1–5 distribute DOS to many *machines*. A different topology distributes it
+to many *profiles on one machine*: a fleet that rotates across several isolated
+Claude Code logins, each pinned to its own `CLAUDE_CONFIG_DIR`, so no single
+usage window saturates. DOS ships the decision core for exactly this — the `dos
+accounts` seat-pool seam (see [the `dos-goal-fleet`
+skill](../src/dos/skills/dos-goal-fleet/SKILL.md)).
+
+**Plugin install state is strictly per-config-dir.** Claude Code reads it from
+`$CLAUDE_CONFIG_DIR/plugins/` (`known_marketplaces.json`,
+`installed_plugins.json`, `cache/`) — never from `~/.claude`. So a plugin you
+installed in your default profile is **absent** from every rotated profile, and a
+launcher that points `CLAUDE_CONFIG_DIR` at a pool member runs that worker with
+**no DOS hooks, no DOS MCP, no DOS skills** — the trust substrate missing from
+the very fleet it exists to govern. Confirm per profile, don't assume:
+
+```bash
+CLAUDE_CONFIG_DIR=~/.claude-pool-a claude plugin list   # "No plugins installed" until you install it THERE
+```
+
+**Seeding `settings.json` is not enough.** Writing `extraKnownMarketplaces` +
+`enabledPlugins` into a fresh config dir's `settings.json` *declares* the
+marketplace and *enables* the plugin, but does **not** fetch or cache the plugin
+bytes — `claude plugin list` against that dir still says "No plugins installed".
+`enabledPlugins` toggles an *already-installed* plugin; it is not an installer.
+
+**Provision each config dir explicitly** — the same two verbs, once per profile:
+
+```bash
+for d in ~/.claude-pool-a ~/.claude-pool-b ~/.claude-pool-c; do
+  CLAUDE_CONFIG_DIR="$d" claude plugin marketplace add anthony-chaudhary/dos-kernel
+  CLAUDE_CONFIG_DIR="$d" claude plugin install dos-kernel@dos --scope user
+done
+```
+
+Both verbs run non-interactively (a fresh `add` raises no trust prompt). Point
+`add` at a **local checkout** (`claude plugin marketplace add /path/to/dos-kernel`)
+to install from the working tree you dogfood — the lightest cache (~25 MB/dir, no
+marketplace clone) and the way to test an unreleased change across the whole
+pool. `--scope user` writes the install into that dir's own `plugins/`, so it
+survives every session that profile launches.
+
+**Make it part of enrollment, not an afterthought.** If your switcher scaffolds
+new config dirs, fold the two verbs above into that step. DOS's own `dos accounts
+enroll` already seeds each new account's `settings.json` from the roster
+`defaults` (model, effort, permissions); the plugin install is the missing
+companion — seeding settings carries your *preferences*, only `claude plugin
+install` carries the *substrate*. A freshly-enrolled account should be born with
+DOS, not silently rotated into the fleet without it.
+
+---
+
 ## Step 6 — verify with DOS, not with the installer's say-so
 
 The whole point of DOS is that a tool's "it worked" is a self-report. So confirm
