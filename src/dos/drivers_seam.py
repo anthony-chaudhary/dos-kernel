@@ -243,46 +243,52 @@ def resolve_driver_taxonomy(name: str, *, _stderr=None) -> LaneTaxonomy:
     return resolve_driver_config(name, None, _stderr=_stderr).lanes
 
 
-# Modules under dos/drivers/ that are NOT host-policy packs (no `<name>_config` factory):
-# adjudicators/transports/witness sources resolved through their OWN seams, plus private
-# helpers. Excluded from the host-policy roster `dos plugins` / `dos doctor` list.
-_NON_HOST_DRIVERS = frozenset({
-    "llm_judge", "operator_judge", "similarity_judge",  # JUDGE rung
-    "notify_slack", "notify_webhook",                    # notifier transports
-    "export_file", "export_statsd", "export_otlp",       # exporter transports
-    "os_acceptance", "state_diff", "content_diff", "ci_status",  # evidence/witness
-    "citation_resolve", "paste_log", "provider_ledger", "memory_mem0",
-    "memory_recall", "model_reroute", "account_switcher", "watchdog",
-    "supervisor", "self_improve", "merge_gate", "decision_stop", "plan_scope",
-    "design_doc_plan", "pre_commit", "hook_dialects", "agt_backend",
-    "nemo_action", "openai_agents_guardrail", "crewai_guardrail",
-    "witnessed_leak_test",
-})
+def _in_tree_host_pack_names() -> list[str]:
+    """The in-tree ``dos/drivers/*.py`` stems that ARE host-policy packs, sorted.
+
+    A host-policy pack is DEFINED by exposing a ``<stem>_config`` factory; a driver that
+    plugs into a DIFFERENT seam (an adjudicator, a transport, a witness source) has no
+    such factory, so it is excluded automatically — no hand-kept exclusion list to rot,
+    and (deliberately) NO name of another seam's driver is written into this kernel
+    module, keeping the by-substring layering litmi
+    (`test_kernel_does_not_import_a_log_driver` et al.) green.
+
+    The check is a cheap SOURCE scan for the factory symbol ``<stem>_config`` — it
+    matches both a module that ``def``s the factory and one that re-exports it from
+    ``dos.config`` (the ``job`` pack's shape). It does NOT import the driver module (a
+    kernel helper importing every driver would be the coupling the one-way arrow forbids);
+    the factory is imported only later, by ``resolve_driver_config``, and only for the ONE
+    name an operator asked for."""
+    import re
+
+    names: list[str] = []
+    drivers_dir = Path(__file__).parent / "drivers"
+    if not drivers_dir.is_dir():
+        return names
+    for py in sorted(drivers_dir.glob("*.py")):
+        stem = py.stem
+        if stem.startswith("_"):
+            continue
+        try:
+            text = py.read_text(encoding="utf-8")
+        except OSError:  # pragma: no cover - unreadable file, skip
+            continue
+        # The factory symbol `<stem>_config` as a whole word — matches `def job_config`,
+        # `from dos.config import job_config`, and a `__all__` listing it alike.
+        if re.search(rf"\b{re.escape(stem)}_config\b", text):
+            names.append(stem)
+    return names
 
 
 def active_driver_names(*, _stderr=None) -> list[str]:
     """Every resolvable host-policy driver name — in-tree packs THEN discovered plugins.
 
-    In-tree names are the ``dos/drivers/*.py`` stems that (a) are not private/``_``-led,
-    (b) are not in ``_NON_HOST_DRIVERS`` (the adjudicator/transport/witness modules that
-    plug into their OWN seams), and (c) actually expose a ``<name>_config`` factory.
-    Powers ``dos plugins`` and ``dos doctor``'s host-policy roster. Does directory + entry-
-    point I/O, so it is a call-boundary helper, never called inside a verdict."""
-    import importlib
-
-    names: list[str] = []
-    drivers_dir = Path(__file__).parent / "drivers"
-    if drivers_dir.is_dir():
-        for py in sorted(drivers_dir.glob("*.py")):
-            stem = py.stem
-            if stem.startswith("_") or stem in _NON_HOST_DRIVERS:
-                continue
-            try:
-                mod = importlib.import_module(f"dos.drivers.{stem}")
-            except Exception:  # pragma: no cover - a broken in-tree driver is a bug, skip it here
-                continue
-            if getattr(mod, f"{stem}_config", None) is not None:
-                names.append(stem)
+    In-tree names are the ``dos/drivers/*.py`` stems that define a ``<stem>_config``
+    module-level factory (which excludes the adjudicator/transport/witness drivers that
+    plug into their OWN seams). Powers ``dos plugins`` and ``dos doctor``'s host-policy
+    roster. Does directory + entry-point I/O, so it is a call-boundary helper, never
+    called inside a verdict."""
+    names = _in_tree_host_pack_names()
     discovered = sorted(_discover_entry_point_drivers(_stderr=_stderr))
     # In-tree first (unshadowable), then any third-party names not already in-tree.
     for n in discovered:
