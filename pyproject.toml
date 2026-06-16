@@ -217,6 +217,11 @@ claude-cowork = "dos.drivers.hook_dialects:ClaudeCoworkDialect"
 # (`ConfigFormat.YAML`, PyYAML — the kernel's one dep) encodes Hermes' `cli-config.yaml`,
 # closing the lift docs/278 deferred.
 hermes = "dos.drivers.hook_dialects:HermesDialect"
+# GitHub Copilot CLI -- the only NEW dialect of the host sweep: a FLAT top-level
+# {"permissionDecision":"deny",…} deny output (CC field names, un-nested), which no
+# existing renderer emits (claude-code nests them under hookSpecificOutput). Distinct
+# renderer so wiring the Copilot CLI is not a silent fail-open.
+copilot-cli = "dos.drivers.hook_dialects:CopilotCliDialect"
 
 # The plan-DIALECT sources (docs/293). The kernel seam (`dos.plan_source`) holds
 # the `PlanRow` + `PlanSource` Protocol + resolver + the ONE unshadowable `markdown`
@@ -363,6 +368,10 @@ factory = "dos.drivers.hook_dialects:factory_install_spec"
 # permissionDecision deny, fails closed). NO --dialect. (The Copilot CLI is a separate host --
 # flat top-level permissionDecision, a novel grammar.)
 copilot = "dos.drivers.hook_dialects:copilot_install_spec"
+# GitHub Copilot CLI -- `.github/hooks/dos.json`, flat-with-type config (event-keyed array
+# of {type:command} objects, {"version":1}), camelCase events, FLAT top-level permissionDecision
+# deny OUTPUT -> the NEW copilot-cli renderer. A distinct host from the VS Code agent-hooks surface.
+copilot-cli = "dos.drivers.hook_dialects:copilot_cli_install_spec"
 
 # The memory-STORE providers (docs/314 P2/P3) — where a fleet's memories live, so
 # the recall gate (docs/103) and the write gate (`dos memory admit`) can run against

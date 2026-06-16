@@ -331,6 +331,27 @@ def test_copilot_vscode_writes_github_hooks_as_claude_code_alias(tmp_path: Path)
     assert set(cfg["hooks"]["PreToolUse"][0]) == {"hooks"}
 
 
+def test_copilot_cli_writes_github_hooks_with_the_novel_dialect(tmp_path: Path):
+    """GitHub Copilot CLI is the one NEW dialect: `.github/hooks/dos.json`, flat-with-type
+    config (event-keyed array of {type:command} objects + {"version":1}), camelCase events,
+    and a FLAT top-level {"permissionDecision":"deny"} deny output (un-nested CC field names)
+    -- so `--dialect copilot-cli`, a distinct renderer (the claude-code nested form would be
+    a fail-open here)."""
+    dest = tmp_path / "svc"
+    assert _cli("init", "--hooks", "copilot-cli", str(dest)).returncode == 0
+    spec = hi.host_spec("copilot-cli")
+    assert spec.config_path == (".github", "hooks", "dos.json")
+    cfg = _json_config(dest, spec)
+    assert cfg["version"] == 1
+    # camelCase events, flat {type:command} entries (NOT group-wrapped), copilot-cli dialect.
+    assert _flat_commands(cfg, "preToolUse") == ["dos hook pretool --workspace . --dialect copilot-cli"]
+    assert _flat_commands(cfg, "postToolUse") == ["dos hook posttool --workspace . --dialect copilot-cli"]
+    assert _flat_commands(cfg, "agentStop") == ["dos hook stop --workspace . --dialect copilot-cli"]
+    entry = cfg["hooks"]["preToolUse"][0]
+    assert entry["type"] == "command"                    # typed entry, no group wrapper
+    assert "hooks" not in entry
+
+
 def test_claude_cowork_writes_the_shared_claude_settings_file(tmp_path: Path):
     """Claude Cowork is the SHARED-surface host (docs/298): it runs the Claude Code
     harness, so its hook surface IS `.claude/settings.json` — and the wired command
@@ -513,7 +534,7 @@ def test_cursor_merge_preserves_user_hooks_and_keys(tmp_path: Path):
 def test_idempotent_rerun_does_not_duplicate(tmp_path: Path):
     for host in ("cursor", "codex", "gemini", "antigravity", "claude-cowork", "hermes",
                  "augment", "devin", "cursor-cli", "crush", "qwen", "continue",
-                 "openhands", "tabnine", "factory", "copilot"):
+                 "openhands", "tabnine", "factory", "copilot", "copilot-cli"):
         dest = tmp_path / host
         assert _cli("init", "--hooks", host, str(dest)).returncode == 0
         proc = _cli("init", "--hooks", host, str(dest))

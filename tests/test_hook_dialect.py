@@ -157,6 +157,29 @@ def test_antigravity_deny_is_top_level_decision():
     assert out == {"decision": "deny", "reason": "blocked by DOS"}
 
 
+def test_copilot_cli_deny_is_flat_top_level_permission_decision():
+    """The GitHub Copilot CLI reads a FLAT top-level
+    {"permissionDecision":"deny","permissionDecisionReason":…} — the CC field NAMES, but
+    un-nested (CC wraps them under hookSpecificOutput). Wiring it with --dialect
+    claude-code would be a silent fail-open (the Copilot CLI finds no top-level
+    permissionDecision and proceeds), which is exactly why it earns its own renderer.
+    This pins the flat shape; the config side is in test_init_hooks_crossvendor.py."""
+    cli = hd.resolve_dialect("copilot-cli")
+    # DENY — flat top-level, NOT nested under hookSpecificOutput.
+    out = cli.render(_deny_verdict())
+    assert out == {"permissionDecision": "deny", "permissionDecisionReason": "blocked by DOS"}
+    assert "hookSpecificOutput" not in out
+    # The corrective fact rides permissionDecisionReason (space-joined), never a rewrite key.
+    out2 = cli.render(_deny_verdict(context="read it first"))
+    assert out2 == {"permissionDecision": "deny",
+                    "permissionDecisionReason": "blocked by DOS read it first"}
+    # WARN — turn-preserving allow with the context on the reason (never blocks).
+    warn = hd.HookVerdict(moment=hd.HookMoment.PRE, action=hd.HookAction.WARN, context="scope it")
+    assert cli.render(warn) == {"permissionDecision": "allow", "permissionDecisionReason": "scope it"}
+    # PASS — nothing emitted.
+    assert cli.render(hd.HookVerdict(moment=hd.HookMoment.PRE, action=hd.HookAction.PASS)) is None
+
+
 def test_antigravity_deny_folds_context_into_reason():
     """Antigravity documents only `decision`/`reason` — no separate context channel —
     so the corrective FACT rides the reason field (space-joined), never a new key

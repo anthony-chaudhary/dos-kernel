@@ -87,6 +87,14 @@ func TestDialectTranscodeMatchesPythonGoldenBytes(t *testing.T) {
 			wantDeny: `{"decision": "block", "reason": "DOS PRE-admission: SELF_MODIFY blocked read it first"}`,
 			wantWarn: `{}`,
 		},
+		{
+			// GitHub Copilot CLI: a FLAT top-level {"permissionDecision":"deny",…} (the CC
+			// field names, un-nested — the Copilot CLI does not read CC's hookSpecificOutput
+			// wrapper). A WARN is a turn-preserving allow with the context on the reason.
+			dialect:  "copilot-cli",
+			wantDeny: `{"permissionDecision": "deny", "permissionDecisionReason": "DOS PRE-admission: SELF_MODIFY blocked read it first"}`,
+			wantWarn: `{"permissionDecision": "allow", "permissionDecisionReason": "scope it to a lane"}`,
+		},
 	}
 
 	for _, c := range cases {
@@ -106,7 +114,7 @@ func TestDialectTranscodeMatchesPythonGoldenBytes(t *testing.T) {
 // emits nothing on EVERY dialect (the fail-to-passthrough floor preserved per host).
 func TestDialectTranscodePassthroughStaysEmptyEverywhere(t *testing.T) {
 	d := Decision{Dialect: nil}
-	for _, dialect := range []string{"", "claude-code", "codex", "gemini", "antigravity", "cursor", "claude-cowork", "hermes", "bogus"} {
+	for _, dialect := range []string{"", "claude-code", "codex", "gemini", "antigravity", "cursor", "claude-cowork", "hermes", "copilot-cli", "bogus"} {
 		if got := d.RenderAs(dialect); got != "" {
 			t.Fatalf("passthrough should be empty on dialect %q, got %q", dialect, got)
 		}
@@ -130,7 +138,7 @@ func TestDialectTranscodeUnknownDegradesToCC(t *testing.T) {
 // key on any host. Cursor's preToolUse CAN return updated_input; DOS must NOT.
 func TestDialectTranscodeNeverEmitsRewriteKey(t *testing.T) {
 	for _, d := range []Decision{{Dialect: ccDenyDict()}, {Dialect: ccWarnDict()}} {
-		for _, dialect := range []string{"claude-code", "codex", "gemini", "antigravity", "cursor", "claude-cowork", "hermes"} {
+		for _, dialect := range []string{"claude-code", "codex", "gemini", "antigravity", "cursor", "claude-cowork", "hermes", "copilot-cli"} {
 			out := d.RenderAs(dialect)
 			for _, bad := range []string{"updatedInput", "updated_input", "updatedCommand"} {
 				if containsStr(out, bad) {

@@ -62,6 +62,8 @@ func transcodeCC(cc map[string]any, dialect string) map[string]any {
 		return renderCursor(parseCC(cc))
 	case "hermes":
 		return renderHermes(parseCC(cc))
+	case "copilot-cli":
+		return renderCopilotCli(parseCC(cc))
 	default:
 		// Unknown dialect — degrade to CC (see the doc comment above). Never crash.
 		return cc
@@ -191,6 +193,34 @@ func renderHermes(v hookVerdict) map[string]any {
 	}
 	// warn — the ALLOW object {}. No non-blocking context channel; context dropped.
 	return map[string]any{}
+}
+
+// renderCopilotCli emits the GitHub Copilot CLI grammar — a FLAT top-level
+// {"permissionDecision":"deny","permissionDecisionReason":…} on a DENY (the CC field
+// names, but un-nested — the Copilot CLI does NOT read CC's hookSpecificOutput wrapper,
+// so emitting the nested form would be a silent fail-open), and a turn-preserving
+// {"permissionDecision":"allow","permissionDecisionReason":…} on a WARN (the context
+// rides the reason; allow never blocks). The reason + any corrective fact are
+// space-joined into permissionDecisionReason. Byte-for-byte port of
+// drivers.hook_dialects.CopilotCliDialect.render. Pinned by parity_dialect_test.go.
+func renderCopilotCli(v hookVerdict) map[string]any {
+	if v.action == "pass" {
+		return nil
+	}
+	if v.action == "deny" {
+		out := map[string]any{"permissionDecision": "deny"}
+		reason := joinNonEmpty(v.reason, v.context)
+		if reason != "" {
+			out["permissionDecisionReason"] = reason
+		}
+		return out
+	}
+	// warn — allow with the context on the reason (turn-preserving, never blocks).
+	out := map[string]any{"permissionDecision": "allow"}
+	if v.context != "" {
+		out["permissionDecisionReason"] = v.context
+	}
+	return out
 }
 
 // joinNonEmpty space-joins the non-empty parts (the Antigravity/Cursor reason fold),

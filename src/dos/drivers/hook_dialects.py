@@ -263,6 +263,49 @@ class CursorDialect:
         return {"permission": "allow", "agent_message": verdict.context}
 
 
+class CopilotCliDialect:
+    """GitHub **Copilot CLI** — the FLAT-`permissionDecision` deny grammar.
+
+    The Copilot CLI is a sibling of the VS Code Copilot agent-hooks surface, but its
+    deny OUTPUT is subtly different and is why it earns its OWN renderer rather than
+    aliasing `claude-code`: it emits the SAME field NAMES as Claude Code
+    (`permissionDecision` / `permissionDecisionReason`) but at the TOP LEVEL, NOT nested
+    under `hookSpecificOutput` (web-grounded against the GitHub Copilot CLI hooks
+    reference, 2026-06-16: `{"permissionDecision":"deny","permissionDecisionReason":…}`
+    on stdout from the `preToolUse` command hook). DOS's `claude-code` renderer nests
+    these under `hookSpecificOutput`, which the Copilot CLI does NOT read — so wiring it
+    with `--dialect claude-code` would be a silent fail-open (the host finds no
+    `permissionDecision` at the top level and proceeds). Hence a distinct renderer.
+
+    This is the CONFIG-vs-OUTPUT split once more: the Copilot CLI config is an event-keyed
+    array of typed command objects in `.github/hooks/*.json`, but the bytes a verdict
+    RENDERS to are the flat top-level `permissionDecision` form. The corrective FACT (a
+    provenance DENY's `context`) rides `permissionDecisionReason` appended to the operator
+    reason (the Copilot CLI documents no separate context channel — the docs/191 §4
+    byte-author floor: a fact to read, never a rewritten argument). A WARN (turn-preserving)
+    emits a bare `{"permissionDecision":"allow"}` carrying the context on the reason — inert
+    to the block gate, so it adds context without withholding the call.
+    """
+
+    name = "copilot-cli"
+
+    def render(self, verdict: HookVerdict) -> Optional[dict]:
+        if verdict.action is HookAction.PASS:
+            return None
+        if verdict.action is HookAction.DENY:
+            out = {"permissionDecision": "deny"}
+            # Join reason + the corrective fact into the one field the Copilot CLI reads.
+            reason = " ".join(p for p in (verdict.reason, verdict.context) if p).strip()
+            if reason:
+                out["permissionDecisionReason"] = reason
+            return out
+        # WARN → allow with the context on the reason (turn-preserving — never blocks).
+        out = {"permissionDecision": "allow"}
+        if verdict.context:
+            out["permissionDecisionReason"] = verdict.context
+        return out
+
+
 # ===========================================================================
 # Per-vendor INSTALL specs (docs/221) — where/how `dos init --hooks <host>` wires
 # the DOS hooks into each runtime's OWN config file. These are the install-side
@@ -848,4 +891,44 @@ def copilot_install_spec() -> HostHookSpec:
              "writes a dedicated .github/hooks/dos.json (Copilot loads every "
              ".github/hooks/*.json). The Copilot CLI is a separate host (flat permissionDecision "
              "output — a novel grammar). The wired `dos hook` command must be on PATH.",
+    )
+
+
+def copilot_cli_install_spec() -> HostHookSpec:
+    """GitHub **Copilot CLI** — `.github/hooks/dos.json` (flat-with-type config, NOVEL output).
+
+    The Copilot CLI (the standalone `copilot` / `gh copilot` agent, distinct from the VS
+    Code agent-hooks surface) loads every `.github/hooks/*.json` (also `~/.copilot/hooks/`).
+    The config is a top-level `{"version":1,"hooks":{"<event>":[{...}]}}` where each event
+    maps to an ARRAY of typed command objects `{"type":"command","command":…}` — NOT Claude
+    Code's group-wrapped `{matcher, hooks:[{type,command}]}` nesting, and NOT a bare flat
+    `{command}`. So `json_entry_has_type=True` (the entry carries `type:"command"`) with
+    `json_group_wraps=False` (no `{"hooks":[…]}` wrapper). Events are camelCase:
+    `preToolUse` / `postToolUse` / `agentStop` (verified against the GitHub Copilot CLI
+    hooks reference, 2026-06-16). It requires a top-level `{"version":1}`.
+
+    The deny OUTPUT is a FLAT top-level `{"permissionDecision":"deny","permissionDecisionReason":…}`
+    — the field NAMES of Claude Code but un-nested — so it carries `--dialect copilot-cli`
+    (the `CopilotCliDialect` renderer above), the only genuinely NEW dialect of the host
+    sweep. (`preToolUse` denies via the JSON field; exit-2 is a deny shortcut for the
+    separate `permissionRequest` event, not wired here.)
+    """
+    return HostHookSpec(
+        host="copilot-cli",
+        config_path=(".github", "hooks", "dos.json"),
+        fmt=ConfigFormat.JSON,
+        pre_events=("preToolUse",),
+        post_events=("postToolUse",),
+        stop_events=("agentStop",),
+        dialect_flag="--dialect copilot-cli",   # flat top-level permissionDecision — the novel renderer.
+        json_entry_has_type=True,    # entry is {"type":"command","command":…}…
+        json_group_wraps=False,      # …in a flat array under the event key (no {"hooks":[…]} wrapper).
+        json_version=1,              # .github/hooks/*.json requires {"version": 1}.
+        note="GitHub Copilot CLI (the standalone copilot agent, NOT the VS Code agent-hooks "
+             "surface) loads every .github/hooks/*.json; camelCase events "
+             "preToolUse/postToolUse/agentStop. Its deny output is a FLAT top-level "
+             "{\"permissionDecision\":\"deny\",…} (CC field names, un-nested), so DOS wires "
+             "--dialect copilot-cli (a distinct renderer — the claude-code dialect's NESTED "
+             "form would be a silent fail-open here). The wired `dos hook` command must be "
+             "on PATH in the Copilot CLI session.",
     )
