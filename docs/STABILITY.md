@@ -91,6 +91,7 @@ leaves.
 
   | Entry-point group | Contract | Kernel seam module |
   |---|---|---|
+  | `dos.drivers` | `<name>_config(workspace) -> SubstrateConfig` factory | `dos.drivers_seam` |
   | `dos.judges` | `Judge` Protocol | `dos.judges` |
   | `dos.predicates` | `AdmissionPredicate` Protocol | `dos.admission` |
   | `dos.overlap_policies` | `OverlapPolicy` Protocol | `dos.overlap_policy` |
@@ -106,6 +107,8 @@ leaves.
   | `dos.enforce_handlers` | `EnforcementHandler` Protocol | `dos.enforce` |
   | `dos.hook_installs` | `HostHookSpec` spec | `dos.hook_install` |
   | `dos.memory_stores` | `MemoryStore` Protocol | `dos.memory_stores` |
+  | `dos.vcs` | `VcsBackend(root)` backend | `dos.vcs` |
+  | `dos.mcp_tools` | `register(mcp)` registrar or a bare tool callable | `dos_mcp.server` |
 
 - **The `dos.toml` schema.** A declared key keeps its meaning; new keys are
   additive; an unknown key keeps failing loud where it does today.
