@@ -552,11 +552,30 @@ def _superseded_refuse_seqs(entries: list[dict]) -> set[int]:
 # obeys. The deny itself stays unconditional — this adds only the escalation half
 # its own doctrine names. Advisory: surfacing takes no lease and stops no run.
 
-# The one reason class folded today: SELF_MODIFY is the deny whose remedy is
-# operator-only by design (the storm shape the issue documents). Other deny
-# classes self-resolve (a collision clears when the lease frees) — widening this
-# set is a deliberate decision, not a default (under-match, like `_clean_token`).
-_ENFORCE_STORM_TOKENS = frozenset({"SELF_MODIFY"})
+# Which recurring ENFORCE outcomes the fold watches. The signal is the DECISION,
+# not the token: a `warn` PASSES (the call proceeds — no storm), but a `deny` at the
+# PreToolUse surface has NO agent-facing force (there is no `--force` at the hook,
+# unlike the `dos arbitrate` CLI), so a deny that RECURS from the same (holder, target)
+# is ALWAYS a burning retry loop whose only escape is an out-of-band operator action —
+# the textbook HUMAN-rung storm, whatever reason_class it carries. Originally this
+# folded ONLY SELF_MODIFY (`frozenset({"SELF_MODIFY"})`); the live journal proved that
+# under-match hid real storms — two reason-less DENY storms (holders a9307b57 x4,
+# 731dd175 x3) folded into nothing because they were not SELF_MODIFY. So the fold now
+# watches the DENY tag itself (`_is_storm_deny`), which keeps every SELF_MODIFY storm
+# byte-identical AND catches the operator-only denies the token whitelist missed. A
+# WARN is never folded (it is not a storm — it passed); only a recurring deny is.
+# (The pre-fix `_ENFORCE_STORM_TOKENS` whitelist is retired — see `_is_storm_deny`.)
+def _is_storm_deny(entry: dict) -> bool:
+    """True iff this ENFORCE entry is a DENY worth threading through the storm breaker.
+
+    Pure. A deny at the hook surface has no agent-facing force, so a recurring one is
+    an operator-only storm regardless of reason_class — including a reason-less deny a
+    host wrote without a closed token. A `warn`/`override-admit`/passthrough is not a
+    storm deny (a warn passed; an override-admit is the storm RESOLVING). Reads the
+    same `_enforce_decision_tag` the count loop uses, so the watch-set and the counter
+    can never disagree about what a deny is.
+    """
+    return _enforce_decision_tag(entry) == "deny"
 
 # Trip on 3 identical denies in a row — the docs/223 default consecutive
 # threshold, escalating HUMAN. `max_total` is OFF (0): the total counter never
@@ -698,12 +717,13 @@ def _from_enforce_storms(
     """Recurring hook denies of the SAME edit, escalated through the breaker.
 
     Reads the same WAL as `_from_lane_journal` (the ENFORCE records are already
-    there; no new source, no new store). For each (holder, target) pair whose
-    reason class is in `_ENFORCE_STORM_TOKENS`, the records thread through the
+    there; no new source, no new store). For each (holder, target) pair, every
+    DENY (`_is_storm_deny` — a recurring hook deny of any reason_class, since a
+    deny at the hook surface has no agent-facing force) threads through the
     docs/223 breaker IN JOURNAL ORDER — a deny is `record_failure`, a docs/296
     override-admit is `record_success` — and a final OPEN circuit lifts ONE
     Decision naming the target and the count. A single isolated deny (or two)
-    stays under the threshold and raises nothing.
+    stays under the threshold and raises nothing. A passing WARN is never a storm.
 
     Each OPEN storm is then marked `resolved` (issue #106) when its condition has
     already cleared: the storming holder holds no live lease AND the newest deny
@@ -730,9 +750,13 @@ def _from_enforce_storms(
     for e in entries:
         if e.get("op") != lane_journal.OP_ENFORCE:
             continue
-        if _enforce_reason_class(e) not in _ENFORCE_STORM_TOKENS:
-            continue
         tag = _enforce_decision_tag(e)
+        # Watch a recurring DENY of any reason_class (the storm signal is the deny
+        # tag, not the token — see `_is_storm_deny`), plus the override-admit that
+        # RESOLVES one. Everything else (a passing warn, a passthrough) is not a
+        # storm and is skipped so it cannot perturb the breaker counters.
+        if tag not in ("deny", "override-admit"):
+            continue
         key = (str(e.get("holder") or ""), _enforce_target(e))
         state = counts.get(key, _breaker.BreakerCounts())
         if tag == "deny":
@@ -752,7 +776,13 @@ def _from_enforce_storms(
         e = last_deny.get(key, {})
         n = state.consecutive
         tool = str(e.get("tool") or e.get("lane") or "")
-        token = _enforce_reason_class(e) or "SELF_MODIFY"
+        # The token the deny actually carried — no longer assume SELF_MODIFY now the
+        # fold watches every recurring deny. A reason-less deny gets a generic label so
+        # the row reads honestly ("an operator-only deny") instead of mislabeling a
+        # non-SELF_MODIFY storm as SELF_MODIFY (which would mis-route `dos man wedge`).
+        rc = _enforce_reason_class(e)
+        token = rc  # "" for a reason-less deny — the detail pane simply shows no ReasonSpec
+        label = rc or "operator-only deny"
         latest_ts = e.get("ts")
         age = _age_seconds(latest_ts, now=now)
         # #106: has the storm's condition already cleared? Holder gone + quiet
@@ -761,15 +791,16 @@ def _from_enforce_storms(
             holder, latest_ts, live_holders, now=now, quiet_seconds=quiet_seconds)
         if resolved:
             reason_text = (
-                f"RESOLVED: agent {holder or '?'}'s {n}x {token} storm on {target} "
+                f"RESOLVED: agent {holder or '?'}'s {n}x {label} storm on {target} "
                 f"has gone quiet — holder holds no live lease and the last deny is "
                 f"older than the {quiet_seconds // 60}m window"
             )
         else:
             reason_text = (
-                f"agent {holder or '?'} has been refused {n}x editing {target} "
-                f"({token}) — the edit needs you: make it between loop runs, arm the "
-                f"override window, or stop the loop"
+                f"agent {holder or '?'} has been refused {n}x on {target} "
+                f"({label}) — a recurring hook deny has no agent-facing force, so the "
+                f"edit needs you: make it between loop runs, arm the override window, "
+                f"or stop the loop"
             )
         evidence = [
             f"journal seq #{e.get('seq', '?')} (latest deny)",

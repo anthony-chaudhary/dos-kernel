@@ -106,22 +106,28 @@ _READ_ONLY_TOOLS = frozenset(
 )
 _WRITE_TOOLS = frozenset({"Write", "Edit", "MultiEdit", "NotebookEdit"})
 
-# No-footprint ORCHESTRATION tools — they touch no repo file tree at all, but are
-# NOT reads either (they add nothing to the provenance corpus). Issue #46 proved a
-# known-empty footprint should pass CLEAN (no warn); that fix only ever reached
-# `_READ_ONLY_TOOLS`, so these four fell to the `((), False)` UNKNOWN-tree branch
-# and earned an "EMPTY tree (unknown blast radius)" advisory WARN on every call —
-# 200+ reason-less enforce records in a 6-day journal (Agent 141, TaskUpdate 39,
-# TaskCreate 15, ToolSearch 5), pure ambient noise that trains the operator to skim
-# past PRE-admission output, defeating the one call that matters (a real SELF_MODIFY
-# deny). They write nothing: `Agent` SPAWNS a subagent (whose own Write/Edit is a
-# fresh PreToolUse event with its OWN admission + the issue #188 in-lane lineage
-# containment — the hazard is covered at the child, never at the parentless spawn);
-# `TaskCreate`/`TaskUpdate` mutate an in-memory task list, no repo tree; `ToolSearch`
-# loads a tool schema. So they get the same known-empty `((), True)` as a read,
-# clean-pass at the issue-#46 branch, and contribute no enforce-journal write.
-# Kept SEPARATE from `_READ_ONLY_TOOLS` so the "a read feeds provenance" semantics
-# stay legible — these feed nothing; they are footprint-empty, not corpus-entering.
+# No-FILE-footprint ORCHESTRATION tools — they touch no repo file tree, so they
+# cannot collide with a lane's file region; an empty FILE footprint admits. The name
+# is scoped on purpose: empty-FILE is NOT empty-EFFECT. These tools mutate AGENT/FLEET
+# state the file model cannot see — `Agent` forks the fleet (a seat + tokens, and the
+# child can recurse; one holder spawned 140 in a 6-day journal), `TaskCreate`/
+# `TaskUpdate` mutate shared coordination state (the work-queue other agents read),
+# `ToolSearch` mutates the agent's own capability set. That second blast-radius axis
+# has no kernel model yet — tracked in #202 (the typed non-file effect axis) and #203
+# (surface an Agent-spawn fan-out burst). What this set fixes is narrow and correct:
+# the FILE-COLLISION question only. Issue #46 proved a known-empty FILE footprint
+# should pass CLEAN (no warn); that fix only reached `_READ_ONLY_TOOLS`, so these four
+# fell to the `((), False)` UNKNOWN-tree branch and earned a spurious "EMPTY tree
+# (unknown blast radius)" advisory WARN on every call — 200+ reason-less enforce
+# records (Agent 141, TaskUpdate 39, TaskCreate 15, ToolSearch 5), ambient noise that
+# trains the operator to skim past PRE-admission output, defeating the one call that
+# matters (a real SELF_MODIFY deny). They cannot collide on a file: `Agent`'s child
+# Write/Edit is a fresh PreToolUse event with its OWN admission + the issue #188
+# in-lane lineage containment (the file hazard is covered AT the child, never at the
+# parentless spawn). So on the FILE axis they get the same known-empty `((), True)` as
+# a read and clean-pass. Kept SEPARATE from `_READ_ONLY_TOOLS` because a read FEEDS the
+# provenance corpus and these do not — and because the non-file effect axis (#202) will
+# attach HERE, not to the read set.
 _NO_FOOTPRINT_TOOLS = frozenset({"Agent", "Task", "TaskCreate", "TaskUpdate", "ToolSearch"})
 
 # The opt-in switch for the apply-gate binding turnstile (docs/126 Phase 1.5). The

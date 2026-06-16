@@ -1348,14 +1348,48 @@ class TestEnforceStorms:
         assert [d.kind.value for d in rows] == ["ENFORCE_BREAKER"]
         assert rows[0].dup_count == 3
 
-    def test_non_self_modify_enforce_never_rises(self, tmp_path: Path):
-        # A provenance WARN (or any other class) is not an operator-only deny —
-        # the fold under-matches by design.
+    def test_non_self_modify_warn_never_rises(self, tmp_path: Path):
+        # A provenance WARN (or any other class) PASSED — the call proceeded, so it
+        # is not a storm no matter how often it recurs. Only a recurring DENY (which
+        # has no agent-facing force) folds. This invariant survives the widening of
+        # the fold from SELF_MODIFY-only to all recurring denies.
         cfg = default_config(tmp_path)
         for i in range(5):
             _seed_enforce(cfg, seq=i + 1, reason_class="", decision="warn",
                           reason="suspicious provenance on arg 2")
         assert D.collect_decisions(cfg, resolver=None) == []
+
+    def test_reason_less_recurring_deny_now_folds(self, tmp_path: Path):
+        # The widening: a recurring DENY with NO reason_class (a host wrote a deny
+        # without a closed token) is an operator-only storm too — a deny at the hook
+        # surface has no agent-facing force. Before the fold watched only SELF_MODIFY
+        # this folded into NOTHING (the live journal had two such storms, holders
+        # a9307b57 x4 and 731dd175 x3, that no one ever saw). Now it surfaces.
+        cfg = default_config(tmp_path)
+        for i in range(3):
+            _seed_enforce(cfg, seq=i + 1, ts=f"2026-06-02T10:0{i}:00Z",
+                          reason_class="", decision="deny",
+                          reason="lane 'Write' refused: a non-self-modify hard deny")
+        rows = D.collect_decisions(cfg)
+        assert [d.kind.value for d in rows] == ["ENFORCE_BREAKER"], rows
+        d = rows[0]
+        assert d.resolver_kind.value == "HUMAN"
+        assert d.dup_count == 3
+        # A reason-less deny gets the generic label, NOT a mislabeled SELF_MODIFY
+        # token (which would mis-route `dos man wedge`).
+        assert d.reason_token == ""
+        assert "operator-only deny" in d.reason_text
+
+    def test_self_modify_storm_unchanged_by_widening(self, tmp_path: Path):
+        # The widening must keep the SELF_MODIFY path byte-identical: a 3x SELF_MODIFY
+        # deny still folds to one HUMAN row carrying the SELF_MODIFY token + target.
+        cfg = default_config(tmp_path)
+        for i in range(3):
+            _seed_enforce(cfg, seq=i + 1, ts=f"2026-06-02T10:0{i}:00Z")
+        rows = D.collect_decisions(cfg)
+        assert [d.kind.value for d in rows] == ["ENFORCE_BREAKER"]
+        assert rows[0].reason_token == "SELF_MODIFY"
+        assert "src/dos/arbiter.py" in rows[0].reason_text
 
     def test_stale_storm_ages_out(self, tmp_path: Path):
         # A storm whose LAST deny is past the retention cutoff is no longer
