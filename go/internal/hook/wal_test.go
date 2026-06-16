@@ -179,3 +179,94 @@ func TestParseLeaseStampMinuteAndSecond(t *testing.T) {
 		t.Fatal("a malformed stamp must NOT parse")
 	}
 }
+
+// ── proc_starttime rides the structural fold (Py↔Go parity, docs/95 §4.2) ──
+
+func TestReplayCarriesProcStarttime(t *testing.T) {
+	// A lease minted with proc_starttime must replay WITH it — the PID-reuse
+	// baseline the same-host probe corroborates against. Mirror of the Python
+	// test_lane_journal round-trip; keeps the structural fold byte-parity.
+	acq := map[string]any{
+		"op": "ACQUIRE", "lane": "apply", "loop_ts": "t1",
+		"lease": map[string]any{
+			"lane": "apply", "loop_ts": "t1", "host_id": "host-a",
+			"pid": 4242.0, "proc_starttime": 987654.0,
+		},
+	}
+	got := replayJournalFull([]map[string]any{acq})
+	if len(got) != 1 {
+		t.Fatalf("expected 1 live lease, got %d", len(got))
+	}
+	if st, _ := asFloat(got[0]["proc_starttime"]); st != 987654 {
+		t.Fatalf("proc_starttime must ride the fold; got %v", got[0]["proc_starttime"])
+	}
+}
+
+func TestReplayInlineAcquireCarriesProcStarttime(t *testing.T) {
+	// The forward-compat inline path (fields flattened, no nested "lease") must
+	// also reconstruct proc_starttime from the known-keys list.
+	inline := map[string]any{
+		"op": "ACQUIRE", "lane": "apply", "lane_kind": "concurrent",
+		"loop_ts": "t1", "host_id": "host-a", "pid": 4242.0,
+		"acquired_at": "2026-06-01T14:00:03Z", "proc_starttime": 555.0,
+	}
+	got := replayJournalFull([]map[string]any{inline})
+	if len(got) != 1 {
+		t.Fatalf("expected 1 live lease, got %d", len(got))
+	}
+	if st, _ := asFloat(got[0]["proc_starttime"]); st != 555 {
+		t.Fatalf("inline proc_starttime must reconstruct; got %v", got[0]["proc_starttime"])
+	}
+}
+
+func TestAdoptChangingPidDropsStaleProcStarttime(t *testing.T) {
+	// ADOPT to a new pid WITHOUT a new baseline must DROP the old proc_starttime —
+	// never keep a stale stamp that would falsely accuse the new pid of being reused
+	// (the safe degrade to existence-only). Mirror of the Python lane_journal ADOPT.
+	acq := map[string]any{
+		"op": "ACQUIRE", "lane": "apply", "loop_ts": "t1",
+		"lease": map[string]any{
+			"lane": "apply", "loop_ts": "t1", "host_id": "host-a",
+			"pid": 4242.0, "proc_starttime": 111.0,
+		},
+	}
+	adopt := map[string]any{
+		"op": "ADOPT", "lane": "apply", "loop_ts": "t1",
+		"holder": "host-b:99", "pid": 99.0, "host_id": "host-a",
+		"heartbeat_at": "2026-06-01T15:00:00Z",
+	}
+	got := replayJournalFull([]map[string]any{acq, adopt})
+	if len(got) != 1 {
+		t.Fatalf("expected 1 live lease, got %d", len(got))
+	}
+	if asInt(got[0]["pid"]) != 99 {
+		t.Fatalf("ADOPT must rewrite pid to 99; got %v", got[0]["pid"])
+	}
+	if _, present := got[0]["proc_starttime"]; present {
+		t.Fatal("ADOPT changing the pid without a new baseline must DROP the stale proc_starttime")
+	}
+}
+
+func TestAdoptWithNewBaselineRewritesProcStarttime(t *testing.T) {
+	// ADOPT WITH a supplied baseline rewrites proc_starttime to the new holder's
+	// stamp — so the reuse defense keeps corroborating the live pid.
+	acq := map[string]any{
+		"op": "ACQUIRE", "lane": "apply", "loop_ts": "t1",
+		"lease": map[string]any{
+			"lane": "apply", "loop_ts": "t1", "host_id": "host-a",
+			"pid": 4242.0, "proc_starttime": 111.0,
+		},
+	}
+	adopt := map[string]any{
+		"op": "ADOPT", "lane": "apply", "loop_ts": "t1",
+		"holder": "host-b:99", "pid": 99.0, "host_id": "host-a",
+		"proc_starttime": 222.0, "heartbeat_at": "2026-06-01T15:00:00Z",
+	}
+	got := replayJournalFull([]map[string]any{acq, adopt})
+	if len(got) != 1 {
+		t.Fatalf("expected 1 live lease, got %d", len(got))
+	}
+	if st, _ := asFloat(got[0]["proc_starttime"]); st != 222 {
+		t.Fatalf("ADOPT with a new baseline must rewrite proc_starttime to 222; got %v", got[0]["proc_starttime"])
+	}
+}

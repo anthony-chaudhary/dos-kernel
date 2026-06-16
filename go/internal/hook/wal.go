@@ -141,7 +141,7 @@ func replayJournalFull(entries []map[string]any) []map[string]any {
 				for _, fld := range []string{
 					"lane", "lane_kind", "tree", "loop_ts", "host_id",
 					"pid", "acquired_at", "heartbeat_at", "ttl_minutes",
-					"holder", "run_id",
+					"holder", "run_id", "proc_starttime",
 				} {
 					if v, ok := e[fld]; ok {
 						lz[fld] = v
@@ -166,10 +166,26 @@ func replayJournalFull(entries []map[string]any) []map[string]any {
 			}
 		case "ADOPT":
 			if cur, ok := live[k]; ok {
+				// Did the pid change? (used to decide whether a stale
+				// proc_starttime baseline must be dropped — see below.)
+				pidChanged := false
+				if v, ok := e["pid"]; ok && v != nil && asInt(v) != asInt(cur["pid"]) {
+					pidChanged = true
+				}
 				for _, fld := range []string{"holder", "pid", "host_id"} {
 					if v, ok := e[fld]; ok && v != nil {
 						cur[fld] = v
 					}
+				}
+				// The OS process-identity baseline (docs/95 §4.2) must track the
+				// pid it corroborates. Prefer a new baseline on the entry; else,
+				// when the pid actually changed, DROP the stale one so it never
+				// accuses the new holder's pid of being a reused number (the safe
+				// degrade to existence-only). Mirror of the Python lane_journal ADOPT.
+				if v, ok := e["proc_starttime"]; ok && v != nil {
+					cur["proc_starttime"] = v
+				} else if pidChanged {
+					delete(cur, "proc_starttime")
 				}
 				hb := e["heartbeat_at"]
 				if hb == nil {
@@ -211,34 +227,85 @@ func replayJournal(entries []map[string]any) []lease {
 	return out
 }
 
-// leaseExpired reports whether a folded lease is past its TTL/heartbeat window —
-// the hard backstop port of the Python `lane_lease._lease_is_dead` staleness signal
-// (signal (a)). A lease's newest credible stamp (`heartbeat_at`, else `acquired_at`)
-// older than its own `ttl_minutes` (or the default backstop) plus a grace is
-// confidently stale; a fresh/heartbeating lease never is. Unlike the Python filter
-// the hook does NOT do the cross-process PID probe (signal (b)) — a hook has no
-// business reading another box's process table, and the TTL backstop alone closes
-// the immortal-orphan phantom (FQ-532): a crashed loop stops beating and ages out.
+// leaseExpired reports whether a folded lease is past its TTL/heartbeat window
+// (signal (a)) OR is confirmed dead by the SAME-HOST OS process probe (signal (b),
+// docs/95) — the staleness ports of the Python `lane_lease._lease_is_dead`.
 //
-// FAIL-SAFE: a lease with NO parseable stamp is treated as NOT expired here (kept) —
-// we cannot prove it stale, so it keeps its claim (the genuine-collision-preserving
+// Signal (a) — the hard TTL backstop: a lease whose newest credible stamp
+// (`heartbeat_at`, else `acquired_at`) is older than its own `ttl_minutes` (or the
+// default) plus a grace is confidently stale; a fresh/heartbeating lease never is.
+//
+// Signal (b) — the same-host proc-liveness rung (NEW; previously the hook did only
+// (a) and held a crashed worker's lane for the full TTL window). It only ever
+// ACCELERATES the reclaim of a lease that is ALREADY past the grace window: a
+// holder that is both heartbeat-silent AND whose local pid the OS confirms gone is
+// reclaimed now instead of waiting out the full TTL. The gate matches Python
+// `_expire_dead` exactly — a FRESH lease (beat within the grace) is KEPT regardless
+// of pid, which preserves the ephemeral-acquirer reservation (an acquire subprocess
+// journals its ACQUIRE then exits, so its pid is "dead" while the reservation is
+// valid; evicting on a bare dead-pid there would double-book the region).
+//
+// FOREIGN-HOST BLIND: signal (b) fires only when the lease's recorded `host_id` is
+// empty or == `thisHost`. A pid is meaningless on another box; a cross-host orphan
+// is left to signal (a). NEVER FABRICATE DEAD: `procConfidentlyGone` returns false
+// on any uncertainty (no pid, /proc unreadable, non-Linux), so an unprovable lease
+// keeps its claim. PID-REUSE: a live pid whose /proc starttime != the recorded
+// `proc_starttime` baseline is a recycled number → the original holder is gone.
+//
+// FAIL-SAFE: a lease with NO parseable stamp AND no confident-dead pid is KEPT — we
+// cannot prove it stale, so it keeps its claim (the genuine-collision-preserving
 // direction). This filter can only ever SHRINK the live set by dropping the provably
-// stale, never admit a colliding live worker.
-func leaseExpired(lz map[string]any, now time.Time) bool {
+// gone, never admit a colliding live worker.
+func leaseExpired(lz map[string]any, now time.Time, thisHost string) bool {
 	stamp := asStr(lz["heartbeat_at"])
 	if stamp == "" {
 		stamp = asStr(lz["acquired_at"])
 	}
-	hb, ok := parseLeaseStamp(stamp)
-	if !ok {
-		return false // unparseable/absent stamp → cannot prove stale → keep
+	hb, haveStamp := parseLeaseStamp(stamp)
+
+	// A lease beaten within the grace window is FRESH — kept regardless of pid
+	// (the ephemeral-acquirer reservation guard, mirroring Python `_expire_dead`).
+	if haveStamp && now.Sub(hb).Minutes() <= liveTTLGraceMinutes {
+		return false
+	}
+
+	// Signal (b): a same-host, heartbeat-stale lease whose holder pid the OS
+	// confirms gone (or reused) → reclaim now without waiting the full TTL.
+	if haveStamp {
+		host := asStr(lz["host_id"])
+		if host == "" || host == thisHost {
+			pid := asInt(lz["pid"])
+			recStart, _ := asFloat(lz["proc_starttime"])
+			if procConfidentlyGone(pid, int64(recStart)) {
+				return true
+			}
+		}
+	}
+
+	// Signal (a): the hard TTL backstop.
+	if !haveStamp {
+		return false // unparseable/absent stamp, not confident-dead → keep
 	}
 	ttl := defaultLiveTTLMinutes
 	if v, ok := asFloat(lz["ttl_minutes"]); ok && v > 0 {
 		ttl = v
 	}
-	ageMin := now.Sub(hb).Minutes()
-	return ageMin > (ttl + liveTTLGraceMinutes)
+	return now.Sub(hb).Minutes() > (ttl + liveTTLGraceMinutes)
+}
+
+// thisHostID resolves the host we are probing FROM, the same way the Python lease
+// writer stamps it (DISPATCH_HOST_ID override › os.Hostname), so a lease's recorded
+// `host_id` compares against the same identity that wrote it. An empty result (no
+// env, hostname error) makes the foreign-host guard treat every host_id as
+// potentially-local — safe, because procConfidentlyGone itself never fabricates dead.
+func thisHostID() string {
+	if h := os.Getenv("DISPATCH_HOST_ID"); h != "" {
+		return h
+	}
+	if h, err := os.Hostname(); err == nil {
+		return h
+	}
+	return ""
 }
 
 // parseLeaseStamp parses a lane-journal ISO stamp at minute OR second resolution —
@@ -290,10 +357,11 @@ func LiveLeasesFromWAL(journalPath string) []lease {
 // drop the leases expired at `now`, project the survivors to lane+tree.
 func liveLeasesFromWALAt(journalPath string, now time.Time) []lease {
 	full := replayJournalFull(readJournal(journalPath))
+	thisHost := thisHostID()
 	out := make([]lease, 0, len(full))
 	for _, lz := range full {
-		if leaseExpired(lz, now) {
-			continue // crashed-orphan past TTL → self-heal out of the admission set
+		if leaseExpired(lz, now, thisHost) {
+			continue // crashed-orphan past TTL / OS-dead → self-heal out of the set
 		}
 		out = append(out, lease{
 			lane:  asStr(lz["lane"]),
