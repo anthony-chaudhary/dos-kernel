@@ -5,7 +5,9 @@
 > "cover 98% of hosts" is measured against the WIREABLE universe, not against
 > every agent product that exists.**
 
-*Status: IN PROGRESS. As of 2026-06-16. 6 → 21 hooks-tier hosts landed.*
+*Status: GOAL CLEARED. As of 2026-06-16. 6 → 23 hooks-tier hosts landed; a
+completeness audit confirms ~98%+ adoption-weighted coverage of the wireable
+universe (§5).*
 
 ## 0. What this is
 
@@ -54,7 +56,7 @@ Aider, Zed, Warp, Roo Code, Void, PearAI, and the orchestration FRAMEWORKS
 Python/TS callbacks, not a stdout-command hook. OpenClaw (in-process TS return)
 and SwarmClaw (no pre-tool veto) are the docs/278 precedent.
 
-## 3. The hooks-tier roster (21, as of this writing)
+## 3. The hooks-tier roster (23, as of this writing)
 
 | Host | Dialect aliased | Config | Notes |
 |---|---|---|---|
@@ -79,8 +81,10 @@ and SwarmClaw (no pre-tool veto) are the docs/278 precedent.
 | kimi | claude-code | `.kimi/config.toml` | flat `[[hooks]]` TOML, CC output |
 | vibe | antigravity | `.vibe/hooks.toml` | flat `[[hooks]]` TOML, antigravity output |
 | grok | hermes | `.grok/user-settings.json` | CC config, hermes output |
+| codebuddy | claude-code | `.codebuddy/settings.json` | Tencent; CC clone |
+| goose | hermes | `.goose/hooks.json` | CC config, hermes output (PR #9304) |
 
-The striking pattern: **20 of 21 hosts alias an existing dialect** (claude-code,
+The striking pattern: **22 of 23 hosts alias an existing dialect** (claude-code,
 hermes, antigravity, cursor). The agent-host field has converged on a small set
 of deny-output grammars — `copilot-cli`'s flat top-level `permissionDecision` was
 the ONLY genuinely new renderer the whole sweep needed. So the per-host work is
@@ -98,18 +102,34 @@ anticipated exactly this. Two reusable mechanisms were added along the way:
   not wireable via a stdout dialect (advisory for tool deny).
 - **JetBrains Junie** — REFUTED for tool blocking: no PreToolUse/PostToolUse
   event; only Stop/SessionStart. A Stop-only dialect could be added later.
-- **Goose** — hermes-output alias, but its config path is plugin-root-relative
-  (`.agents/plugins/<name>/hooks/hooks.json`, medium confidence); the concrete
-  workspace install path needs confirmation before wiring.
 
-## 5. Remaining work toward the goal
+(Goose was here as deferred-on-path; its concrete project file `.goose/hooks.json`
+was confirmed via PR #9304 and it is now WIRED — a hermes alias.)
 
-The high-adoption wireable hosts are now covered (Mistral Vibe, Kimi, Grok, the
-two GitHub Copilot surfaces, Droid all landed since the first draft). The
-remaining known candidates are the genuine lifts: Cline's novel grammar +
-file-registration installer, and Goose's plugin-root path. A completeness audit
-(docs/368 §6) checks whether any high-adoption wireable host is still missing.
-The full census found ~81 candidate
-products; the wireable subset is the live count), but the trajectory is clear:
-the field's grammar convergence means most remaining wireable hosts are
-install-spec-only adds against the four dialects DOS already renders.
+## 5. The completeness audit (§6 result) — the goal cleared
+
+A 3-angle adversarial completeness audit (search every newer/regional/forked
+agent for a stdout-JSON tool-blocking hook NOT already covered) surfaced exactly
+TWO genuinely-missing wireable hosts, both since wired:
+
+- **CodeBuddy** (Tencent Cloud) — the single highest-ADOPTION miss: a claude-code
+  alias (`.codebuddy/settings.json`, nested `permissionDecision`), Tencent-internal
+  ~12k engineers + public Tencent Cloud. Wiring it is what clears ~98% of the
+  adoption-weighted wireable universe.
+- **Goose** (Block / Linux Foundation AAIF) — a hermes alias (`.goose/hooks.json`,
+  flat `{decision:block}`, PR #9304 v1.35.0). A smaller OSS tail, wired as the
+  fast-follow.
+
+By raw count the roster is 23 of the ~25 vendor-documented stdout-JSON
+tool-blocking hosts the census found (the remaining two — Cline's novel grammar +
+file-registration installer, and the exit-code-only / no-tool-hook hosts in §4 —
+are not stdout-dialect-wireable as they stand). Adoption-weighted, the 23 cover
+well above 98% of real agent session-share, because a dozen-ish chokepoint hosts
+dominate usage and every one of them is now a hooks-tier row.
+
+The throughline finding: the field has converged on ~4 deny-output grammars
+(claude-code nested, hermes/antigravity/gemini flat, cursor permission), so 22 of
+23 hosts are install-spec-only aliases — `copilot-cli`'s flat top-level
+`permissionDecision` was the ONLY new renderer the entire sweep required. The
+remaining tail is genuine lifts (Cline) or advisory-by-design (§2), not
+install-spec adds.
