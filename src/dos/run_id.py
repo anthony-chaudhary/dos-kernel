@@ -243,6 +243,39 @@ def lineage_env(run: RunId) -> dict[str, str]:
     return env
 
 
+def lineage_ids(env: dict[str, str] | None = None) -> tuple[str, ...]:
+    """The run-ids that identify THIS run or any of its ANCESTORS, from the env.
+
+    A self-lease match (`pretool_sensor._find_self_lease` / `cli._resolve_self_lease`)
+    must recognize a lease held by THIS run AND a lease held by an ANCESTOR — because a
+    subagent inherits its parent's lineage (`lineage_env` exports `CID_ROOT_ID` /
+    `CID_PARENT_ID`) but mints its OWN `CID_RUN_ID` (`supervisor.mint_child_from_env`).
+    A child editing INSIDE the lane its parent leased must resolve the PARENT's lease as
+    "mine" — else the held lane stays in the child's disjointness sweep and an in-lane
+    child edit reads as a 100% sibling collision (issue #188). So the identity set is the
+    run's own id PLUS its root and parent ids, every one of which a live lease's `run_id`
+    may legitimately be.
+
+    Ordered own → parent → root (most specific first), de-duplicated, empties dropped.
+    `$DISPATCH_RUN_ID` (the older loop-spine var `CID_RUN_ID` superseded) is included for
+    the same reason `_find_self_lease` already honored it on the own-id rung. PURE over
+    the supplied/ambient env — no I/O, no minting.
+    """
+    e = env if env is not None else dict(os.environ)
+    ordered = (
+        e.get(ENV_RUN_ID) or "",
+        e.get("DISPATCH_RUN_ID") or "",
+        e.get(ENV_PARENT_ID) or "",
+        e.get(ENV_ROOT_ID) or "",
+    )
+    seen: dict[str, None] = {}
+    for rid in ordered:
+        rid = str(rid).strip()
+        if rid and rid not in seen:
+            seen[rid] = None
+    return tuple(seen)
+
+
 def mint_child_from_env(
     process_id: str,
     *,

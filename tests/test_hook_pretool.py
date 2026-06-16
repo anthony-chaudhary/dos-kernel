@@ -799,3 +799,135 @@ def test_resolve_self_lease_matches_pid_and_falls_back_to_lease_tree(monkeypatch
     assert self_lane == "docs"
     assert self_tree == ("docs/",)
     assert ("bench/",) in other_trees
+
+
+# ==========================================================================
+# issue #188 — a legitimately-dispatched SUBAGENT's in-lane edit must NOT be
+# hard-DENIED. A child inherits its parent's lineage (`CID_ROOT_ID`/`CID_PARENT_ID`)
+# but mints its OWN `CID_RUN_ID`, so its in-lane edit reads as a 100% sibling
+# collision against the PARENT's held lane in the disjointness sweep — and, classified
+# as a dispatch loop by `CID_RUN_ID`, the operator-softening is skipped → a hard DENY.
+# The cure: resolve the ANCESTOR's lease by lineage and (gate OFF) drop it from the
+# child's sweep ONLY for a CONTAINED write; an ESCAPE still denies (gate ON catches it
+# at the apply-gate; gate OFF leaves it exactly as the baseline run sees it).
+# ==========================================================================
+def _parent_lease(lane="src", tree=("src/",), run_id="RID-PARENT"):
+    """A live lease a PARENT run holds (a DIFFERENT process tree than the child) —
+    carrying the parent's `run_id`, the id a child inherits as `CID_ROOT_ID`."""
+    return {"lane": lane, "tree": list(tree), "kind": "cluster",
+            "pid": -1, "loop_ts": "2026-06-14T00:00:00Z", "run_id": run_id}
+
+
+def _as_subagent(monkeypatch, *, own="RID-CHILD", root="RID-PARENT", parent="RID-PARENT"):
+    """Set the lineage env a dispatched subagent inherits: its OWN minted run-id plus
+    its ancestor's root/parent ids (`run_id.lineage_env`)."""
+    monkeypatch.setenv("CID_RUN_ID", own)
+    monkeypatch.setenv("CID_ROOT_ID", root)
+    monkeypatch.setenv("CID_PARENT_ID", parent)
+    for var in ("DOS_LOOP", "DISPATCH_LOOP_TS", "DISPATCH_RUN_ID"):
+        monkeypatch.delenv(var, raising=False)
+
+
+def test_subagent_in_lane_edit_not_denied_gate_off(monkeypatch):
+    """THE #188 WITNESS (gate OFF, the default): a subagent whose `CID_ROOT_ID` ties it
+    to the holder of the `src/` lease is NOT hard-DENIED for an edit CONTAINED in that
+    held tree — the same in-lane edit that, before the fix, was a hard DENY (empty
+    `reason_class` = pure contention). The ancestor lease resolves by lineage and is
+    dropped from the child's disjointness sweep, so the in-lane write is no longer read
+    as a sibling collision."""
+    import tempfile
+    cfg = _foreign_cfg(Path(tempfile.mkdtemp()))  # no SELF_MODIFY interference
+    monkeypatch.delenv("DOS_APPLY_GATE", raising=False)  # gate OFF (default)
+    _as_subagent(monkeypatch)
+    monkeypatch.setattr(prt, "live_leases_for", lambda c: [_parent_lease("src", ("src/",))])
+    dialect, outcome = prt.decide(
+        _event("Write", {"file_path": "src/dos/not_a_runtime_file.py", "content": "x"},
+               cwd="/repo"), cfg)
+    assert outcome["decision"] != "deny", outcome
+
+
+def test_subagent_escape_still_denied_gate_on(monkeypatch):
+    """THE #188 NON-WEAKENING PIN: the real collision gate is preserved. With the
+    apply-gate ON, a subagent whose write ESCAPES its ancestor's held tree is still
+    DENIED (`SCOPE_ESCAPE`) — the lineage resolution drops the ancestor lease so the
+    apply-gate can adjudicate containment, and an escape fails that containment. The
+    in-lane sibling case (next test) passes through the same gate, proving the fix
+    SEPARATES in-lane from escape rather than blanket-admitting a child's writes."""
+    import tempfile
+    cfg = _foreign_cfg(Path(tempfile.mkdtemp()))
+    monkeypatch.setenv("DOS_APPLY_GATE", "1")  # gate ON — scope confinement active
+    _as_subagent(monkeypatch)
+    monkeypatch.setattr(prt, "live_leases_for", lambda c: [_parent_lease("src", ("src/",))])
+    dialect, outcome = prt.decide(
+        _event("Write", {"file_path": "docs/escape.md", "content": "x"}, cwd="/repo"), cfg)
+    assert outcome["decision"] == "deny", outcome
+    assert outcome["reason_class"] == "SCOPE_ESCAPE", outcome
+    assert outcome["rung"] == "apply-gate", outcome
+
+
+def test_subagent_in_lane_edit_passes_gate_on(monkeypatch):
+    """The gate-ON twin of the gate-OFF witness: the SAME child whose escape denies
+    (test above) is NOT denied for an edit CONTAINED in the ancestor's tree — the
+    apply-gate sees the ancestor lease as self (lineage) and allows the in-lane write."""
+    import tempfile
+    cfg = _foreign_cfg(Path(tempfile.mkdtemp()))
+    monkeypatch.setenv("DOS_APPLY_GATE", "1")
+    _as_subagent(monkeypatch)
+    monkeypatch.setattr(prt, "live_leases_for", lambda c: [_parent_lease("src", ("src/",))])
+    dialect, outcome = prt.decide(
+        _event("Write", {"file_path": "src/dos/not_a_runtime_file.py", "content": "x"},
+               cwd="/repo"), cfg)
+    assert outcome["decision"] != "deny", outcome
+
+
+def test_unrelated_run_in_lane_collision_still_denied(monkeypatch):
+    """The collision gate is untouched for a NON-descendant: a run whose lineage does
+    NOT tie it to the lease holder (an unrelated `CID_ROOT_ID`) editing the held tree is
+    still a hard DENY — the lineage drop fires ONLY for a true ancestor, never for an
+    arbitrary loop that happens to set `CID_RUN_ID`. This is the cause-#1-half pin: a
+    real sibling loop must still be denied (its declared collision is the only
+    safe-to-arbitrate signal)."""
+    import tempfile
+    cfg = _foreign_cfg(Path(tempfile.mkdtemp()))
+    monkeypatch.delenv("DOS_APPLY_GATE", raising=False)
+    _as_subagent(monkeypatch, own="RID-LOOP", root="RID-UNRELATED", parent="RID-UNRELATED")
+    monkeypatch.setattr(prt, "live_leases_for", lambda c: [_parent_lease("src", ("src/",))])
+    dialect, outcome = prt.decide(
+        _event("Write", {"file_path": "src/dos/not_a_runtime_file.py", "content": "x"},
+               cwd="/repo"), cfg)
+    assert outcome["decision"] == "deny", outcome
+
+
+def test_find_self_lease_classified_distinguishes_own_from_ancestor(monkeypatch):
+    """`_find_self_lease_classified` unit: an OWN-run match (run-id) returns
+    `is_ancestor=False`; a lineage-only match (parent/root id, own id absent from the
+    lease set) returns `is_ancestor=True`; the own-run rung WINS over a lineage rung
+    when both could match (most-specific-first)."""
+    import tempfile
+    cfg = _foreign_cfg(Path(tempfile.mkdtemp()))
+    _as_subagent(monkeypatch)  # CID_RUN_ID=RID-CHILD, CID_ROOT_ID=RID-PARENT
+    # Only the parent's lease is live → resolved by lineage (ancestor).
+    lease, is_anc = prt._find_self_lease_classified([_parent_lease("src", ("src/",))], cfg)
+    assert lease is not None and is_anc is True
+    # Both the child's OWN lease and the parent's are live → own wins, not an ancestor.
+    own = {"lane": "child", "tree": ["bench/"], "kind": "cluster",
+           "pid": -1, "loop_ts": "", "run_id": "RID-CHILD"}
+    lease2, is_anc2 = prt._find_self_lease_classified(
+        [own, _parent_lease("src", ("src/",))], cfg)
+    assert lease2 is own and is_anc2 is False
+
+
+def test_lineage_ids_orders_own_then_ancestors_deduped():
+    """`run_id.lineage_ids` unit: the identity set is own → parent → root, de-duped,
+    empties dropped — the set a self-lease match scans so a child recognizes BOTH its
+    own and an ancestor's lease (issue #188)."""
+    from dos import run_id
+    env = {"CID_RUN_ID": "RID-CHILD", "CID_PARENT_ID": "RID-PARENT",
+           "CID_ROOT_ID": "RID-ROOT"}
+    assert run_id.lineage_ids(env) == ("RID-CHILD", "RID-PARENT", "RID-ROOT")
+    # parent == root (a one-level dispatch) → de-duped to two.
+    env2 = {"CID_RUN_ID": "RID-CHILD", "CID_PARENT_ID": "RID-P", "CID_ROOT_ID": "RID-P"}
+    assert run_id.lineage_ids(env2) == ("RID-CHILD", "RID-P")
+    # an operator root (no lineage env) → just its own id, or empty.
+    assert run_id.lineage_ids({"CID_RUN_ID": "RID-SOLO"}) == ("RID-SOLO",)
+    assert run_id.lineage_ids({}) == ()

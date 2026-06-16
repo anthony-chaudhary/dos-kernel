@@ -18,10 +18,14 @@ func refuseVerdict(reason, reasonClass string) admissionVerdict {
 }
 
 // lease is the live-lease shape the disjointness check reads — the subset of the
-// WAL lease row the pretool decider needs: the lane name + its file tree.
+// WAL lease row the pretool decider needs: the lane name + its file tree, plus the
+// holder's `run_id` (issue #188 — the lineage join key, so a subagent can resolve a
+// lease an ANCESTOR holds and not be hard-denied for an in-lane edit). `runID` is the
+// WAL `run_id` field; "" when the lease carried none (a pre-#137 lease).
 type lease struct {
-	lane string
-	tree []string
+	lane  string
+	tree  []string
+	runID string
 }
 
 // admissionRequest is the requested lease as the pure datum a predicate sees —

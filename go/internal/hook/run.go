@@ -93,6 +93,11 @@ func DecidePretool(stdinBytes []byte, workspaceFlag, dialect string, debug io.Wr
 			os.Getenv("CID_RUN_ID") == "" &&
 			os.Getenv("DISPATCH_LOOP_TS") == "",
 	}
+	// issue #188 — is this a dispatched subagent whose lineage ties it to a live
+	// lease holder AND whose write is CONTAINED in that ancestor's tree? Computed here
+	// at the boundary (it reads the env + the folded leases) and frozen into the pure
+	// decider, the same I/O-at-the-edge discipline as OperatorSession above.
+	in.SubagentInLane = subagentInLane(ev, in.LiveLeases)
 	d := Decide(ev, in)
 	dbg("rung=%s decision=%s reason_class=%s dialect=%s", d.Rung, d.DecisionTag, d.ReasonClass, dialect)
 
@@ -114,6 +119,46 @@ func DecidePretool(stdinBytes []byte, workspaceFlag, dialect string, debug io.Wr
 			TreeKnown:   &treeKnown,
 		},
 	}
+}
+
+// subagentInLane resolves issue #188 at the boundary: is THIS call a dispatched
+// subagent whose lineage (`CID_PARENT_ID` / `CID_ROOT_ID`, NOT its own `CID_RUN_ID`)
+// ties it to the holder of a live lease, AND whose write footprint is CONTAINED in that
+// ancestor's tree? A subagent inherits its parent's lineage but mints its own
+// `CID_RUN_ID`, so without this it reads as a sibling collision against the parent's
+// held lane. Returns true ONLY for a mutating call with a KNOWN, non-empty, CONTAINED
+// write tree — an ESCAPE (a write outside the ancestor's tree) returns false so the
+// hard deny stands. Twin of `pretool_sensor`'s lineage self-lease resolution + the
+// gate-OFF containment guard. PURE over the env + the already-folded leases.
+func subagentInLane(ev *Event, leases []lease) bool {
+	if !ev.isMutatingTool() {
+		return false
+	}
+	tree, known := ev.treeFromEvent()
+	if !known || len(tree) == 0 {
+		return false // unknown / empty footprint — never softened on this rung
+	}
+	own := os.Getenv("CID_RUN_ID")
+	if v := os.Getenv("DISPATCH_RUN_ID"); own == "" {
+		own = v
+	}
+	// The ancestor identity set: parent + root ids, excluding this run's OWN id (an
+	// own-lease write is the apply-gate's / disjointness's concern, not this rung).
+	ancestors := map[string]bool{}
+	for _, name := range []string{"CID_PARENT_ID", "CID_ROOT_ID"} {
+		if v := os.Getenv(name); v != "" && v != own {
+			ancestors[v] = true
+		}
+	}
+	if len(ancestors) == 0 {
+		return false
+	}
+	for _, lz := range leases {
+		if lz.runID != "" && ancestors[lz.runID] && writeContainedIn(tree, lz.tree) {
+			return true
+		}
+	}
+	return false
 }
 
 // PosttoolResult is the native posttool outcome — Stdout is the WARN dialect to

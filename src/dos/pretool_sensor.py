@@ -469,10 +469,32 @@ def _find_self_lease(leases: list[dict], cfg: "_config.SubstrateConfig") -> "Opt
     a caller can identity-filter it out of a disjointness sweep, never a same-tree
     sibling), in priority order: matching `$CID_RUN_ID`/`$DISPATCH_RUN_ID`, then
     `$DISPATCH_LOOP_TS`, then this process's pid (or its parent's — the tool call
-    often runs in a child shell of the leasing process). `cfg` is unused today but
-    kept in the signature so a future host-shaped identity rule has a home without a
-    call-site churn.
+    often runs in a child shell of the leasing process), then an ANCESTOR's lease by
+    `$CID_PARENT_ID`/`$CID_ROOT_ID` lineage (issue #188 — a subagent inherits its
+    parent's lineage but mints its OWN `$CID_RUN_ID`, so a child editing inside the
+    lane its PARENT leased resolves the parent's lease here). The lineage rung runs
+    LAST so an own-run / same-pid match always wins over an ancestor's. `cfg` is unused
+    today but kept in the signature so a future host-shaped identity rule has a home
+    without a call-site churn.
     """
+    return _find_self_lease_classified(leases, cfg)[0]
+
+
+def _find_self_lease_classified(
+    leases: list[dict], cfg: "_config.SubstrateConfig"
+) -> "tuple[Optional[dict], bool]":
+    """`(lease, is_ancestor)` — the self-lease plus whether it was resolved by LINEAGE.
+
+    `is_ancestor` is True only when the lease matched on `$CID_PARENT_ID`/`$CID_ROOT_ID`
+    (an ancestor's lease a subagent inherited), False when it was THIS run's own lease
+    (run-id / loop-ts / pid). The caller needs the distinction because dropping an
+    ANCESTOR's lane from the disjointness sweep is safe ONLY for a write CONTAINED in
+    that lane — an own-lease drop is already containment-safe via the apply-gate, but
+    an ancestor drop on the gate-OFF default path must be containment-guarded so a
+    child's ESCAPE still denies (issue #188).
+    """
+    from dos import run_id as _run_id
+
     run_id = os.environ.get("CID_RUN_ID") or os.environ.get("DISPATCH_RUN_ID") or ""
     loop_ts = os.environ.get("DISPATCH_LOOP_TS") or ""
     my_pids = {os.getpid()}
@@ -482,15 +504,45 @@ def _find_self_lease(leases: list[dict], cfg: "_config.SubstrateConfig") -> "Opt
         pass
     for lease in leases:
         if run_id and str(lease.get("run_id") or "") == run_id:
-            return lease
+            return lease, False
         if loop_ts and str(lease.get("loop_ts") or "") == loop_ts:
-            return lease
+            return lease, False
         try:
             if int(lease.get("pid")) in my_pids:  # type: ignore[arg-type]
-                return lease
+                return lease, False
         except (TypeError, ValueError):
             continue
-    return None
+    # Last rung — an ANCESTOR's lease by lineage (issue #188). `lineage_ids` already
+    # excludes this run's OWN id (handled above), so this only ever resolves a
+    # parent/root lease; the caller containment-guards the drop.
+    ancestor_ids = {
+        rid for rid in _run_id.lineage_ids() if rid and rid != run_id
+    }
+    if ancestor_ids:
+        for lease in leases:
+            if str(lease.get("run_id") or "") in ancestor_ids:
+                return lease, True
+    return None, False
+
+
+def _write_contained_in(write_tree: tuple[str, ...], lane_tree: tuple[str, ...]) -> bool:
+    """True iff EVERY path in `write_tree` falls under one of `lane_tree`'s prefixes.
+
+    The same containment the apply-gate's `scope.gate` decides (a write is in-lane iff
+    no file escapes the held tree), reused here so the gate-OFF ancestor drop (issue
+    #188) admits exactly the writes the gate-ON path would — never more. A write that
+    escapes even one prefix is NOT contained, so the ancestor lease stays in the sweep
+    and the escape still denies. Empty operands → NOT contained (an unknown footprint /
+    an undeclared lane is the conservative `_tree.lane_trees_disjoint` refuse). PURE.
+    """
+    from dos import scope as _scope
+
+    if not write_tree or not lane_tree:
+        return False
+    prefixes = [_scope._tree.norm_tree_prefix(p) for p in lane_tree if p]
+    if not prefixes:
+        return False
+    return all(_scope._file_in_tree(f, prefixes) for f in write_tree if f)
 
 
 def resolve_self_lease(
@@ -753,8 +805,36 @@ def decide(
         if st:
             # Identify the exact self-lease object by the same match resolve used, so
             # we drop ONLY it (never a same-tree sibling). resolve_self_lease returns
-            # the lane+tree; re-find the one lease that is this run's.
+            # the lane+tree; re-find the one lease that is this run's (own OR an
+            # ancestor's, by lineage — issue #188). The apply-gate then adjudicates
+            # containment vs escape, so the ancestor case needs no extra guard here.
             self_lease_id = _find_self_lease(leases, cfg)
+    elif is_mutating_tool(event) and tree_known and tree:
+        # Gate OFF (the default) — issue #188. A subagent inherits its parent's
+        # lineage but mints its own `$CID_RUN_ID`, so its in-lane edit reads as a 100%
+        # sibling collision against the PARENT's held lane in the disjointness sweep
+        # (and, classified as a dispatch loop by `$CID_RUN_ID`, the operator softening
+        # below is skipped → a hard DENY of a squarely-in-scope edit). The cure: when
+        # the self-lease resolves by ANCESTOR lineage AND this write is CONTAINED in
+        # that ancestor's tree, drop the ancestor lease from the child's sweep — an
+        # in-lane child edit then passes, while an ESCAPE keeps every lease and still
+        # denies (no apply-gate runs on this path to catch the escape, so the
+        # containment guard is load-bearing). An OWN lease is left in place on this
+        # path exactly as before (no behavior change without the gate); only the
+        # lineage-inherited ancestor case is newly dropped, and only when contained.
+        sl_obj, is_ancestor = _find_self_lease_classified(leases, cfg)
+        if sl_obj is not None and is_ancestor:
+            anc_tree: tuple[str, ...] = ()
+            anc_lane = str(sl_obj.get("lane") or "")
+            if anc_lane:
+                try:
+                    anc_tree = tuple(cfg.lanes.tree_for(anc_lane))
+                except Exception:  # noqa: BLE001 — a lane the taxonomy doesn't name → lease tree
+                    anc_tree = ()
+            if not anc_tree and sl_obj.get("tree"):
+                anc_tree = tuple(sl_obj.get("tree") or ())
+            if anc_tree and _write_contained_in(tree, anc_tree):
+                self_lease_id = sl_obj
     sweep_leases = (
         [lz for lz in leases if lz is not self_lease_id]
         if self_lease_id is not None else leases

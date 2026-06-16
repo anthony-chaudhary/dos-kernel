@@ -45,6 +45,19 @@ type Inputs struct {
 	// Now is the clock for the override window check, injected at the boundary
 	// (time.Now().UTC()) so the pure decider stays testable/hermetic.
 	Now time.Time
+	// SubagentInLane is true when THIS call is a dispatched SUBAGENT whose lineage
+	// (`CID_PARENT_ID` / `CID_ROOT_ID`) ties it to the holder of a live lease AND whose
+	// write footprint is CONTAINED in that ancestor's declared tree (issue #188). A
+	// subagent inherits its parent's lineage but mints its OWN `CID_RUN_ID`, so its
+	// in-lane edit otherwise reads as a 100% sibling collision against the parent's held
+	// lane — and, classified as a dispatch loop by `CID_RUN_ID`, the OperatorSession
+	// softening is skipped, yielding a hard DENY of a squarely-in-scope edit. When this
+	// flag is set, `Decide` softens a CONTENTION-only DENY to a WARN exactly as it does
+	// for an operator session: a child editing INSIDE the lane its parent leased owns
+	// that blast radius as much as the parent does. Computed at the boundary
+	// (`SubagentInLaneFromEnv`) — it requires only a CONTAINED write; an ESCAPE leaves
+	// the flag false, so the hard deny stands. The SELF_MODIFY refusal is NEVER softened.
+	SubagentInLane bool
 }
 
 // Decide runs the PRE division on one event — port of `dos.pretool_sensor.decide`
@@ -134,6 +147,29 @@ func Decide(e *Event, in Inputs) Decision {
 		if provable && in.OperatorSession && av.reasonClass == "" {
 			warn := "DOS PRE-admission (advisory, operator session): " + reason +
 				" A held lane's DECLARED region overlaps this edit, but you are an interactive operator (not a dispatch loop) — you own the blast radius of your own change, so DOS warns instead of blocking. If a fleet loop is actively writing this exact file, coordinate before saving."
+			return Decision{
+				Dialect:     warnPayload(warn),
+				Rung:        "admission",
+				DecisionTag: "warn",
+				ReasonClass: av.reasonClass,
+				Reason:      reason,
+				TreeKnown:   treeKnown,
+			}
+		}
+		// issue #188 — a dispatched SUBAGENT editing INSIDE the lane its PARENT leased.
+		// A child inherits its parent's lineage but mints its own CID_RUN_ID, so its
+		// in-lane edit reads as a 100% sibling collision against the parent's held lane
+		// AND is classified as a dispatch loop (OperatorSession=false), missing the
+		// softening above → a hard DENY of a squarely-in-scope edit. The boundary
+		// resolved (lineage ties this run to a lease holder AND the write is CONTAINED
+		// in that ancestor's tree) → soften the CONTENTION-only DENY to a WARN: a child
+		// owns the blast radius of the lane its ancestor holds. An ESCAPE leaves
+		// SubagentInLane false (the boundary's containment check fails), so a child
+		// writing OUTSIDE the ancestor's tree still hard-denies. SELF_MODIFY
+		// (reason_class != "") is never softened.
+		if provable && in.SubagentInLane && av.reasonClass == "" {
+			warn := "DOS PRE-admission (advisory, in-lane subagent): " + reason +
+				" This call is a dispatched subagent editing INSIDE the lane its parent leased (lineage CID_ROOT_ID/CID_PARENT_ID ties it to the holder, and the write is contained in that lane's tree) — so DOS warns instead of blocking an in-scope child edit. A write that ESCAPES the parent's lane still denies."
 			return Decision{
 				Dialect:     warnPayload(warn),
 				Rung:        "admission",

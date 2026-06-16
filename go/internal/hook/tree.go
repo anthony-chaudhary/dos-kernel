@@ -90,3 +90,46 @@ func laneTreesDisjoint(treeA, treeB []string) bool {
 	}
 	return true
 }
+
+// writeContainedIn reports whether EVERY path in writeTree falls under one of
+// laneTree's prefixes — the containment test the subagent-in-lane softening uses
+// (issue #188). Port of `pretool_sensor._write_contained_in` / `scope._file_in_tree`:
+// a write file is in-tree iff its normalized path has a lane prefix as a prefix (an
+// empty lane prefix from "**/*" is universal — every path is under it). Empty operands
+// -> NOT contained (an unknown footprint / undeclared lane is the conservative refuse),
+// and a write that escapes even one prefix is not contained, so the ancestor lease
+// stays in the sweep and the escape still denies.
+func writeContainedIn(writeTree, laneTree []string) bool {
+	if len(writeTree) == 0 || len(laneTree) == 0 {
+		return false
+	}
+	var prefixes []string
+	for _, p := range laneTree {
+		if p != "" {
+			prefixes = append(prefixes, normTreePrefix(p))
+		}
+	}
+	if len(prefixes) == 0 {
+		return false
+	}
+	for _, f := range writeTree {
+		if f == "" {
+			continue
+		}
+		nf := normTreePrefix(f)
+		contained := false
+		for _, pre := range prefixes {
+			// The SAME membership `scope._file_in_tree` decides: `folded.startswith(pref)`
+			// — a plain prefix match. An empty prefix (from "**/*") is universal
+			// (HasPrefix(x, "") is true for all x), so the generic lane matches everything.
+			if strings.HasPrefix(nf, pre) {
+				contained = true
+				break
+			}
+		}
+		if !contained {
+			return false
+		}
+	}
+	return true
+}

@@ -202,7 +202,11 @@ func replayJournal(entries []map[string]any) []lease {
 	full := replayJournalFull(entries)
 	out := make([]lease, 0, len(full))
 	for _, lz := range full {
-		out = append(out, lease{lane: asStr(lz["lane"]), tree: asStrSlice(lz["tree"])})
+		out = append(out, lease{
+			lane:  asStr(lz["lane"]),
+			tree:  asStrSlice(lz["tree"]),
+			runID: asStr(lz["run_id"]), // issue #188 — the lineage join key
+		})
 	}
 	return out
 }
@@ -291,7 +295,11 @@ func liveLeasesFromWALAt(journalPath string, now time.Time) []lease {
 		if leaseExpired(lz, now) {
 			continue // crashed-orphan past TTL → self-heal out of the admission set
 		}
-		out = append(out, lease{lane: asStr(lz["lane"]), tree: asStrSlice(lz["tree"])})
+		out = append(out, lease{
+			lane:  asStr(lz["lane"]),
+			tree:  asStrSlice(lz["tree"]),
+			runID: asStr(lz["run_id"]), // issue #188 — the lineage join key
+		})
 	}
 	return out
 }

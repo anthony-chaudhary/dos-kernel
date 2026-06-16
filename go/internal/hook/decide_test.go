@@ -135,6 +135,93 @@ func TestLoopSessionCollisionStillDenies(t *testing.T) {
 	}
 }
 
+func TestSubagentInLaneCollisionWarnsNotDenies(t *testing.T) {
+	// issue #188 (the Go parity twin): a dispatched SUBAGENT editing INSIDE the lane
+	// its parent leased must NOT be hard-DENIED. The same `src/**` lease + Edit to
+	// src/dos/cli.py a sibling loop is denied on DOWNGRADES to an advisory WARN when
+	// SubagentInLane is set — the boundary resolved that this run's lineage ties it to
+	// the lease holder AND the write is contained. The pure decider's contract: a
+	// contention-only refusal (no reason_class) + SubagentInLane -> warn, even though
+	// OperatorSession is false (a subagent is NOT an interactive operator).
+	e := eventFor("Edit", "/work/workspace", map[string]any{"file_path": "src/dos/cli.py"})
+	in := Inputs{
+		LiveLeases:      []lease{{lane: "src", tree: []string{"src/**"}}},
+		RuntimeFiles:    dosRuntimeFiles,
+		OperatorSession: false, // a subagent is a dispatch loop, not an operator
+		SubagentInLane:  true,
+	}
+	d := Decide(e, in)
+	if d.DecisionTag != "warn" {
+		t.Fatalf("in-lane subagent collision must WARN, got %q (%s)", d.DecisionTag, d.Render())
+	}
+	if strings.Contains(d.Render(), "permissionDecision") {
+		t.Fatalf("in-lane subagent WARN must not carry permissionDecision (must pass through): %s", d.Render())
+	}
+}
+
+func TestSubagentInLaneDoesNotSoftenSelfModify(t *testing.T) {
+	// The same safety invariant as the operator case: SubagentInLane softens a
+	// CONTENTION refusal only. Editing the live kernel stays a hard DENY for a subagent
+	// too — a child must not rewrite the kernel adjudicating its parent's fleet.
+	e := eventFor("Edit", "/work/workspace", map[string]any{"file_path": dosRuntimeFiles[0]})
+	in := Inputs{
+		RuntimeFiles:   dosRuntimeFiles,
+		SubagentInLane: true,
+	}
+	d := Decide(e, in)
+	if d.DecisionTag != "deny" {
+		t.Fatalf("SELF_MODIFY must DENY even for an in-lane subagent, got %q (%s)", d.DecisionTag, d.Render())
+	}
+	if d.ReasonClass != selfModifyReason {
+		t.Fatalf("want SELF_MODIFY reason_class %q, got %q", selfModifyReason, d.ReasonClass)
+	}
+}
+
+func TestSubagentInLaneBoundaryResolution(t *testing.T) {
+	// The boundary helper `subagentInLane`: a child whose CID_ROOT_ID matches a live
+	// lease's run_id AND whose CONTAINED write resolves true; an ESCAPE resolves false
+	// (so the hard deny stands); an UNRELATED lineage resolves false; and the child's
+	// OWN id (no ancestor lineage) resolves false (own-lease is the gate's concern).
+	parent := []lease{{lane: "src", tree: []string{"src/**"}, runID: "RID-PARENT"}}
+
+	t.Run("contained in-lane child -> true", func(t *testing.T) {
+		t.Setenv("CID_RUN_ID", "RID-CHILD")
+		t.Setenv("CID_ROOT_ID", "RID-PARENT")
+		t.Setenv("CID_PARENT_ID", "RID-PARENT")
+		e := eventFor("Edit", "/work/workspace", map[string]any{"file_path": "src/dos/cli.py"})
+		if !subagentInLane(e, parent) {
+			t.Fatalf("a child contained in the parent's leased tree must resolve in-lane")
+		}
+	})
+	t.Run("escape child -> false", func(t *testing.T) {
+		t.Setenv("CID_RUN_ID", "RID-CHILD")
+		t.Setenv("CID_ROOT_ID", "RID-PARENT")
+		t.Setenv("CID_PARENT_ID", "RID-PARENT")
+		e := eventFor("Write", "/work/workspace", map[string]any{"file_path": "docs/escape.md", "content": "x"})
+		if subagentInLane(e, parent) {
+			t.Fatalf("a child write that ESCAPES the parent's tree must NOT resolve in-lane")
+		}
+	})
+	t.Run("unrelated lineage -> false", func(t *testing.T) {
+		t.Setenv("CID_RUN_ID", "RID-OTHER")
+		t.Setenv("CID_ROOT_ID", "RID-UNRELATED")
+		t.Setenv("CID_PARENT_ID", "RID-UNRELATED")
+		e := eventFor("Edit", "/work/workspace", map[string]any{"file_path": "src/dos/cli.py"})
+		if subagentInLane(e, parent) {
+			t.Fatalf("a run whose lineage does NOT match the holder must NOT resolve in-lane")
+		}
+	})
+	t.Run("own id only (operator root) -> false", func(t *testing.T) {
+		t.Setenv("CID_RUN_ID", "RID-PARENT") // this run IS the holder, no ancestor
+		t.Setenv("CID_ROOT_ID", "")
+		t.Setenv("CID_PARENT_ID", "")
+		e := eventFor("Edit", "/work/workspace", map[string]any{"file_path": "src/dos/cli.py"})
+		if subagentInLane(e, parent) {
+			t.Fatalf("an own-lease write (no ancestor lineage) is not this rung's concern")
+		}
+	})
+}
+
 func TestOperatorSessionDoesNotSoftenSelfModify(t *testing.T) {
 	// The safety invariant: OperatorSession softens CONTENTION refusals only. A
 	// SELF_MODIFY refusal carries a reason_class and is request-absolute — editing the

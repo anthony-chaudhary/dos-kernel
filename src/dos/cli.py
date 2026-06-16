@@ -2391,15 +2391,22 @@ def _resolve_self_lease(cfg, requested_lane: str):
       2. else a WAL lease whose `run_id` matches `$CID_RUN_ID` / `$DISPATCH_RUN_ID`;
       3. else a WAL lease whose `loop_ts` matches `$DISPATCH_LOOP_TS`;
       4. else a WAL lease whose `pid` matches this process's pid (or its parent's —
-         the agent's commit often runs in a child shell of the leasing process).
+         the agent's commit often runs in a child shell of the leasing process);
+      5. else a WAL lease an ANCESTOR holds, by `$CID_PARENT_ID`/`$CID_ROOT_ID`
+         lineage (issue #188 — a subagent inherits its parent's lineage but mints its
+         OWN `$CID_RUN_ID`, so a child editing inside the lane its PARENT leased must
+         resolve the parent's lease as its own; the apply-gate then adjudicates
+         containment, so an in-lane child write is contained while an escape refuses).
 
-    Returns `(self_lane, self_tree, other_trees)`. A self_lane that resolves but
-    has NO declared tree, or that does not resolve at all, yields an EMPTY
+    Kept identical to `pretool_sensor._find_self_lease` so the gate behaves the same on
+    both surfaces. Returns `(self_lane, self_tree, other_trees)`. A self_lane that
+    resolves but has NO declared tree, or that does not resolve at all, yields an EMPTY
     `self_tree` — `apply_gate.decide` then fails CLOSED on a non-empty diff (an
     unknown blast radius is refused, never admitted). `other_trees` is every OTHER
     live lease's tree (the collision-floor operands).
     """
     from dos import lane_lease as _lane_lease
+    from dos import run_id as _run_id
     try:
         live = _lane_lease.live_leases(cfg)
     except Exception:  # noqa: BLE001 — a read of an append-only WAL is best-effort.
@@ -2435,6 +2442,19 @@ def _resolve_self_lease(cfg, requested_lane: str):
                     break
             except (TypeError, ValueError):
                 continue
+        if self_lease is None:
+            # Rung 5 — an ANCESTOR's lease by lineage (issue #188). The lineage set
+            # excludes this run's OWN id (matched above), so this only resolves a
+            # parent/root lease; the apply-gate's scope check confines the child to the
+            # ancestor's declared tree exactly as it would the holder's own write.
+            ancestor_ids = {
+                rid for rid in _run_id.lineage_ids() if rid and rid != run_id
+            }
+            if ancestor_ids:
+                for lease in live:
+                    if str(lease.get("run_id") or "") in ancestor_ids:
+                        self_lease = lease
+                        break
         self_lane = str(self_lease.get("lane") or "") if self_lease else ""
 
     self_tree = _tree_of(self_lane)
