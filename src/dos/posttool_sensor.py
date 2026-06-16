@@ -521,6 +521,78 @@ def read_stream(
     return ToolStream(tuple(steps))
 
 
+def read_stream_records(
+    session_id: str,
+    cfg: "_config.SubstrateConfig | None" = None,
+    *,
+    path: Path | None = None,
+    understands: int = TOOL_STREAM_SCHEMA,
+) -> list[dict]:
+    """The RAW stream records for a session — the join-field-preserving reader (docs/361).
+
+    `read_stream` reconstructs bare `StreamStep`s that DROP the docs/179 join
+    fields (`run_id`/`step_index`/`verdict_state`); the `tool_trace` spine needs
+    those fields, so this reader returns the raw record dicts UNTOUCHED instead.
+    Same tolerance + §6 schema gate as `read_stream` (a torn/foreign/too-new line
+    is skipped), but it keeps every field the writer wrote — the fields are
+    already on disk, so this is a read-side helper, not a schema change.
+
+    Returns `[]` when the session file is absent/unreadable (the read-only-shows-
+    what-it-has floor). A record with no `tool_name` identity is dropped (it is
+    not a comparable step), mirroring `read_stream`.
+    """
+    p = path or stream_path_for(session_id, cfg)
+    if p is None or not p.exists():
+        return []
+    try:
+        raw = p.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    out: list[dict] = []
+    for line in raw.splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        try:
+            obj = json.loads(s)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(obj, dict):
+            continue
+        v = _schema.classify(obj, family=SCHEMA_FAMILY, understands=understands)
+        if v.readability not in (_schema.Readability.READABLE, _schema.Readability.UNTAGGED):
+            continue
+        if not isinstance(obj.get("tool_name"), str):
+            continue
+        out.append(obj)
+    return out
+
+
+def read_all_stream_records(
+    cfg: "_config.SubstrateConfig | None" = None,
+    *,
+    understands: int = TOOL_STREAM_SCHEMA,
+) -> list[dict]:
+    """Every raw stream record across ALL session files under `.dos/streams/`.
+
+    The fleet-wide spine source for `dos tool-trace` (which filters by `run_id`
+    in the pure fold, not by session file). Walks every `*.jsonl` in the streams
+    dir, concatenating `read_stream_records` per file. A missing dir degrades to
+    `[]`. Boundary I/O — read-only, no lease.
+    """
+    d = streams_dir_for(cfg)
+    if not d.exists():
+        return []
+    out: list[dict] = []
+    try:
+        files = sorted(d.glob("*.jsonl"))
+    except OSError:
+        return []
+    for f in files:
+        out.extend(read_stream_records("", cfg, path=f, understands=understands))
+    return out
+
+
 # FOLLOW-UP (not v1): a keep-last-N / size guard on the per-session stream log. The
 # `.dos` reaper family already bounds growth elsewhere; a long session's stream is a
 # small append-only file, and the verdict only needs the TRAILING run, so an

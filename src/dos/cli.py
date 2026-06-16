@@ -6922,6 +6922,65 @@ def cmd_model_calls(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# tool-trace  (the per-call observability SPINE — join the four tool logs into
+#              one ordered per-call replay by call identity; tool_trace.py, docs/361)
+# ---------------------------------------------------------------------------
+def cmd_tool_trace(args: argparse.Namespace) -> int:
+    """`dos tool-trace` — the ordered per-call replay joining decision + stall + spend.
+
+    Folds the four byte-clean tool logs the kernel already writes — the
+    hook-observation log (what the kernel decided), the posttool stream
+    (ADVANCING/REPEATING/STALLED), the model-call log (latency + spend), and an
+    optional persisted effect-witness verdict — into ONE ordered row per tool
+    call, joined on `run_id` + `step_index`. Answers the operator question with
+    no verb until now: "what tool calls happened in run R, in order, and what did
+    DOS do about each one?" (docs/361).
+
+    Read-only (the `observe`/`helped`/`model-calls` posture): it folds logs other
+    syscalls wrote, mints no belief, takes no lease, mutates nothing. The typed
+    states are join-COMPLETENESS (JOINED/PARTIAL/ORPHAN), never a satisfaction
+    verdict — an unmatched record is surfaced as an ORPHAN row, never dropped. An
+    empty log renders an honest "(no tool calls recorded yet …)" line.
+    """
+    _apply_workspace(args)
+    cfg = _config.active()
+    from dos import hook_observation as _hobs
+    from dos import model_call as _mc
+    from dos import posttool_sensor as _pts
+    from dos import tool_trace as _tt
+
+    run = (getattr(args, "run", "") or "").strip()
+    session = (getattr(args, "session", "") or "").strip()
+    # Boundary reads — each fail-soft to "nothing", never a crash (read-only surface).
+    try:
+        observations = list(_hobs.read_observations(cfg=cfg))
+    except Exception:  # noqa: BLE001
+        observations = []
+    try:
+        if session:
+            stream_records = _pts.read_stream_records(session, cfg)
+        else:
+            stream_records = _pts.read_all_stream_records(cfg)
+    except Exception:  # noqa: BLE001
+        stream_records = []
+    try:
+        model_calls = list(_mc.read_model_calls(cfg=cfg))
+    except Exception:  # noqa: BLE001
+        model_calls = []
+
+    trace = _tt.correlate_calls(
+        observations, stream_records, model_calls,
+        run_id=run, session_id=session,
+    )
+
+    if getattr(args, "json", False):
+        print(json.dumps(trace.to_dict(), indent=2, default=str))
+        return 0
+    print(_tt.render_text(trace))
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # export  (the verdict-journal DRAIN — ship the stream outward to observability;
 #   (full prose: docs/CLI.md § "export  (the verdict-journal DRAIN — ship the stream outward")
 # ---------------------------------------------------------------------------
@@ -11923,6 +11982,25 @@ def build_parser() -> argparse.ArgumentParser:
     pmc.add_argument("--json", action="store_true",
                      help="machine-readable {since, call_count, total, models:[…]}")
     pmc.set_defaults(func=cmd_model_calls)
+
+    # tool-trace — the per-call observability SPINE (tool_trace.py, docs/361): join
+    # the four tool logs (decision / stall / spend / effect-verdict) into ONE
+    # ordered row per tool call, keyed on run_id+step_index. The reader the four
+    # count-folds lacked — "what tool calls happened in run R, in order, and what
+    # did DOS do about each?". Read-only; JOINED/PARTIAL/ORPHAN, never a satisfaction
+    # verdict; an unmatched record is surfaced, never dropped.
+    ptt = sub.add_parser(
+        "tool-trace",
+        help="ordered per-call replay joining each tool call to the kernel's "
+             "decision + stall state + model spend (docs/361)")
+    _add_workspace_flags(ptt)
+    ptt.add_argument("--run", metavar="RUN_ID", default="",
+                     help="filter to one run's tool calls (the observe --run join key)")
+    ptt.add_argument("--session", metavar="SID", default="",
+                     help="read only this session's stream file (default: all sessions)")
+    ptt.add_argument("--json", action="store_true",
+                     help="machine-readable {run, session, report, rows:[…]}")
+    ptt.set_defaults(func=cmd_tool_trace)
 
     # export — the verdict-journal DRAIN (docs/266): ship the stream outward to an
     #   (full prose: docs/CLI.md § "export — the verdict-journal DRAIN (docs/266): ship the stre")
