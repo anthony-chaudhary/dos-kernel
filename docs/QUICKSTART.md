@@ -341,10 +341,10 @@ You've now used the two load-bearing syscalls. The rest of the surface:
 Those last three are the **read-only live projections** — each mutates nothing and
 works without extra dependencies (`--once` / `--json` on a bare install; the live
 redraw is the optional `[tui]` extra). The when-to-use-each map is
-[Three live projections](../README.md#three-live-projections-read-only-tuis).
+[Three live projections](guide/cli-reference.md#three-live-projections-read-only-tuis).
 
 - **The full CLI** — every `dos` verb, grouped — is in
-  [CLI-REFERENCE.md](CLI-REFERENCE.md) (the [README](../README.md#cli) shows the
+  [CLI-REFERENCE.md](CLI-REFERENCE.md) (the [CLI reference guide](guide/cli-reference.md#cli) shows the
   core dozen).
 - **Already running a fleet through LangGraph, CrewAI, AutoGen, or an Agents
   SDK?** Bolt the referee onto the framework you have — one function at its

@@ -25,7 +25,7 @@
 > hook-less host (Windsurf, Warp, Zed today). The verdict *is* the exit code.
 
 This page is the third tier. For the MCP and hook tiers see
-[the agent-hosts section of the README](https://github.com/anthony-chaudhary/dos-kernel/blob/master/README.md#give-your-agent-a-lie-detector-mcp);
+[the wire-it-in guide](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/guide/wire-it-in.md#give-your-agent-a-lie-detector-mcp);
 for CI/pre-commit specifically see
 [`cookbook-ci-integration.md`](cookbook-ci-integration.md). The recipes here
 are the ones those pages don't cover: an *agentic CLI* (aider), a *local
@@ -261,7 +261,7 @@ dos commit-audit --workspace . HEAD     # exit 0 clean · 1 an unwitnessed claim
 `dos verify` answers "did this ship?"; `commit-audit` answers "does this commit's
 *subject* match its *diff*?" — both from git, neither from the agent's narration.
 (See the exit-code table at the top of this page and the
-[verb table in the README](README.md#the-verbs-by-the-question-they-answer)
+[verb table in the CLI reference guide](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/guide/cli-reference.md#the-verbs-by-the-question-they-answer)
 for the full contracts.)
 
 > **Why not `dos complete`?** `dos complete` needs a `--run-id` and a declared
@@ -345,6 +345,6 @@ and the front door
   shallow CI checkout.
 - For the **MCP** (advisory, agent-calls-it) and **hook** (enforcement,
   host-blocks-on-it) tiers, see
-  [the agent-hosts README section](https://github.com/anthony-chaudhary/dos-kernel/blob/master/README.md#give-your-agent-a-lie-detector-mcp);
+  [the wire-it-in guide](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/guide/wire-it-in.md#give-your-agent-a-lie-detector-mcp);
   for the **Python-API** equivalent of these gates (embedding instead of
   shelling), see [`cookbook-python-api.md`](cookbook-python-api.md).

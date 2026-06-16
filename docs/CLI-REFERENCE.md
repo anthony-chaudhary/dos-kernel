@@ -2,7 +2,7 @@
 
 This is the **full user-facing command reference**: one `dos` entrypoint over the
 syscalls, with every verb and a one-line gloss. The [README's CLI
-section](../README.md#cli) shows only the dozen core verbs and links here for the
+section](guide/cli-reference.md#cli) shows only the dozen core verbs and links here for the
 rest; [QUICKSTART.md](QUICKSTART.md) is the runnable tour of the core ones.
 
 > Not to be confused with **[docs/CLI.md](CLI.md)**, which is the *design prose*
@@ -93,6 +93,6 @@ dos learn AXIS                         # aggregates over resolved decisions
 dos reindex                            # rebuild the central store from the .dos/ dirs
 ```
 
-Back to the [README](../README.md#cli) · the runnable tour in
+Back to the [CLI reference guide](guide/cli-reference.md#cli) · the runnable tour in
 [QUICKSTART.md](QUICKSTART.md) · extend the CLI (new renderers, judges, reasons)
 via [HACKING.md](HACKING.md).

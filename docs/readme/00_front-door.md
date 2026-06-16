@@ -10,10 +10,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/anthony-chaudhary/dos-kernel/blob/master/LICENSE)
 
 > 📊 **See it run on real repos:** the **[scoreboard](https://anthony-chaudhary.github.io/dos-kernel/scoreboard/)**
-> takes this same check public — for 15 popular AI-built repos (roborev,
-> open-interpreter, crewAI, autogen, …) it shows how much of each was written by
-> agents, which agents, and whether every commit's claim is backed by its own
-> diff. One command scores yours: `dos commit-audit --sweep --workspace . BASE..HEAD`.
+> scores 15 popular AI-built repos (roborev, open-interpreter, crewAI, autogen, …)
+> — how much agents wrote, which ones, and whether each commit's claim is backed
+> by its own diff. Score yours: `dos commit-audit --sweep --workspace . BASE..HEAD`.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/anthony-chaudhary/dos-kernel/master/docs/assets/caught-lie-cast.svg" alt="A terminal recording of the caught lie. The agent reports: Done! Shipped the login endpoint (AUTH1) and the password reset (AUTH2). git log shows one commit — AUTH1: ship the login endpoint. dos verify AUTH AUTH1 answers SHIPPED (exit 0); dos verify AUTH AUTH2 answers NOT_SHIPPED via none (exit 1) — caught. The exit code is the verdict: gate the agent's done on it and a false claim cannot land." width="100%">
@@ -32,15 +31,13 @@
 </p>
 
 An AI agent will tell you it finished. DOS checks the real world instead of
-taking its word. The nearest piece of the real world is your git history.
-
-An agent says it shipped the login endpoint. Did it? Run one command,
-`dos verify`, and it answers from the artifacts the work actually left behind,
-not from what the agent typed. If a commit backs the claim, you get `SHIPPED`
-and exit code `0`. If nothing landed, you get `NOT_SHIPPED` and exit code `1`.
-The agent's story never enters into it. (Git is just the first witness DOS
-reads; the file tree, the clock, a CI status, a test environment's own state
-are others — anything the agent didn't author.)
+taking its word — and the nearest piece of the real world is your git history.
+An agent says it shipped the login endpoint; did it? Run one command,
+`dos verify`, and it answers from the artifacts the work left behind, not from
+what the agent typed: a commit backs the claim → `SHIPPED`, exit `0`; nothing
+landed → `NOT_SHIPPED`, exit `1`. The agent's story never enters into it. (Git
+is just the first witness DOS reads; the file tree, the clock, a CI status, a
+test environment's own state are others — anything the agent didn't author.)
 
 ```bash
 dos verify AUTH AUTH1   # → SHIPPED      AUTH AUTH1 e62f74d   (exit 0)
@@ -52,12 +49,10 @@ repo — in CI, in a fleet, racing on the same files — and DOS also tells you
 which ones are stepping on each other, which one is spinning in circles, and
 which claim of "done" is real. Every answer comes from the artifacts (git, the
 file tree, the clock), never the narration. It works on a plain `git` repo with
-zero config, and the only thing you ever install is one small Python package.
+zero config and gets smarter the more you tell it, and the only thing you ever
+install is one small Python package.
 
-> ⏱️ **Want to try it right now?** Jump to **[Try it in 60 seconds](#try-it-in-60-seconds)**
-> — one command, real output, then come back for the why.
-
-> ⚡ **Or just add it — two commands, zero decisions.** From the repo where your
+> ⚡ **Just add it — two commands, zero decisions.** From the repo where your
 > agent works:
 >
 > ```bash
@@ -76,17 +71,9 @@ zero config, and the only thing you ever install is one small Python package.
 <sub>**v0.27.1** · 5,600+ tests · CI: Python 3.11–3.13 on Linux + a Windows 3.13
 smoke run · the only runtime dependency is **PyYAML** · **MIT**.</sub>
 
-> 🧭 **Want it in plain words first?** What DOS is, what it catches, and what
-> adopting it costs — no code: **[the plain-words version](#the-plain-words-version)**, just below.
-
-> 🧭 **Or route yourself:** the page runs shallow → deep, and
-> **[Who this is for](#who-this-is-for)** matches the question you brought to the
-> section that answers it.
-
-> **Reading this as an AI agent?** Start with **[AGENTS.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/AGENTS.md)** — a short
-> orientation written for you: what DOS is in three lines, how to build/test/check
-> your work, the ~5 files actually worth reading, and the architecture rules a
-> change must satisfy.
+> 🧭 **Where to go next:** the [why & evidence](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/guide/why-a-referee.md) (plain-words story, the 20-lines-of-bash answer, what's proven),
+> [wire it into your stack](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/guide/wire-it-in.md) (MCP · hooks · install), the
+> [syscall + CLI reference](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/guide/cli-reference.md), or, **reading this as an AI agent?**, [AGENTS.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/AGENTS.md) — build/test/check in three lines. The full map is the router just below.
 
 > 🔤 **Five words the rest of this page leans on.** A **plan** is a named goal
 > (`AUTH`); a **phase** is one shippable step of it (`AUTH1`); a **lane** is the

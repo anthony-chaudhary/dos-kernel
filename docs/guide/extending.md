@@ -1,3 +1,7 @@
+# Extending it, and the docs map
+
+> ← Part of the [DOS README](https://github.com/anthony-chaudhary/dos-kernel/blob/master/README.md). Bend DOS to your org without forking it — and the full documentation index and playbook set.
+
 ## Hacking it
 
 DOS is built to be extended without forking the package — add your own block
@@ -42,9 +46,9 @@ for a copy-me skeleton.
   composite Action and a reusable workflow that run `dos commit-audit` on every
   PR and merge-queue group and post the verdict as the named **dos-verify**
   status check; make it required and GitHub enforces what the kernel decides
-  (the *verified by DOS* badge above is this gate on the kernel's own repo).
+  (the *verified by DOS* badge is this gate on the kernel's own repo).
 - **[docs/releases/](https://github.com/anthony-chaudhary/dos-kernel/tree/master/docs/releases)** — per-version release notes (the changelog).
-- **[The website](https://anthony-chaudhary.github.io/dos-kernel/)** — this page,
+- **[The website](https://anthony-chaudhary.github.io/dos-kernel/)** — the README,
   condensed to one screen (good for sending to someone).
 
 ## Playbooks & examples
@@ -84,4 +88,6 @@ back verbatim:
 - Runnable [`examples/workspaces/`](https://github.com/anthony-chaudhary/dos-kernel/tree/master/examples/workspaces) — `cd` in and run `dos`
   against a realistic lane taxonomy.
 
-*Next level up — evaluating the claims themselves: [For researchers](#for-researchers).*
+---
+
+*Next: evaluating the claims themselves → [For researchers](./for-researchers.md).*

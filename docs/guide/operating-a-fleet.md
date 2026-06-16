@@ -1,8 +1,10 @@
-## Operating a fleet
+# Operating a fleet
 
-The listing above is the reference; this is the day-2 shape of running on it —
-what an operator actually does each morning, and where to look first when
-something wedges.
+> ← Part of the [DOS README](https://github.com/anthony-chaudhary/dos-kernel/blob/master/README.md). The day-2 shape of running on DOS: what an operator actually does each morning, and where to look first when something wedges.
+
+The [CLI reference](./cli-reference.md) lists the verbs; this is the day-2 shape
+of running on them — what an operator actually does each morning, and where to
+look first when something wedges.
 
 **Morning triage is three reads, in order.** `dos top` answers *what's running
 right now*: each lane, the lease holding it, and a status chip that **is** the
@@ -34,4 +36,4 @@ your on-call doc; it is the playbook.
 
 Running smoothly and want the referee to fit your org — your own lanes, your
 own block reasons, a model-backed judge? Step up a level:
-[Hacking it](#hacking-it).
+[Extending it](./extending.md).

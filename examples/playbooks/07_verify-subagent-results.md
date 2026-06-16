@@ -104,5 +104,5 @@ as a result.
 ---
 
 *Next:* the verdict is one of ~40 the kernel exposes — see the
-[verb cheat sheet](README.md#the-verbs-by-the-question-they-answer) for the rest,
+[verb cheat sheet](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/guide/cli-reference.md#the-verbs-by-the-question-they-answer) for the rest,
 and [playbook 06](06_debug-a-stuck-fleet.md) for the stuck-fleet troubleshooting map.

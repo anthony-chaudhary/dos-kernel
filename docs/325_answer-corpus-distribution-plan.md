@@ -32,7 +32,7 @@ Three findings sort the work, and the first kills the obvious move:
   **statistics**, **quotations**, and **inline citations**; keyword stuffing
   did not move. So the unit that ranks is a page dense with *true, sourced*
   numbers and a quotable line — exactly the register
-  [`docs/readme/93_for-researchers.md`](readme/93_for-researchers.md) already
+  [`docs/guide/for-researchers.md`](guide/for-researchers.md) already
   uses, promoted to a standalone, individually-citeable page.
 
 The unit of work is therefore content, not kernel: this is a docs/distribution
@@ -99,7 +99,7 @@ The corpus wires into the existing discovery surfaces: one
 section of [`llms.txt`](../llms.txt) (so
 [`scripts/build_llms_full.py`](../scripts/build_llms_full.py) inlines the index
 into `llms-full.txt` on rebuild), and one link from the README docs map
-([`docs/readme/90_extending-and-docs.md`](readme/90_extending-and-docs.md),
+([`docs/guide/extending.md`](guide/extending.md),
 absolute URL, rebuilt via `scripts/build_readme.py`). Each page back-links its
 matching FAQ entry and incident page for topical authority.
 

@@ -27,7 +27,7 @@ pip install dos-kernel     # the real kernel (core dep: PyYAML only)
 Confirm you have the right one — `dos doctor` prints the distribution fact on its
 `distribution` line, and `dos doctor --json` carries `"distribution":
 "dos-kernel"`. Canonical statement:
-[docs/readme/70_install.md](readme/70_install.md) and
+[docs/guide/wire-it-in.md](guide/wire-it-in.md) and
 [SECURITY.md](../SECURITY.md) "Supply chain". We never probe-import to "detect"
 the squatter — the import name `dos` is ours; the guard is informational.
 

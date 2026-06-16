@@ -1,13 +1,15 @@
-## For researchers
+# For researchers
 
-Every number this README claims is graded the way the kernel grades agents: it
-counts only if a witness the graded party didn't author backs it. This section
-is the on-ramp joining the claims to their write-ups, the two formal
+> ← Part of the [DOS README](https://github.com/anthony-chaudhary/dos-kernel/blob/master/README.md). The on-ramp joining the claims to their write-ups, the two formal invariants, and the literature.
+
+Every number the README claims is graded the way the kernel grades agents: it
+counts only if a witness the graded party didn't author backs it. This is the
+on-ramp joining the claims to their write-ups, the two formal
 invariants, and the literature — the depth lives under
 [`benchmark/`](https://github.com/anthony-chaudhary/dos-kernel/tree/master/benchmark) and the paper.
 
 **The claims register.** The proven rows from
-[the evidence section](#whats-proven-and-whats-still-a-bet), each with the
+[the evidence section](./why-a-referee.md#whats-proven-and-whats-still-a-bet), each with the
 witness it was scored against and the write-up that reproduces it:
 
 | Claim | Result | Witness | Write-up |
@@ -54,4 +56,4 @@ world-state regions, with the lost update as its target anomaly; and
 deterministic floor inside the training loop. The full argument is the paper,
 *"Verification Is All You Need — But Not Where You Think"*
 ([`paper/releases/`](https://github.com/anthony-chaudhary/dos-kernel/tree/master/paper/releases)),
-and the BibTeX is in [Citation](#citation).
+and the BibTeX is in the README's [Citation](https://github.com/anthony-chaudhary/dos-kernel/blob/master/README.md#citation) section.

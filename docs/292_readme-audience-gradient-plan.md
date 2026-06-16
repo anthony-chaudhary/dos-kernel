@@ -188,17 +188,30 @@ contains. Four more phases:
   journal material). The index points at it in one paragraph. No inbound
   anchor links exist to the moved sections (checked 2026-06-10), so nothing
   breaks.
-- **P8 — the reference-weight moves** (findings 2 + 3) — **gated on the
-  program owner; do not ship unilaterally.** Two deliberate placements are
-  re-litigated here: the 17-row syscall table mid-README (finding 2 would keep
-  ~6 headline verbs + one link and move the full table to a docs page) and the
-  two first-person dogfood anecdotes in `30_why-a-referee.md` (finding 3 would
-  compress each to a sentence + link, or move both to the evidence tier — the
-  issue itself notes the second was added deliberately in v0.23.2).
-  Recommendation: do both — the audit's calibration says the on-ramps cannot
-  do their routing job while this much reference weight sits mid-page, and
-  both contents survive intact one click away. But placement was the owner's
-  call when it was made and stays the owner's call to unmake.
+- **P8 — the reference-weight moves** (findings 2 + 3) — **SHIPPED 2026-06-16
+  on the program owner's `/goal` ("readme front door 10x smaller, move content
+  to focused pages, keep the most important marketing content on the front
+  page") — the green light this phase was gated on (let `dos verify` be the
+  judge, not this Status line).** The move went further than the two
+  re-litigated placements: the front README dropped from 1,178 lines to ~240
+  (~4.9×) by keeping the hook (both hero figures, the core pitch, the
+  `dos verify` example, the two-command install, the test-count band) and
+  adding a compressed plain-words paragraph + a measured-proof strip + a router
+  (`05_map.md`, replacing the old `05_who-this-is-for.md`), while relocating all
+  the reference weight to six focused **`docs/guide/`** pages:
+  `why-a-referee.md` (the why-not-N-agents / 20-lines-of-bash / Temporal
+  rebuttals + the two dogfood anecdotes + the full proven/projected/bet evidence
+  + the mermaid), `wire-it-in.md` (MCP/hooks/exit-code + the two adoption tables
+  + install), `cli-reference.md` (the full syscall ABI table + CLI + the three
+  live screens + observability), `operating-a-fleet.md`, `extending.md`, and
+  `for-researchers.md`. Anchors that stayed (`#try-it-in-60-seconds`,
+  `#citation`, `#the-plain-words-version`) are preserved per rule 4; inbound
+  links from tracked repo files to the *moved* sections were repointed to the
+  guide pages (what moved necessarily moved its anchor — the external-anchor
+  drift is the audit-acknowledged P8 cost). The original re-litigated reasoning
+  — that the on-ramps cannot route while this much reference weight sits
+  mid-page, and both contents survive intact one click away — is what the
+  owner's `/goal` confirmed.
 
 Same shipping discipline as §4: each phase is part-edit → `python
 scripts/build_readme.py` → assembly test green → one commit carrying the part
