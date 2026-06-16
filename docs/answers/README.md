@@ -80,6 +80,7 @@ story, start at the [README](../../README.md) or the
 | How do I make an AI agent write tests that actually assert something? | `dos test-witness` | [make-ai-write-tests-that-actually-assert](make-ai-write-tests-that-actually-assert.md) |
 | I have 100% coverage but the AI's tests are worthless | `dos test-witness` / `dos coverage` | [coverage-is-green-but-tests-are-worthless](coverage-is-green-but-tests-are-worthless.md) |
 | How does DOS fit into my CI/CD pipeline? | `dos commit-audit` / `dos verify` / `dos arbitrate` | [dos-for-ci-cd](dos-for-ci-cd.md) |
+| How do I stop re-reviewing code a machine already verified? | `dos commit-audit` (residual review) | [stop-re-reviewing-code-the-machine-already-verified](stop-re-reviewing-code-the-machine-already-verified.md) |
 
 ## How to read the numbers on these pages
 

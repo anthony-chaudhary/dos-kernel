@@ -226,6 +226,12 @@ ARRIVAL_QUERIES = [
      "docs/answers/make-ai-write-tests-that-actually-assert.md"),
     ("100% coverage but the AI's tests are worthless",
      "docs/answers/coverage-is-green-but-tests-are-worthless.md"),
+    ("how do I stop re-reviewing code a machine already verified",
+     "docs/answers/stop-re-reviewing-code-the-machine-already-verified.md"),
+    ("review only the commits the kernel could not verify",
+     "docs/answers/stop-re-reviewing-code-the-machine-already-verified.md"),
+    ("AI code review wastes time on changes that were already checked",
+     "docs/answers/stop-re-reviewing-code-the-machine-already-verified.md"),
 ]
 
 # --- family 1: arrival files (the well-known fetch targets) -------------------
