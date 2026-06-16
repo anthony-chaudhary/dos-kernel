@@ -613,6 +613,30 @@ edit to one is never an edit to the substrate:
   *adjudication* can branch on which vendor is acting — a dialect is OUTPUT chosen by
   `--dialect`, strictly downstream of an already-decided verdict. Pinned by
   `tests/test_vendor_agnostic_kernel.py` + `tests/test_hook_dialect.py`.
+- **The kernel reads VCS only through `dos.vcs`.** Every commit/ancestry/ship-stamp/
+  working-tree read the kernel makes goes through a `VcsBackend` (docs/369), the
+  evidence-gathering analogue of the judge/dialect/overlap seams. The kernel seam
+  `dos.vcs` holds the `VcsBackend` Protocol + the value types (`Commit`/`FileDelta`/
+  `WorkingTree`) + the by-name `resolve_vcs`/`active_vcs` + TWO unshadowable built-ins:
+  `GitBackend` (the default — the existing git reads, lifted verbatim) and `NullVcs`
+  (the honest-empty no-VCS fallback, the `AbstainJudge` analogue). **Git is NOT a
+  vendor the bulkhead forbids** — it is the kernel's ground-truth substrate, so its
+  default backend ships IN the kernel beside the protocol (unlike a ruling judge or a
+  non-default dialect). An *alternative* backend (Mercurial / Sapling / a remote-API
+  reader) names its VCS as code, so it lives in a **driver** and registers through the
+  `dos.vcs` entry-point group — the same kernel/driver split as `judges`/`overlap`/
+  `hook_dialect`. The contract that keeps a swappable evidence source honest is
+  thin-&-policy-free (a backend returns raw facts, never parses a subject against the
+  ship grammar — that stays in `dos.stamp`) + fail-to-EMPTY (a read that can't answer
+  returns `[]`/`None`, never raises; the CALLER keeps its own failsafe — `git_delta`'s
+  permissive-empty, `resume_evidence`'s fail-closed `False`, all preserved) +
+  three-valued where the truth is (`is_ancestor → bool|None`, so `memory_recall`'s
+  UNKNOWN abstention survives). The backend NAME is `SubstrateConfig.vcs_backend`
+  (`dos.toml [vcs] backend`, default `git`), carried across the one subprocess boundary
+  (`oracle → phase_shipped --batch`) by `ENV_VCS_BACKEND` exactly as the stamp
+  convention is. AST-pinned: no `src/dos/*.py` outside `vcs.py`/`drivers/`/`cli.py`
+  contains a `subprocess.run(["git", …])` (`cli.py` is the layer-3 boundary shell where
+  direct I/O is sanctioned). Pinned by `tests/test_vcs_layering.py` + `tests/test_vcs.py`.
 - **A shipped generic skill names no host.** No `SKILL.md` under
   `src/dos/skills/` may name a host directory (`docs/_plans`, `output/next-up`), a
   host lane (`apply`/`tailor`/`discovery`), or a host commit prefix (`docs/dispatch:`)

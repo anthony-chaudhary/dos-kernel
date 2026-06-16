@@ -82,6 +82,7 @@ dos`; nothing under `src/dos/` imports them): release/dev tooling (`scripts/`,
 - The kernel never imports a judge implementation — ruling judges are drivers, resolved by name; fail-to-abstain.
 - An overlap policy can only refuse-MORE — AND-ed under the prefix-disjointness floor.
 - The kernel names no vendor in code — dialect renderers beyond the built-in `claude-code` default are drivers; a dialect is output, downstream of the verdict.
+- The kernel reads VCS only through `dos.vcs` — no kernel module outside `vcs.py`/`drivers/`/`cli.py` shells `git`; evidence-gatherers call `active_vcs(root=…)`. Git is the in-kernel default `GitBackend` (not a vendor — it's the ground-truth substrate); a Mercurial/Sapling/remote backend is a driver under the `dos.vcs` entry-point group; `NullVcs` is the honest-empty no-VCS fallback (docs/369).
 - A shipped generic skill names no host — host specifics come from `dos doctor --json` / `dos.toml`.
 
 The litmus-to-test mapping and full arguments: ARCHITECTURE.md.
