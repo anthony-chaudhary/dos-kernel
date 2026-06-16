@@ -236,6 +236,62 @@ def test_load_records_non_utf8_does_not_crash(tmp_path):
     assert any(r.text == "ok" for r in recs)
 
 
+def test_load_records_is_streaming_not_full_read(tmp_path, monkeypatch):
+    # load_records must NOT call readlines()/read() (the materialization the
+    # streaming path avoids) — it iterates the file object lazily.
+    p = tmp_path / "t.jsonl"
+    p.write_text(_assistant_text("a") + "\n" + _assistant_text("b") + "\n", encoding="utf-8")
+
+    import io
+    real_open = io.open
+    seen = {"readlines": False, "read": False}
+
+    class _Spy:
+        def __init__(self, fh):
+            self._fh = fh
+
+        def __iter__(self):
+            return iter(self._fh)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return self._fh.__exit__(*a)
+
+        def readlines(self, *a, **k):
+            seen["readlines"] = True
+            return self._fh.readlines(*a, **k)
+
+        def read(self, *a, **k):
+            seen["read"] = True
+            return self._fh.read(*a, **k)
+
+    def _spy_open(*a, **k):
+        return _Spy(real_open(*a, **k))
+
+    monkeypatch.setattr("builtins.open", _spy_open)
+    recs = tv.load_records(str(p))
+    assert [r.text for r in recs] == ["a", "b"]
+    assert seen["readlines"] is False
+    assert seen["read"] is False
+
+
+def test_load_records_from_stream():
+    import io
+    stream = io.StringIO(_user("hi") + "\n" + _assistant_text("yo") + "\n")
+    recs = tv.load_records_from_stream(stream)
+    assert [r.kind for r in recs] == [tv.KIND_USER, tv.KIND_TEXT]
+    assert recs[1].text == "yo"
+
+
+def test_load_records_from_stream_no_crash_on_torn_line():
+    import io
+    stream = io.StringIO(_assistant_text("ok") + "\n{ torn")
+    recs = tv.load_records_from_stream(stream)
+    assert len(recs) == 1 and recs[0].text == "ok"
+
+
 # ---------------------------------------------------------------------------
 # resolve_shown — the --show/--hide algebra.
 # ---------------------------------------------------------------------------

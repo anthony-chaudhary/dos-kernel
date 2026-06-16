@@ -1674,11 +1674,15 @@ authored markers only, never from content. The transcript byte-read is reused
 from `claim_extract` so the readers can't drift.
 
 Resolution: `--transcript PATH` (always correct — the headless caller knows its
-file) › best-effort `--cwd` discovery of the host's session files (`--session
-ID` to disambiguate). The host session-dir location is HOST knowledge resolved at
-the CLI layer via the driver (`drivers.witnessed_leak_test.projects_dir_for`),
-by name through importlib so the no-kernel-imports-a-driver litmus holds; the
-`transcript_view` helper stays host-agnostic (it scans a directory it is handed).
+file), `--transcript -` for stdin (a piped `claude -p --output-format
+stream-json`, or a hook event), › best-effort `--cwd` discovery of the host's
+session files (`--session ID` to disambiguate). The host session-dir location is
+HOST knowledge resolved at the CLI layer via the driver
+(`drivers.witnessed_leak_test.projects_dir_for`), by name through importlib so
+the no-kernel-imports-a-driver litmus holds; the `transcript_view` helper stays
+host-agnostic (it scans a directory it is handed). The file read is STREAMING (a
+lazy line generator, never `readlines()`), so a multi-hundred-MB headless
+transcript parses without materializing the whole file.
 
 Knobs: `--show/--hide KINDS` (text, tool_call, tool_result, thinking, user,
 synthetic_death, meta; or `all`), `--last N`, `--grep PAT`, `--tools NAME`,

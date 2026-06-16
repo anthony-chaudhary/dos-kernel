@@ -6973,6 +6973,26 @@ def cmd_transcript(args: argparse.Namespace) -> int:
 
     path = (getattr(args, "transcript", None) or "").strip()
     note = ""
+
+    # stdin path (`dos transcript -`): a hook event's transcript_path resolved by
+    # the caller, OR a live `claude -p … --output-format stream-json` piped in.
+    if path == "-":
+        records = _tv.load_records_from_stdin()
+        flt = _tv.StreamFilter(
+            shown=_tv.resolve_shown(
+                getattr(args, "show", None), getattr(args, "hide", None)),
+            last=int(getattr(args, "last", 0) or 0),
+            grep=(getattr(args, "grep", None) or ""),
+            tools=tuple(getattr(args, "tools", None) or ()),
+            errors_only=bool(getattr(args, "errors", False)),
+        )
+        view = _tv.build_view(records, flt, source="(stdin)")
+        if getattr(args, "json", False):
+            print(json.dumps(view.to_dict(), indent=2, default=str))
+        else:
+            print(_tv.render_text(view, full=bool(getattr(args, "full", False))))
+        return 0 if view.records else 1
+
     if not path:
         cwd = (getattr(args, "cwd", None) or "").strip() or str(_config.active().root)
         session = (getattr(args, "session", None) or "").strip()
@@ -12243,7 +12263,9 @@ def build_parser() -> argparse.ArgumentParser:
     _add_workspace_flags(ptx)
     ptx.add_argument("--transcript", metavar="PATH", default=None,
                      help="the transcript JSONL to browse (always correct; the "
-                          "headless caller knows its file)")
+                          "headless caller knows its file). Use '-' to read from "
+                          "stdin (a piped `claude -p --output-format stream-json` "
+                          "or a hook event)")
     ptx.add_argument("--cwd", metavar="DIR", default=None,
                      help="best-effort: discover this project's session files "
                           "(default: the workspace root)")

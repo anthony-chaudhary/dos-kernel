@@ -19,10 +19,14 @@ reader, not any data. It:
   * stores nothing of its own, takes no lease, mints no belief, adjudicates
     *nothing new* (the `decisions.py` / `trace.py` contract);
   * does its file I/O at the boundary (`load_records` / the CLI), data to a pure
-    core (`parse_records`) — the `liveness` / `result_state` rule;
-  * reuses `claim_extract`'s transcript byte-read (`_read_lines`) and
-    `result_state`'s harness-death marker (`SYNTHETIC_MODEL`) so the readers
-    **cannot drift** — there is one transcript grammar in the kernel, shared;
+    core (`parse_records`) — the `liveness` / `result_state` rule. The read is
+    STREAMING (a lazy line generator, never `readlines()`), so a multi-hundred-MB
+    headless transcript parses without materializing the whole file; stdin is a
+    first-class source (`dos transcript -`), for hook events + piped `claude -p
+    --output-format stream-json`;
+  * matches the kernel byte-mode (utf-8, errors=replace) every other transcript
+    reader uses, and reuses `result_state`'s harness-death marker
+    (`SYNTHETIC_MODEL`) so the readers **cannot drift** — one grammar, shared;
   * names no host or vendor in a branch — **not even in a path-literal**. The
     record SHAPE (a JSONL of `{type, message:{role, content:[blocks]}}`) is the
     generic agent-transcript shape, and the discovery helper takes a *directory
@@ -54,11 +58,11 @@ re-surfacing of an authored fact, never a new adjudication.
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable
+from typing import IO, Iterable, Iterator
 
-from dos import claim_extract as _ce
 from dos import result_state as _rs
 
 # ---------------------------------------------------------------------------
@@ -566,19 +570,46 @@ def render_text(view: TranscriptView, *, full: bool = False, width: int = 100) -
 # The helper takes a *directory to scan*; it knows nothing of the host layout.
 # The CLI composition layer resolves the host projects dir (via the driver) and
 # hands it here. There is NO host path-literal in this module.
+#
+# The read is STREAMING — we iterate the file line-by-line (a generator), never
+# `readlines()` — so a multi-hundred-MB headless transcript does not materialize
+# in memory before parsing. The byte mode (utf-8, errors=replace) matches every
+# other transcript reader in the kernel (`claim_extract._read_lines`), so a
+# garbled byte costs a replacement char, never a crash.
 # ---------------------------------------------------------------------------
-def load_records(path: str) -> list[StreamRecord]:
-    """Read a transcript JSONL at `path` and parse it. NOT pure (reads a file).
+def _iter_file_lines(path: str) -> Iterator[str]:
+    """Yield a file's lines lazily (utf-8, errors=replace). No full read."""
+    with open(path, "r", encoding="utf-8", errors="replace") as fh:
+        yield from fh
 
-    Reuses `claim_extract._read_lines` so the byte-read (utf-8, errors=replace)
-    matches every other transcript reader in the kernel. Returns ``[]`` on a
-    read error (the no-crash floor: a missing transcript browses to empty).
+
+def load_records(path: str) -> list[StreamRecord]:
+    """Read a transcript JSONL at `path` and parse it, STREAMING. NOT pure.
+
+    Iterates the file lazily (no `readlines()` materialization), so a huge
+    headless transcript is parsed without ~2× peak RSS over file size. Returns
+    ``[]`` on a read error (the no-crash floor: a missing transcript browses to
+    empty). The parsed `StreamRecord` list is the only thing held in memory.
     """
     try:
-        lines = _ce._read_lines(path)
+        return parse_records(_iter_file_lines(path))
     except OSError:
         return []
-    return parse_records(lines)
+
+
+def load_records_from_stream(stream: IO[str]) -> list[StreamRecord]:
+    """Parse a transcript JSONL from an open text stream (e.g. stdin). NOT pure.
+
+    The headless-composability path: a hook event's `transcript_path` resolved by
+    the caller, OR a live `claude -p … --output-format stream-json` piped straight
+    in. Reads lazily; never raises on a torn/garbled line (the no-crash floor).
+    """
+    return parse_records(stream)
+
+
+def load_records_from_stdin() -> list[StreamRecord]:
+    """Parse a transcript JSONL from stdin (the `dos transcript -` path)."""
+    return load_records_from_stream(sys.stdin)
 
 
 def discover_transcripts(
