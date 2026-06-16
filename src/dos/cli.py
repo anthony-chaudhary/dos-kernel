@@ -7652,6 +7652,22 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     h = _config.active_home()
     n_projects = len(_home_list_projects())
     print(f"dos home            {h.home}  ({n_projects} project(s) indexed)")
+    # issue #200 — surface the grade verb on the default path. A skill's
+    # trustworthiness is undecidable from its own text (a self-certified "done"
+    # reads identically to a grounded one); `dos skillify --grade` is the verb
+    # that turns that unknown into a verdict, but it is invisible to anyone who
+    # doesn't already know it. So when THIS workspace ships its own skills (the
+    # ones whose trust-seam no one audited), name the verb here. Read-only,
+    # fail-soft — a report row must never break doctor.
+    try:
+        _host_skills = cfg.paths.root / ".claude" / "skills"
+        _n_skills = len(list(_host_skills.rglob("SKILL.md"))) if _host_skills.is_dir() else 0
+        if _n_skills:
+            print(f"workspace skills    {_n_skills}  "
+                  f"(`dos skillify --grade --all` scores how well each grounds "
+                  f"its own claims)")
+    except Exception:  # noqa: BLE001 — never let the hint break the report
+        pass
     # The env-override hazard (docs/75 §6.4): under the `.dos/` layout, a stray
     # DISPATCH_STATE_PATH / JOB_FANOUT_STATE_PATH in the shell makes verify/judge
     # read THAT file, not the .dos/ one. Surface it loudly rather than inherit it.
