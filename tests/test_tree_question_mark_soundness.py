@@ -66,13 +66,11 @@ def test_oracle_confirms_these_pairs_really_overlap():
 
 
 @pytest.mark.parametrize("a,b,witness", _FALSE_DISJOINT_CASES)
-@pytest.mark.xfail(strict=True, reason="#144: prefixes_collide treats `?` as a "
-                   "literal, so it false-disjoints these genuinely-overlapping "
-                   "pairs. Fixing #144 flips this to pass — delete the xfail then.")
 def test_prefixes_collide_should_not_false_disjoint_on_question_mark(a, b, witness):
-    """The soundness claim the fix must satisfy: a pair a concrete path matches BOTH
-    must be reported as colliding. Today `prefixes_collide` reports disjoint (the
-    #144 gap), so this xfails; the fix makes it pass."""
+    """The soundness claim the fix satisfies: a pair a concrete path matches BOTH
+    is reported as colliding. Was the #144 gap (xfail, strict) until
+    `norm_tree_prefix` was taught to truncate at `?`/`[` as well as `*`; now a
+    normal regression guard against the false-disjoint returning."""
     assert _concrete_matches_both(witness, a, b)   # the overlap is real…
     assert _old_collide(a, b), (                    # …so the predicate MUST collide
         f"FALSE DISJOINT (#144): {witness!r} matches both {a!r} and {b!r}, "

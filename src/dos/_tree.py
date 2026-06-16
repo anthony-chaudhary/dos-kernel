@@ -31,14 +31,18 @@ def norm_tree_prefix(p: str) -> str:
 
     ``agents/apply_*.py`` -> ``agents/apply_``; ``go/internal/ui/`` ->
     ``go/internal/ui/``; ``job_search/scoring.py`` -> ``job_search/scoring.py``.
-    A glob is truncated at the first ``*`` because everything after it is a
-    wildcard — two entries that share a pre-``*`` prefix can name the same file.
+    A glob is truncated at the first **glob metacharacter** (``*``, ``?``, or
+    ``[``) because everything after it is a wildcard — two entries that share the
+    pre-wildcard prefix can name the same file. Truncating only at ``*`` left
+    ``?``/``[`` as *literals* and produced **false-disjoints** (#144): e.g.
+    ``norm_tree_prefix("?/a")`` kept ``"?/a"``, so ``prefixes_collide("?/a",
+    "b/a")`` was ``False`` even though the concrete path ``b/a`` matches ``?/a``.
 
-    A **leading-glob** entry like ``**/*`` or ``*.py`` truncates to the EMPTY
-    prefix ``""`` — there is no pre-``*`` directory to anchor on. The empty
-    prefix is the *universal* prefix: every path starts with it, so it matches
-    **everything**. Callers must not silently drop it (that inverts a whole-repo
-    tree into "touches nothing"); see `prefixes_collide`.
+    A **leading-glob** entry like ``**/*``, ``*.py``, ``?x`` or ``[ab]/c``
+    truncates to the EMPTY prefix ``""`` — there is no pre-wildcard directory to
+    anchor on. The empty prefix is the *universal* prefix: every path starts with
+    it, so it matches **everything**. Callers must not silently drop it (that
+    inverts a whole-repo tree into "touches nothing"); see `prefixes_collide`.
 
     **Case is folded** (``str.casefold``) so the prefix algebra matches the
     semantics of a case-INsensitive filesystem — DOS's documented primary platform
@@ -58,9 +62,17 @@ def norm_tree_prefix(p: str) -> str:
     case-variant collisions a case-insensitive FS demands.
     """
     p = (p or "").replace("\\", "/").strip().casefold()
-    star = p.find("*")
-    if star != -1:
-        return p[:star]
+    # Truncate at the FIRST glob metacharacter — `*` (any run), `?` (any single
+    # char), or `[` (a char class). `?` and `[` are wildcards exactly as `*` is, so
+    # keeping them as literals in the prefix produced false-disjoints (#144): e.g.
+    # the concrete path `b/a` matches the glob `?/a`, yet `prefixes_collide("?/a",
+    # "b/a")` was False. Cutting at the earliest metachar yields a SHORTER prefix →
+    # MORE collisions → no false-disjoint (the unsafe, corrupting direction); a
+    # false-conflict only slows. min() over the present metachars (find → -1 when
+    # absent, filtered out) picks the earliest.
+    cuts = [i for i in (p.find("*"), p.find("?"), p.find("[")) if i != -1]
+    if cuts:
+        return p[:min(cuts)]
     return p
 
 
