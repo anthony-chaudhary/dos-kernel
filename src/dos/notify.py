@@ -325,6 +325,63 @@ def notification_for_top(frame: "Frame", *, summary: str = "") -> Notification:
     )
 
 
+def notification_for_pulse(digest: "PulseDigest", *, summary: str = "") -> Notification:
+    """Pure: a `pulse.PulseDigest` → one `Notification` (the standing-pulse surface).
+
+    `digest` is the output of `pulse.fold_pulse(...)` — the folded fleet state a cron
+    pulse pushes. `summary` is the prebuilt body (`pulse.render_pulse_text(digest)`);
+    the caller passes it so this module needs no `pulse` import (the dependency-arrow
+    rule, like the decisions/top adapters). The digest already carries the worst-signal
+    severity as a string matching `Severity`, so this maps it straight across: a
+    STALLED run → URGENT, a pending HUMAN queue / OPEN breaker → WARN, all-clear → INFO.
+
+    `fields` are the folded counts as `(label, value)` glance rows — what a
+    Block-Kit/section transport shows at a glance. `key` is workspace-stable so a
+    notifier that edits in place keeps ONE pulse message current rather than spamming a
+    post per cron tick (the `LiveMessage` use-case the decisions/top adapters share).
+    Duck-typed over the digest's fields so a digest stand-in folds too.
+    """
+    sev_word = str(getattr(digest, "severity", "") or "INFO").upper()
+    try:
+        severity = Severity(sev_word)
+    except ValueError:  # an unexpected word degrades to INFO, never crashes the push
+        severity = Severity.INFO
+
+    empty = bool(getattr(digest, "empty", True))
+    stalled = int(getattr(digest, "stalled", 0) or 0)
+    pending = int(getattr(digest, "pending_human", 0) or 0)
+    breaker_open = bool(getattr(digest, "breaker_open", False))
+
+    if empty:
+        title = "fleet clear — pulse quiet"
+    else:
+        bits = []
+        if stalled:
+            bits.append(f"{stalled} stalled")
+        if pending:
+            bits.append(f"{pending} need a human")
+        if breaker_open:
+            bits.append("breaker OPEN")
+        title = "pulse: " + (" · ".join(bits) if bits else "something to surface")
+
+    fields: list[tuple[str, str]] = []
+    if stalled:
+        fields.append(("stalled runs", str(stalled)))
+    if pending:
+        fields.append(("decisions need a human", str(pending)))
+    if breaker_open:
+        fields.append(("breaker", "OPEN"))
+
+    return Notification(
+        severity=severity,
+        title=title,
+        summary=summary,
+        fields=tuple(fields),
+        key="dos-pulse",
+        source="pulse",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Resolver + discovery — built-ins first, then the `dos.notifiers` plugins. The
 # `resolve_judge` / `resolve_dialect` shape; discovery I/O at the call boundary.

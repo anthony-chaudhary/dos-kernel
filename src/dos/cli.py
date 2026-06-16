@@ -6449,6 +6449,192 @@ def cmd_notify(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# pulse  (the standing self-watch — DOS's cron heartbeat; docs/121 §4.1, the
+# always-on reader for the queue nobody reads unattended). Folds per-run liveness
+# + the HUMAN decisions queue + the breaker into ONE digest and pushes it; SILENT
+# when all-clear. A read-only projection (the decisions/top/notify posture) — it
+# REPORTS, never acts (no lease, no stop, no mutation).
+# ---------------------------------------------------------------------------
+def cmd_pulse(args: argparse.Namespace) -> int:
+    """`dos pulse` — fold the fleet's state on a cadence and push anything wrong.
+
+    The verb a cron/Actions job runs to give DOS a standing pulse: it gathers, AT
+    THIS BOUNDARY, every live run's liveness verdict + the HUMAN decisions queue +
+    the breaker, hands them to the pure `pulse.fold_pulse`, and pushes the digest via
+    the notifier seam. SILENT when all-clear (the silence rule). Exits non-zero only
+    when a REAL send was attempted and failed (so a cron alerts on a broken
+    transport); the null/dry-run no-op and an all-clear pulse are success.
+    """
+    _apply_workspace(args)
+    import time
+    from dos import liveness, pulse as _pulse, run_id as _run_id
+    from dos import lane_lease as _lane_lease
+    from dos import notify as _notify
+
+    cfg = _config.active()
+    now_ms = args.now_ms if getattr(args, "now_ms", None) is not None else int(time.time() * 1000)
+
+    # 1. Per-run liveness — one classify per live lease, evidence gathered HERE (the
+    #    cmd_liveness boundary idiom: run-start from the lease's run_id, commit delta,
+    #    journal heartbeat, the unforgeable proc rung). A lease with no joinable run_id
+    #    is skipped (nothing to classify); any single gather fault drops that run, the
+    #    advisory fail-safe — a pulse never crashes the cron on one unreadable lease.
+    verdicts: list = []
+    try:
+        leases = _lane_lease.live_leases(cfg, expire_dead=True)
+    except Exception:  # noqa: BLE001 — a WAL read is best-effort; no leases ⇒ no run legs
+        leases = []
+    seen_runs: set = set()
+    for lease in leases:
+        rid = str(lease.get("run_id") or "").strip()
+        if not rid or rid in seen_runs:
+            continue
+        seen_runs.add(rid)
+        started_ms = _run_id.ts_ms_of(rid)
+        if started_ms is None:
+            continue
+        lane = str(lease.get("lane") or "")
+        loop_ts = str(lease.get("loop_ts") or "")
+        try:
+            commits = _git_delta_count(getattr(args, "start_sha", "") or "", cfg)
+            lease_key = (loop_ts, lane) if lane and loop_ts else None
+            jd = _journal_delta(cfg, started_ms=started_ms, now_ms=now_ms, lease_key=lease_key)
+            process_alive = None
+            pid = lease.get("pid")
+            if pid is not None and not getattr(args, "no_proc", False):
+                import os as _os
+                from dos import proc_delta as _proc_delta
+                from dos.lane_lease import _hostname
+                this_host = _os.environ.get("DISPATCH_HOST_ID") or _hostname()
+                process_alive = _proc_delta.probe(
+                    pid, host_id=str(lease.get("host_id") or ""), this_host=this_host).alive
+            ev = liveness.ProgressEvidence(
+                run_started_ms=started_ms,
+                now_ms=now_ms,
+                commits_since_start=commits,
+                journal_events_since=jd.events_since_start,
+                last_heartbeat_age_ms=jd.last_heartbeat_age_ms,
+                process_alive=process_alive,
+            )
+            v = liveness.classify(ev)
+            # Attach the run id + lane the boundary knows (a LivenessVerdict carries
+            # neither) so the pure fold can name a stalled run.
+            verdicts.append(_PulseRunVerdict(verdict=v.verdict, run_id=rid, lane=lane,
+                                             reason=v.reason))
+        except Exception:  # noqa: BLE001 — one bad lease drops its run, never the pulse
+            continue
+
+    # 2. The HUMAN decisions queue — the absent-operator's-proxy (docs/121 §4.1).
+    try:
+        from dos import decisions as _decisions
+        human_rows = _decisions.collect_decisions(cfg, resolver="HUMAN")
+    except Exception:  # noqa: BLE001 — advisory fail-safe
+        human_rows = []
+
+    # 3. The breaker — folded by the decisions surface already; an OPEN row of kind
+    #    ENFORCE_BREAKER stands in for the tripped class (the decisions queue is where
+    #    a breaker escalation surfaces, decisions._from_enforce_storms). We pass a
+    #    light open-verdict stand-in when such a row is present, so the fold's breaker
+    #    leg lights without a second WAL pass.
+    breaker_verdict = None
+    for r in human_rows:
+        kind = getattr(getattr(r, "kind", None), "value", "")
+        if kind == "ENFORCE_BREAKER":
+            esc = getattr(getattr(r, "resolver_kind", None), "value", "HUMAN")
+            breaker_verdict = _PulseBreaker(is_open=True, _escalation=esc)
+            break
+
+    digest = _pulse.fold_pulse(
+        liveness=verdicts, decisions=human_rows, breaker_verdict=breaker_verdict)
+
+    # 4. SILENCE RULE: an all-clear pulse pushes nothing and exits 0 (unless --json,
+    #    which always emits the machine surface for a scripted cron).
+    if digest.empty and not args.json:
+        return 0
+
+    summary = _pulse.render_pulse_text(digest)
+    note = _notify.notification_for_pulse(digest, summary=summary)
+
+    notifier_name = getattr(args, "notifier", None) or "null"
+    kwargs: dict = {}
+    if notifier_name != "null":
+        kwargs = {
+            "channel": getattr(args, "channel", "") or "",
+            "url": getattr(args, "url", "") or "",
+            "token": getattr(args, "token", "") or "",
+            "dry_run": bool(getattr(args, "dry_run", False)),
+            "root": str(cfg.root),
+        }
+    try:
+        notifier = _notify.resolve_notifier(notifier_name, **kwargs)
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    result = _notify.send_safely(notifier, note)
+    delivered_via_null = notifier_name == "null"
+
+    if args.json:
+        print(json.dumps(
+            {"digest": digest.to_dict(), "notification": note.to_dict(),
+             "result": result.to_dict(), "notifier": notifier_name},
+            indent=2, default=str))
+        if (not delivered_via_null and not bool(getattr(args, "dry_run", False))
+                and not result.delivered):
+            return 1
+        return 0
+
+    emoji = {"INFO": "·", "WARN": "▲", "URGENT": "■"}.get(note.severity.value, "·")
+    print(f"{emoji} [{note.severity.value}] {note.title}")
+    for line in digest.lines:
+        print(f"    {line}")
+    if delivered_via_null:
+        print("  → not sent (notifier=null; pass --notifier slack --channel NAME to deliver)")
+    else:
+        status = "sent" if result.delivered else "NOT sent"
+        print(f"  → {status} via {notifier_name}: {result.detail}")
+    if (not delivered_via_null and not bool(getattr(args, "dry_run", False))
+            and not result.delivered):
+        return 1
+    return 0
+
+
+@dataclasses.dataclass(frozen=True)
+class _PulseRunVerdict:
+    """A liveness verdict + the run id/lane the pulse boundary gathered it for.
+
+    A `liveness.LivenessVerdict` carries neither run id nor lane (they come from the
+    live lease the evidence was gathered for); this thin carrier joins them so the
+    pure `pulse.fold_pulse` can name a stalled run. Duck-typed by the fold via
+    `.verdict`/`.run_id`/`.lane`/`.reason`.
+    """
+    verdict: object
+    run_id: str
+    lane: str
+    reason: str = ""
+
+
+@dataclasses.dataclass(frozen=True)
+class _PulseBreaker:
+    """A light open-breaker stand-in the pulse passes when a tripped class surfaces.
+
+    The breaker escalation already surfaces on the HUMAN decisions queue
+    (`decisions._from_enforce_storms`); rather than a second WAL pass, the pulse
+    carries this so `fold_pulse`'s breaker leg lights. Duck-typed via
+    `.is_open`/`.escalation.value`.
+    """
+    is_open: bool
+    _escalation: str = "HUMAN"
+
+    @property
+    def escalation(self):
+        esc = self._escalation
+
+        class _E:
+            value = esc
+        return _E()
+
+
+# ---------------------------------------------------------------------------
 # trace  (the cross-surface join — walk one run across spine + ledger + WAL + git)
 # ---------------------------------------------------------------------------
 def cmd_trace(args: argparse.Namespace) -> int:
@@ -11320,6 +11506,52 @@ def build_parser() -> argparse.ArgumentParser:
         "top", help="push the live fleet status (lanes/leases/verdicts), edit-in-place")
     _add_notify_common(pnt)
     pnt.set_defaults(func=cmd_notify)
+
+    # pulse — DOS's standing self-watch heartbeat (docs/121 §4.1): the verb a
+    # cron/Actions job runs on a cadence to fold every live run's liveness + the
+    # HUMAN decisions queue + the breaker into ONE digest and push anything wrong.
+    # SILENT when all-clear. The always-on READER for the queue nobody reads
+    # unattended; a read-only projection (it REPORTS, never acts).
+    ppulse = sub.add_parser(
+        "pulse",
+        help="fold the fleet's state on a cron cadence and push anything wrong "
+             "(stalled runs / unread human decisions / an open breaker); silent when clear",
+        description=(
+            "DOS's standing self-watch. Every DOS verdict (liveness STALLED, the HUMAN "
+            "decisions queue, the breaker) is request-response today — pulled by an "
+            "interactive verb or a loop's Step 0. `dos pulse` is the verb a cron job "
+            "runs on a cadence so DOS has a STANDING pulse: it gathers every live run's "
+            "liveness + the HUMAN decisions queue + the breaker AT THIS BOUNDARY, folds "
+            "them (pure `pulse.fold_pulse`), and pushes the digest via the notifier seam "
+            "(default `null` = render only; `--notifier slack` to deliver). The SILENCE "
+            "RULE: it emits nothing when nothing is wrong (no stalled run, empty human "
+            "queue, closed breaker) so the signal keeps its weight. It REPORTS, never "
+            "acts (no lease, no stop, no mutation — docs/99). Exits non-zero only when a "
+            "REAL send was attempted and failed, so a cron alerts on a broken transport."),
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    _add_workspace_flags(ppulse)
+    ppulse.add_argument("--notifier", default="null", metavar="NAME",
+                        help="transport: built-in `null` (render only, default), or a "
+                             "registered `dos.notifiers` plugin (e.g. `slack`)")
+    ppulse.add_argument("--channel", default="", metavar="NAME|ID",
+                        help="target channel for the `slack` transport")
+    ppulse.add_argument("--url", default="", metavar="URL",
+                        help="target endpoint for the `webhook` transport")
+    ppulse.add_argument("--token", default="", metavar="SECRET",
+                        help="optional bearer token for `webhook`")
+    ppulse.add_argument("--dry-run", action="store_true",
+                        help="render + report what WOULD be sent; send nothing")
+    ppulse.add_argument("--start-sha", default="",
+                        help="the commit the fleet's runs are measured forward from "
+                             "(the liveness ADVANCING floor); default: the empty horizon")
+    ppulse.add_argument("--no-proc", action="store_true",
+                        help="skip the unforgeable OS proc-liveness rung (docs/95)")
+    ppulse.add_argument("--now-ms", type=int, default=None,
+                        help="inject the wall clock (epoch-ms) for deterministic runs")
+    ppulse.add_argument("--json", action="store_true",
+                        help="machine-readable {digest, notification, result, notifier}; "
+                             "always emitted, even when the digest is empty")
+    ppulse.set_defaults(func=cmd_pulse)
 
     # trace — the cross-surface join (docs/137): walk one run across the spine,
     # the intent ledger, the WAL, and git, joined by its run_id. A read-only
