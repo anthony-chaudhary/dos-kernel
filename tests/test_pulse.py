@@ -202,3 +202,53 @@ def test_pulse_send_failure_does_not_crash():
     result = notify.send_safely(_Boom(), note)
     assert result.delivered is False
     assert "error" in result.detail.lower() or result.detail
+
+
+# ---------------------------------------------------------------------------
+# The docs/358 enforcement-over-blocking observe leg.
+# ---------------------------------------------------------------------------
+class _EnforceMetric:
+    """A stand-in for enforce_outcomes.EnforceMetric — the fold reads `.false_denies`."""
+
+    def __init__(self, false_denies):
+        self.false_denies = false_denies
+
+
+def test_pulse_surfaces_enforcement_over_blocking_over_threshold():
+    """A standing false-DENY count (>= threshold) surfaces a tuning signal at WARN."""
+    d = pulse.fold_pulse(
+        liveness=[], decisions=[], breaker_verdict=None,
+        enforce_metric=_EnforceMetric(false_denies=5), enforce_threshold=3)
+    assert not d.empty
+    assert d.severity == pulse.WARN
+    body = "\n".join(d.lines)
+    assert "ENFORCEMENT" in body
+    assert "enforce-tune" in body
+    assert d.enforce_false_denies == 5
+
+
+def test_pulse_silent_on_a_single_overridden_deny():
+    """One overridden deny is noise (a one-off exception), below the threshold → silent."""
+    d = pulse.fold_pulse(
+        liveness=[], decisions=[], breaker_verdict=None,
+        enforce_metric=_EnforceMetric(false_denies=1), enforce_threshold=3)
+    assert d.empty
+    assert d.enforce_false_denies == 1
+
+
+def test_pulse_enforcement_leg_never_demotes_urgent():
+    """A STALLED run stays URGENT even when the enforcement leg also fires (WARN)."""
+    d = pulse.fold_pulse(
+        liveness=[_Liveness("STALLED", run_id="RID-9")], decisions=[],
+        breaker_verdict=None, enforce_metric=_EnforceMetric(false_denies=9),
+        enforce_threshold=3)
+    assert d.severity == pulse.URGENT
+    body = "\n".join(d.lines)
+    assert "STALLED" in body and "ENFORCEMENT" in body
+
+
+def test_pulse_enforcement_absent_is_silent():
+    """No enforce_metric ⇒ the fold's silent default (no line, 0 count)."""
+    d = pulse.fold_pulse(liveness=[], decisions=[], breaker_verdict=None)
+    assert d.empty
+    assert d.enforce_false_denies == 0

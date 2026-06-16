@@ -83,6 +83,7 @@ class PulseDigest:
     stalled: int = 0
     pending_human: int = 0
     breaker_open: bool = False
+    enforce_false_denies: int = 0  # docs/365 — denies the operator later overrode
 
     def to_dict(self) -> dict:
         return {
@@ -92,6 +93,7 @@ class PulseDigest:
             "stalled": self.stalled,
             "pending_human": self.pending_human,
             "breaker_open": self.breaker_open,
+            "enforce_false_denies": self.enforce_false_denies,
         }
 
 
@@ -155,17 +157,44 @@ def _breaker_is_open(breaker_verdict: Any) -> bool:
     return bool(is_open)
 
 
+# The false-DENY count at/above which the pulse surfaces the enforcement-tuning
+# signal (docs/365). One overturned deny is noise (an operator made a one-off
+# exception); a standing count means the enforcement policy is over-blocking a target
+# the workspace genuinely edits, and a tuning run is warranted. Default 3 — the same
+# "3 strikes is a pattern" threshold the `_from_enforce_storms` breaker uses. A host
+# tunes it via the boundary (the verb passes the gathered count + threshold).
+_ENFORCE_FALSE_DENY_THRESHOLD = 3
+
+
+def _enforce_false_denies(enforce_metric: Any) -> int:
+    """The false-DENY count from a folded `enforce_outcomes.EnforceMetric` stand-in.
+
+    Duck-typed (`.false_denies`) so this module needs no `enforce_outcomes` import —
+    the same robustness `_breaker_is_open` has. None / absent ⇒ 0 (no enforcement
+    signal was gathered — the silent default)."""
+    if enforce_metric is None:
+        return 0
+    n = getattr(enforce_metric, "false_denies", 0)
+    try:
+        return max(0, int(n))
+    except (TypeError, ValueError):
+        return 0
+
+
 def fold_pulse(
     *,
     liveness: Sequence[Any] = (),
     decisions: Sequence[Any] = (),
     breaker_verdict: Any = None,
+    enforce_metric: Any = None,
+    enforce_threshold: int = _ENFORCE_FALSE_DENY_THRESHOLD,
 ) -> PulseDigest:
     """Fold the already-gathered fleet facts into one `PulseDigest`. PURE — no I/O.
 
     Returns an EMPTY digest (the silence rule) when nothing is wrong: no STALLED run,
-    an empty HUMAN decisions queue, a CLOSED/absent breaker. Otherwise the digest
-    names each finding in `lines` and carries the worst-signal `severity`.
+    an empty HUMAN decisions queue, a CLOSED/absent breaker, an enforcement false-DENY
+    count below threshold. Otherwise the digest names each finding in `lines` and
+    carries the worst-signal `severity`.
 
     `liveness`        — per-run `liveness.LivenessVerdict`s the boundary classified,
                         each carrying the run id + lane it was gathered for. Only
@@ -175,6 +204,12 @@ def fold_pulse(
                         resolver="HUMAN")` — the queue that goes unread when nobody
                         is watching (docs/121 §4.1).
     `breaker_verdict` — a folded `breaker.BreakerVerdict` (or None); only OPEN speaks.
+    `enforce_metric`  — a folded `enforce_outcomes.EnforceMetric` (or None): the
+                        false-DENY / held-catch ledger of the OP_ENFORCE journal
+                        (docs/365). A standing false-DENY count (>= `enforce_threshold`)
+                        surfaces a WARN tuning signal — the continuous-OBSERVE half of
+                        the autonomous enforcement-tuning loop (pulse names the
+                        over-blocking; the autonomous `enforce-tune` cadence acts on it).
     """
     lines: list[str] = []
     severity = INFO
@@ -215,6 +250,23 @@ def fold_pulse(
         tail = f" → {esc}" if esc else ""
         lines.append(f"breaker OPEN{tail}")
 
+    # 4. ENFORCEMENT OVER-BLOCKING — the docs/365 PEP-feedback observe leg. The fold
+    #    of the OP_ENFORCE journal (`enforce_outcomes.outcome_metric`) counts denies
+    #    the operator LATER OVERRODE — the ground-truth false-DENYs. A standing count
+    #    (>= threshold) means the enforcement policy is refusing edits the workspace
+    #    genuinely makes, and a `dos enforce-tune` run is warranted. WARN (it is a
+    #    standing-pattern signal a person should look at, not the NOW urgency of a hung
+    #    run) — the continuous-OBSERVE half of the autonomous tuning loop: pulse
+    #    SURFACES the over-blocking; the autonomous `enforce-tune` cadence ACTS on it.
+    false_denies = _enforce_false_denies(enforce_metric)
+    if false_denies >= max(1, enforce_threshold):
+        if severity == INFO:
+            severity = WARN
+        lines.append(
+            f"ENFORCEMENT over-blocking: {false_denies} deny(ies) the operator later "
+            f"overrode — the policy is refusing legitimate edits; run `dos enforce-tune` "
+            f"(docs/365)")
+
     empty = not lines
     return PulseDigest(
         empty=empty,
@@ -223,6 +275,7 @@ def fold_pulse(
         stalled=len(stalled_runs),
         pending_human=len(human),
         breaker_open=breaker_open,
+        enforce_false_denies=false_denies,
     )
 
 

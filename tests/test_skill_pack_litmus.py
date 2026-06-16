@@ -49,6 +49,12 @@ EXPECTED_SKILLS = {
     # colliding plan is refused with 0 agents launched. The predictive complement
     # to `dos arbitrate` (the reactive, one-acquire-at-a-time floor).
     "dos-plan-price",
+    # docs/365 — the enforcement-policy self-tuning loop: mine the OP_ENFORCE journal
+    # for false-DENIES (a deny the operator overrode) vs held catches, propose ONE
+    # policy-KNOB edit, KEEP only on a kernel-measured net_task_delta gain. Closes the
+    # docs/189 "sound PDP with no PEP feedback" gap. The dos-self-improve sibling
+    # pointed at the enforcement policy.
+    "dos-enforce-tune",
 }
 
 # Host literals a generic skill must never name (the skill analogue of "kernel

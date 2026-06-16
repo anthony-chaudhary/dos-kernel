@@ -2999,6 +2999,187 @@ def cmd_improve(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# enforce-tune  (the self-tuning ENFORCEMENT-POLICY keep-gate — docs/365)
+#   The PEP-feedback loop's per-cycle verdict: it MEASURES a candidate enforcement
+#   policy's net_task_delta over the labelled corpus (the SAME intervention_eval
+#   metric `dos intervention-eval` reports) and hands the env-authored work +
+#   baseline to the kernel keep-gate. KEEP/REVERT/ESCALATE — same exit codes as
+#   `improve`, because it IS `improve.classify`, with the metric folded in so the
+#   loop never re-implements (or fakes) the score.
+_ENFORCE_TUNE_EXITS = ExitMap(
+    {"KEEP": 0, "REVERT": 3, "ESCALATE": 4},
+    unknown=5,
+    syscall="improve",  # it rides the improve keep-gate; record under that syscall
+)
+_ENFORCE_TUNE_EXIT_CONTRACT_ERROR = _ENFORCE_TUNE_EXITS.contract_error
+
+
+def cmd_enforce_tune(args: argparse.Namespace) -> int:
+    """Measure a candidate enforcement policy's net_task_delta, then KEEP/REVERT/ESCALATE.
+
+    The per-cycle verdict of the self-tuning enforcement loop (docs/365). It:
+      1. loads the labelled corpus (`--cases`, the docs/143 InterventionCase JSONL),
+      2. loads the CANDIDATE policy from a worktree's dos.toml (`--policy-toml`) —
+         the candidate's actual knob edit, scored, never the agent's claim,
+      3. scores it via `intervention_eval.score(...).net_task_delta`, scaled to the
+         kernel's non-negative `work` unit (`enforce_tune.score_policy`),
+      4. hands `work` + `--baseline-work` + the suite/truth witnesses to
+         `improve.classify` — the SAME non-forgeable keep-gate as `dos improve`.
+
+    The runtime-logic RAIL: pass `--changed-files` (the candidate's diff path list)
+    to have THIS verb enforce it inline — a file in `self_modify._DISPATCH_RUNTIME_FILES`
+    forces truth=dirty, so the keep-gate REVERTs it as a REGRESSION regardless of the
+    metric (the autonomy hard rail, docs/365), mirroring the driver.
+    """
+    _apply_workspace(args)
+    cfg = _config.active()
+    import importlib
+    from dos import improve
+    # Import the driver dynamically (the `importlib.import_module` pattern every
+    # other driver-using verb here uses) so the kernel-imports-no-driver bulkhead
+    # litmus (test_judge::TestBulkhead / test_vendor_agnostic_kernel) stays green —
+    # a static `from dos.drivers import ...` in this top-level module would trip it.
+    enforce_tune = importlib.import_module("dos.drivers.enforce_tune")
+    from dos.intervention import InterventionPolicy, load_from_toml as _load_ladder
+
+    # The runtime-logic rail (inline): a candidate that edited enforcement LOGIC is a
+    # REGRESSION for this loop regardless of its metric — the autonomy hard rail
+    # (docs/365).
+    changed = list(args.changed_files or [])
+    runtime_hits = enforce_tune.candidate_touches_runtime(changed) if changed else []
+
+    try:
+        cases = _load_intervention_cases(args.cases)
+    except (OSError, ValueError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return _ENFORCE_TUNE_EXIT_CONTRACT_ERROR
+    if not cases:
+        print(f"error: no cases found in {args.cases}", file=sys.stderr)
+        return _ENFORCE_TUNE_EXIT_CONTRACT_ERROR
+
+    # The candidate policy + ladder: from --policy-toml (the worktree's dos.toml) when
+    # given, else the active workspace's. A candidate may have tuned BOTH the policy
+    # knobs ([intervention_policy]) and the ladder ranks ([intervention]).
+    if args.policy_toml:
+        ladder = _load_ladder(args.policy_toml, base=cfg.interventions)
+        policy = _intervention_policy_from_toml(args.policy_toml) or InterventionPolicy()
+    else:
+        ladder = cfg.interventions
+        policy = InterventionPolicy()
+    inputs = enforce_tune.EnforceMetricInputs(corpus=tuple(cases), ladder=ladder)
+    try:
+        work = enforce_tune.score_policy(policy, inputs)
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return _ENFORCE_TUNE_EXIT_CONTRACT_ERROR
+
+    # A runtime-logic edit forces truth=dirty so the keep-gate reverts it as a
+    # REGRESSION — exactly the driver's rail, surfaced through the same verdict.
+    truth_clean = bool(args.truth_clean) and not runtime_hits
+    try:
+        keep_policy = improve.ImprovePolicy(
+            max_consecutive_reverts=args.max_reverts if args.max_reverts is not None
+            else improve.DEFAULT_POLICY.max_consecutive_reverts,
+        )
+        evidence = improve.CandidateEvidence(
+            suite_passed=bool(args.suite_passed),
+            truth_clean=truth_clean,
+            work=work,
+            baseline_work=args.baseline_work,
+            tokens=args.tokens,
+            consecutive_reverts=args.consecutive_reverts,
+            narrated=args.narrated or "",
+        )
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return _ENFORCE_TUNE_EXIT_CONTRACT_ERROR
+
+    verdict = improve.classify(evidence, keep_policy)
+    if args.json:
+        out = verdict.to_dict()
+        out["measured_work"] = work
+        out["runtime_logic_hits"] = runtime_hits
+        print(json.dumps(out, indent=2))
+        return _ENFORCE_TUNE_EXITS.codes.get(
+            verdict.verdict.value, _ENFORCE_TUNE_EXITS.unknown)
+    return _ENFORCE_TUNE_EXITS.emit(args, verdict, verdict.verdict.value)
+
+
+def _intervention_policy_from_toml(path):
+    """Read an `[intervention_policy]` table from a dos.toml into an InterventionPolicy.
+
+    The candidate-tuning surface: a workspace declares the confidence-gating knobs
+    (on_high_confidence / on_low_confidence / floor / ceiling) in `[intervention_policy]`,
+    and a candidate self-improvement edits THOSE values. Returns None when the table is
+    absent (the caller falls back to the default policy) — the additive, missing-degrades
+    posture every dos.toml loader takes. A present-but-malformed table raises via
+    `InterventionPolicy.__post_init__` (a bad knob set fails loudly at load).
+    """
+    from pathlib import Path
+    from dos.intervention import InterventionPolicy
+    p = Path(path)
+    if not p.exists():
+        return None
+    try:
+        import tomllib
+    except ModuleNotFoundError:  # pragma: no cover - py<3.11
+        try:
+            import tomli as tomllib  # type: ignore
+        except ModuleNotFoundError:
+            return None
+    data = tomllib.loads(p.read_text(encoding="utf-8-sig"))
+    table = data.get("intervention_policy")
+    if not isinstance(table, dict) or not table:
+        return None
+    kwargs = {k: str(v) for k, v in table.items()
+              if k in ("on_high_confidence", "on_low_confidence", "on_none", "floor", "ceiling")}
+    return InterventionPolicy(**kwargs)
+
+
+# ---------------------------------------------------------------------------
+# enforce-outcomes  (the read-only PEP-feedback projection — docs/365)
+#   The live false-DENY / held-catch ledger folded from the OP_ENFORCE journal: what
+#   the enforcement seam ACTED on, and which acts the operator later overturned. The
+#   `dos decisions` queue is for HUMAN decisions; this is the tuning-shaped read the
+#   self-tuning loop's metric augments from.
+def cmd_enforce_outcomes(args: argparse.Namespace) -> int:
+    """Fold the live OP_ENFORCE journal into false-DENY / held-catch outcomes (docs/365).
+
+    Read-only projection. Prints, per TARGET the seam acted on, whether the deny was a
+    FALSE-DENY (the operator later overrode it) or a HELD catch, plus the rolled-up
+    `EnforceMetric` (false_denies / held_catches / storms / work). The `--json` form
+    is what the cadence reads to decide whether the false-DENY rate warrants a tuning
+    run.
+    """
+    _apply_workspace(args)
+    cfg = _config.active()
+    from dos import enforce_outcomes
+    outcomes = enforce_outcomes.read_outcomes(cfg)
+    metric = enforce_outcomes.outcome_metric(outcomes)
+    if args.json:
+        print(json.dumps({
+            "metric": metric.to_dict(),
+            "outcomes": [o.to_dict() for o in outcomes],
+        }, indent=2))
+        return 0
+    if not outcomes:
+        print("(no enforcement outcomes on the journal — the seam has acted on nothing)")
+        return 0
+    print(f"ENFORCEMENT OUTCOMES  {metric.n_pairs} acted-on target(s)")
+    print(f"  false-denies  {metric.false_denies:>4}  (denies the operator overrode — drive DOWN)")
+    print(f"  held-catches  {metric.held_catches:>4}  (denies that stood — HOLD)")
+    print(f"  storms        {metric.storms:>4}  ({metric.storm_denies} excess denies — false disruption)")
+    print(f"  work          {metric.work:>10}  (the env-authored tuning metric, higher = better)")
+    print()
+    for o in outcomes:
+        label = "FALSE-DENY" if o.is_false_deny else "held-catch"
+        plural = "s" if o.n_denies != 1 else ""
+        print(f"  [{label}] {o.holder or '?'} × {o.target}  "
+              f"({o.n_denies} deny{plural}, {o.reason_class or '?'})")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # retire  (the library-retention gate — does this memory/skill still EARN ITS PLACE?)
 #   (full prose: docs/350; the third leaf of the keep-only-what-a-witness-confirms
 #    family — the outcome-driven-retirement fix for "Library Drift")
@@ -6620,8 +6801,22 @@ def cmd_pulse(args: argparse.Namespace) -> int:
             breaker_verdict = _PulseBreaker(is_open=True, _escalation=esc)
             break
 
+    # 3b. ENFORCEMENT OVER-BLOCKING (docs/365): fold the OP_ENFORCE journal into the
+    #     false-DENY / held-catch metric and surface it when the false-DENY count
+    #     crosses the threshold. The continuous-OBSERVE half of the autonomous
+    #     enforcement-tuning loop — pulse names the over-blocking; the cadence's
+    #     the autonomous `dos enforce-tune` cadence acts on it. Fail-soft: absent ⇒ the fold's silent
+    #     default (0 false-denies, no line).
+    enforce_metric = None
+    try:
+        from dos import enforce_outcomes as _eo
+        enforce_metric = _eo.outcome_metric(_eo.read_outcomes(cfg))
+    except Exception:  # noqa: BLE001 — advisory fail-safe; absent ⇒ silent default
+        enforce_metric = None
+
     digest = _pulse.fold_pulse(
-        liveness=verdicts, decisions=human_rows, breaker_verdict=breaker_verdict)
+        liveness=verdicts, decisions=human_rows, breaker_verdict=breaker_verdict,
+        enforce_metric=enforce_metric)
 
     # 4. SILENCE RULE: an all-clear pulse pushes nothing and exits 0 (unless --json,
     #    which always emits the machine surface for a scripted cron).
@@ -10523,6 +10718,65 @@ def build_parser() -> argparse.ArgumentParser:
                            "next_consecutive_reverts, reason, evidence}")
     _add_output_flag(pimp)
     pimp.set_defaults(func=cmd_improve)
+
+    # enforce-tune (docs/365) — the self-tuning ENFORCEMENT-POLICY keep-gate. The
+    # PEP-feedback loop's per-cycle verdict: it measures a candidate enforcement
+    # policy's net_task_delta over the labelled corpus (the intervention_eval metric)
+    # and rides improve.classify — so the loop cannot keep a policy edit it merely
+    # narrated as good (the metric is kernel-measured, the keep-bit non-forgeable).
+    petu = sub.add_parser(
+        "enforce-tune",
+        help="self-tuning enforcement-policy keep-gate: score a candidate policy's "
+             "net_task_delta and KEEP/REVERT/ESCALATE (docs/365)",
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    _add_workspace_flags(petu)
+    petu.add_argument("--cases", required=True, metavar="PATH",
+                      help="the labelled InterventionCase corpus (JSONL) the candidate "
+                           "policy is scored over — the docs/143 §13.2 ground truth")
+    petu.add_argument("--policy-toml", dest="policy_toml", default=None, metavar="PATH",
+                      help="the CANDIDATE worktree's dos.toml — the policy + ladder edit "
+                           "to score (the candidate's actual knobs, never the claim). "
+                           "Default: the active workspace's policy")
+    petu.add_argument("--baseline-work", dest="baseline_work", type=int, default=0,
+                      metavar="UNITS",
+                      help="the scaled net_task_delta of the BASELINE policy — KEEP needs "
+                           "the candidate to strictly beat it (an env-measured gain)")
+    petu.add_argument("--suite-passed", dest="suite_passed", action="store_true",
+                      help="the suite passed on the candidate worktree (MISSING ⇒ red)")
+    petu.add_argument("--truth-clean", dest="truth_clean", action="store_true",
+                      help="the truth syscall is clean (MISSING ⇒ dirty)")
+    petu.add_argument("--changed-files", dest="changed_files", nargs="*", default=None,
+                      metavar="PATH",
+                      help="the candidate commit's diff path list — a file in the "
+                           "SELF_MODIFY runtime set forces a REVERT regardless of the "
+                           "metric (the autonomy hard rail, docs/365)")
+    petu.add_argument("--tokens", type=int, default=0, metavar="N",
+                      help="tokens the proposing agent spent (efficiency rung)")
+    petu.add_argument("--consecutive-reverts", dest="consecutive_reverts", type=int,
+                      default=0, metavar="N",
+                      help="the carried breaker count (the Nth reaching --max-reverts ⇒ "
+                           "ESCALATE to a human)")
+    petu.add_argument("--max-reverts", dest="max_reverts", type=int, default=None,
+                      metavar="N",
+                      help="ESCALATE after this many non-keeps in a row (default 3)")
+    petu.add_argument("--narrated", type=str, default=None, metavar="TEXT",
+                      help="the candidate's own description — carried, parsed for NOTHING")
+    petu.add_argument("--json", action="store_true",
+                      help="machine-readable verdict + measured_work + runtime_logic_hits")
+    _add_output_flag(petu)
+    petu.set_defaults(func=cmd_enforce_tune)
+
+    # enforce-outcomes (docs/365) — the read-only PEP-feedback projection: the live
+    # false-DENY / held-catch ledger folded from the OP_ENFORCE journal. What the
+    # enforcement seam acted on, and which acts the operator later overturned.
+    peno = sub.add_parser(
+        "enforce-outcomes",
+        help="the live false-DENY / held-catch ledger folded from the enforcement "
+             "journal (read-only, docs/365)")
+    _add_workspace_flags(peno)
+    peno.add_argument("--json", action="store_true",
+                      help="machine-readable {metric, outcomes} — what the cadence reads")
+    peno.set_defaults(func=cmd_enforce_outcomes)
 
     # retire (docs/350) — the library-retention gate; the third leaf of the
     # keep-only-what-a-witness-confirms family (after improve), aimed at the agent's
