@@ -5,7 +5,7 @@
 > "cover 98% of hosts" is measured against the WIREABLE universe, not against
 > every agent product that exists.**
 
-*Status: IN PROGRESS. As of 2026-06-16. 6 → 15 hooks-tier hosts landed.*
+*Status: IN PROGRESS. As of 2026-06-16. 6 → 21 hooks-tier hosts landed.*
 
 ## 0. What this is
 
@@ -54,7 +54,7 @@ Aider, Zed, Warp, Roo Code, Void, PearAI, and the orchestration FRAMEWORKS
 Python/TS callbacks, not a stdout-command hook. OpenClaw (in-process TS return)
 and SwarmClaw (no pre-tool veto) are the docs/278 precedent.
 
-## 3. The hooks-tier roster (15, as of this writing)
+## 3. The hooks-tier roster (21, as of this writing)
 
 | Host | Dialect aliased | Config | Notes |
 |---|---|---|---|
@@ -73,32 +73,43 @@ and SwarmClaw (no pre-tool veto) are the docs/278 precedent.
 | continue | claude-code | `.continue/settings.json` | CC clone |
 | openhands | antigravity | `.openhands/hooks.json` | CC config, antigravity output |
 | tabnine | antigravity | `.tabnine/agent/settings.json` | CC config, antigravity output |
+| factory (Droid) | claude-code | `.factory/hooks.json` | CC clone |
+| copilot (VS Code) | claude-code | `.github/hooks/dos.json` | CC clone, fails closed |
+| copilot-cli | **copilot-cli** | `.github/hooks/dos.json` | the ONE new dialect: flat top-level `permissionDecision` |
+| kimi | claude-code | `.kimi/config.toml` | flat `[[hooks]]` TOML, CC output |
+| vibe | antigravity | `.vibe/hooks.toml` | flat `[[hooks]]` TOML, antigravity output |
+| grok | hermes | `.grok/user-settings.json` | CC config, hermes output |
 
-The striking pattern: **most new hosts alias an existing dialect** (claude-code,
+The striking pattern: **20 of 21 hosts alias an existing dialect** (claude-code,
 hermes, antigravity, cursor). The agent-host field has converged on a small set
-of deny-output grammars, so the per-host work is almost always an install spec,
-not a new renderer. DOS's dialect seam (docs/217) anticipated exactly this.
+of deny-output grammars — `copilot-cli`'s flat top-level `permissionDecision` was
+the ONLY genuinely new renderer the whole sweep needed. So the per-host work is
+almost always an install spec, not a new renderer; DOS's dialect seam (docs/217)
+anticipated exactly this. Two reusable mechanisms were added along the way:
+`ConfigFormat.YAML` (Hermes) and the flat-`[[hooks]]` TOML block shape
+(`toml_event_key`, for Kimi/Vibe) — each unblocks any future host of that shape.
 
 ## 4. Verified-but-deferred / refuted
 
 - **Cline** — NEEDS_NEW_DIALECT: a novel `{"cancel":true,"errorMessage":…}` deny
   + a file-as-registration installer (an executable named after the event in a
   hooks dir, no JSON table). A real lift, not an alias.
-- **Mistral Vibe** — a flat `[[hooks]]` TOML array-of-tables with a `type` field
-  (`before_tool`/`after_tool`), NOT the CC-shaped `[[hooks.EVENT]]` that
-  `merge_toml` writes. Needs a TOML-merge variant. Antigravity output.
 - **Amazon Kiro** — preToolUse deny is exit-code-2 + stderr, not stdout JSON;
   not wireable via a stdout dialect (advisory for tool deny).
 - **JetBrains Junie** — REFUTED for tool blocking: no PreToolUse/PostToolUse
   event; only Stop/SessionStart. A Stop-only dialect could be added later.
-- **Goose** — hermes-output alias, but its config path is plugin-root-relative;
-  the concrete workspace install path needs confirmation before wiring.
+- **Goose** — hermes-output alias, but its config path is plugin-root-relative
+  (`.agents/plugins/<name>/hooks/hooks.json`, medium confidence); the concrete
+  workspace install path needs confirmation before wiring.
 
 ## 5. Remaining work toward the goal
 
-GitHub Copilot (Agent Mode + CLI), Grok CLI, Kimi CLI, Droid (Factory) — under
-verification. The Vibe TOML-variant and Goose-path questions are small follow-on
-lifts. The denominator is still firming up (the full census found ~81 candidate
+The high-adoption wireable hosts are now covered (Mistral Vibe, Kimi, Grok, the
+two GitHub Copilot surfaces, Droid all landed since the first draft). The
+remaining known candidates are the genuine lifts: Cline's novel grammar +
+file-registration installer, and Goose's plugin-root path. A completeness audit
+(docs/368 §6) checks whether any high-adoption wireable host is still missing.
+The full census found ~81 candidate
 products; the wireable subset is the live count), but the trajectory is clear:
 the field's grammar convergence means most remaining wireable hosts are
 install-spec-only adds against the four dialects DOS already renders.
