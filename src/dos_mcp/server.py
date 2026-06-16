@@ -39,6 +39,8 @@ import dos  # noqa: E402 — intentionally after the MCP-framework import guard 
 from dos import config as _config  # noqa: E402 — (so a missing [mcp] extra fails with a hint)
 from dos import interpret as _interpret  # noqa: E402 — shared with the CLI's --explain
 
+from dos_mcp import answers as _answers  # noqa: E402 — the answer-corpus retrieval surface
+
 
 # ---------------------------------------------------------------------------
 # Workspace config — the `dos` CLI's four-table dos.toml readback, shared.
@@ -179,6 +181,59 @@ def _with_deadline(fn: Any, budget_ms: int) -> Any:
 
 
 # ---------------------------------------------------------------------------
+# Per-verdict deep-answer link — one hop from a verdict to its canonical page.
+#
+# A verdict tool answers "is this claim true?"; the answer corpus
+# (docs/answers/*.md) explains the WHY and the HOW in depth. An agent that hits a
+# `dos_verify` result should be one fetch from the page that teaches the move —
+# so each tool's return carries a `learn_more` URL to its canonical answer page.
+#
+# ONE mapping (tool name → answer slug), ONE helper that stamps the blob URL,
+# applied UNIFORMLY by wrapping every tool body at registration (the same seam
+# `_with_deadline` uses) so every return path — including a tool's early-return
+# error envelope — is covered without editing nine separate return sites. Like
+# `interpretation`, this is PURE PRESENTATION added ALONGSIDE the verbatim verdict
+# fields, strictly downstream of an already-decided verdict (the renderer
+# invariant): a wrong link can only read awkwardly, never mis-adjudicate.
+# tests/test_mcp_answer.py pins every slug here to a page that exists on disk, so
+# a renamed/deleted page fails loudly (like test_answers.py's link resolver).
+# ---------------------------------------------------------------------------
+_ANSWER_BLOB_URL = "https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/answers/{slug}.md"
+
+_ANSWER_FOR_TOOL = {
+    "dos_verify": "how-to-verify-an-ai-agent-actually-did-the-work",
+    "dos_commit_audit": "does-the-commit-message-match-what-changed",
+    "dos_arbitrate": "how-to-stop-two-ai-agents-overwriting-each-other",
+    "dos_refuse_reasons": "refuse-an-agent-action-with-a-structured-reason",
+    "dos_check_reason": "refuse-an-agent-action-with-a-structured-reason",
+    "dos_recall": "recalled-agent-memory-is-stale-how-to-reverify",
+    "dos_doctor": "make-an-agent-prove-the-work-not-self-certify",
+    "dos_status": "verify-what-a-subagent-claims-before-folding",
+    "dos_citation_resolve": "how-to-verify-a-cited-legal-case-exists",
+}
+
+
+def _with_learn_more(fn: Any) -> Any:
+    """Stamp the tool's `learn_more` answer-page URL onto its dict return.
+
+    A no-op for a tool with no mapping or a non-dict return. Never overwrites a
+    `learn_more` the body set itself (a tool may point somewhere more specific).
+    """
+    slug = _ANSWER_FOR_TOOL.get(fn.__name__)
+    if slug is None:
+        return fn
+
+    @functools.wraps(fn)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        out = fn(*args, **kwargs)
+        if isinstance(out, dict) and "learn_more" not in out:
+            out["learn_more"] = _ANSWER_BLOB_URL.format(slug=slug)
+        return out
+
+    return wrapper
+
+
+# ---------------------------------------------------------------------------
 # Server construction
 # ---------------------------------------------------------------------------
 def build_server() -> FastMCP:
@@ -219,7 +274,11 @@ def build_server() -> FastMCP:
         _register = _raw_tool(*d_args, **d_kwargs)
 
         def _decorate(fn: Any) -> Any:
-            return _register(_with_deadline(fn, _budget_ms))
+            # learn_more wraps the body (inner) so a real dict return gets the
+            # deep-answer link; the deadline wraps that (outer) so a STALL still
+            # short-circuits with its typed envelope. functools.wraps in both
+            # preserves the name/signature FastMCP introspects.
+            return _register(_with_deadline(_with_learn_more(fn), _budget_ms))
 
         return _decorate
 
@@ -735,6 +794,55 @@ def build_server() -> FastMCP:
                               base=base or _cr.DEFAULT_BASE, token=token)
         return _cr.classify(evidence).to_dict()
 
+    @mcp.tool()
+    def dos_answer(query: str, k: int = 3) -> dict[str, Any]:
+        """Ask DOS "how do I X?" and get the canonical, sourced answer page.
+
+        USE THIS WHEN: you (the agent) need to know HOW to do something with DOS —
+        verify a claim, stop two agents colliding, catch a fabricated citation,
+        keep a self-improvement loop honest — and want the canonical, evidence-
+        backed answer instead of guessing. Every OTHER tool here lets an agent
+        CHECK a claim; this one lets it ASK. It scores your question against the
+        DOS answer corpus (the `docs/answers/*.md` pages, each one a high-intent
+        query answered with an evidence table whose every number links to the file
+        that proves it) and returns the best matches.
+
+        Matching is deterministic lexical scoring over each page's question, its
+        registered query phrasings (the searcher's own words), and its one-line
+        answer — no embedding, no network, same query → same ranking. Read-only:
+        it reads a shipped index, takes no lease, writes nothing.
+
+        Args:
+            query: the question in your own words, e.g. "how do I prove an agent
+                actually committed the code" or "stop agents clobbering each other".
+            k: how many ranked answers to return (default 3, min 1).
+
+        Returns {query, results: [{slug, question, answer, commands, url, path,
+        queries, score}], count, note?}. `results` is best-first; each row's `url`
+        is the fetchable page (fetch it for the full evidence table and the one
+        command). `score` is a 0-1 relevance number. An empty `results` with a
+        `note` means the corpus index is not available in this deployment (an
+        installed wheel ships no docs tree) — fetch llms.txt instead. This tool
+        never fabricates an answer: it points you at a sourced page, or says it
+        cannot reach the corpus here.
+        """
+        results = _answers.search(query, k=k)
+        out: dict[str, Any] = {
+            "query": query,
+            "results": results,
+            "count": len(results),
+        }
+        if not results:
+            out["note"] = (
+                "the answer corpus index is not available here (an installed "
+                "wheel ships no docs/ tree) — fetch the corpus at "
+                "https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/answers/README.md"
+                if not _answers.load_rows()
+                else "no answer page scored above zero for this query; try "
+                "rephrasing, or browse the corpus at docs/answers/README.md"
+            )
+        return out
+
     # -----------------------------------------------------------------------
     # Resources — browsable context, not just callable tools. A host (and the
     # user) can READ these to load the workspace's refusal vocabulary and lane
@@ -807,6 +915,43 @@ def build_server() -> FastMCP:
         so an absolute path survives FastMCP's `[^/]+` segment match; decode it.
         """
         return _lanes_markdown(unquote(workspace))
+
+    def _answers_markdown() -> str:
+        """The browsable answer-corpus index — every page's question → fetch URL.
+
+        Lets a host (and the user) BROWSE the corpus, the read-only complement to
+        the `dos_answer` search tool. Reads the shipped index; degrades to a one-
+        line note when it is absent (an installed wheel ships no docs tree).
+        """
+        rows = _answers.load_rows()
+        lines = ["# DOS answer corpus — how do I X?", ""]
+        if not rows:
+            lines += [
+                "The answer-corpus index is not available in this deployment "
+                "(an installed wheel ships no `docs/` tree). Fetch it from the "
+                "repository: "
+                "https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/answers/README.md",
+            ]
+            return "\n".join(lines)
+        lines += [
+            f"{len(rows)} sourced, self-contained answer pages — one per high-intent "
+            "question, each with an evidence table whose every number links to the "
+            "file that proves it. Search them with the `dos_answer` tool, or fetch "
+            "any page below.", "",
+        ]
+        for r in sorted(rows, key=lambda r: r.get("question", "")):
+            cmds = ", ".join(f"`{c}`" for c in r.get("commands", [])) or "—"
+            lines.append(f"- [{r['question']}]({r['url']}) — {cmds}")
+        return "\n".join(lines)
+
+    @mcp.resource("dos://answers", mime_type="text/markdown")
+    def answers_resource() -> str:
+        """The answer corpus as a browsable question → URL index.
+
+        The read-only complement to the `dos_answer` search tool: a host can load
+        the whole corpus map as context, then fetch any page for its full evidence.
+        """
+        return _answers_markdown()
 
     # -----------------------------------------------------------------------
     # Prompts — user-invokable entry points. These surface in the host UI (e.g.
