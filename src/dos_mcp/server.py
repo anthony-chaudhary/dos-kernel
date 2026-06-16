@@ -203,6 +203,7 @@ _ANSWER_BLOB_URL = "https://github.com/anthony-chaudhary/dos-kernel/blob/master/
 _ANSWER_FOR_TOOL = {
     "dos_verify": "how-to-verify-an-ai-agent-actually-did-the-work",
     "dos_commit_audit": "does-the-commit-message-match-what-changed",
+    "dos_review": "stop-re-reviewing-code-the-machine-already-verified",
     "dos_arbitrate": "how-to-stop-two-ai-agents-overwriting-each-other",
     "dos_refuse_reasons": "refuse-an-agent-action-with-a-structured-reason",
     "dos_check_reason": "refuse-an-agent-action-with-a-structured-reason",
@@ -360,6 +361,62 @@ def build_server() -> FastMCP:
             return out
         out = v.to_dict()
         out["interpretation"] = _interpret.commit_audit(out)
+        return out
+
+    @mcp.tool()
+    def dos_review(rev_range: str = "HEAD~20..HEAD", workspace: str = ".") -> dict[str, Any]:
+        """Review the RESIDUAL, not the diff — where is a human's attention actually owed?
+
+        USE THIS WHEN: you (or a host's CI gate) are about to review a RANGE of
+        commits and want to spend attention only where the kernel could NOT already
+        confirm the change. It re-projects `dos_commit_audit`'s per-commit verdict
+        into three attention bands so a reviewer reads the part that matters first:
+
+          * CLEARED — the claim is `diff-witnessed` / `data-witnessed`: the kernel
+            corroborated the SHAPE of the change against the file set git itself
+            recorded. ~0 attention for "did this do what it said".
+          * RESIDUAL — a claim the diff could NOT witness (`subject-only` /
+            CLAIM_UNWITNESSED). This is the 100% — the only place review attention
+            buys something the machine couldn't get. The CI gate fires on this band.
+          * UNVERIFIABLE — the commit made no checkable claim (ABSTAIN). Still
+            reviewable, but lower priority than an unwitnessed CLAIM.
+
+        Plus an advisory SEMANTIC lens that re-flags ALREADY-cleared commits touching
+        a risk surface (concurrency, auth, money, crypto, deletion). It can only ask
+        for MORE eyes, never fewer, so it can never hide a residual. Carries ZERO new
+        trust over `dos_commit_audit`: the bands are a pure re-projection of the same
+        rung, sorted by commit instead of folded into a drift rate. Read-only — it
+        adjudicates nothing and writes nothing.
+
+        Args:
+            rev_range: the git range to review, e.g. "origin/master..HEAD" or
+                "HEAD~20..HEAD" (the default). A single ref reviews just that commit.
+            workspace: the repo root the commits live in (default: cwd).
+
+        Returns {rev_range, n_commits, checkable, cleared_rate, residual[], cleared[],
+        unverifiable[], semantic[], residual_count, has_residual, interpretation}.
+        `has_residual` is the one-bit CI gate (the `dos review` exit-1 condition);
+        `interpretation` (added by this server) tells you in one line what to do next.
+        """
+        from dos import residual_review as _rr
+        cfg = _load_workspace_config(workspace)
+        root = str(cfg.paths.root)
+        plan = _rr.build_plan(rev_range, root=root)
+        out = _rr.plan_to_dict(plan)
+        n_resid = len(plan.residual)
+        out["residual_count"] = n_resid
+        out["has_residual"] = n_resid > 0
+        if n_resid:
+            pct = round(plan.cleared_rate * 100)
+            out["interpretation"] = (
+                f"RESIDUAL — {n_resid} commit(s) make a claim git could not witness; "
+                f"that is the {100 - pct if plan.checkable else 100}% a human must read. "
+                f"The kernel already cleared {pct}% of {plan.checkable} checkable "
+                f"claim(s) — skip those. `dos review` would exit non-zero here.")
+        else:
+            out["interpretation"] = (
+                "CLEAN — every checkable claim in the range was witnessed by its own "
+                "diff; there is no residual a human must read. `dos review` exits 0.")
         return out
 
     @mcp.tool()

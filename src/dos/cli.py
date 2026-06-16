@@ -1279,6 +1279,14 @@ _COMMIT_AUDIT_EXITS = ExitMap({"clean": 0, "unwitnessed": 1, "contract_error": 2
 _COMMIT_AUDIT_EXIT_CODES = _COMMIT_AUDIT_EXITS.codes
 
 
+# review  (the residual diff — project commit-audit into a three-band review surface)
+#   The CI "human-needed-here" gate (docs/358): exit non-zero IFF a RESIDUAL band
+#   exists — a claim git could not witness, the only place review attention buys
+#   anything the machine couldn't get. A fully-cleared range exits 0.
+_REVIEW_EXITS = ExitMap({"clean": 0, "residual": 1, "contract_error": 2})
+_REVIEW_EXIT_CODES = _REVIEW_EXITS.codes
+
+
 def cmd_commit_audit(args: argparse.Namespace) -> int:
     """Does a commit's CLAIM match what its DIFF actually did? Author-neutral.
 
@@ -1366,6 +1374,72 @@ def _color_audit_line(line: str, verdict) -> str:
     if verdict.verdict is _ca.Verdict.OK:
         return f"\033[32m{line}\033[0m"
     return f"\033[2m{line}\033[0m"
+
+
+def cmd_review(args: argparse.Namespace) -> int:
+    """Review the RESIDUAL, not the diff — the next-generation review surface.
+
+    A thin shell over the shipped `residual_review` kernel module (issue #211): it
+    re-projects `commit-audit`'s per-commit verdict into three attention bands —
+    CLEARED (the kernel witnessed the claim's shape; ~0 attention), RESIDUAL (a
+    claim git could NOT witness; the only place human review buys anything the
+    machine couldn't), and UNVERIFIABLE (no claim to check) — plus an advisory
+    SEMANTIC lens that only ever asks for MORE eyes. Carries ZERO new trust over
+    `commit-audit`: the bands are a pure re-projection of the same rung, sorted by
+    commit instead of folded into a drift rate.
+
+    The exit code is the CI gate docs/358 promised: NON-ZERO iff a RESIDUAL band
+    exists (a human must read it). A fully-cleared range exits 0. I/O lives here,
+    at the boundary — the kernel projection (`plan_review`) stays pure.
+    """
+    _apply_workspace(args)
+    from dos import residual_review as _rr
+
+    root = str(_config.active().paths.root)
+    target = args.rev_range
+    # An unreadable range is a contract error, distinct from an empty-but-valid
+    # one. `build_plan` calls `audit_range`, which returns [] for both; probe the
+    # range's right side with a cheap rev-parse to tell them apart.
+    if not _review_range_readable(target, root):
+        print(f"review: cannot read range '{target}' in {root} "
+              f"(not a git repo, or bad range)", file=sys.stderr)
+        return _REVIEW_EXIT_CODES["contract_error"]
+
+    plan = _rr.build_plan(target, root=root)
+
+    if getattr(args, "json", False):
+        import json as _json
+        print(_json.dumps(_rr.plan_to_dict(plan), indent=2))
+    elif getattr(args, "walk", False):
+        print(_rr.render_walk(plan, root=root))
+    else:
+        print(_rr.render_text(plan))
+
+    return (_REVIEW_EXIT_CODES["residual"] if plan.residual
+            else _REVIEW_EXIT_CODES["clean"])
+
+
+def _review_range_readable(target: str, root: str) -> bool:
+    """True iff `target` is a readable git range/ref in `root`.
+
+    `build_plan`/`audit_range` return [] for both an empty-but-valid range and an
+    unreadable one; `review` must distinguish them so a bad range is a contract
+    error (exit 2), not a falsely-clean exit 0. `git rev-list` over the WHOLE
+    range is the right probe — it fails (non-zero) on EITHER side being unknown,
+    exactly as the `git log` inside `audit_range` does, and succeeds (zero, empty
+    output) on a valid-but-empty range. Boundary I/O; fail-closed to False on any
+    OS error."""
+    import subprocess
+
+    try:
+        out = subprocess.run(
+            ["git", "-C", root, "rev-list", "--quiet", target, "--"],
+            capture_output=True, text=True, check=False,
+            stdin=subprocess.DEVNULL,  # evidence reader: never inherit the caller's stdin (docs/295)
+        )
+    except OSError:
+        return False
+    return out.returncode == 0
 
 
 def _gather_non_git_rung(cfg, sha: str):
@@ -10687,6 +10761,39 @@ def build_parser() -> argparse.ArgumentParser:
                           "commit messages?'")
     pca.add_argument("--json", action="store_true")
     pca.set_defaults(func=cmd_commit_audit)
+
+    prv = sub.add_parser(
+        "review",
+        help="review the RESIDUAL, not the diff — project commit-audit into "
+             "CLEARED / RESIDUAL / UNVERIFIABLE attention bands; exit non-zero "
+             "iff a claim git could not witness exists",
+        description=(
+            "The next-generation review surface (issue #211): instead of reading "
+            "every changed line with equal attention, project a range back onto its "
+            "commits and partition the review surface by WHERE a human's attention "
+            "buys something the machine couldn't. A commit-audit `diff-witnessed` / "
+            "`data-witnessed` claim is CLEARED — the kernel already corroborated the "
+            "SHAPE of the change against the file set git itself recorded, so it "
+            "costs ~0 attention for 'did this do what it said'. A claim the diff "
+            "could NOT witness (`subject-only` / CLAIM_UNWITNESSED) is the RESIDUAL — "
+            "the only place review attention is the ONLY way to answer the question. "
+            "A commit that made no checkable claim (ABSTAIN) is UNVERIFIABLE — still "
+            "reviewable, but lower priority. An advisory SEMANTIC lens re-flags "
+            "ALREADY-cleared commits that touch a risk surface; it can only ask for "
+            "MORE eyes, never fewer, so it can never hide a residual. Carries ZERO "
+            "new trust over `commit-audit`: the bands are a pure re-projection of "
+            "the same rung. The exit code is the CI gate (docs/358): 0 clean / 1 a "
+            "RESIDUAL exists (a human must read it) / 2 unreadable range."),
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    _add_workspace_flags(prv)
+    prv.add_argument("rev_range", nargs="?", default="HEAD~20..HEAD",
+                     help="git range to review (default: HEAD~20..HEAD)")
+    prv.add_argument("--json", action="store_true",
+                     help="emit the three-band plan as JSON")
+    prv.add_argument("--walk", action="store_true",
+                     help="step through the residual as numbered review cards (the "
+                          "navigation surface) instead of the three-band list")
+    prv.set_defaults(func=cmd_review)
 
     pvr = sub.add_parser(
         "verify-result",

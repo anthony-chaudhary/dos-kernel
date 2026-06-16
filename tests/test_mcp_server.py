@@ -56,9 +56,9 @@ def test_server_registers_the_syscall_tools():
     listed = asyncio.run(server.list_tools())
     names = {t.name for t in listed}
     assert names == {
-        "dos_verify", "dos_commit_audit", "dos_arbitrate", "dos_refuse_reasons",
-        "dos_check_reason", "dos_doctor", "dos_recall", "dos_status",
-        "dos_citation_resolve", "dos_answer",
+        "dos_verify", "dos_commit_audit", "dos_review", "dos_arbitrate",
+        "dos_refuse_reasons", "dos_check_reason", "dos_doctor", "dos_recall",
+        "dos_status", "dos_citation_resolve", "dos_answer",
     }
     # Every tool carries a docstring-derived description (the agent-facing prose).
     assert all(t.description for t in listed)
