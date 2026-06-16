@@ -1,33 +1,35 @@
 {
-  "commits": 203,
-  "checkable": 129,
-  "abstained": 74,
-  "witnessed": 126,
-  "unwitnessed": 3,
-  "drift_rate": 0.023255813953488372,
+  "commits": 500,
+  "checkable": 315,
+  "abstained": 185,
+  "witnessed": 310,
+  "unwitnessed": 5,
+  "drift_rate": 0.015873015873015872,
   "by_kind": {
-    "doc": {
-      "unwitnessed": 3,
-      "witnessed": 96,
-      "abstain": 0
-    },
     "none": {
       "unwitnessed": 0,
       "witnessed": 0,
-      "abstain": 74
-    },
-    "code_effect": {
-      "unwitnessed": 0,
-      "witnessed": 25,
-      "abstain": 0
+      "abstain": 185
     },
     "test": {
       "unwitnessed": 0,
-      "witnessed": 5,
+      "witnessed": 9,
+      "abstain": 0
+    },
+    "doc": {
+      "unwitnessed": 4,
+      "witnessed": 224,
+      "abstain": 0
+    },
+    "code_effect": {
+      "unwitnessed": 1,
+      "witnessed": 77,
       "abstain": 0
     }
   },
   "unwitnessed_shas": [
+    "841d38d",
+    "c956d2a",
     "0843842",
     "cc00bf1",
     "bf05e27"

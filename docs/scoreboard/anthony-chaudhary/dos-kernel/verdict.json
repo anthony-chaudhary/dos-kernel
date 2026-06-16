@@ -1,49 +1,51 @@
 {
   "schema": "dos-scoreboard-verdict/v1",
   "repo": "anthony-chaudhary/dos-kernel",
-  "generated": "2026-06-12",
+  "generated": "2026-06-16",
   "grader": {
     "tool": "dos-kernel commit-audit --sweep",
-    "version": "0.25.0"
+    "version": "0.27.0"
   },
   "methodology": "https://anthony-chaudhary.github.io/dos-kernel/drift-scoreboard.html",
   "opt_in": true,
   "range": {
-    "described": "full visible public history (abe74e8..HEAD at sweep time)",
-    "head_sha": "4ea6a2aa7d8707b7f6345de08e66d8ceb6719410",
-    "commits_audited": 203
+    "described": "full visible history",
+    "head_sha": "1ffdaff70a3282d6ad90940438f09b1f1705a44d",
+    "commits_audited": 500
   },
   "claims": {
-    "checkable": 134,
-    "witnessed": 131,
-    "unwitnessed": 3,
-    "abstained": 69,
-    "drift_rate": 0.022388059701492536
+    "checkable": 315,
+    "witnessed": 310,
+    "unwitnessed": 5,
+    "abstained": 185,
+    "drift_rate": 0.015873015873015872
   },
   "by_kind": {
-    "doc": {
-      "unwitnessed": 3,
-      "witnessed": 103,
-      "abstain": 0
-    },
     "none": {
       "unwitnessed": 0,
       "witnessed": 0,
-      "abstain": 69
-    },
-    "code_effect": {
-      "unwitnessed": 0,
-      "witnessed": 23,
-      "abstain": 0
+      "abstain": 185
     },
     "test": {
       "unwitnessed": 0,
-      "witnessed": 5,
+      "witnessed": 9,
+      "abstain": 0
+    },
+    "doc": {
+      "unwitnessed": 4,
+      "witnessed": 224,
+      "abstain": 0
+    },
+    "code_effect": {
+      "unwitnessed": 1,
+      "witnessed": 77,
       "abstain": 0
     }
   },
   "receipts": {
     "unwitnessed_shas": [
+      "841d38d",
+      "c956d2a",
       "0843842",
       "cc00bf1",
       "bf05e27"
