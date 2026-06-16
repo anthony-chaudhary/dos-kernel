@@ -59,4 +59,15 @@ code (`0` shipped / `1` not). No parsing, no plan, no config — the
 end-to-end. To run it on a repo shaped like yours, start with
 [Onboard a repo in 10 minutes](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/01_onboard-a-repo.md).
 
+Point the same witness at a **review queue** when commits pile up faster than
+anyone can read them. [Residual review](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/residual_review/)
+folds `commit-audit`'s per-commit verdict into three bands — **CLEARED** (the
+diff witnessed the claim, so spend ~0 attention re-asking "did it do what it
+said"), **RESIDUAL** (a claim git couldn't back — the human's 100%), and the
+no-claim rest. On this repo's own last 200 commits it cleared 170 of 171
+checkable claims: that's the re-review you skip, proven by git rather than a
+model's confidence score. (CLEARED means the change's *shape* matched its
+claim — **not** that the code is correct; correctness review still applies to
+every commit. The band can only ever ask for *more* eyes, never fewer.)
+
 *Next level up — wire the verdict into your own stack: [How you plug it in](#how-you-plug-it-in).*
