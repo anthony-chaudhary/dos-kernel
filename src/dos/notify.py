@@ -79,6 +79,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 if TYPE_CHECKING:  # pragma: no cover - typing only; never imported at runtime
     from dos.decisions import Decision
     from dos.dispatch_top import Frame
+    from dos.pulse import PulseDigest
 
 
 # ---------------------------------------------------------------------------

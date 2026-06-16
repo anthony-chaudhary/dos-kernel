@@ -47,8 +47,8 @@ model, now on a cadence nothing currently provides.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Optional, Sequence
+from dataclasses import dataclass
+from typing import Any, Sequence
 
 # The closed severity vocabulary — string-valued, matching `notify.Severity` so the
 # digest's worst-signal level maps straight onto a `Notification` without a lookup.

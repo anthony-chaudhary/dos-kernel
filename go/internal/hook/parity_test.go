@@ -21,6 +21,12 @@ type parityCase struct {
 	RuntimeFiles   []string         `json:"runtime_files"`
 	ExpectedStdout string           `json:"expected_stdout"`
 	Decision       string           `json:"decision"`
+	// docs/355 — the interactive-operator session class the Python oracle stamped
+	// into the corpus (gen_corpus.py emits `operator_session: true` for the no-loop
+	// human cases). The harness MUST inject it as `in.OperatorSession`, or the Go
+	// decider runs as a loop session and hard-denies where Python now WARNs — a
+	// false byte drift.
+	OperatorSession bool `json:"operator_session"`
 	// Now + Override carry the docs/296 override-arm cases hermetically: the Python
 	// oracle injected these same facts + clock (never a live arm file), so the Go
 	// replay must inject them too. Absent on every non-override case (nil/"" ⇒ the
@@ -117,8 +123,9 @@ func TestParityCorpus(t *testing.T) {
 		t.Run(c.Name, func(t *testing.T) {
 			ev := parseEvent(c.Event)
 			in := Inputs{
-				LiveLeases:   leasesFromCorpus(c.Leases),
-				RuntimeFiles: c.RuntimeFiles,
+				LiveLeases:      leasesFromCorpus(c.Leases),
+				RuntimeFiles:    c.RuntimeFiles,
+				OperatorSession: c.OperatorSession,
 			}
 			if facts, now := overrideFromCorpus(t, c); facts != nil {
 				in.OverrideFacts = facts
