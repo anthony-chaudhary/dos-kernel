@@ -161,6 +161,30 @@ def _run_cli(*args: str, cwd: Path) -> subprocess.CompletedProcess:
     )
 
 
+def test_torn_config_load_still_emits_the_verdict(tmp_path, monkeypatch, capsys):
+    # Torn-config fail-soft (issue #206): a SIBLING loop mid-editing config.py leaves a
+    # write that raises AttributeError out of `load_workspace_config`. cmd_hook_exit is
+    # host-invoked, BUT unlike the other hooks it never reads the active config —
+    # `classify_exit` is PURE. So the right fail-soft is NOT to abstain but to note the
+    # failure and STILL emit the exit verdict. Fails-unpatched (the AttributeError used
+    # to propagate up cmd_hook_exit before any verdict was emitted); passes-patched.
+    from dos import cli
+
+    def boom(*a, **k):
+        raise AttributeError("'SubstrateConfig' object has no attribute 'vcs_backend'")
+    monkeypatch.setattr("dos.config.load_workspace_config", boom)
+
+    args = cli.argparse.Namespace(
+        workspace=str(tmp_path), driver=None, job=False,
+        code=2, map=None, json=False, output=None, observe=False,
+    )
+    rc = cli.cmd_hook_exit(args)
+    captured = capsys.readouterr()
+    assert rc == 3                       # exit 2 → BLOCK (rung 3); the verdict survived
+    assert "BLOCK" in captured.out       # the pure classification still emitted
+    assert "could not load the workspace config" in captured.err
+
+
 def test_cli_pass_exit_zero(tmp_path: Path):
     """A pass (exit 0) → the verb exits 0 (proceed)."""
     r = _run_cli("hook-exit", "--code", "0", cwd=tmp_path)

@@ -161,6 +161,23 @@ def test_empty_workspace_emits_nothing(repo, monkeypatch, capsys):
     assert out == ""
 
 
+def test_torn_config_load_emits_nothing_without_crashing(repo, monkeypatch, capsys):
+    # Torn-config fail-soft (issue #206): a SIBLING loop mid-editing config.py leaves a
+    # write that raises AttributeError out of `load_workspace_config`. SessionStart is
+    # host-invoked — a traceback lands in the host's session-start lifecycle. It must
+    # degrade to its OWN no-op (emit nothing, exit 0), the same as an empty workspace.
+    # Fails-unpatched (the error used to propagate up cmd_hook_session_start);
+    # passes-patched.
+    def boom(*a, **k):
+        raise AttributeError("'SubstrateConfig' object has no attribute 'vcs_backend'")
+    monkeypatch.setattr("dos.config.load_workspace_config", boom)
+
+    rc, out = _run(monkeypatch, capsys, {"session_id": "s1", "cwd": str(repo)},
+                   "--workspace", str(repo))
+    assert rc == 0
+    assert out == ""  # nothing emitted — orientation simply absent, never a crash
+
+
 def test_no_stdin_is_safe(repo, monkeypatch, capsys):
     """Empty stdin degrades to a normal session start (emit nothing, exit 0)."""
     monkeypatch.setattr("sys.stdin", io.StringIO(""))

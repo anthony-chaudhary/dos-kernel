@@ -79,6 +79,29 @@ def _run_cli(monkeypatch, event, workspace: Path, *, handler="observe", debug=Fa
 
 
 # ==========================================================================
+# Torn-config fail-soft (issue #206): a SIBLING loop mid-editing config.py
+# must not crash THIS hook's PRE path. The fix that shipped for `dos hook stop`
+# (fd34adb) generalized to every host-invoked lifecycle hook.
+# ==========================================================================
+def test_torn_config_load_passes_through_without_crashing(monkeypatch, tmp_path, capsys):
+    # A half-finished `config.py` edit on disk raises AttributeError out of
+    # `load_workspace_config` (the documented `cfg.vcs_backend` crash). The PRE hook
+    # is host-invoked — a traceback here lands in the host's PreToolUse lifecycle. It
+    # must degrade to its OWN fail-safe (passthrough — emit nothing, exit 0), the same
+    # direction decide()'s internal faults already take. Fails-unpatched (the error
+    # used to propagate straight up cmd_hook_pretool); passes-patched.
+    def boom(*a, **k):
+        raise AttributeError("'SubstrateConfig' object has no attribute 'vcs_backend'")
+    monkeypatch.setattr("dos.config.load_workspace_config", boom)
+
+    out, rc = _run_cli(monkeypatch, _event("Write", {"file_path": "x.py"}, cwd=str(tmp_path)),
+                       tmp_path)
+    assert rc == 0
+    assert out.strip() == ""  # passthrough — no PRE dialect on stdout, the agent proceeds
+    assert "could not load the workspace config" in capsys.readouterr().err
+
+
+# ==========================================================================
 # is_pre_event — the structural PRE marker (no result key).
 # ==========================================================================
 def test_is_pre_event_true_on_plain_pretool():

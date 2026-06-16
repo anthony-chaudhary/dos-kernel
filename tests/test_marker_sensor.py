@@ -284,6 +284,22 @@ def _stop_event(session="loop-sess-1"):
     return {"session_id": session}
 
 
+def test_torn_config_load_allows_stop_without_crashing(tmp_path: Path, monkeypatch):
+    # Torn-config fail-soft (issue #206): a SIBLING loop mid-editing config.py leaves a
+    # write that raises AttributeError out of `load_workspace_config`. The marker hook is
+    # host-invoked — a traceback lands in the host's Stop lifecycle. It must degrade to
+    # its OWN no-op (allow the stop, exit 0, empty stdout), the same as a missing session
+    # identity. Fails-unpatched (the error used to propagate up cmd_hook_marker);
+    # passes-patched.
+    def boom(*a, **k):
+        raise AttributeError("'SubstrateConfig' object has no attribute 'vcs_backend'")
+    monkeypatch.setattr("dos.config.load_workspace_config", boom)
+
+    out, rc = _run_marker(_stop_event(), tmp_path, monkeypatch)
+    assert rc == 0
+    assert out.strip() == ""  # allow the stop — no block object on stdout
+
+
 def test_cli_blocks_while_budget_remains_then_allows_stop(tmp_path: Path, monkeypatch):
     """The end-to-end lever: with max_markers=4, the first 4 keep-alive turns BLOCK
     (hold the turn open), the 5th ALLOWS the stop (empty stdout) — the loop ends its

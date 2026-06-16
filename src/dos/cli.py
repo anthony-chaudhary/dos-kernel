@@ -137,6 +137,37 @@ def _apply_workspace(args: argparse.Namespace) -> None:
     _config.set_active(cfg)
 
 
+def _apply_workspace_failsoft(args: argparse.Namespace, *, verb: str) -> bool:
+    """Install the active workspace; on a torn concurrent config edit, abstain.
+
+    A host-invoked hook importing a kernel leaf a SIBLING loop is mid-editing must
+    never hard-crash the host's lifecycle with a traceback (docs/360 / issue #206 —
+    the same hazard `cmd_hook_stop` fixed inline). A half-finished `config.py` edit
+    on disk raises `AttributeError` / `ImportError` / `ValueError` out of
+    `load_workspace_config`; we degrade to the caller's OWN fail-safe (return
+    ``False`` → the hook takes its no-op / passthrough path) with a one-line stderr
+    note instead of the traceback. This is the fail-to-abstain rung (judges.py's
+    direction of safe failure) applied to the substrate's own config load: an
+    inability to read is never a richer claim than "we couldn't check."
+
+    Returns ``True`` on a clean load. Used only by the lifecycle-hook verbs —
+    operator CLI verbs keep the raw `_apply_workspace` so a broken config there
+    fails LOUD in the operator's own terminal, where a silent abstain would be the
+    worse lie.
+    """
+    try:
+        _apply_workspace(args)
+        return True
+    except Exception as exc:  # noqa: BLE001 — fail-to-abstain on a torn concurrent edit
+        print(
+            f"dos hook {verb}: could not load the workspace config "
+            f"({type(exc).__name__}: {exc}); abstaining. A concurrent edit of a "
+            f"kernel leaf may be mid-flight.",
+            file=sys.stderr,
+        )
+        return False
+
+
 def _observe_enabled(args: argparse.Namespace) -> bool:
     """Is verdict-journal recording armed for this invocation? (docs/262 Phase 2)
 
@@ -2343,8 +2374,45 @@ def cmd_accounts(args: argparse.Namespace) -> int:
             print(f'{k}={v}')
         return 0
 
+    if verb == "enroll":
+        # Store a setup-token for a rostered account, then seed its settings.json
+        # from the roster's defaults.settings — the fix for new accounts not
+        # inheriting global defaults (model, effortLevel, permissions, etc.).
+        name = getattr(args, "name", "")
+        token = (getattr(args, "token", None) or "").strip()
+        match = next((a for a in accounts if a.name == name), None)
+        if match is None:
+            return _fail(f"no account named {name!r} in roster",
+                         hint="run `dos accounts list` to see roster names")
+        if not token:
+            import sys
+            token = sys.stdin.read().strip()
+        try:
+            tok_path = _sw.write_account_token(match, token)
+        except _sw.TokenError as e:
+            return _fail(str(e), hint="pass the token printed by `claude setup-token`")
+        defaults = _sw.load_roster_defaults(getattr(args, "accounts_file", None))
+        seeded = _sw.seed_account_settings(match, defaults.settings)
+        if as_json:
+            print(json.dumps({
+                "name": name,
+                "token_path": str(tok_path),
+                "settings_seeded": str(seeded) if seeded else None,
+                "settings_keys": sorted(defaults.settings.keys()) if defaults.settings else [],
+            }, indent=2))
+            return 0
+        print(f"enrolled {name}: token → {tok_path}")
+        if seeded:
+            print(f"  settings seeded ({', '.join(sorted(defaults.settings))}): {seeded}")
+        elif defaults.settings:
+            print(f"  settings already present (not overwritten): "
+                  f"{_sw.account_settings_path(match)}")
+        else:
+            print("  no defaults.settings in roster — settings.json not written")
+        return 0
+
     return _fail(f"unknown accounts subcommand: {verb!r}",
-                 hint="one of: list, pool, seats, env, scaffold")
+                 hint="one of: list, pool, seats, env, scaffold, enroll")
 
 
 # ---------------------------------------------------------------------------
@@ -3369,7 +3437,10 @@ def cmd_hook_exit(args: argparse.Namespace) -> int:
 
     Detail: docs/CLI.md § cmd_hook_exit.
     """
-    _apply_workspace(args)
+    # Fail-soft on a torn concurrent config edit (issue #206): unlike the other
+    # hooks this verb never reads the active config — `classify_exit` is pure — so
+    # a failed load must NOT abstain; we note it and still emit the exit verdict.
+    _apply_workspace_failsoft(args, verb="exit")
     from dos import hook_exit
     from dos.intervention import Intervention
 
@@ -5103,7 +5174,8 @@ def cmd_hook_marker(args: argparse.Namespace) -> int:
         ev_cwd = event.get("cwd")
         if isinstance(ev_cwd, str) and ev_cwd:
             args.workspace = ev_cwd
-    _apply_workspace(args)
+    if not _apply_workspace_failsoft(args, verb="marker"):
+        return 0  # torn config (issue #206) → let the agent stop, like a missing identity
     cfg = _config.active()
 
     # 3. The session identity. No session_id (the override flag or the event) → no
@@ -5270,7 +5342,8 @@ def cmd_hook_session_start(args: argparse.Namespace) -> int:
         ev_cwd = event.get("cwd")
         if isinstance(ev_cwd, str) and ev_cwd:
             args.workspace = ev_cwd
-    _apply_workspace(args)
+    if not _apply_workspace_failsoft(args, verb="session-start"):
+        return 0  # torn config (issue #206) → emit nothing, like an empty workspace
     cfg = _config.active()
 
     session_id = getattr(args, "session_id", None) or event.get("session_id")
@@ -5425,7 +5498,8 @@ def cmd_hook_posttool(args: argparse.Namespace) -> int:
         ev_cwd = event.get("cwd")
         if isinstance(ev_cwd, str) and ev_cwd:
             args.workspace = ev_cwd
-    _apply_workspace(args)
+    if not _apply_workspace_failsoft(args, verb="posttool"):
+        return 0  # torn config (issue #206) → record nothing, like an event with no tool
     cfg = _config.active()
 
     # 3. Build the StreamStep (PURE). No tool_name → nothing to record.
@@ -5551,7 +5625,8 @@ def cmd_hook_pretool(args: argparse.Namespace) -> int:
         ev_cwd = event.get("cwd")
         if isinstance(ev_cwd, str) and ev_cwd:
             args.workspace = ev_cwd
-    _apply_workspace(args)
+    if not _apply_workspace_failsoft(args, verb="pretool"):
+        return 0  # torn config (issue #206) → passthrough, like decide()'s own fail-safe
     cfg = _config.active()
 
     # 4. Run the two PRE rungs. ALL of decide()'s own faults fail toward passthrough.
@@ -11487,6 +11562,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="PROPOSE a roster from enrolled ~/.claude-* dirs (read-only)")
     _acc_common(asc)
     asc.set_defaults(func=cmd_accounts)
+
+    aenroll = accsub.add_parser(
+        "enroll",
+        help="store a setup-token for an account + seed its settings.json from "
+             "roster defaults (fixes new accounts missing model/effort/permissions)")
+    _acc_common(aenroll)
+    aenroll.add_argument("--name", required=True, help="roster account name")
+    aenroll.add_argument("--token", default=None,
+                         help="the OAuth token from `claude setup-token` "
+                              "(reads stdin if omitted)")
+    aenroll.set_defaults(func=cmd_accounts)
 
     # scope-gate (docs/102 §5) — the BINDING pre-effect scope gate. Asks the same
     #   (full prose: docs/CLI.md § "scope-gate (docs/102 §5) — the BINDING pre-effect scope gate")

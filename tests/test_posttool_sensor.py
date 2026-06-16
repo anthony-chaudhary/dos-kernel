@@ -340,6 +340,21 @@ def _run_posttool(event: dict, workspace: Path, monkeypatch) -> str:
     return buf.getvalue(), rc
 
 
+def test_torn_config_load_records_nothing_without_crashing(tmp_path: Path, monkeypatch):
+    # Torn-config fail-soft (issue #206): a SIBLING loop mid-editing config.py leaves a
+    # write that raises AttributeError out of `load_workspace_config`. POST is host-
+    # invoked — a traceback lands in the host's PostToolUse lifecycle. It must degrade
+    # to its OWN no-op (record nothing, exit 0), the same as an event with no tool_name.
+    # Fails-unpatched (the error used to propagate up cmd_hook_posttool); passes-patched.
+    def boom(*a, **k):
+        raise AttributeError("'SubstrateConfig' object has no attribute 'vcs_backend'")
+    monkeypatch.setattr("dos.config.load_workspace_config", boom)
+
+    out, rc = _run_posttool(_poll_event("x", cwd=str(tmp_path)), tmp_path, monkeypatch)
+    assert rc == 0
+    assert out.strip() == ""  # nothing recorded, nothing emitted — the agent proceeds
+
+
 def _poll_event(result: str, cwd: str = "/work/dos"):
     # Byte-faithful to the captured 2cd77e93 window: a Read of a background-task
     # .output file, the env-returned bytes are the result.
