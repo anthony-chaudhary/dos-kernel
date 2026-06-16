@@ -47,6 +47,10 @@ from dos.stamp import StampConvention, JOB_STAMP_CONVENTION, GENERIC_STAMP_CONVE
 from dos.enumerate import EnumerateGrammar, GENERIC_GRAMMAR
 from dos.cooldown import CooldownPolicy, DEFAULT_COOLDOWN_POLICY
 from dos.supervise import SupervisePolicy, DEFAULT_POLICY as DEFAULT_SUPERVISE_POLICY
+from dos.queue_saturation import (
+    SaturationPolicy,
+    DEFAULT_POLICY as DEFAULT_SATURATION_POLICY,
+)
 from dos.lifecycle import LifecyclePolicy, GENERIC_LIFECYCLE
 from dos.reason_morphology import MorphologyRuleset, GENERIC_REASON_MORPHOLOGY
 from dos.concurrency_class import ClassBudgets, NO_CLASS_BUDGETS
@@ -647,6 +651,7 @@ class SubstrateConfig:
     cooldown: "CooldownPolicy" = DEFAULT_COOLDOWN_POLICY
     lifecycle: "LifecyclePolicy" = GENERIC_LIFECYCLE
     supervise: "SupervisePolicy" = DEFAULT_SUPERVISE_POLICY
+    queue_saturation: "SaturationPolicy" = DEFAULT_SATURATION_POLICY
     marker: MarkerPolicy = DEFAULT_MARKER_POLICY
     non_git_oracle: str = ""
     ci: dict = field(default_factory=dict)
@@ -1293,6 +1298,17 @@ def load_workspace_config(
         "marker",
         lambda: _marker_gate.load_from_toml(toml_path, base=cfg.marker),
         cfg.marker))
+    # [queue] — OVERRIDE the human-escalation-rung saturation thresholds (the always-on
+    # regime, docs/121 §4.1). A present [queue] table tunes warn_ratio / saturated_ratio /
+    # min_arrivals (the ρ bands the queue_saturation verdict classifies); absent inherits
+    # the generic conservative default (warn 0.9, saturated 1.0, abstain below 5 arrivals).
+    # Malformed warns + keeps base. The verdict itself stays the pure queue_saturation.classify;
+    # this only supplies its policy.
+    from dos import queue_saturation as _queue_saturation
+    cfg = dataclasses.replace(cfg, queue_saturation=_layer(
+        "queue",
+        lambda: _queue_saturation.load_from_toml(toml_path, base=cfg.queue_saturation),
+        cfg.queue_saturation))
     # [precursor] — REPLACE the mandated-precursor grammar (docs/147). A present
     # [precursor.requires] / [precursor.aliases] table declares which mutating tool
     # needs which lookup first; absent inherits the EMPTY grammar (the gate
