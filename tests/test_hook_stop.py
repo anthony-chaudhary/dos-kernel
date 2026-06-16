@@ -162,7 +162,7 @@ def test_workspace_falls_back_to_event_cwd(repo, monkeypatch, capsys):
     tx = _transcript(repo, "DOS-CLAIM: NOPE PHASE9")
     event = {"transcript_path": tx, "cwd": str(repo)}
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(event)))
-    rc = cli.main(["hook", "stop", "--json"])
+    cli.main(["hook", "stop", "--json"])
     out = json.loads(capsys.readouterr().out.strip())
     assert out["ok"] is False  # it found the repo via cwd and verified the claim
 
