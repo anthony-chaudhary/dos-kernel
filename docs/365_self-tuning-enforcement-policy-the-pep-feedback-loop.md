@@ -5,6 +5,12 @@
 > *what the act turned out to be* back into the policy that drove it. This is the
 > loop that closes that gap — and it tunes the enforcement policy **autonomously**,
 > keeping only the edits a witness the loop did not author confirms.
+>
+> **Phase stamp.** Phase `P1` (the fold + the `dos enforce-tune` driver + the two
+> verbs + the pulse leg, green on the kernel suite) shipped as `1a500f5`;
+> `dos verify --workspace . docs/365 P1` resolves it via this commit's
+> `(docs/365 P1)` trailer. The autonomous cadence is operator-side runner wiring,
+> out of the tracked tree by design.
 
 ## The gap (docs/189 §A1, restated)
 
