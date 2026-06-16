@@ -3720,8 +3720,31 @@ def cmd_status(args: argparse.Namespace) -> int:
         resume_plan=resume_plan,
     )
 
+    # ── read 5 (opt-in): a parent reads its CHILDREN's structural refusals by ──
+    # lineage (docs/354, issue #189). A dispatched child's hook DENY is journaled
+    # with the child's root_id, so `fold_child_refusals(root_id=rid)` resolves
+    # "child RID-X under root <rid> was refused N× with reason_class=…" from the WAL
+    # ALONE — never the child's transcript — so a parent/supervisor can tell a
+    # BLOCKED child apart from a finished one. Kept off the always-on digest (which
+    # stays the four fail-closed verdicts with no `claimed` field); surfaced only
+    # when `--children` is passed.
+    children: tuple = ()
+    if getattr(args, "children", False):
+        from dos import child_refusals as _child_refusals
+        from dos import lane_journal as _lane_journal
+        try:
+            wal = _lane_journal.read_all(path=cfg.paths.lane_journal)
+        except Exception:  # noqa: BLE001 — a bad journal must not crash the digest
+            wal = []
+        children = _child_refusals.fold_child_refusals(wal, root_id=rid)
+
     if args.json or getattr(args, "output", None) == "json":
-        print(json.dumps(digest.to_dict(), sort_keys=True))
+        out = digest.to_dict()
+        if getattr(args, "children", False):
+            # Additive --json leg, present only under --children (the A2A contract
+            # is unchanged for a plain `dos status`).
+            out["children"] = [c.to_dict() for c in children]
+        print(json.dumps(out, sort_keys=True))
     else:
         lv = digest.liveness
         print(f"{lv.verdict.value}  {lv.reason}")
@@ -3739,6 +3762,16 @@ def cmd_status(args: argparse.Namespace) -> int:
             # Stopped, but no INTENT to ground a residual on — resume is correctly
             # absent (the UNRESUMABLE floor), distinct from a live run.
             print("  resume       : (stopped, but no declared intent to resume)")
+        if getattr(args, "children", False):
+            if children:
+                print(f"  children     : {len(children)} blocked (docs/354, by lineage):")
+                for c in children:
+                    cls = c.reason_class or "(contention)"
+                    tool = c.tool or "?"
+                    nx = f" ×{c.count}" if c.count > 1 else ""
+                    print(f"    - {c.child_run_id}  {cls} on {tool}{nx}")
+            else:
+                print("  children     : (no blocked children under this root)")
     return _STATUS_EXIT_CODES.get(liveness_verdict.verdict.value, _STATUS_EXIT_UNKNOWN)
 
 
@@ -5374,6 +5407,15 @@ def _journal_pretool_outcome(event: dict, outcome: dict, cfg) -> None:
         loop_ts=os.environ.get("DISPATCH_LOOP_TS", ""),
         host_id=os.environ.get("DISPATCH_HOST_ID", ""),
         run_id=os.environ.get("CID_RUN_ID", ""),
+        # The actor's LINEAGE (docs/354, issue #189): a refused subagent inherits
+        # its parent's CID_ROOT_ID/CID_PARENT_ID across the `claude -p` boundary but
+        # mints its OWN CID_RUN_ID — so a DENY stamped with only run_id cannot be
+        # folded "by the root that dispatched it." Stamping the root/parent here is
+        # what lets a parent/supervisor read its children's blocks via
+        # `child_refusals.fold_child_refusals`, never the child's transcript. A root
+        # (operator) session has no CID_ROOT_ID → nothing stamped → record unchanged.
+        root_id=os.environ.get("CID_ROOT_ID", ""),
+        parent_id=os.environ.get("CID_PARENT_ID", ""),
         owner=str(event.get("session_id") or ""),
         tool=str(event.get("tool_name") or ""),
         proposal=body,
@@ -10362,6 +10404,12 @@ def build_parser() -> argparse.ArgumentParser:
     pst.add_argument("--json", action="store_true",
                      help="the A2A digest shape {schema, run_id, liveness, progress, "
                           "region, resume} — and NO `claimed` key (the fail-closed contract)")
+    pst.add_argument("--children", action="store_true",
+                     help="ALSO fold this run's CHILDREN's structural refusals by "
+                          "lineage (docs/354, #189): a parent reads which subagent it "
+                          "dispatched is BLOCKED — by reason_class + tool — from the WAL "
+                          "alone, never the child's transcript. Adds a `children` leg to "
+                          "the --json shape, present only with this flag")
     _add_output_flag(pst)
     pst.set_defaults(func=cmd_status)
 

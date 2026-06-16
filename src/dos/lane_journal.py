@@ -869,6 +869,26 @@ def halt_entry(
     }
 
 
+def _with_lineage(entry: dict, *, root_id: Any = None, parent_id: Any = None) -> dict:
+    """Stamp `root_id`/`parent_id` onto a forensic entry when present (docs/354).
+
+    Pure, additive: a non-empty lineage id is written as a top-level field next to
+    `run_id`; an empty/None one is omitted entirely, so a record built without
+    lineage (an operator/root refusal — no `CID_ROOT_ID` in its env) is
+    byte-identical to the pre-#189 shape. Mutates and returns `entry` for caller
+    convenience (it is a fresh dict the builder just made). The field name matches
+    the `run.json` lineage shape (`root_id`/`parent_id`, `run_id.RunId.to_dict`),
+    so a reader joins WAL refusals to the correlation spine on the same keys.
+    """
+    rid = str(root_id).strip() if root_id is not None else ""
+    pid = str(parent_id).strip() if parent_id is not None else ""
+    if rid:
+        entry["root_id"] = rid
+    if pid:
+        entry["parent_id"] = pid
+    return entry
+
+
 def refuse_entry(
     decision: Any,
     *,
@@ -878,6 +898,8 @@ def refuse_entry(
     host_id: Any = None,
     run_id: Any = None,
     reason_class: str = "",
+    root_id: Any = None,
+    parent_id: Any = None,
 ) -> dict:
     """Build a REFUSE entry — a recorded DENIED lane request (LJ2 / docs/82).
 
@@ -896,11 +918,19 @@ def refuse_entry(
     future arbiter surface that carries one (`AdmissionVerdict.reason_class`);
     today it defaults to `""` and the readers degrade an empty token gracefully.
 
+    `root_id`/`parent_id` are the requester's LINEAGE (docs/354, issue #189): a
+    refused subagent inherits its parent's `CID_ROOT_ID`/`CID_PARENT_ID` but mints
+    its own `CID_RUN_ID`, so a refusal stamped with only `run_id` cannot be folded
+    "by the root that dispatched it." Stamped only when non-empty (an operator/root
+    refusal carries no lineage env), so a record built without them is byte-identical
+    to the pre-#189 shape — purely additive (a reader that doesn't know the fields
+    ignores them; `replay` already ignores the whole op for state).
+
     Crucially, `OP_REFUSE` is NOT in `_STATE_MUTATING_OPS`, so `replay` ignores it
     for state reconstruction (a denied request grants nothing): journaling every
     refuse can never lose or invent a live lease — it only adds history.
     """
-    return {
+    e = {
         "op": OP_REFUSE,
         "lane": lane or getattr(decision, "lane", "") or "",
         "loop_ts": loop_ts,
@@ -910,6 +940,7 @@ def refuse_entry(
         "reason": getattr(decision, "reason", "") or "",
         "reason_class": reason_class,
     }
+    return _with_lineage(e, root_id=root_id, parent_id=parent_id)
 
 
 def enforce_entry(
@@ -921,6 +952,8 @@ def enforce_entry(
     host_id: Any = None,
     run_id: Any = None,
     tool: str = "",
+    root_id: Any = None,
+    parent_id: Any = None,
 ) -> dict:
     """Build an OP_ENFORCE entry — a recorded ENFORCEMENT OUTCOME (docs/189 §C4).
 
@@ -947,6 +980,14 @@ def enforce_entry(
     `acquire_entry`/`refuse_entry`); `tool` is the host-supplied name of the tool
     call the decision was about (opaque to the kernel, echoed for correlation).
 
+    `root_id`/`parent_id` carry the actor's LINEAGE (docs/354, issue #189), stamped
+    only when non-empty — exactly as `refuse_entry` carries them. This is the field
+    that makes a refused subagent's DENY (journaled here by `cli._journal_pretool_outcome`)
+    foldable "by the root that dispatched it": the child mints its own `CID_RUN_ID`,
+    so without the root a parent cannot tell its child's block apart from any other
+    run's. Additive — a record built without them is byte-identical to the pre-#189
+    shape, and `replay` ignores the whole op for state regardless.
+
     Crucially, `OP_ENFORCE` is NOT in `_STATE_MUTATING_OPS`, so `replay` ignores it
     for state reconstruction (an enforcement proposal grants/removes no lease):
     journaling every enforcement outcome can never lose or invent a live lease — it
@@ -972,7 +1013,7 @@ def enforce_entry(
     reason_class = (
         body.get("reason_class", getattr(proposal, "reason_class", "")) or ""
     )
-    return {
+    e = {
         "op": OP_ENFORCE,
         "lane": lane,
         "loop_ts": loop_ts,
@@ -988,6 +1029,7 @@ def enforce_entry(
         "reason_class": reason_class,
         "proposal": body,
     }
+    return _with_lineage(e, root_id=root_id, parent_id=parent_id)
 
 
 def checkpoint_entry(
