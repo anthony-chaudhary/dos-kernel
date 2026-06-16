@@ -226,6 +226,27 @@ class VcsBackend(Protocol):
         """The ``{sha, subject}`` for one ``ref``, or ``None`` if it does not resolve."""
         ...
 
+    def log_records(
+        self,
+        *,
+        limit: int,
+        paths: tuple[str, ...] = (),
+        with_files: bool = False,
+        with_body: bool = False,
+    ) -> list[Commit]:
+        """Up to ``limit`` commits as full ``Commit`` records, newest-first, merges
+        excluded, optionally restricted to commits touching any of ``paths``.
+
+        The structured read the ship-stamp grep rung (`phase_shipped`) consumes: each
+        record carries ``sha`` + ``subject`` always, ``body`` iff ``with_body``, and
+        the touched-file tuple ``files`` iff ``with_files`` (so the rung associates a
+        commit with the load-bearing files it touched without re-parsing raw git
+        output). The backend hands back opaque subjects/bodies — the kernel's
+        `dos.stamp` grammar decides which are ships; the backend MUST NOT parse them.
+        ``[]`` on any failure. This is the typed replacement for the heterogeneous
+        ``git log`` shapes the rung used to assemble by hand (docs/360)."""
+        ...
+
     # --- optional capabilities (a backend overrides only if it can) -------------
 
     def read_blob(self, sha: str, path: str) -> bytes | None:  # pragma: no cover - default
@@ -240,6 +261,21 @@ class VcsBackend(Protocol):
         churn; a backend that cannot produce a numstat returns ``None`` and the caller
         falls back to a files-only read. ``added``/``removed`` are ``-1`` for a binary
         file (no countable line delta), matching git's ``-`` numstat marker."""
+        return None
+
+    def log_lines(self, args: tuple[str, ...]) -> list[str] | None:  # pragma: no cover - default
+        """Raw ``git log <args>`` output lines, or ``None`` if unsupported.
+
+        The escape hatch for the **ship-stamp grep rung** (`phase_shipped`) — the one
+        consumer whose job IS parsing raw VCS-log output against the stamp grammar, in
+        formats (``--name-only`` blocks, custom ``%h%n%B`` bodies) too git-shaped to
+        reduce to the typed `log_records` without reserialization drift. The backend
+        runs the log and returns the lines verbatim; the rung does ALL parsing (it
+        never asks the backend to interpret a subject). ``None`` (the base default)
+        means "this backend cannot serve raw git-arg logs" — a non-git backend; the
+        rung then falls back to `log_records` or reports no evidence. Returning a
+        FILTERED capability rather than a core method keeps the git-arg grammar out of
+        the stable seven and honest about which backends can answer it (docs/360)."""
         return None
 
     def history_search(self, **kwargs: object) -> list[Commit] | None:  # pragma: no cover - default
@@ -415,6 +451,73 @@ class GitBackend:
         rows = _parse_tab_log(res.stdout)
         return rows[0] if rows else None
 
+    def log_records(
+        self,
+        *,
+        limit: int,
+        paths: tuple[str, ...] = (),
+        with_files: bool = False,
+        with_body: bool = False,
+    ) -> list[Commit]:
+        if limit <= 0:
+            return []
+        # NUL-delimited header so a subject/body containing a tab or newline can't
+        # be mis-split: each commit starts `\x00<sha>\x00<subject>` (the exact format
+        # phase_shipped's union scan used), then `--name-only` emits one path per line
+        # under it, and (for bodies) the raw `%b` body follows the header. We assemble
+        # the records by scanning for the `\x00` header marker, byte-faithful to the
+        # rung's own former parse.
+        fmt = "%x00%h%x00%s" + ("%n%b" if with_body else "")
+        args = ["log", "--no-merges", f"-{int(limit)}", f"--format={fmt}"]
+        if with_files:
+            args.append("--name-only")
+        if paths:
+            args += ["--", *paths]
+        res = _run_git(args, root=self._root)
+        if res is None or res.returncode != 0:
+            return []
+        out: list[Commit] = []
+        cur_sha = cur_subj = ""
+        body_lines: list[str] = []
+        file_lines: list[str] = []
+
+        def _flush() -> None:
+            if not cur_sha:
+                return
+            out.append(Commit(
+                sha=cur_sha,
+                subject=cur_subj,
+                body="\n".join(body_lines).strip() if with_body else "",
+                files=tuple(file_lines) if with_files else (),
+            ))
+
+        for line in res.stdout.splitlines():
+            if line.startswith("\x00"):
+                _flush()
+                _, _, rest = line.partition("\x00")
+                cur_sha, _, cur_subj = rest.partition("\x00")
+                body_lines = []
+                file_lines = []
+                continue
+            if not cur_sha:
+                continue
+            stripped = line.strip()
+            if with_files and stripped:
+                file_lines.append(stripped)
+            if with_body:
+                body_lines.append(line)
+        _flush()
+        return out
+
+    def log_lines(self, args: tuple[str, ...]) -> list[str] | None:
+        # The grep rung's raw passthrough: `git log <args>`, lines verbatim. Returns
+        # None on a non-zero exit / missing git so the caller degrades exactly as the
+        # rung's old `except RuntimeError` did (it caught the raise and used []).
+        res = _run_git(["log", *args], root=self._root)
+        if res is None or res.returncode != 0:
+            return None
+        return res.stdout.splitlines()
+
     def read_blob(self, sha: str, path: str) -> bytes | None:
         s = (sha or "").strip()
         if not s or not path:
@@ -511,10 +614,23 @@ class NullVcs:
     def commit_meta(self, ref: str) -> Commit | None:
         return None
 
+    def log_records(
+        self,
+        *,
+        limit: int,
+        paths: tuple[str, ...] = (),
+        with_files: bool = False,
+        with_body: bool = False,
+    ) -> list[Commit]:
+        return []
+
     def read_blob(self, sha: str, path: str) -> bytes | None:
         return None
 
     def commit_diffstat(self, sha: str) -> "list[FileDelta] | None":
+        return None
+
+    def log_lines(self, args: tuple[str, ...]) -> list[str] | None:
         return None
 
     def history_search(self, **kwargs: object) -> list[Commit] | None:

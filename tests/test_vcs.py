@@ -284,3 +284,35 @@ def test_nullvcs_optional_caps_are_none():
     n = NullVcs()
     assert n.commits_in_range("a..b") == []
     assert n.commit_diffstat("abc") is None
+    assert n.log_lines(("--oneline",)) is None
+    assert n.log_records(limit=10) == []
+
+
+# --- the slice-4 grep-rung reads: log_lines + log_records ------------------
+
+
+@gitmark
+def test_gitbackend_log_lines_raw(tmp_path: Path):
+    _init_repo(tmp_path)
+    lines = GitBackend(root=tmp_path).log_lines(("--oneline", "-10"))
+    assert lines is not None
+    assert any("feat: second commit" in ln for ln in lines)
+
+
+@gitmark
+def test_gitbackend_log_lines_bad_args_is_none(tmp_path: Path):
+    _init_repo(tmp_path)
+    # An unresolvable rev makes git exit non-zero → None (the rung's RuntimeError path).
+    assert GitBackend(root=tmp_path).log_lines(("no-such-ref..HEAD",)) is None
+
+
+@gitmark
+def test_gitbackend_log_records_with_files_and_body(tmp_path: Path):
+    _init_repo(tmp_path)
+    gb = GitBackend(root=tmp_path)
+    recs = gb.log_records(limit=10, with_files=True)
+    by_subject = {r.subject: r for r in recs}
+    assert "src/two.py" in by_subject["feat: second commit"].files
+    # path-restricted records
+    only_two = gb.log_records(limit=10, paths=("src/two.py",))
+    assert [r.subject for r in only_two] == ["feat: second commit"]
