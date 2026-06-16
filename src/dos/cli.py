@@ -520,6 +520,85 @@ def _render_init_config(target: Path) -> tuple[str, str]:
     return "\n".join(lines), summary
 
 
+def _render_enforcement_block(posture: str) -> str:
+    """The documented `[enforcement]` TOML block for `dos init --posture` (docs/370 E).
+
+    A commented, self-explaining block — the posture is the one enforcement choice
+    an operator makes, so the scaffold spells out all three surfaces and the
+    per-run env override. PURE. Ends with a trailing newline (append-ready).
+    """
+    return (
+        "\n# How a DOS refusal is SURFACED to you (docs/370). DOS computes ONE\n"
+        "# verdict; the posture is YOUR choice of how it reaches you:\n"
+        '#   "block"   — a refusal hard-DENYs the call. DOS is the gate. The\n'
+        "#               headless / bypass-permissions default (the pre-posture bytes).\n"
+        '#   "gate"    — a refusal ESCALATES to your host\'s permission prompt (an\n'
+        '#               "ask") so YOU decide — the human-in-the-loop posture.\n'
+        "#               Complementary to your host's OWN allowlist: the allowlist\n"
+        "#               handles the routine, DOS escalates the adjudicated exceptions.\n"
+        '#   "observe" — a refusal degrades to an advisory note; records, never blocks.\n'
+        "# Override per run with the DOS_HOOK_POSTURE env (read on every hook event).\n"
+        "[enforcement]\n"
+        f'posture = "{posture}"\n'
+    )
+
+
+def _upsert_enforcement_posture(text: str, posture: str) -> "tuple[str, bool]":
+    """Set `[enforcement] posture` in a `dos.toml`'s TEXT, leaving the rest intact. PURE.
+
+    Returns `(new_text, changed)`. Three cases, all line-based (no TOML re-emit, so
+    every other table + its comments survive byte-for-byte):
+
+      * no `[enforcement]` table     → append a documented one.
+      * table present, no `posture`  → insert the `posture` line under its header.
+      * table present with `posture` → replace the value in place.
+
+    A value already equal to `posture` returns `(text, False)` — idempotent, so
+    re-running `dos init --posture X` is a no-op. The result always ends in a
+    single trailing newline.
+    """
+    lines = text.splitlines()
+    posture_line = f'posture = "{posture}"'
+
+    def _is_table_header(ln: str) -> bool:
+        s = ln.strip()
+        return s.startswith("[") and s.endswith("]")
+
+    def _is_posture_key(ln: str) -> bool:
+        return "=" in ln and ln.split("=", 1)[0].strip() == "posture"
+
+    hdr = next((i for i, ln in enumerate(lines)
+                if ln.strip() == "[enforcement]"), None)
+    if hdr is None:
+        return text.rstrip("\n") + "\n" + _render_enforcement_block(posture), True
+    # Scan the table body (until the next table header) for an existing posture key.
+    j = hdr + 1
+    while j < len(lines) and not _is_table_header(lines[j]):
+        if _is_posture_key(lines[j]):
+            if lines[j].strip() == posture_line:
+                return text, False
+            lines[j] = posture_line
+            return "\n".join(lines) + "\n", True
+        j += 1
+    lines.insert(hdr + 1, posture_line)
+    return "\n".join(lines) + "\n", True
+
+
+def _apply_enforcement_posture(cfg_path: Path, posture: str) -> bool:
+    """Write `[enforcement] posture = <posture>` into `cfg_path`. Returns `changed`.
+
+    The I/O wrapper over the pure `_upsert_enforcement_posture`: read the existing
+    `dos.toml`, upsert the posture, write back only if it changed. The boundary the
+    `dos init --posture` path calls so an operator can turn the posture on in a
+    workspace that already has a `dos.toml`, without `--force` clobbering the rest.
+    """
+    text = cfg_path.read_text(encoding="utf-8") if cfg_path.exists() else ""
+    new_text, changed = _upsert_enforcement_posture(text, posture)
+    if changed:
+        cfg_path.write_text(new_text, encoding="utf-8")
+    return changed
+
+
 def _resolve_driver_taxonomy(name: str):
     """The `LaneTaxonomy` of a named driver pack — the single source of truth.
 
@@ -1062,6 +1141,14 @@ def cmd_init(args: argparse.Namespace) -> int:
         hook_host = "claude-code"
     want_hooks = hook_host is not None
 
+    # docs/370 Phase E — `dos init --posture <observe|block|gate>`: wire the
+    # enforcement POSTURE (how a DOS refusal is surfaced) at install time. Like
+    # --skills / --hooks it is a valid reason to touch an EXISTING workspace
+    # (merge the posture into its dos.toml without --force clobbering the rest),
+    # so an operator can turn `gate` on in a repo that already has a config.
+    posture = getattr(args, "posture", None)
+    want_posture = posture is not None
+
     # `--dry-run` is a PREVIEW of the hook merge — it touches nothing. It is only
     # meaningful with --hooks (there is nothing else to preview), and it skips the
     # dos.toml scaffold + skills copy so "dry-run wrote nothing" is literally true.
@@ -1076,9 +1163,10 @@ def cmd_init(args: argparse.Namespace) -> int:
     if dry_run:
         pass  # preview-only: do not scaffold dos.toml or copy skills
     elif config_existed and not args.force:
-        # When ONLY copying skills / wiring hooks into an existing workspace, the
-        # pre-existing dos.toml is not an error — skip the scaffold and proceed.
-        if not (want_skills or want_hooks):
+        # When ONLY copying skills / wiring hooks / setting the posture into an
+        # existing workspace, the pre-existing dos.toml is not an error — skip the
+        # scaffold and proceed (the posture is merged in below, not clobbered).
+        if not (want_skills or want_hooks or want_posture):
             print(f"{cfg_path} already exists (use --force to overwrite)", file=sys.stderr)
             return 1
     else:
@@ -1106,6 +1194,23 @@ def cmd_init(args: argparse.Namespace) -> int:
             cfg_path.write_text(config_text, encoding="utf-8")
             print(f"wrote {cfg_path}")
             print(summary)
+
+    # docs/370 Phase E — merge the chosen posture into the dos.toml just written
+    # (or the pre-existing one we left untouched above). After the scaffold so a
+    # freshly-rendered config gets its `[enforcement]` block, and after the
+    # --example path so a driver-pack config gets it too — one home for the upsert.
+    if want_posture and not dry_run:
+        changed = _apply_enforcement_posture(cfg_path, posture)
+        if changed:
+            print(f"set enforcement posture = \"{posture}\" in {cfg_path}")
+            if posture == "gate":
+                print("  gate: a DOS refusal now ESCALATES to your host's permission "
+                      "prompt (an ask) instead of hard-blocking — you decide. It "
+                      "complements your host's OWN allowlist (allowlist handles the "
+                      "routine; DOS escalates the adjudicated exceptions). Override "
+                      "per run with DOS_HOOK_POSTURE.")
+        else:
+            print(f"enforcement posture already \"{posture}\" in {cfg_path} (no change)")
 
     if want_skills and not dry_run:
         if getattr(args, "all", False):
@@ -5645,25 +5750,43 @@ def cmd_hook_posttool(args: argparse.Namespace) -> int:
     return 0
 
 
+def _effective_posture(cfg) -> "tuple":
+    """The effective enforcement POSTURE + WHERE it came from (docs/370).
+
+    The single home of the posture-precedence read: the `DOS_HOOK_POSTURE` env (a
+    fleet-wide override, read per-call like `DOS_APPLY_GATE`), then
+    `dos.toml [enforcement] posture`, then the BLOCK default. Returns
+    `(hook_dialect.Posture, source)` where `source` ∈ {"env", "config", "default"}.
+    The hook hot path takes only the posture (`_hook_posture`); `dos doctor` takes
+    the source too, so its report says not just WHAT posture is live but WHY. Any
+    shape miss degrades to the default (which `parse_posture` also enforces), so a
+    torn config never breaks the read.
+    """
+    from dos import hook_dialect as _hd
+    env = os.environ.get("DOS_HOOK_POSTURE", "").strip()
+    if env:
+        return _hd.parse_posture(env), "env"
+    try:
+        table = _config._load_toml_table(Path(cfg.root) / "dos.toml", "enforcement")
+        if isinstance(table, dict):
+            name = str(table.get("posture") or "").strip()
+            if name:
+                return _hd.parse_posture(name), "config"
+    except Exception:  # noqa: BLE001 — a torn/absent config never breaks the hook
+        pass
+    return _hd.DEFAULT_POSTURE, "default"
+
+
 def _hook_posture(cfg) -> "object":
     """The operator's declared enforcement POSTURE for this workspace (docs/370).
 
-    Boundary read — the one I/O behind the pure `hook_dialect.under_posture`. Precedence:
-    the `DOS_HOOK_POSTURE` env (a fleet-wide override, read per-call like
-    `DOS_APPLY_GATE`), then `dos.toml [enforcement] posture`, then the BLOCK default.
-    Any shape miss degrades to the default (which `parse_posture` also enforces), so a
-    malformed config never breaks the hook hot path. Returns a `hook_dialect.Posture`.
+    Boundary read — the one I/O behind the pure `hook_dialect.under_posture`. Thin
+    over `_effective_posture` (the shared precedence: env › `dos.toml` › BLOCK
+    default); the hook hot path does not need the source, only the posture.
+    Returns a `hook_dialect.Posture`.
     """
-    from dos import hook_dialect as _hd
-    name = os.environ.get("DOS_HOOK_POSTURE", "").strip()
-    if not name:
-        try:
-            table = _config._load_toml_table(Path(cfg.root) / "dos.toml", "enforcement")
-            if isinstance(table, dict):
-                name = str(table.get("posture") or "").strip()
-        except Exception:  # noqa: BLE001 — a torn/absent config never breaks the hook
-            name = ""
-    return _hd.parse_posture(name)
+    posture, _source = _effective_posture(cfg)
+    return posture
 
 
 def cmd_hook_pretool(args: argparse.Namespace) -> int:
@@ -5756,6 +5879,16 @@ def cmd_hook_pretool(args: argparse.Namespace) -> int:
         except Exception as exc:  # noqa: BLE001 — observability is best-effort, never blocking
             _dbg(f"help-nudge fold error ({exc!r}) — emitting outcome without nudge")
 
+    # docs/370 — the operator's enforcement POSTURE, read ONCE here so the same
+    # value drives the render (`under_posture`) and the observation record below.
+    posture = _hook_posture(cfg)
+    # How the posture SURFACED the verdict to the operator (docs/370 Phase C). The
+    # default `block` surface IS the kernel verdict (a deny stays a deny); under
+    # `gate` a deny becomes `ask`, under `observe` a `warn`. Defaults to the kernel
+    # decision so a passthrough / a render this hook never re-shapes still has a
+    # truthful surface.
+    surface = str(decision)
+
     # 6. The ONLY thing on stdout: the host's PRE dialect, or nothing. `decide()`
     #   (full prose: docs/CLI.md § "6. The ONLY thing on stdout: the host's PRE dialect, or noth")
     if dialect is not None:
@@ -5773,8 +5906,9 @@ def cmd_hook_pretool(args: argparse.Namespace) -> int:
             # the loop sets `gate` to ESCALATE a refusal to their permission prompt
             # (an ASK) instead of a hard block; `observe` records only. Default BLOCK
             # is byte-for-byte today's behavior (the parity floor). The transform is
-            # pure; the env/config read is the one boundary line here.
-            verdict = _hd.under_posture(verdict, _hook_posture(cfg))
+            # pure; the env/config read happened once above.
+            verdict = _hd.under_posture(verdict, posture)
+            surface = verdict.action.value  # what the operator SAW (docs/370 Phase C)
             host_dialect = renderer.render(verdict)
         except ValueError as exc:  # unknown dialect name — surface, do not guess a host
             _dbg(f"dialect error ({exc}) — emitting nothing (passthrough)")
@@ -5788,13 +5922,24 @@ def cmd_hook_pretool(args: argparse.Namespace) -> int:
     #    the call a binary DELEGATED here (the docs/297 pairing). Fail-soft,
     #    strictly downstream of the emitted dialect.
     from dos.hook_dialect import DEFAULT_DIALECT as _default_dialect
+    from dos.hook_dialect import DEFAULT_POSTURE as _default_posture
+    # docs/370 Phase C — carry the posture + surfaced action ONLY off the BLOCK
+    # default, so a default-posture record is byte-identical to a pre-posture one
+    # (the parity floor): under `block` the surface is the verdict, nothing new to
+    # record. Under `gate`/`observe` the two fields let `dos doctor` split the
+    # kernel's refusals into escalated-to-human vs hard-blocked vs observed.
+    _posture_fields = (
+        {} if posture is _default_posture
+        else {"posture": posture.value, "surface": surface}
+    )
     _record_hook_observation(cfg, verb="pretool", outcome=str(decision),
                              started=started, debug=debug,
                              rung=str(outcome.get("rung") or ""),
                              reason_class=str(outcome.get("reason_class") or ""),
                              dialect=str(getattr(args, "dialect", None) or _default_dialect),
                              tree_known=(bool(outcome["tree_known"])
-                                         if "tree_known" in outcome else None))
+                                         if "tree_known" in outcome else None),
+                             **_posture_fields)
     return 0
 
 
@@ -8162,6 +8307,20 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         if _skill_findings and bool(getattr(args, "skill_strict", False)):
             gating = True
 
+    # docs/370 Phase C — the effective enforcement POSTURE + the escalated-vs-blocked
+    # split over the observation log, computed ONCE for both the JSON and text
+    # reports. A `gate` operator keeps a human in the loop, so the report must show
+    # not just WHICH posture is live (and from where) but how often DOS actually
+    # handed the human a call vs hard-blocked it. Fail-soft: a torn log degrades the
+    # split to its empty value — a report row never breaks doctor.
+    _posture, _posture_source = _effective_posture(cfg)
+    try:
+        from dos import hook_observation as _hobs_doctor
+        _posture_split = _hobs_doctor.posture_split(_hobs_doctor.read_observations(cfg=cfg))
+    except Exception:  # noqa: BLE001 — a telemetry read fault never breaks the report
+        from dos.hook_observation import PostureSplit as _PostureSplit
+        _posture_split = _PostureSplit()
+
     # SKP Phase 1a — `dos doctor --json`: the machine-readable workspace report a
     #   (full prose: docs/CLI.md § "SKP Phase 1a — `dos doctor --json`: the machine-readable wor")
     if getattr(args, "json", False):
@@ -8243,6 +8402,16 @@ def cmd_doctor(args: argparse.Namespace) -> int:
                 "ratio_max": cfg.overlap_ratio_max,
                 "floor": "prefix",
             },
+            # docs/370 — the enforcement POSTURE (how a DOS refusal is SURFACED) +
+            # the escalated-vs-blocked split over the observation log. `posture` is
+            # the effective choice, `source` says where it came from (env › config ›
+            # default), `surfaced_refusals` is the per-call tally a `gate` operator
+            # reads to see how often DOS handed them the call instead of blocking it.
+            "enforcement": {
+                "posture": _posture.value,
+                "source": _posture_source,
+                "surfaced_refusals": _posture_split.to_dict(),
+            },
             # The verdict-IS-the-exit-code contract, per verb (item 1). An agent
             # reads this once to learn that `verify` exits 0/1, `liveness`
             # SPINNING is 3, `gate` DRAIN is 3, etc. — instead of reverse-
@@ -8298,6 +8467,25 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     # docs/189 §A1 — the enforcement handlers that CONSUME an intervention decision
     #   (full prose: docs/CLI.md § "docs/189 §A1 — the enforcement handlers that CONSUME an inte")
     print(f"enforce handlers     {', '.join(_enforce_handler_names())}")
+    # docs/370 — the enforcement POSTURE: how a DOS refusal is SURFACED to the
+    # operator. `block` (the default) hard-denies (DOS is the gate — the headless
+    # deployment); `gate` escalates a refusal to the host's permission prompt (an
+    # "ask" — the human-in-the-loop deployment); `observe` records only. The line
+    # names where the live value came from (env › dos.toml › default) so a stray
+    # `DOS_HOOK_POSTURE` is visible, and — when the observation log has witnessed
+    # refusals — splits them into escalated-to-human vs hard-blocked vs observed,
+    # so a `gate` operator sees how often DOS handed them a call (docs/370 Phase C).
+    _posture_desc = {
+        "block": "a refusal hard-DENYs — DOS is the gate (the headless default)",
+        "gate": "a refusal ESCALATEs to your permission prompt (an ask) — human in the loop",
+        "observe": "a refusal degrades to an advisory note — records only",
+    }.get(_posture.value, _posture.value)
+    print(f"enforcement posture {_posture.value}  ({_posture_desc}; from {_posture_source})")
+    if _posture_split.refused:
+        print(f"  surfaced refusals {_posture_split.refused}: "
+              f"{_posture_split.escalated} escalated-to-human, "
+              f"{_posture_split.blocked} hard-blocked, "
+              f"{_posture_split.observed} observed-only")
     # Axis 7 — the disjointness SCORER the arbiter admits on (docs/113). Shows the
     #   (full prose: docs/CLI.md § "Axis 7 — the disjointness SCORER the arbiter admits on (docs")
     _ov_active = cfg.overlap_policy_name or "prefix"
@@ -10557,6 +10745,18 @@ def build_parser() -> argparse.ArgumentParser:
     pi.add_argument("--with-hooks", action="store_true", dest="with_hooks",
                     help="alias for --hooks claude-code (wire the DOS hooks into "
                          ".claude/settings.json)")
+    # docs/370 Phase E — wire the enforcement POSTURE at install time. Choices come
+    # from the kernel's `Posture` enum so the flag never drifts from the seam.
+    from dos import hook_dialect as _hd_choices
+    pi.add_argument("--posture", metavar="MODE",
+                    choices=[p.value for p in _hd_choices.Posture],
+                    help="set how a DOS refusal is SURFACED, written to "
+                         "dos.toml [enforcement] posture (merged into an existing "
+                         "config, no --force needed): 'block' hard-denies (DOS is "
+                         "the gate — the headless default), 'gate' escalates a "
+                         "refusal to your host's permission prompt (an ask — the "
+                         "human-in-the-loop posture), 'observe' records only. "
+                         "Override per run with the DOS_HOOK_POSTURE env.")
     pi.add_argument("--dry-run", action="store_true", dest="dry_run",
                     help="with --hooks: PREVIEW the config merge (print what would "
                          "be written, write nothing) — the dress rehearsal before "

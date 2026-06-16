@@ -123,6 +123,8 @@ def observation_entry(
     rung: str = "",
     reason_class: str = "",
     dialect: str = "",
+    posture: str = "",
+    surface: str = "",
     tree_known: Optional[bool] = None,
     stream_state: str = "",
     marker_count: int = 0,
@@ -167,6 +169,17 @@ def observation_entry(
         e["reason_class"] = reason_class
     if dialect:
         e["dialect"] = dialect
+    # docs/370 Phase C — the enforcement POSTURE in effect and the SURFACE action it
+    # produced (how a kernel refusal reached the operator). Written ONLY off the
+    # BLOCK default, so a default-posture record stays byte-identical to a
+    # pre-posture one (the additive contract + the docs/370 parity floor): under
+    # `block` the surface IS the verdict, so there is nothing new to say. Under
+    # `gate` a deny surfaced as `ask` (escalated to the human); under `observe` as
+    # `warn` (recorded only) — the split `posture_split` reads.
+    if posture:
+        e["posture"] = posture
+    if surface:
+        e["surface"] = surface
     if tree_known is not None:
         e["tree_known"] = bool(tree_known)
     if stream_state:
@@ -462,6 +475,91 @@ def intervention_rate(records: Iterable[dict], *, since: str = "") -> Interventi
         advised=advised,
         delegated=delegated,
     )
+
+
+# ---------------------------------------------------------------------------
+# The posture split (docs/370 Phase C) — of the kernel's pretool REFUSALS, how
+# many were hard-BLOCKED vs ESCALATED to a human vs softened to an OBSERVE note.
+# The kernel computes ONE verdict (a deny); the posture chooses how it is
+# surfaced. The `outcome` field still records the kernel verdict (so the
+# refused/intervened denominator is untouched — docs/370 keeps the journal honest
+# about what the kernel DECIDED); the `surface` field records what the operator
+# actually SAW. This fold reads the surface, so an operator who runs `gate` can
+# see how often DOS handed them a call instead of deciding for them.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PostureSplit:
+    """How the kernel's pretool REFUSALS were surfaced under the operator's posture.
+
+    Over the same refused pretool records `intervention_rate` counts (an `outcome`
+    in {deny, block}), split by the `surface` action the posture produced:
+
+      * ``blocked``   — surfaced as a hard DENY (the `block` posture, the default).
+      * ``escalated`` — surfaced as an ASK at the human's permission prompt (`gate`).
+      * ``observed``  — softened to an advisory WARN, recorded only (`observe`).
+
+    A refused record with no `surface` field — one written before docs/370 Phase C,
+    or by a posture-blind writer like the Go binary — counts as ``blocked``: the
+    BLOCK-default assumption, behavior-preserving. The partition is total, so
+    ``refused == blocked + escalated + observed`` on every fold (an invariant a
+    test pins). All counts come from ONE observation log; the lane journal has no
+    path in (the like-for-like rule `intervention_rate` already holds).
+    """
+
+    refused: int = 0
+    blocked: int = 0
+    escalated: int = 0
+    observed: int = 0
+
+    @property
+    def escalated_pct(self) -> float:
+        if self.refused <= 0:
+            return 0.0
+        return self.escalated * 100.0 / self.refused
+
+    def to_dict(self) -> dict:
+        return {
+            "refused": self.refused,
+            "blocked": self.blocked,
+            "escalated": self.escalated,
+            "observed": self.observed,
+            "escalated_pct": round(self.escalated_pct, 1),
+        }
+
+
+def posture_split(records: Iterable[dict], *, since: str = "") -> PostureSplit:
+    """Fold observation records into the posture split (escalated-vs-blocked). PURE.
+
+    Counts every refused pretool record (an `outcome` in {deny, block}) and buckets
+    it by its `surface` field: ``ask`` → escalated, ``warn`` → observed, anything
+    else (``deny``, or an absent field) → blocked. `since` keeps records with
+    `ts >= since` (ISO-8601 lexical compare; an undatable record is skipped under a
+    window — the conservative direction `intervention_rate` already takes).
+
+    Records in, value out, no disk — the unit-test surface. Like `intervention_rate`
+    the signature takes observation records ONLY, so no other log can enter the count.
+    """
+    refused = blocked = escalated = observed = 0
+    for rec in records:
+        if rec.get("verb") != "pretool":
+            continue
+        ts = str(rec.get("ts") or "")
+        if since and (not ts or ts < since):
+            continue
+        if str(rec.get("outcome") or "") not in _REFUSED_OUTCOMES:
+            continue
+        refused += 1
+        surface = str(rec.get("surface") or "")
+        if surface == "ask":
+            escalated += 1
+        elif surface == "warn":
+            observed += 1
+        else:  # "deny", or unset (a pre-Phase-C / posture-blind record) → hard-blocked
+            blocked += 1
+    return PostureSplit(refused=refused, blocked=blocked,
+                        escalated=escalated, observed=observed)
 
 
 # ---------------------------------------------------------------------------

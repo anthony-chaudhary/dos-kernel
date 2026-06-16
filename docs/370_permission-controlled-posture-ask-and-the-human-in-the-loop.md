@@ -1,10 +1,16 @@
 # 370 — The permission-controlled posture: ASK and the human in the loop
 
-> **Status:** Phase 1 SHIPPED (the `ASK` action + the `Posture` seam +
-> Claude-Code-family native rendering). The roadmap phases (§6) are numbered,
-> each a litmus-checkable unit. Implementation: `hook_dialect.HookAction.ASK`,
-> `hook_dialect.Posture` / `parse_posture` / `under_posture`,
-> `cli._hook_posture`, `tests/test_hook_ask_posture.py`.
+> **Status:** Phase 1 + Phase C + Phase E SHIPPED. Phase 1 — the `ASK` action +
+> the `Posture` seam + Claude-Code-family native rendering. Phase C — posture-aware
+> observation: the PRE hook records the SURFACE the posture produced and `dos doctor`
+> splits the kernel's refusals into escalated-to-human vs hard-blocked vs observed.
+> Phase E — `dos init --posture <observe|block|gate>` wires the posture at install.
+> The remaining roadmap phases (§6) are numbered, each a litmus-checkable unit.
+> Implementation: `hook_dialect.HookAction.ASK`, `hook_dialect.Posture` /
+> `parse_posture` / `under_posture`, `cli._hook_posture` / `_effective_posture`,
+> `hook_observation.posture_split` (+ the `posture`/`surface` record fields),
+> `cli._upsert_enforcement_posture`; `tests/test_hook_ask_posture.py`,
+> `tests/test_posture_observation.py`, `tests/test_init_posture.py`.
 
 ## The wound, stated once
 
@@ -175,17 +181,32 @@ change.
   uncertain ones — a verified allowlist, not a static one. ALLOW must be strictly
   opt-in and refuse-narrow (auto-allow only what is provably safe; everything
   else still asks).
-- **Phase C — posture-aware observation.** `hook_observation` /
-  `dos doctor` should report *escalated-to-human* vs *hard-blocked* counts, so
-  the operator sees how often DOS hands them a call. Today the journal records
-  the kernel verdict (deny); the surface action (ask) is rendering-only.
+- **Phase C — posture-aware observation. ✅ SHIPPED.** The PRE hook now records,
+  off the `block` default, the POSTURE in effect and the SURFACE action it
+  produced (a deny is `surface=ask` under `gate`, `surface=warn` under `observe`)
+  as additive `hook_observation` fields — the `outcome` still records the kernel
+  verdict, so the refused/intervened denominator stays honest. `posture_split`
+  folds the refused records into `escalated` / `blocked` / `observed` (a total
+  partition; a posture-blind record counts as blocked), and `dos doctor` (text +
+  `--json`) shows the effective posture, its source, and the split — so a `gate`
+  operator sees how often DOS handed them a call. The default-`block` record is
+  byte-identical to the pre-posture one (the parity floor). `posture`/`surface`
+  carried into the Go decider's record is Phase F. Tests:
+  `tests/test_posture_observation.py`.
 - **Phase D — the decision-inbox round-trip.** An ASK the human DEFERS becomes a
   `decisions` row (the HUMAN resolver kind already exists, `decisions.py`), so a
   deferred escalation is not lost — it lands in the `dos decisions` queue.
-- **Phase E — `dos init --posture gate`.** Wire the control-oriented default at
-  install time and document the interplay with the host's OWN permission
-  settings (DOS `gate` + the host's allowlist are complementary: the allowlist
-  handles the routine, DOS escalates the adjudicated exceptions).
+- **Phase E — `dos init --posture gate`. ✅ SHIPPED.** `dos init --posture
+  <observe|block|gate>` writes `[enforcement] posture` into `dos.toml`. The choices
+  come from the `Posture` enum (the flag never drifts from the seam); the value is
+  MERGED into an existing config — a surgical, comment-preserving text upsert
+  (`_upsert_enforcement_posture`: append a documented table when absent, replace a
+  value in place when present, idempotent on a no-op) — so an operator turns `gate`
+  on in a repo that already has a `dos.toml` without `--force` clobbering the rest.
+  The `gate` confirmation documents the interplay with the host's OWN permission
+  settings (the allowlist handles the routine; DOS escalates the adjudicated
+  exceptions). A bare `dos init` is byte-for-byte the pre-Phase-E scaffold (no
+  `[enforcement]` table unless asked). Tests: `tests/test_init_posture.py`.
 - **Phase F — Go fast-path parity.** The native `dos-hook` binary serves the
   default BLOCK path; the posture transform is Python-side today. Carry the
   posture into the Go decider so a gated fleet keeps the fast path. (Default
