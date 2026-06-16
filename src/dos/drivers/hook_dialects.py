@@ -746,3 +746,35 @@ def openhands_install_spec() -> HostHookSpec:
              "flat-top-level renderer). The wired `dos hook` command must be on PATH in "
              "the OpenHands session.",
     )
+
+
+def tabnine_install_spec() -> HostHookSpec:
+    """Tabnine's agent CLI — `.tabnine/agent/settings.json` (CC-style config, ANTIGRAVITY output).
+
+    Tabnine's hook config is a top-level `hooks` map keyed by event, each a group-wrapped
+    `{"hooks":[{"type":"command","command":…}]}` entry (CC-style inner array, no `matcher`
+    at the group level), and its deny OUTPUT is a top-level `{"decision":"deny","reason":…}`
+    on stdout, stderr as the reason (verified against docs.tabnine.com/.../hooks, 2026-06-16).
+    The top-level `{"decision":"deny"}` output is byte-identical to `AntigravityDialect`, so
+    it reuses the **antigravity** renderer (`--dialect antigravity`) with a
+    `json_group_wraps=True` config. Tabnine's event vocabulary: `BeforeTool` / `AfterTool`
+    for the tool moments, and `AfterAgent` as the stop analogue (it fires after the agent's
+    turn; `{"decision":"deny"}`/`"block"` there refuses the completion). Zero new renderer.
+    """
+    return HostHookSpec(
+        host="tabnine",
+        config_path=(".tabnine", "agent", "settings.json"),
+        fmt=ConfigFormat.JSON,
+        pre_events=("BeforeTool",),
+        post_events=("AfterTool",),
+        stop_events=("AfterAgent",),
+        dialect_flag="--dialect antigravity",   # top-level {"decision":"deny"} output = antigravity.
+        json_entry_has_type=True,
+        json_group_wraps=True,       # CC-style inner array {"hooks":[{type,command}]}.
+        json_version=None,
+        note="Tabnine's agent CLI wires hooks in .tabnine/agent/settings.json (BeforeTool / "
+             "AfterTool / AfterAgent), CC-style group-wrapped entries. Its deny output is a "
+             "top-level {\"decision\":\"deny\",\"reason\":…} on stdout (stderr as the reason), so "
+             "DOS wires --dialect antigravity (the matching renderer). The wired `dos hook` "
+             "command must be on PATH in the Tabnine session.",
+    )

@@ -288,6 +288,21 @@ def test_openhands_writes_cc_config_with_antigravity_dialect(tmp_path: Path):
     assert set(inner) == {"command"}
 
 
+def test_tabnine_writes_cc_config_with_antigravity_dialect(tmp_path: Path):
+    """Tabnine: `.tabnine/agent/settings.json`, CC-style group-wrapped, but a top-level
+    {"decision":"deny"} deny output -- so `--dialect antigravity`. Events
+    BeforeTool/AfterTool/AfterAgent."""
+    dest = tmp_path / "svc"
+    assert _cli("init", "--hooks", "tabnine", str(dest)).returncode == 0
+    spec = hi.host_spec("tabnine")
+    assert spec.config_path == (".tabnine", "agent", "settings.json")
+    cfg = _json_config(dest, spec)
+    assert _flat_commands(cfg, "BeforeTool") == ["dos hook pretool --workspace . --dialect antigravity"]
+    assert _flat_commands(cfg, "AfterTool") == ["dos hook posttool --workspace . --dialect antigravity"]
+    assert _flat_commands(cfg, "AfterAgent") == ["dos hook stop --workspace . --dialect antigravity"]
+    assert set(cfg["hooks"]["BeforeTool"][0]) == {"hooks"}
+
+
 def test_claude_cowork_writes_the_shared_claude_settings_file(tmp_path: Path):
     """Claude Cowork is the SHARED-surface host (docs/298): it runs the Claude Code
     harness, so its hook surface IS `.claude/settings.json` — and the wired command
@@ -470,7 +485,7 @@ def test_cursor_merge_preserves_user_hooks_and_keys(tmp_path: Path):
 def test_idempotent_rerun_does_not_duplicate(tmp_path: Path):
     for host in ("cursor", "codex", "gemini", "antigravity", "claude-cowork", "hermes",
                  "augment", "devin", "cursor-cli", "crush", "qwen", "continue",
-                 "openhands"):
+                 "openhands", "tabnine"):
         dest = tmp_path / host
         assert _cli("init", "--hooks", host, str(dest)).returncode == 0
         proc = _cli("init", "--hooks", host, str(dest))

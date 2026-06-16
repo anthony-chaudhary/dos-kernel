@@ -351,6 +351,10 @@ continue = "dos.drivers.hook_dialects:continue_install_spec"
 # with a FLAT top-level {"decision":"deny"} deny OUTPUT, so it reuses the antigravity renderer
 # (--dialect antigravity). Existing renderer; install spec only.
 openhands = "dos.drivers.hook_dialects:openhands_install_spec"
+# Tabnine's agent CLI -- `.tabnine/agent/settings.json`: a CC-style group-wrapped config with a
+# top-level {"decision":"deny"} deny OUTPUT, so it reuses the antigravity renderer
+# (--dialect antigravity). BeforeTool/AfterTool/AfterAgent events. Existing renderer; install spec only.
+tabnine = "dos.drivers.hook_dialects:tabnine_install_spec"
 
 # The memory-STORE providers (docs/314 P2/P3) — where a fleet's memories live, so
 # the recall gate (docs/103) and the write gate (`dos memory admit`) can run against
