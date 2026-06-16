@@ -1,43 +1,29 @@
-# AI commit messages can lie. This catches it.
+# How AI built the software you already use
 
-More and more code is written by agents that also write their own commit messages. So the message stops being evidence. `fix the login bug`, `tests pass`, `add caching` — that is just text the agent typed. The **diff** is what git actually recorded. The two can disagree.
+Agents now write a real share of the popular open-source projects you depend on — and they write their own commit messages too. This board looks at the recent history of well-known repos and asks three plain questions: **how much of it did AI write, which agent did it, and what kind of work was it** — fixes, tests, docs.
 
-**Why it matters:** when a team merges on the message, an empty commit that says `fix` — or a `tests pass` that *deleted* the test — slips in quietly. Nobody lied on purpose; the words just ran ahead of the work. The cost is a false sense of done: the codebase now carries a "fix" that fixed nothing, and no one noticed.
+The catch is that a commit *message* is just text the agent typed; the **diff** is what git actually recorded, and the two can disagree. So every number here is checked against the diff, never the message alone. That is the difference between this board and a star count: it reads the thing that can't be talked up.
 
-**The move:** read the thing that can't lie. This check compares each AI commit's claim against its own diff — never the message alone. A mismatch is **not** an accusation of lying or bad code; it means only that the words and the diff disagree, and someone should look. That restraint is why the result is worth trusting.
+## The picture
 
-This scoreboard is the proof it works on real, popular repos: for every AI-authored commit it asks **how much of the repo the AI wrote — and whether each commit's claim is backed by its own diff.** It graded our own repo first, and published a non-zero result. Each page below is the receipt.
+Three views of the same audited history. Every figure is generated from the committed per-repo data — no live calls, reproducible offline by anyone who clones the repo.
 
-### Score your own repo in one command
+![AI-built share of each repo](assets/ai-share.svg)
+
+![Which agent built which repo](assets/agent-mix.svg)
+
+![What kind of work AI commits claimed](assets/claim-kinds.svg)
+
+> Across these **19 repos**, **claude** is the most prolific agent — it wrote **63%** of all the AI-authored commits here, with **7** other toolchains sharing the rest, and **75%** of what they all claimed was shipping code, not tests or docs.
+
+## Score your own repo in one command
 
 ```bash
 pip install dos-kernel
 dos commit-audit --sweep --workspace . BASE..HEAD
 ```
 
-That is the exact same check, on your history — before you trust the next "done". No account, no upload, no one named.
-
-> Across **18 repos** audited here — AI agents wrote about **4%** of recent commits — and **every one** of the concrete claims those commits made was backed by the commit's own diff.
-
-## What "backed by the diff" means
-
-The commit *message* is written by a person or an agent — it can say anything. The *diff* is written by git — it can't. We check whether a concrete claim in the message is **backed by** the commit's own diff. When it isn't, the claim rests on the words alone:
-
-**The empty fix.**
-
-> **says:** `fix: handle null user in the auth callback`  
-> **did:** touched **0 files**
-
-The message claims a fix. The commit changed nothing. The claim rests on the words alone.
-
-**"Tests pass" that deletes the test.**
-
-> **says:** `test: green after the refactor`  
-> **did:** **deleted** lines from the test file, added none
-
-The message claims the tests pass. The diff removed test code. Maybe that was the right call — but the subject says the opposite of what the diff shows.
-
-Those are the two clearest mismatch shapes. Most real commits aren't mismatches at all — which is the whole point of a clean page.
+That is the exact same check the board runs, on your history — before you trust the next "done". No account, no upload, no one named.
 
 ## Start here — the auditor grades itself
 
@@ -45,11 +31,9 @@ We ran the check on our own repo first and published whatever it said. It says *
 
 - **[anthony-chaudhary/dos-kernel](anthony-chaudhary/dos-kernel.md)** — our own grade, every flag explained.
 
-## Repos that came back clean
+## Repo by repo
 
-Every checkable claim an AI commit made matched the commit's own diff over the audited range. "Clean" here is earned, not empty: each page shows the range, the count, and receipts you can re-run yourself.
-
-What differs between them is how much of the repo the AI built and which agents did it — sorted by AI-built share. Click a repo for the full receipt.
+The detail behind the charts — each repo's AI-built share, the agents that did it, and whether every checkable claim was backed by its own diff. Sorted by AI-built share. Click a repo for the full receipt.
 
 | Repo | AI-built | Agents | Claims checked | Backed |
 |---|---|---|---|---|
@@ -71,6 +55,7 @@ What differs between them is how much of the repo the AI built and which agents 
 | [microsoft/autogen](microsoft/autogen.md) | 1% | copilot 28 · claude 2 | 27 | 100% |
 | [unslothai/unsloth](unslothai/unsloth.md) | <1% | claude 26 · cursor 2 | 22 | 100% |
 | [langchain-ai/langchain](langchain-ai/langchain.md) | <1% | copilot 24 · claude 15 | 29 | 100% |
+| [anthony-chaudhary/dos-kernel](anthony-chaudhary/dos-kernel.md) | — | — | 315 | 98% |
 
 ## The fine print (it matters)
 
@@ -81,6 +66,6 @@ What differs between them is how much of the repo the AI built and which agents 
 - **[The live roll-up](rollup.md)** — the published set above, folded into one aggregate by `scripts/scoreboard_rollup.py`. Every number is derived from the committed per-repo data, reproducible offline.
 - **Want your repo listed?** Clean or not, it's opt-in and you see the result before it publishes. See the methodology's registration section.
 
-The pages above are the 18 repos we've audited and named. Another 34 repos were checked but not named — a non-clean or unadjudicated verdict (or too few checkable claims to be a real signal) is reported only as a count, never as a named page ([docs/311](../311_scoreboard-per-repo-index-plan.md) §2).
+The pages above are the 19 repos we've audited and named. A repo is named only when its verdict is published; a non-clean or unadjudicated verdict is reported only as a count, never as a named page ([docs/311](../311_scoreboard-per-repo-index-plan.md) §2).
 
 > The kernel is the part that doesn't believe the agents.
