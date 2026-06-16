@@ -347,3 +347,13 @@ benchmark/enterpriseops/_verify_witness_claim.py
 # tracked — same rule as the scoreboard run-output above.
 /docs/sota/seen.jsonl
 /docs/sota/digest-*.md
+
+# Stray Claude-account HOME dumps at the repo root. A headless fleet worker runs
+# under a token-only per-seat account home (`~/.claude-<seat>`); a misconfigured run
+# can copy that whole home — `.claude.json`, `projects/`, `sessions/`,
+# `shell-snapshots/` — into the repo root as a `UsersUSER.claude-<seat>/` dir.
+# These are pure runtime artifacts that carry live private data (the dev machine's
+# hostname, a personal oauth email, session transcripts, internal product names) — a
+# PUBLISH_LEAK floor hit, never repo source. Root-anchored so the family can never
+# be staged again. Removed 2026-06-15.
+/UsersUSER.claude-*/

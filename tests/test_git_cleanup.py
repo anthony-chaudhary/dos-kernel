@@ -42,7 +42,7 @@ _spec.loader.exec_module(gc)
 def _wt(**kw) -> "gc.WorktreeRecord":
     """A worktree record with safe defaults (landed + clean + detached candidate)."""
     base = dict(
-        path="C:/work/fleet-runs/wt-issue-42",
+        path="/work/fleet-runs/wt-issue-42",
         head_sha="abc123def456",
         branch=None,
         is_main=False,
@@ -54,7 +54,7 @@ def _wt(**kw) -> "gc.WorktreeRecord":
 
 
 def test_main_worktree_always_keep():
-    v = gc.classify_worktree(_wt(is_main=True, path="C:/work/repo"))
+    v = gc.classify_worktree(_wt(is_main=True, path="/work/repo"))
     assert v.verdict == gc.KEEP
     assert v.action == []
 
@@ -93,7 +93,7 @@ def test_landed_clean_detached_worktree_prunes():
     v = gc.classify_worktree(_wt(landed=True, uncommitted_count=0, branch=None))
     assert v.verdict == gc.PRUNE
     assert v.action[:2] == ["worktree", "remove"]
-    assert v.action[-1] == "C:/work/fleet-runs/wt-issue-42"
+    assert v.action[-1] == "/work/fleet-runs/wt-issue-42"
 
 
 def test_dirty_outranks_unlanded_in_reason():
