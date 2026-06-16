@@ -60,6 +60,8 @@ func transcodeCC(cc map[string]any, dialect string) map[string]any {
 		return renderAntigravity(parseCC(cc))
 	case "cursor":
 		return renderCursor(parseCC(cc))
+	case "hermes":
+		return renderHermes(parseCC(cc))
 	default:
 		// Unknown dialect — degrade to CC (see the doc comment above). Never crash.
 		return cc
@@ -162,6 +164,33 @@ func renderCursor(v hookVerdict) map[string]any {
 		return out
 	}
 	return map[string]any{"permission": "allow", "agent_message": v.context}
+}
+
+// renderHermes emits Hermes' shell-hook grammar — a flat top-level
+// {"decision":"block","reason":…} on a DENY (the canonical block shape Hermes' hook
+// parser reads), and the ALLOW object {} on a WARN (Hermes' shell hook has NO
+// non-blocking add-context channel, so a turn-preserving verdict can only PASS there;
+// the context is dropped — a host coverage limit, surfaced honestly, not smuggled onto
+// a field Hermes does not read). The reason + any corrective fact are space-joined into
+// the one `reason` field Hermes surfaces. Byte-for-byte port of
+// `drivers.hook_dialects.HermesDialect.render`; moment-agnostic (Hermes' pre/post shell
+// hooks read the same decision field). Also the renderer the `devin` host aliases
+// (its flat {"decision":"block"} deny output, docs: a CC-shaped config + hermes output).
+// Pinned by parity_dialect_test.go.
+func renderHermes(v hookVerdict) map[string]any {
+	if v.action == "pass" {
+		return nil
+	}
+	if v.action == "deny" {
+		out := map[string]any{"decision": "block"}
+		reason := joinNonEmpty(v.reason, v.context)
+		if reason != "" {
+			out["reason"] = reason
+		}
+		return out
+	}
+	// warn — the ALLOW object {}. No non-blocking context channel; context dropped.
+	return map[string]any{}
 }
 
 // joinNonEmpty space-joins the non-empty parts (the Antigravity/Cursor reason fold),

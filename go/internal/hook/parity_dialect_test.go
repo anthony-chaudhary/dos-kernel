@@ -78,6 +78,15 @@ func TestDialectTranscodeMatchesPythonGoldenBytes(t *testing.T) {
 			wantDeny: `{"agent_message": "DOS PRE-admission: SELF_MODIFY blocked read it first", "permission": "deny"}`,
 			wantWarn: `{"agent_message": "scope it to a lane", "permission": "allow"}`,
 		},
+		{
+			// Hermes' shell hook: a flat {"decision":"block","reason":…} DENY (context
+			// folded into reason), and the ALLOW object {} on a WARN (no non-blocking
+			// add-context channel — context dropped). Also the renderer the `devin` host
+			// aliases (its flat block deny output, a CC-shaped config + hermes output).
+			dialect:  "hermes",
+			wantDeny: `{"decision": "block", "reason": "DOS PRE-admission: SELF_MODIFY blocked read it first"}`,
+			wantWarn: `{}`,
+		},
 	}
 
 	for _, c := range cases {
@@ -97,7 +106,7 @@ func TestDialectTranscodeMatchesPythonGoldenBytes(t *testing.T) {
 // emits nothing on EVERY dialect (the fail-to-passthrough floor preserved per host).
 func TestDialectTranscodePassthroughStaysEmptyEverywhere(t *testing.T) {
 	d := Decision{Dialect: nil}
-	for _, dialect := range []string{"", "claude-code", "codex", "gemini", "antigravity", "cursor", "claude-cowork", "bogus"} {
+	for _, dialect := range []string{"", "claude-code", "codex", "gemini", "antigravity", "cursor", "claude-cowork", "hermes", "bogus"} {
 		if got := d.RenderAs(dialect); got != "" {
 			t.Fatalf("passthrough should be empty on dialect %q, got %q", dialect, got)
 		}
@@ -121,7 +130,7 @@ func TestDialectTranscodeUnknownDegradesToCC(t *testing.T) {
 // key on any host. Cursor's preToolUse CAN return updated_input; DOS must NOT.
 func TestDialectTranscodeNeverEmitsRewriteKey(t *testing.T) {
 	for _, d := range []Decision{{Dialect: ccDenyDict()}, {Dialect: ccWarnDict()}} {
-		for _, dialect := range []string{"claude-code", "codex", "gemini", "antigravity", "cursor", "claude-cowork"} {
+		for _, dialect := range []string{"claude-code", "codex", "gemini", "antigravity", "cursor", "claude-cowork", "hermes"} {
 			out := d.RenderAs(dialect)
 			for _, bad := range []string{"updatedInput", "updated_input", "updatedCommand"} {
 				if containsStr(out, bad) {
