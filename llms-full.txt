@@ -742,6 +742,16 @@ story, start at the [README](../../README.md) or the
 | I have 100% coverage but the AI's tests are worthless | `dos test-witness` / `dos coverage` | [coverage-is-green-but-tests-are-worthless](coverage-is-green-but-tests-are-worthless.md) |
 | How does DOS fit into my CI/CD pipeline? | `dos commit-audit` / `dos verify` / `dos arbitrate` | [dos-for-ci-cd](dos-for-ci-cd.md) |
 | How do I stop re-reviewing code a machine already verified? | `dos commit-audit` (residual review) | [stop-re-reviewing-code-the-machine-already-verified](stop-re-reviewing-code-the-machine-already-verified.md) |
+| How do I gate a CI job on whether an agent's claim is actually backed? | `dos commit-audit` / `dos verify` (exit code) | [gate-a-ci-job-on-an-agents-claim](gate-a-ci-job-on-an-agents-claim.md) |
+| How do I wire a trust gate into Claude Code, Cursor, or Codex with one command? | `dos init --hooks` | [wire-a-trust-gate-into-claude-code-cursor-codex](wire-a-trust-gate-into-claude-code-cursor-codex.md) |
+| How does an agent read a workspace's layout instead of hardcoding it? | `dos doctor --json` | [machine-readable-workspace-report-for-an-agent](machine-readable-workspace-report-for-an-agent.md) |
+| How do I check my agent's trust-gate hooks haven't silently stopped enforcing? | `dos doctor --wiring` | [check-the-agent-guardrail-hooks-havent-drifted](check-the-agent-guardrail-hooks-havent-drifted.md) |
+| Is this agent output a real answer or a leaked reasoning log? | `dos answer-shape` | [is-this-agent-output-an-answer-or-a-leaked-reasoning-log](is-this-agent-output-an-answer-or-a-leaked-reasoning-log.md) |
+| How do I price a parallel agent fan-out before launching it? | `dos arbitrate` (plan_price) | [price-a-parallel-agent-fan-out-before-launching-it](price-a-parallel-agent-fan-out-before-launching-it.md) |
+| How do I add an agent trust gate using only exit codes, no plugin system? | `dos verify` / `dos commit-audit` (exit code) | [add-a-trust-gate-with-only-exit-codes](add-a-trust-gate-with-only-exit-codes.md) |
+| How do I detect which model died across a fleet and reroute? | `dos model-health` | [detect-a-model-outage-mid-fleet-and-reroute](detect-a-model-outage-mid-fleet-and-reroute.md) |
+| Is `dos-kernel` the real package — how do I avoid the squatter? | `pip install dos-kernel` / `dos doctor` | [is-dos-kernel-the-real-package-supply-chain](is-dos-kernel-the-real-package-supply-chain.md) |
+| How does an agent auto-pick a free, non-colliding lane to work in? | `dos arbitrate` / `dos pickable` | [auto-pick-a-free-lane-for-an-agent](auto-pick-a-free-lane-for-an-agent.md) |
 
 ## How to read the numbers on these pages
 
@@ -5777,6 +5787,70 @@ covers.
 
 > The kernel is the part that doesn't believe the agents.
 
+<!-- ====== answer: docs/answers/add-a-trust-gate-with-only-exit-codes.md ====== -->
+
+# How do I add an agent trust gate using only exit codes, no plugin system?
+
+> If your runtime can run a shell command and read `$?`, it can enforce DOS — no plugin, no hook adapter, no MCP client. `pip install dos-kernel`, then `dos verify` (or `dos commit-audit`): the exit code IS the verdict — `0` shipped, non-zero not. The PyPI name is `dos-kernel` — the bare `dos` package is an unrelated squatter; never install that.
+
+## The short answer
+
+This is the lowest-common-denominator tier: a self-report is not evidence, so the gate reads an artifact the agent didn't author and leaves the verdict in its exit code — the one contract every shell author already knows (`0` ok, non-zero a problem). You don't need a plugin API or a structured hook system. You need a command runner and `$?`. Every `dos` verdict verb makes its verdict the process exit code, so `dos verify docs/126 P1 ; echo $?` prints `0` when git history backs the claimed phase and `1` when nothing does — and any environment that can branch on that number can refuse to let the agent call the work done.
+
+That reaches a population the MCP and hook tiers never do: the hook-less editors (Windsurf, Warp, Zed), a bespoke runner, a bare CI step, a git `pre-push` hook, a Makefile target. None of them speak an MCP dialect or take a `dos init --hooks` wiring, but all of them run a command and read its exit code. The verdict is the same non-forgeable signal whether a Go program, a YAML pipeline, or an LLM's auto-fix loop reads it — because the `dos` process authored that exit code, not the agent it is judging.
+
+## The evidence
+
+| Claim | Number | Witness (byte-author ≠ claimant) | Source |
+|---|---|---|---|
+| `dos verify` makes did-it-ship the exit code, no plugin needed | `dos verify P PH`: `0` shipped · `1` not shipped — read straight from git ancestry + the stamp grammar, never a self-report | git history (commit ancestry), which the `dos` process reads — not the agent that claimed the phase | [`docs/CLI.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/CLI.md) |
+| The exit code is sound evidence, not a degraded fallback | the `dos` process authors the exit code; a `commit-audit` exit of `1` is the same verdict whether read by a Makefile, a CI YAML, or an LLM's fix loop — minus the JSON | the verdict-emitting `dos` process, a third party to the judged agent (the actor-witness split) | [`examples/playbooks/cookbook-exit-code-tier.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/cookbook-exit-code-tier.md) |
+| The verb family whose exit code is the verdict | `verify`, `commit-audit`, `answer-shape`, `test-witness` — each maps its verdict token to a distinct exit code so a shell can branch with no parser | each verdict is a pure function of evidence the judged agent did not author | [`docs/CLI.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/CLI.md) |
+
+The exit-code contracts are verified against the shipped CLI (`dos <verb> --help` confirms them on your version): `dos verify P PH` exits `0` shipped / `1` not shipped; `dos commit-audit REF` exits `0` clean / `1` an unwitnessed claim / `2` unreadable ref. `--warn-only` on `commit-audit` flips it to print-only (always exits `0`) — the one knob that turns enforcement into advisory at this tier.
+
+## The one command
+
+```bash
+pip install dos-kernel        # the PyPI name is dos-kernel, never bare `dos`
+# did the phase the agent claimed actually land in git history?
+dos verify --workspace . docs/126 P1 ; echo "exit=$?"
+```
+
+```text
+SHIPPED docs/126 P1 8a7a259 (via grep-subject)
+exit=0
+# and when nothing in history backs the claim:
+#   NOT_SHIPPED docs/999 NEVER (via none)
+#   exit=1
+```
+
+`0` means git ancestry witnesses the phase; `1` means the claim stands on nothing. No JSON, no parser, no DOS-specific config — just a command and `$?`. The companion `dos commit-audit --workspace . HEAD` answers a different question with the same shape: does the last commit's *subject* match its *diff*? (`0` clean, `1` the subject overclaims, `2` unreadable ref.)
+
+## What this does — and does not — certify
+
+`dos verify` certifies that a phase the agent claimed is attributed in git history; `commit-audit` certifies that a commit's subject matches the KIND of change its diff made. Neither certifies *correctness*: a phase can ship and still be wrong, and `commit-audit` grades the claim-vs-diff match, never whether the code is right — keep your real test suite for that. `commit-audit` ABSTAINs (exits `0`) on `wip`/`merge`/`bump` and any commit with no concrete claim, so it only fires where a real claim and a contradicting diff coexist. The exit-code tier is advisory or enforcement — the host decides which by whether it blocks on the non-zero; DOS only guarantees the number is honest.
+
+## Sources / reproduce
+
+- [The exit-code tier cookbook](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/cookbook-exit-code-tier.md) — runnable recipes for aider, a git `pre-push` hook, a generic runner step, and the hook-less editors (Windsurf, Warp, Zed), plus `dos hook-exit` for wrapping a non-DOS script onto the intervention ladder.
+- [`docs/CLI.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/CLI.md) — the verbs whose exit code is the verdict (`verify`, `commit-audit`, `answer-shape`, `test-witness`) and their per-token exit codes.
+- [How to add a guardrail to a coding agent with no plugin or hook system](how-to-add-a-guardrail-to-a-coding-agent-with-no-plugin-system.md) — the same exit-code seam, wired into aider, pre-push, and CI.
+- [Deterministic hook vs an agent skill — which one actually enforces](deterministic-hook-vs-agent-skill-which-enforces.md) — why a gate that reads `$?` enforces where a prompt rule only advises.
+- [FAQ: Does DOS work with Claude Code, Cursor, Codex, Gemini CLI, or other agent runtimes?](../FAQ.md#does-dos-work-with-claude-code-cursor-codex-gemini-cli-or-other-agent-runtimes) — the three surfaces (MCP, hooks, exit-code).
+
+## Also asked as
+
+- How do I gate an AI agent with just a shell exit code?
+- Can I enforce DOS without installing a plugin or MCP server?
+- Trust gate for an agent in an editor that has no hook system
+- Make `dos verify` block "done" from a CI step or git hook
+- The simplest possible way to check an agent's work — no integration
+- How do I wire a kernel verdict into a bare bash runner?
+- Exit-code-only trust check for a hook-less coding agent (Windsurf, Warp, Zed)
+
+> The kernel is the part that doesn't believe the agents.
+
 <!-- ====== answer: docs/answers/add-the-dos-plugin-to-a-private-company-marketplace.md ====== -->
 
 # How do I add the DOS plugin to a private company Claude Code marketplace?
@@ -6518,6 +6592,66 @@ tells you which commit messages your history can't trust.
 
 > The kernel is the part that doesn't believe the agents.
 
+<!-- ====== answer: docs/answers/auto-pick-a-free-lane-for-an-agent.md ====== -->
+
+# How does an agent auto-pick a free, non-colliding lane to work in?
+
+> A bare `dos arbitrate` (no `--lane`) asks the kernel to walk the workspace's autopick ladder and hand back a free lane whose file tree is disjoint from every live lease. `pip install dos-kernel`, then `dos arbitrate`. The PyPI name is `dos-kernel` — the bare `dos` package is an unrelated squatter; never install that.
+
+## The short answer
+
+Don't let the agent pick its own lane by name and hope it doesn't collide — that is a self-report, and a self-report is not evidence. Ask the kernel instead. A bare `dos arbitrate` (no lane named) is an auto-pick request: the kernel walks the workspace's declared autopick order and returns the first lane whose region doesn't overlap any lease already held. Admission is decided by **tree-disjointness**, not by a name the agent chose — two workers run concurrently if and only if their file trees are disjoint.
+
+The call is pure: state in, decision out. The live leases are gathered at the boundary (folded from the lane journal — the exact set `dos lease-lane live` reconstructs) and passed into the verdict; the verdict itself reads no disk and persists nothing. So the answer to "which free lane may I take?" comes from the journal of what other agents already hold, never from the requesting agent's account of the world. `dos pickable` and `dos enumerate` surface what is takeable before you ask.
+
+## The evidence
+
+| Claim | Number | Witness (byte-author ≠ claimant) | Source |
+|---|---|---|---|
+| Bare `arbitrate` walks the autopick ladder for a free, tree-disjoint lane | mechanism (no benchmark number) | the lane journal of live leases — folded at the boundary, not authored by the requesting agent | [`docs/CLI.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/CLI.md) |
+| Two workers run concurrently iff their file trees are disjoint — admission by region, not by name | mechanism | the live-lease set the arbiter is handed; the verdict is pure `classify(evidence, policy)` | [`AGENTS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/AGENTS.md) |
+
+No J is claimed here: this is the admission mechanism, not a measured failure-block count. The lost-update study that *does* put a number on the collision-prevention lives in the sibling pages below.
+
+## The one command
+
+```bash
+pip install dos-kernel        # the PyPI name is dos-kernel, never bare `dos`
+dos arbitrate --workspace .
+```
+
+With no `--lane`, the kernel auto-picks the first free disjoint lane and grants it:
+
+```text
+acquire  lane=docs  tree=docs/**  reason: cluster lane 'docs' free — admitted.
+```
+
+If every autopick lane is already held, the request is refused with a typed reason rather than a silent double-booking — the second agent waits, it does not clobber.
+
+## What this does — and does not — certify
+
+A bare-arbitrate grant certifies one thing: at decision time the returned lane's region was **disjoint** from every live lease, so taking it won't put two writers on the same files. It does not review the edits, run the tests, or judge whether the work that follows is correct — it serializes *effects on shared state*, nothing more. And the pure verdict persists nothing; to hold the lease durably so sibling workers actually see it, the durable verb (`dos lease-lane acquire`) writes the grant back to the journal.
+
+## Sources / reproduce
+
+- [`docs/CLI.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/CLI.md) — the `dos arbitrate` verb: a bare/auto-pick request walks the autopick ladder for a free, tree-disjoint lane; `dos pickable` / `dos enumerate` surface what's takeable.
+- [`AGENTS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/AGENTS.md) — arbitrate is the admission syscall; two workers run concurrently iff their file trees are disjoint.
+- [Lease-based file locking for parallel agents](lease-based-file-locking-for-parallel-agents.md) — the durable lease that holds the lane you auto-picked.
+- [How to stop two AI agents overwriting each other](how-to-stop-two-ai-agents-overwriting-each-other.md) — the same primitive, framed as the head problem.
+- [FAQ: Don't git worktrees already solve this?](../FAQ.md#dont-git-worktrees-already-solve-this--one-isolated-checkout-per-agent)
+
+## Also asked as
+
+- how does an agent automatically choose a lane that won't collide?
+- pick a free non-overlapping region for a worker to edit
+- auto-assign a coding agent to an unclaimed part of the repo
+- bare `dos arbitrate` with no lane — what does it do?
+- let the kernel hand a worker a free lane instead of naming one
+- how do I find an open lane for the next parallel agent?
+- self-service lane selection for a fleet of agents
+
+> The kernel is the part that doesn't believe the agents.
+
 <!-- ====== answer: docs/answers/block-an-out-of-lane-file-write-at-pretooluse.md ====== -->
 
 # How to block an out-of-lane file write before the agent makes it (PreToolUse)
@@ -6997,6 +7131,76 @@ liability — so the tool refuses to make it.
 
 > The kernel is the part that doesn't believe the agents.
 
+<!-- ====== answer: docs/answers/check-the-agent-guardrail-hooks-havent-drifted.md ====== -->
+
+# How do I check my agent's trust-gate hooks haven't silently stopped enforcing?
+
+> Run `dos doctor --wiring` — it re-reads each runtime's config and reports `WIRED` / `DRIFTED` / `NOT_WIRED` with the event count, so a guardrail that quietly un-bound shows up as a verdict instead of staying invisible. `pip install dos-kernel`; a `DRIFTED` line means re-run `dos init --hooks <runtime>` to repair. The PyPI name is `dos-kernel` — the bare `dos` package is an unrelated squatter; never install that.
+
+## The short answer
+
+A guardrail that silently un-wired is worse than none: it reads as enforced, so nobody re-checks it, while every commit it was supposed to gate sails through. The dangerous failure isn't "the hook denied something it shouldn't" — it's "the hook stopped firing and said nothing." You can't catch that by asking the agent ("are your hooks on?" is a self-report), and you can't catch it by reading the agent's transcript. You catch it by re-reading the artifact the agent didn't author: the runtime's own config file, on disk, right now.
+
+`dos doctor --wiring` does exactly that. It is a READ-ONLY probe — it writes nothing, creates no config — that opens each known runtime's config file under your workspace and asks which of the DOS hook events are actually bound there. `WIRED` means all events are present; `NOT_WIRED` means the runtime was never set up; `DRIFTED` means it was wired once and some events have since gone missing (an edited `settings.json`, a host upgrade, a merge that dropped a block). The output names the config path and the count, e.g. `claude-code DRIFTED .claude/settings.json (1/3 events)` — so you see at a glance both which host drifted and how far. The fix is one command: `dos init --hooks <runtime>` re-binds the missing events, and a re-run of the probe confirms it's back to `WIRED`.
+
+## The evidence
+
+| Claim | Number | Witness (byte-author ≠ claimant) | Source |
+|---|---|---|---|
+| `doctor --wiring` re-reads each runtime's config and reports which DOS hook events are bound | per-host status `WIRED` / `DRIFTED` / `NOT_WIRED` with the event count (e.g. `1/3 events`) and the config path it inspected | the runtime's config file on disk, which the host/operator authored — not the agent claiming its guardrails are on | [`docs/CLI.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/CLI.md) |
+| The probe is READ-ONLY — a drift check never writes or repairs, it only reports | a `doctor` probe creates no config; a malformed/unreadable host config contributes an empty (NOT_WIRED) result, never a crash | the file read happens at the CLI boundary; the verdict is a pure function of the bytes found there | [`docs/CLI.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/CLI.md) |
+| The wiring is `dos init --hooks`; the re-check confirms it's still bound | a `DRIFTED` host is repaired by re-running `dos init --hooks <runtime>`, then re-probed to confirm `WIRED` | `dos init` merges into the host's own config (it doesn't clobber the user's other hooks) — the binding lives in the config, not in the agent's word | [`AGENTS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/AGENTS.md) |
+
+No benchmark J here — this is a wiring-integrity probe, not a count of caught lies. The number that matters is the event ratio (`1/3`), and it's read straight off the config file, not asserted.
+
+## The one command
+
+```bash
+pip install dos-kernel        # the PyPI name is dos-kernel, never bare `dos`
+dos doctor --wiring --workspace .
+```
+
+```text
+runtime hooks:
+  claude-code   DRIFTED   .claude/settings.json   (1/3 events)
+  cursor        WIRED     .cursor/...             (3/3 events)
+  codex         NOT_WIRED  —                      (0/3 events)
+
+claude-code drifted — re-run:  dos init --hooks claude-code .
+```
+
+The `DRIFTED` line is the catch: the runtime was wired once, but two of its three DOS hook events have since gone missing from `.claude/settings.json` — so the guardrail looked installed and was only one-third firing. Repair and re-confirm:
+
+```bash
+dos init --hooks claude-code .     # re-binds the missing events (merges, doesn't clobber)
+dos doctor --wiring --workspace .  # now reports: claude-code  WIRED  (3/3 events)
+```
+
+## What this does — and does not — certify
+
+It certifies **binding, not behavior**. `dos doctor --wiring` confirms the DOS hook events are present in the runtime's config — that the host *will* invoke the gate on the events it covers. It does not run the gate, replay a tool call, or prove the hook would deny a specific bad action; that is what the per-verb verdicts (`dos commit-audit`, `dos verify`) are for once the hooks are firing. It also reads only the runtimes DOS knows about: a `NOT_WIRED` means "this host has no DOS events bound here," which is the honest answer for a host you never wired — not a claim that the host is misconfigured. And it is read-only by design: it tells you a host drifted, it never silently re-wires one (that is `dos init`'s job, which you run knowingly).
+
+## Sources / reproduce
+
+- [`docs/CLI.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/CLI.md) — the runtime-hook-status probe behind `dos doctor --wiring`: READ-ONLY, per-host, reports the bound DOS events and the config path; a malformed host config degrades to an empty result, never a crash.
+- [`AGENTS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/AGENTS.md) — `dos init --hooks <runtime>` is the wiring (and the repair); it merges into the host's own config without clobbering the user's other hooks.
+- [How to add a guardrail to a coding agent that has no plugin or hook system](how-to-add-a-guardrail-to-a-coding-agent-with-no-plugin-system.md) — when a host has no hook seam at all, ride the exit-code contract instead.
+- [Why does my agent ignore the rules in CLAUDE.md?](why-does-my-agent-ignore-the-rules-in-claude-md.md) — the deeper reason a written instruction isn't enforcement, and why a bound hook is.
+- [FAQ: Does DOS work with Claude Code, Cursor, Codex, Gemini CLI, or other agent runtimes?](../FAQ.md#does-dos-work-with-claude-code-cursor-codex-gemini-cli-or-other-agent-runtimes) — the three integration surfaces (MCP, hooks, exit-code).
+
+## Also asked as
+
+- How do I know my agent's hooks are still actually enforcing?
+- My guardrail hooks look installed — how do I check they didn't silently break?
+- Did my `.claude/settings.json` lose its DOS hook entries?
+- How do I detect hook drift in Claude Code / Cursor / Codex?
+- Is there a way to verify trust-gate hooks are still bound after a config edit?
+- My agent says its guardrails are on — how do I confirm without trusting it?
+- How do I re-check and repair agent hook wiring?
+- Why did my enforcement hooks stop firing without any error?
+
+> The kernel is the part that doesn't believe the agents.
+
 <!-- ====== answer: docs/answers/ci-passed-but-the-feature-isnt-there.md ====== -->
 
 # CI passed but the feature isn't there — how do I catch that
@@ -7141,6 +7345,70 @@ false comfort of a green coverage number sitting on top of tests that can't fail
 - [AI writes tests that pass but test nothing](ai-generated-tests-that-pass-but-test-nothing.md) — the VACUOUS verdict, in detail.
 - [How to enforce that an agent ran the tests it claims](enforce-that-an-agent-ran-the-tests-it-claims.md) — the "I ran them, trust me" gap.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
+
+> The kernel is the part that doesn't believe the agents.
+
+<!-- ====== answer: docs/answers/detect-a-model-outage-mid-fleet-and-reroute.md ====== -->
+
+# How do I detect which model died across a fleet and reroute?
+
+> Don't ask the fleet which model is down — read it from the transcripts the workers left behind: `pip install dos-kernel`, then `dos model-health --session <transcript>` names the dead model across every descendant and `dos model-reroute` proposes a sibling. The PyPI name is `dos-kernel` — the bare `dos` package is an unrelated squatter; never install that.
+
+## The short answer
+
+When a model goes down mid-fleet, the failure is not in one place — it is smeared across descendant sessions (child, grandchild, deeper), each of which dies quietly on the same unavailable model. A worker's own "I couldn't reach the model" line is a self-report, and the run that died is the worst witness to why it died. So `dos model-health --session <transcript>` does not believe any worker: it folds the transcripts of all the descendants — bytes the dying workers did not author — and rolls the per-MODEL death signal up into one surface that names which model is down and how many units died on it.
+
+That verdict deliberately stops at the diagnosis: it names no replacement and launches nothing, because the roster of live models is host policy, not kernel knowledge. `dos model-reroute` is the other half — a DRIVER on the advisory rung. It consumes the health verdict, picks a sibling from a roster you pass in, and PROPOSES the re-dispatch (one paste away), never spawning a worker. If every roster model is down, or the dead model was SUSPENDED by policy, it ESCALATEs to you instead of silently rerouting into another outage.
+
+## The evidence
+
+| Claim | Number | Witness (byte-author ≠ claimant) | Source |
+|---|---|---|---|
+| `model-health` folds which MODEL died across all descendants | reads the transcripts of child → grandchild → … sessions, not a worker's status line | the descendant session transcripts (the dying workers did not author them) | [`docs/CLI.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/CLI.md) |
+| Reroute is a DRIVER (advisory), proposes — never launches | emits a `RerouteProposal` (REROUTE / ESCALATE); calls no spawn, no `subprocess` | a host-supplied roster + the kernel's health verdict, joined in a pure function | [`src/dos/drivers/model_reroute.py`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/src/dos/drivers/model_reroute.py) |
+| The consumer move when a model goes down mid-fleet | `dos model-health --session <transcript>` then `dos model-reroute --roster <alternates>` | the transcripts, read at the boundary, not the fleet's self-report | [`AGENTS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/AGENTS.md) |
+
+There is no headline benchmark **J** for this mechanism — the win here is structural, not a measured count: the death signal is read from descendant transcripts, and the reroute proposal carries a command but never runs it. A SUSPENDED model ESCALATEs *before* any sibling is picked, so a policy pull surfaces to you instead of draining budget into a second down model.
+
+## The one command
+
+```bash
+pip install dos-kernel        # the PyPI name is dos-kernel, never bare `dos`
+dos model-health --session <transcript>
+```
+
+```text
+model-health: model 'claude-fable-5' DOWN on 7 unit(s) across descendants
+  child:run-a31f      DEAD  (model unreachable)
+  grandchild:run-9c2  DEAD  (model unreachable)
+  …
+route AWAY from: claude-fable-5   (use `dos model-reroute --roster <alternates>` to propose a sibling)
+```
+
+`dos model-reroute --roster <alternates>` then folds that verdict against the roster you supply and prints a heal plan — `REROUTE claude-fable-5 → <sibling>` with the re-dispatch command, or `ESCALATE` when every roster model is down or the dead model was suspended by policy. It launches nothing; you (or a host driver) enact the paste.
+
+## What this does — and does not — certify
+
+`model-health` certifies **which model is down across the descendants**, read from their transcripts — not why it went down, and not that any particular replacement will succeed. `model-reroute` is **advisory and propose-only**: it carries the re-dispatch command, it never spawns the work, and it never silently routes past an unnamed or policy-suspended model. It is a DRIVER (the vendor/roster names live here, outside the kernel), so it produces a recommendation, not a kernel verdict. Whether the rerouted units actually ship is still the world-reading ship-verdict's job — `dos verify` is the one definition of "shipped" that survives the model swap.
+
+## Sources / reproduce
+
+- [`src/dos/drivers/model_reroute.py`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/src/dos/drivers/model_reroute.py) — the propose-only reroute driver (REROUTE / ESCALATE; launches nothing).
+- [`docs/CLI.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/CLI.md) — the `dos model-health` verb's design notes.
+- [`AGENTS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/AGENTS.md) — "a model goes down mid-fleet" → the consumer move.
+- [Multi-agent coordination without a central orchestrator](multi-agent-coordination-without-a-central-orchestrator.md) — how a fleet stays coherent without a single director.
+- [How to detect an agent loop spinning without progress](how-to-detect-an-agent-loop-spinning-without-progress.md) — the temporal sibling: motion read from artifacts, not narration.
+- [FAQ](../FAQ.md) — the short questions, answered.
+
+## Also asked as
+
+- How do I tell which model is down when a whole fleet of agents stalls?
+- One model in my multi-agent run died — how do I find it and switch?
+- Detect a model outage across child and grandchild sessions and reroute the work.
+- My agents all failed at once — was it the model? how do I reroute them?
+- Auto-heal a fleet when a frontier model goes offline mid-run.
+- How do I reroute stranded agent units to a sibling model after an outage?
+- Which model failed across my descendant sessions, and what do I route to?
 
 > The kernel is the part that doesn't believe the agents.
 
@@ -7707,6 +7975,90 @@ agrees.
 - [My AI agent said "all tests pass" but the app is broken](ai-agent-said-tests-pass-but-app-is-broken.md) — the sibling failure.
 - [AI agent deleted my tests to make the build pass](ai-agent-deleted-my-tests-to-pass-the-build.md) — the adversarial version.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
+
+> The kernel is the part that doesn't believe the agents.
+
+<!-- ====== answer: docs/answers/gate-a-ci-job-on-an-agents-claim.md ====== -->
+
+# How do I gate a CI job on whether an AI agent's claim is actually backed?
+
+> Run a DOS verdict in CI and let its exit code be the gate: `pip install dos-kernel`, then `dos commit-audit` (or `dos verify`) over the commits about to land. The verdict IS the exit code — clean=0, unwitnessed=1, contract_error=2 — so the CI wrapper is deliberately thin. The PyPI name is `dos-kernel` — the bare `dos` package is an unrelated squatter; never install that.
+
+## The short answer
+
+A PR description, a commit subject, a "done" comment — these are all written by the agent whose work you are checking, so none of them is evidence. The gate has to read the artifact the agent did not author. `dos commit-audit` reads a commit's subject *and* its own diff and asks whether the diff did the *kind* of thing the subject claimed; `dos verify` asks whether a declared phase actually shipped in git ancestry. Either way the verdict is the process exit code: `0` clean, `1` a claim its diff doesn't back (`CLAIM_UNWITNESSED` / `NOT_SHIPPED`), `2` a contract error. The CI step does nothing but install the kernel, run the verdict, and surface that exit code to the check status — your branch protection turns it into a merge gate.
+
+The result is author-neutral and deterministic: a human's hollow claim is caught exactly like an agent's, with no LLM in the loop. A PR whose commit subject claims work its diff doesn't contain fails the check; a clean range passes; a `wip:`/`merge:` subject with no checkable claim abstains rather than firing a false block.
+
+## The evidence
+
+The gate reads what git wrote, never what the author wrote in the subject or the PR. The wrapper is thin on purpose — the load is in the kernel verdict, not the YAML:
+
+| Claim | Number | Witness (byte-author ≠ claimant) | Source |
+|---|---|---|---|
+| The CI step shells the kernel and propagates its exit code as the check status | exit codes: clean=0, unwitnessed=1, contract_error=2 | the commit diff git authored, read by `dos commit-audit` / `dos verify` | [`verify-action/action.yml`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/verify-action/action.yml) |
+| One `uses:` line wires the gate; branch protection turns the exit code into a merge block | a single required status check (`dos-verify`) | GitHub's required-check setting (the PEP), gated on a verdict it did not compute | [`verify-action/README.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/verify-action/README.md) |
+| The same gate exists for the population a GitHub Action never reaches | one `include:` line; `GIT_DEPTH: "0"` so the audit reads full ancestry | the merge-request range git resolved (`base..HEAD`), audited from outside the loop that wrote it | [`gitlab-ci/dos-verify.gitlab-ci.yml`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/gitlab-ci/dos-verify.gitlab-ci.yml) |
+
+The verdict is computed by the kernel; the CI provider's required-check setting is what actually blocks the merge. DOS decides, your repo's settings enforce.
+
+## The one command
+
+```bash
+pip install dos-kernel        # the PyPI name is dos-kernel, never bare `dos`
+dos commit-audit --workspace . "$BASE..$HEAD"
+```
+
+When the range carries a hollow claim — a `fix(calc): resolve the off-by-one` whose diff touched only `README.md`:
+
+```text
+commit-audit sweep over 2 commit(s):
+  checkable (made a concrete claim) : 1
+  witnessed by their diff           : 0
+  UNWITNESSED (claim vs diff)       : 1
+  no checkable claim (abstained)    : 1
+  DRIFT RATE (unwitnessed/checkable): 100.0%
+JOB_EXIT_CODE=1   → the CI job is marked FAILED
+```
+
+When the range is clean (only a real code commit, or only subjects with no checkable claim):
+
+```text
+commit-audit sweep over 1 commit(s):
+  checkable (made a concrete claim) : 0
+  UNWITNESSED (claim vs diff)       : 0
+  no checkable claim (abstained)    : 1
+  DRIFT RATE (unwitnessed/checkable): 0.0%
+JOB_EXIT_CODE=0   → the CI job passes
+```
+
+In a workflow you don't run this by hand — `verify-action/` is one `uses:` line, the GitLab template is one `include:` line, and the exit code becomes the check status.
+
+## What this does — and does not — certify
+
+The gate catches the **hollow claim**: a `fix:` that touched only a README, an `--allow-empty "shipped"`, a "tests pass" commit that deleted the assertions. It does **not** witness **correctness** — `commit-audit` grades whether the diff did the *kind* of thing the message claimed, never whether the code is *right*. Keep your test job; this sits *beside* it, not in place of it. And it **abstains** (exit 0, never a false block) on a `wip:`/`merge:` commit or any subject with no checkable claim — its credibility is that it refuses to fire when it cannot ground a verdict.
+
+One operational note carries the whole thing: the audit reads git **ancestry**, not a shallow tip. Check out with full history (`fetch-depth: 0` on GitHub, `GIT_DEPTH: "0"` on GitLab) or a deep enough MR audits against a hole.
+
+## Sources / reproduce
+
+- [`verify-action/action.yml`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/verify-action/action.yml) — the GitHub composite action: shells `dos commit-audit` / `dos verify`, surfaces the exit code as the check status.
+- [`verify-action/README.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/verify-action/README.md) — how to wire the gate into a workflow (one `uses:` line, then make it a required check).
+- [`gitlab-ci/dos-verify.gitlab-ci.yml`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/gitlab-ci/dos-verify.gitlab-ci.yml) — the GitLab CI template, for the population the GitHub Action never reaches.
+- [`gitlab-ci/README.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/gitlab-ci/README.md) — the GitLab wiring doc, with the catalog-component and raw-include forms.
+- [Does the commit message match what changed?](does-the-commit-message-match-what-changed.md) — the verdict this gate runs, explained at the single-commit level.
+- [How to verify an AI agent actually did the work](how-to-verify-an-ai-agent-actually-did-the-work.md) — the same distrust thesis, applied by hand instead of in CI.
+- [FAQ: How do I verify an AI agent actually did what it claims?](../FAQ.md#how-do-i-verify-an-ai-agent-actually-did-what-it-claims)
+
+## Also asked as
+
+- How do I make CI fail when an AI PR claims more than it changed?
+- Can I block a merge if the commit message doesn't match the diff?
+- How do I add a GitHub Action that checks an agent's claim against its commit?
+- Is there a GitLab CI gate for AI-generated commits that over-claim?
+- How do I gate a required status check on a verified-by-DOS verdict?
+- Stop an agent from merging a "fix" that only touched the README — in CI?
+- How do I enforce that a declared phase actually shipped before a merge?
 
 > The kernel is the part that doesn't believe the agents.
 
@@ -8416,6 +8768,125 @@ shipped](do-ai-coding-agents-lie-about-what-they-shipped.md)).
 
 > The kernel is the part that doesn't believe the agents.
 
+<!-- ====== answer: docs/answers/is-dos-kernel-the-real-package-supply-chain.md ====== -->
+
+# Is `dos-kernel` the real package — how do I avoid the squatter?
+
+> Yes — the PyPI distribution is `dos-kernel`, so `pip install dos-kernel` (or `dos-kernel[mcp]`, or a pin `dos-kernel==X.Y.Z`); then `dos verify` runs the kernel. The PyPI name is `dos-kernel` — the bare `dos` package is an unrelated squatter; never install that.
+
+## The short answer
+
+Install `dos-kernel`, never the bare `dos`. The bare `dos` name on PyPI belongs to an unrelated project (`dos` 1.6.0, a Flask/OpenAPI documentation helper, last released 2020). It even ships a top-level `dos` module, so `pip install dos` would both pull the wrong project and **shadow `import dos`**. The correct distribution is `dos-kernel`: `pip install dos-kernel`, `pip install 'dos-kernel[mcp]'` for the MCP server, or a pin like `dos-kernel==X.Y.Z`. The import name stays `dos` and the console scripts stay `dos` / `dos-mcp` — only the distribution name on the index changed.
+
+This is the DOS thesis turned on its own supply chain: don't trust the name that *looks* right, check the artifact. "I installed DOS" is a self-report; the witness is which package actually resolved. The runtime version lookup reads the dist name (`importlib.metadata.version("dos-kernel")`) — a verifiable fact an agent or a CI step can check after install, rather than assuming the install was correct. You can confirm the right thing landed before you depend on it.
+
+## The evidence
+
+| Claim | Number | Witness (byte-author ≠ claimant) | Source |
+|---|---|---|---|
+| The PyPI distribution name is `dos-kernel`, not `dos` | one canonical dist name; the bare `dos` is an unrelated 2020 package | the PyPI index entry and the project's own `[project].name`, not the name you typed | [`SECURITY.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/SECURITY.md) |
+| `pip install dos` shadows `import dos` with the squatter's module | both top-level packages own the `dos` module name | the resolved `dos.__file__` on disk, which the installer cannot fake | [`SECURITY.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/SECURITY.md) |
+| The version lookup uses the dist name, so a wrong install is detectable | `importlib.metadata.version("dos-kernel")` reads our metadata; `"dos"` would miss it | the package metadata recorded at install, not a self-report | [`docs/FAQ.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/FAQ.md) |
+
+## The one command
+
+```bash
+pip install dos-kernel
+dos verify --workspace . PLAN PHASE
+```
+
+```text
+NOT_SHIPPED  PLAN/PHASE  (source=none)
+# exit code 1 — no commit backs the claim
+```
+
+A `SHIPPED` verdict exits `0`; `NOT_SHIPPED` exits `1`. The verb running at all is the cheapest possible confirmation that you installed the real `dos-kernel` and not the squatter — the bare `dos` package ships no such command.
+
+## What this does — and does not — certify
+
+Installing `dos-kernel` certifies you have the kernel, not that any particular work is correct. `dos verify` adjudicates "did this effect leave a checkable trace?" (a commit, a registry row, a merge ancestry) — never the correctness of a judgment that leaves no artifact, and never an agent's narration. The name guard is narrow too: it tells you which distribution resolved, not that the resolved bytes are unmodified — pin a version and use your normal supply-chain controls (hashes, a lockfile) for that. A green verdict means "this provably happened," not "this was the right thing to do."
+
+## Sources / reproduce
+
+- [Trust substrate for a fleet of autonomous agents](trust-substrate-for-a-fleet-of-autonomous-agents.md) — what the kernel is, in one page
+- [How to verify an AI agent actually did the work](how-to-verify-an-ai-agent-actually-did-the-work.md) — the same distrust thesis, applied to a claim of done
+- [`SECURITY.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/SECURITY.md) — the supply-chain section: `dos-kernel`, not `dos`
+- [`docs/FAQ.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/FAQ.md) — the install disambiguation
+- [FAQ](../FAQ.md) — the questions people ask before installing
+
+## Also asked as
+
+- Is the `dos` package on PyPI the real DOS kernel?
+- `pip install dos` vs `pip install dos-kernel` — which one?
+- Why does `pip install dos` give me a 2020 Flask helper?
+- Which package is the Dispatch Operating System on PyPI?
+- How do I avoid the `dos` typosquatter / name-collision package?
+- What is the correct PyPI name for dos-kernel?
+- Does installing `dos` shadow `import dos`?
+- How do I pin the real dos-kernel in my requirements file?
+
+> The kernel is the part that doesn't believe the agents.
+
+<!-- ====== answer: docs/answers/is-this-agent-output-an-answer-or-a-leaked-reasoning-log.md ====== -->
+
+# How do I tell if an agent's output is a real answer or a leaked reasoning log?
+
+> Don't measure its length or trust that `refused=False` — run the output through a shape verdict that fires on the marker a leaked chain-of-thought carries. `pip install dos-kernel`, then `dos answer-shape --text '<the output>'`: NON_ANSWER (exit 3) is a structural disqualification. The PyPI name is `dos-kernel` — the bare `dos` package is an unrelated squatter; never install that.
+
+## The short answer
+
+A model's `refused=False` flag is a self-report, and self-reports are not evidence — the agent that emitted the blob is the same one telling you it's an answer. Check the artifact instead: the output's *shape*. A leaked reasoning log is structurally distinguishable from a delivered answer, and the tell is a marker (`<thinking>`, "let me think", an enumerated `step 1:` process dump, a raw `tool_call` line, a pasted traceback), not a length. The motivating case (docs/156) was a third-party RAG app that shipped a 5,780-char leaked chain-of-thought as its "answer" with `refused=False`; every *number* inside it was grounded, so a numeric gate waved it through. Length alone never catches that — a 5,780-char log is longer than most real answers. The marker does.
+
+`dos answer-shape` is the verdict: `ANSWER_SHAPED` / `NON_ANSWER` / `INDETERMINATE`, and the verdict *is* the exit code. It judges shape, never correctness — a wrong-but-shaped answer is still `ANSWER_SHAPED`, because "is this the right answer?" has no independent witness and goes to a JUDGE or HUMAN, not a deterministic oracle. What the oracle decides is the mechanically-checkable part: is this the *kind* of thing that could be an answer, or is it a process artifact pasted as one.
+
+## The evidence
+
+| Claim | Number | Witness (byte-author ≠ claimant) | Source |
+|---|---|---|---|
+| A leaked reasoning log shipped as an "answer" with `refused=False` is caught by a SHAPE marker, never by its length | the q_025 motivating case: a **5,780-char** leaked chain-of-thought, refused=False; length never disqualifies it, the `<thinking>`/"let me think" marker does | the candidate text's own structural signature, matched by a declared marker the emitting agent did not author | [`src/dos/answer_shape.py`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/src/dos/answer_shape.py) |
+| The verdict is the exit code, so a shell/CI step branches without re-parsing prose | ANSWER_SHAPED **0**, NON_ANSWER **3**, INDETERMINATE **4**, contract_error **2** (the argparse usage code) | an OS exit code emitted by the kernel, not a flag the agent set on its own output | [`docs/CLI.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/CLI.md) |
+
+The markers are policy, not hardcode: the kernel ships a generic cross-domain default (a fenced reasoning block, narrated chain-of-thought, a tool-call dump, a bare refusal, a stack trace) and lets a host declare its own. The kernel carries the fold and the floor; the host carries the signatures.
+
+## The one command
+
+```bash
+pip install dos-kernel        # the PyPI name is dos-kernel, never bare `dos`
+dos answer-shape --text '<thinking>x</thinking>'
+```
+
+```text
+NON_ANSWER  (length=23, matched='<thinking>')
+output matched the non-answer signature '<thinking>' — a process/CoT-log,
+bare refusal, or tool dump pasted as the answer (docs/156 §4)
+```
+
+Exit code `3` — the output is structurally disqualified; do not ship it as an answer. An `ANSWER_SHAPED` output exits `0`; an output the policy can't decide on shape alone exits `4` (INDETERMINATE — abstain to a JUDGE/HUMAN).
+
+## What this does — and does not — certify
+
+It certifies **shape**: that the output is, or is not, the *kind* of artifact that could be an answer — non-empty, above the viability floor, and matching no disqualifying marker. It explicitly does NOT certify correctness or relevance. An `ANSWER_SHAPED` verdict means "shaped like an answer," not "a right answer"; a confidently-wrong but well-formed paragraph passes the shape floor and the semantic residue ("is it actually a good answer?") goes to a JUDGE (advisory, fail-to-abstain) or a HUMAN. When the policy can't disqualify on shape, the verdict is `INDETERMINATE` — the abstain floor — never a false `ANSWER_SHAPED`. The fail-safe direction is to under-disqualify: a broken host pattern degrades to "not matched," never to a crash.
+
+## Sources / reproduce
+
+- [`src/dos/answer_shape.py`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/src/dos/answer_shape.py) — the `classify` verdict, the generic non-answer markers, and the q_025 motivating case in the module docstring.
+- [`docs/CLI.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/CLI.md) — the `dos answer-shape` verb and the exit-code map (0 / 3 / 4 / 2).
+- [Why you can't trust a model to judge its own work](why-you-cant-trust-a-model-to-judge-its-own-work.md) — the same distrust thesis on the correctness question shape can't reach.
+- [Verify what a subagent claims before folding](verify-what-a-subagent-claims-before-folding.md) — the fold-barrier rung that should reject a non-answer before it becomes another agent's premise.
+- [FAQ: How is DOS different from agent evals or observability platforms?](../FAQ.md#how-is-dos-different-from-agent-evals-or-observability-platforms)
+
+## Also asked as
+
+- How do I detect a leaked chain-of-thought shipped as an answer?
+- My agent pasted its reasoning log instead of an answer — how do I catch it?
+- Is this output a real answer or just a thinking dump?
+- How do I tell an answer from a tool-call dump or a traceback?
+- Why does `refused=False` not mean the agent actually answered?
+- Catch a non-answer that's grounded but isn't an answer
+- How do I block an empty stub or a bare refusal from shipping as content?
+
+> The kernel is the part that doesn't believe the agents.
+
 <!-- ====== answer: docs/answers/keep-a-self-improvement-loop-from-keeping-bad-changes.md ====== -->
 
 # How to keep an AI self-improvement loop from keeping bad changes
@@ -8694,6 +9165,103 @@ two-phase discipline, applied to a file tree.
 - [`benchmark/BENCHMARKS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/BENCHMARKS.md) — every benchmark, with a $0 offline arm.
 - [How to stop two AI agents overwriting each other](how-to-stop-two-ai-agents-overwriting-each-other.md) — the same primitive, framed as the head problem.
 - [FAQ: Don't git worktrees already solve this?](../FAQ.md#dont-git-worktrees-already-solve-this--one-isolated-checkout-per-agent)
+
+> The kernel is the part that doesn't believe the agents.
+
+<!-- ====== answer: docs/answers/machine-readable-workspace-report-for-an-agent.md ====== -->
+
+# How does an agent read a workspace's layout instead of hardcoding it?
+> One read-only command emits the layout as machine-readable JSON: `pip install dos-kernel`, then `dos doctor --json`. The PyPI name is `dos-kernel` — the bare `dos` package is an unrelated squatter; never install that.
+
+## The short answer
+
+An arriving agent that hardcodes `docs/_plans/`, a fixed lane list, or a guessed
+commit-subject grammar is asserting a layout it never checked — a self-report
+about the world, not a reading of it. `dos doctor --json` is the cure: one
+read-only call returns the workspace's real layout as one JSON object — where
+plans live (the paths), the lane taxonomy `dos arbitrate` admits on, and the
+ship-stamp grammar `dos verify` matches against — so the agent **discovers** all
+of it instead of carrying an assumption. The fields are exactly the ones the
+human-readable `dos doctor` prints, emitted as data.
+
+This is the same DOS discipline applied to orientation rather than to a finished
+claim: don't believe a layout you assumed; read the artifact — the workspace's
+own `dos.toml` and discovered facts — that the agent did not author. The call
+creates no `.dos/` and mutates nothing, so a generic skill can read a stranger's
+repo and adapt to it without writing a byte.
+
+## The evidence
+
+| Claim | Number | Witness (byte-author ≠ claimant) | Source |
+|---|---|---|---|
+| `dos doctor --json` emits the machine-readable workspace report an agent reads once to discover layout (paths/lanes) + ship grammar (stamp) instead of hardcoding it | one read-only call, exactly the fields the text form prints, no `.dos/` created | the workspace's own `dos.toml` + config-build-time discovered facts, not the agent's assumption | [`docs/CLI.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/CLI.md) |
+| The same `--json` report carries the per-verb `exit_codes` map, so an agent discovers the exit semantics of every verdict too | the verb→verdict-token→exit-code contract, published as data | the running binary's own contract table, not a doc the agent re-typed | [`docs/CLI.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/CLI.md) |
+| The "use it on my repo" move is `dos init . && dos doctor` — the workspace answers from its own git history and one `dos.toml` | works on a plain git repo; the one `dos.toml` is all the config | the repo's git history + declared config, never the agent's narration | [`AGENTS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/AGENTS.md) |
+
+These describe the mechanism the files document; they are not a benchmarked
+outcome delta.
+
+## The one command
+
+```bash
+pip install dos-kernel        # the PyPI name is dos-kernel, never bare `dos`
+dos doctor --json --workspace .
+```
+
+A trimmed, realistic shape of what comes back — paths, the lane taxonomy, the
+stamp grammar, and the exit-code contract, all as one object:
+
+```text
+{
+  "workspace": ".",
+  "is_kernel_repo": false,
+  "paths": { "plans_glob": "planning/*.md", "lane_journal": ".dos/lane.jsonl" },
+  "lanes": { "concurrent": ["src", "docs"], "exclusive": ["global"] },
+  "stamp": { "subject_dirs": ["planning"] },
+  "exit_codes": { "verify": { "SHIPPED": 0, "NOT_SHIPPED": 1 } }
+}
+```
+
+The agent reads `paths` instead of hardcoding where plans live, `lanes` instead
+of guessing what `dos arbitrate` will admit, `stamp` instead of assuming a
+commit-subject grammar, and `exit_codes` instead of memorizing a verb's exit
+semantics. To set this up on a fresh repo first:
+
+```bash
+cd <your repo> && dos init . && dos doctor
+```
+
+## What this does — and does not — certify
+
+`dos doctor --json` reports the workspace's **declared and discovered layout** —
+it is a description, not a verdict on your work. It tells an agent where plans
+live and which lanes exist; it does not check whether any phase shipped (that is
+`dos verify`) or whether two agents would collide (that is `dos arbitrate`). It
+is read-only by design: it resolves the active workspace without writing `.dos/`,
+so reading a stranger's repo changes nothing in it. A layout it reports is only
+as honest as the `dos.toml` that declared it — `doctor --check` flags a declared
+lane with no tree or a stamp grammar that matches none of the repo's real ships,
+but the plain `--json` report just renders what is there.
+
+## Sources / reproduce
+
+- [`docs/CLI.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/CLI.md) — the `dos doctor --json` verb: paths, lane taxonomy, stamp grammar, and the per-verb `exit_codes` map, emitted as one read-only object.
+- [`AGENTS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/AGENTS.md) — `cd <repo> && dos init . && dos doctor` is the "use it on my repo" move.
+- [The trust substrate for a fleet of autonomous agents](trust-substrate-for-a-fleet-of-autonomous-agents.md) — what the kernel this report describes actually is.
+- [How to stop two AI agents overwriting each other](how-to-stop-two-ai-agents-overwriting-each-other.md) — the lane taxonomy this report exposes is what `dos arbitrate` admits on.
+- [How to verify an AI agent actually did the work](how-to-verify-an-ai-agent-actually-did-the-work.md) — the truth syscall whose stamp grammar this report publishes.
+- [FAQ](../FAQ.md) — the short-form answers.
+
+## Also asked as
+
+- How does an agent discover a repo's layout without hardcoding paths?
+- Is there a machine-readable workspace report a skill can read once?
+- How do I get a JSON dump of a DOS workspace's lanes, paths, and stamp grammar?
+- How does a generic agent skill adapt to an unfamiliar repo?
+- What does `dos doctor --json` return?
+- How can an agent find out which lanes `dos arbitrate` uses?
+- Where do plans live in this repo — can the agent ask instead of guess?
+- How do I make a skill that works on any repo instead of one hardcoded layout?
 
 > The kernel is the part that doesn't believe the agents.
 
@@ -9324,6 +9892,79 @@ the guarantee is that no checkable lie re-enters context as a fact.
 - [`benchmark/BENCHMARKS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/BENCHMARKS.md) — every benchmark, with a $0 offline arm.
 - [My recalled agent memory is stale or wrong — how do I re-verify it](recalled-agent-memory-is-stale-how-to-reverify.md) — the recall verb in depth.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
+
+> The kernel is the part that doesn't believe the agents.
+
+<!-- ====== answer: docs/answers/price-a-parallel-agent-fan-out-before-launching-it.md ====== -->
+
+# How do I price a parallel agent fan-out before launching it?
+
+> Compute the collision graph from the file-trees the fan-out would hand its workers, *before* agent #1 runs: `pip install dos-kernel`, then run the `examples/plan_price/` oracle (the forward sibling of `dos arbitrate`). The PyPI name is `dos-kernel` — the bare `dos` package is an unrelated squatter; never install that.
+
+## The short answer
+
+Don't trust the planner's confidence that a fan-out is disjoint — check the geometry the planner didn't get to author. A proposed N-agent partition is just a set of file-trees, one per worker. Whether two of those trees overlap is a fact about glob prefixes, decidable without believing any agent's intent. The `examples/plan_price/` oracle stands on exactly that fact: it feeds each pair of proposed trees through the shipped kernel predicate `dos._tree.lane_trees_disjoint` — the same agent-blind geometry the reactive arbiter already trusts — and returns the collision graph, the true collision-free maximum concurrency, an expected-rework price, and the cheapest disjoint re-partition.
+
+This is the predictive flip (docs/347): DOS today is a *court*. `verify` reads a commit that already shipped, `arbitrate` refuses a colliding acquire *as* the Kth agent reaches the turnstile — it rules after, or as, the effect is attempted. `plan_price` asks the strictly forward question off the same pure predicate: given the trees a fan-out *would* hand its workers, what collides? It costs zero new trust — it is the un-forgeable disjointness check fired one fan-out earlier. The reactive court launches agents in declared order and only discovers a hidden overlap once the colliding acquire arrives, by which point earlier agents are already mutating the tree; the forward price refuses the whole bad plan with zero agents launched.
+
+## The evidence
+
+| Claim | Number | Witness (byte-author ≠ claimant) | Source |
+|---|---|---|---|
+| The forward price stands on the SAME predicate the live arbiter trusts, not a private reimplementation | zero new trust — imports `dos._tree.lane_trees_disjoint` directly | the prefix geometry of the declared trees; no agent authors a tree's overlap | [`examples/plan_price/plan_price.py`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/plan_price/plan_price.py) |
+| A hidden collision the reactive court only catches mid-launch is priced before agent #1 runs | on `hidden_collision`: court launches **2** agents before it can refuse; predictive cost **0** launched; max safe concurrency **3 of 4** | the collision graph computed from the proposed trees, not any worker's report | [`docs/347`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/347_the-predictive-flip-from-court-to-pricing-oracle.md) |
+| A truly disjoint fan-out prices to nothing — the flip adds no friction in the light | `clean_fanout`: **0** collisions, full concurrency, no re-partition | the disjointness of the four declared trees | [`examples/plan_price/README.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/plan_price/README.md) |
+
+The collision-free maximum concurrency is a plan-level quantity the reactive arbiter never computes — it only ever sees one acquire against the leases already live, never the whole proposed set at once.
+
+## The one command
+
+```bash
+pip install dos-kernel        # the PyPI name is dos-kernel, never bare `dos`
+python examples/plan_price/plan_price.py --json   # machine-readable prices, exit 0
+```
+
+The oracle prices three proposed fan-outs and emits the collision graph, the max safe concurrency, and the cheapest re-partition for each:
+
+```text
+{
+  "hidden_collision": {
+    "n_agents": 4,
+    "collisions": [["feature_a", "refactor"]],
+    "max_concurrency": 3,
+    "safe_now": ["feature_a", "feature_b", "tests"],
+    "reactive_cost": 2,
+    "predictive_cost": 0,
+    "repartition": {"feature_a": "src/core/api/_feature_a/**", "refactor": "src/_refactor/**"}
+  }
+}
+```
+
+The reactive court would launch 2 agents before it could refuse this hidden overlap; the forward price refuses the whole plan with 0 launched, names the colliding pair, and still hands back the maximal safe set to run. Same un-forgeable geometry, one fan-out earlier.
+
+## What this does — and does not — certify
+
+The price is **geometric, not semantic** — it prices file-tree *overlap*, the same ceiling the arbiter has. Two provably-disjoint trees can still collide in meaning; the forward price inherits that boundary exactly, just one tense earlier. The declared partition is itself **agent-authored and forgeable**: a plan can under-declare its scope, and the price can only score the geometry it was handed (an empty tree is conservatively priced as colliding-with-everything — "name your scope before launch"). The acquire-time arbiter over real leases stays the un-forgeable floor *after* launch; the price is a forward *estimate* that reduces collisions, not a BLOCK guarantee. The rework number is illustrative — one unit per colliding pair, transparent and monotone in contention, deliberately not a calibrated cost model. And this is an **experiment, not a shipped `dos` verb**: it lives in `examples/`, imports the kernel, and is pinned by tests; promoting it to a real picker-family verb is the follow-on.
+
+## Sources / reproduce
+
+- [`examples/plan_price/plan_price.py`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/plan_price/plan_price.py) — the oracle: prices a proposed N-agent partition off the real kernel predicate.
+- [`examples/plan_price/README.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/plan_price/README.md) — the runnable proof, standing on `dos._tree.lane_trees_disjoint` at zero new trust.
+- [`docs/347`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/347_the-predictive-flip-from-court-to-pricing-oracle.md) — the design: flip the court into a forward pricing oracle.
+- [How to stop two AI agents overwriting each other](how-to-stop-two-ai-agents-overwriting-each-other.md) — the reactive arbiter this prices forward.
+- [Lease-based file locking for parallel agents](lease-based-file-locking-for-parallel-agents.md) — the acquire-time floor the forward price estimates ahead of.
+- [FAQ](../FAQ.md) — the trust thesis and the rest of the corpus.
+
+## Also asked as
+
+- How do I know if a parallel agent plan will have collisions before I run it?
+- Estimate the cost of a multi-agent fan-out before launch
+- Which of my N proposed agents can actually run at once without overwriting each other?
+- Check a parallel agent partition for file-tree overlap ahead of time
+- Predict agent collisions before dispatching the fleet
+- How many concurrent agents can I safely run on this repo?
+- Price a multi-agent dispatch plan up front
+- Catch a hidden collision in a fan-out before any agent starts writing
 
 > The kernel is the part that doesn't believe the agents.
 
@@ -10821,5 +11462,70 @@ own work is consistency, not grounding — and grounding is what you wanted.
 - [`benchmark/BENCHMARKS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/BENCHMARKS.md) — every benchmark, with a $0 offline arm.
 - [How to make an agent prove it did the work](make-an-agent-prove-the-work-not-self-certify.md) — the keep-gate in practice.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
+
+> The kernel is the part that doesn't believe the agents.
+
+<!-- ====== answer: docs/answers/wire-a-trust-gate-into-claude-code-cursor-codex.md ====== -->
+
+# How do I wire a trust gate into Claude Code, Cursor, or Codex with one command?
+
+> `pip install dos-kernel`, then `dos init --hooks auto .` — it detects the runtime your repo already uses (Claude Code, Cursor, Codex, Gemini, Antigravity, Claude Cowork) and binds the DOS verdict to that runtime's hook events, so a false "done" is refused at the hook with no `settings.json` hand-editing. The PyPI name is `dos-kernel` — the bare `dos` package is an unrelated squatter; never install that.
+
+## The short answer
+
+The trust gate is one command: `dos init --hooks auto .`. A self-report is not evidence — when an agent says "done," that sentence is bytes the agent itself authored, so the kernel reads the artifact the agent did *not* author (git ancestry, the commit's own diff) and hands back a verdict. The one move that wires that verdict into your runtime is binding it to the runtime's **hook events**. `dos init --hooks auto .` probes the config the host already keeps (Claude Code's `.claude/settings.json`, Cursor's / Codex's / Gemini's own file and format) and merges in the three shipped DOS hooks — `PreToolUse` → `dos hook pretool`, `PostToolUse` → `dos hook posttool`, `Stop` → `dos hook stop`. After that, when the agent tries to *Stop* on an unverified claim, the Stop hook refuses; you never hand-edited a config file.
+
+You don't have to let it guess. `--hooks auto` detects and wires every runtime the repo uses; or name one explicitly — `--hooks claude-code`, `--hooks cursor`, `--hooks codex`, `--hooks gemini`. The merge is idempotent and preserves your other hooks, so re-running adds nothing already present and never clobbers your own entries.
+
+## The evidence
+
+| Claim | Number | Witness (byte-author ≠ claimant) | Source |
+|---|---|---|---|
+| One command detects the runtime(s) and wires the hooks | `dos init --hooks auto <repo>` — `auto` resolves to the host(s) the repo already uses; or name one (`claude-code`, `cursor`, `codex`, `gemini`, `antigravity`, `claude-cowork`). Hooks enforce; MCP advises | the consumer-moves table is checked against the shipped CLI, not narrated | [`AGENTS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/AGENTS.md) |
+| The bind is to the runtime's hook events, not a manual config edit | three shipped hooks: `Stop` → `dos hook stop` (refuse to stop on an unverified claim), `PreToolUse` → `dos hook pretool`, `PostToolUse` → `dos hook posttool` — merged into the host's own config file, idempotent | the hook event is fired by the runtime, and the verdict is read from git, not from the agent's "done" line | [`docs/CLI.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/CLI.md) |
+| The Claude Code plugin bundles the same hooks + MCP + skills | one `/plugin install` binds the three runtime surfaces; the hooks fail safe (emit nothing, exit 0) if the package isn't importable | the bundled native `dos-hook` binary serves the hook; the kernel verdict it calls is a pure function of git | [`claude-plugin/README.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/claude-plugin/README.md) |
+
+The mechanism is qualitative on purpose here — this page describes *where the verdict binds*, not a measured block-rate. The hook events come from the runtime; the verdict they carry (`dos verify` / `dos hook stop`) is read from ground truth the judged agent could not author.
+
+## The one command
+
+```bash
+pip install dos-kernel      # the PyPI name is dos-kernel, never bare `dos`
+dos init --hooks auto .     # detect the runtime(s) this repo uses and wire the DOS hooks
+```
+
+```text
+$ dos init --hooks auto .
+wired claude-code → .claude/settings.json
+  Stop        → dos hook stop      (refuse to stop on an unverified claim)
+  PreToolUse  → dos hook pretool
+  PostToolUse → dos hook posttool
+already present: (none)
+```
+
+Inside Claude Code specifically, the bundled plugin wires the same three surfaces (hooks + MCP + skills) in one install — `pip install "dos-kernel[mcp]"`, then `/plugin install dos-kernel@dos`. Either path binds the same `Stop` hook; the plugin just also ships the MCP tools and the skill pack.
+
+## What this does — and does not — certify
+
+It certifies that the verdict is *bound* to the runtime: once the `Stop` hook is wired, a stop on an unverified claim is refused, and the refusal rests on git ancestry, not on the agent's narration. It does **not** make the agent correct — `dos hook pretool`'s deny is advisory by default (a ruling handler must be wired for a behavioral block; out of the box the plugin observes and re-surfaces). It does not judge whether the code is *good*, only whether a claimed ship is *witnessed*. And Claude Cowork is the partial case: it shares Claude Code's config surface, but the app doesn't fire hooks yet, so its working surface is MCP + skills until that closes.
+
+## Sources / reproduce
+
+- [`AGENTS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/AGENTS.md) — the consumer-moves table: `dos init --hooks auto <repo>` and the supported runtimes.
+- [`docs/CLI.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/CLI.md) — the `dos init` / `dos doctor` verb reference, the three hook events, and the cross-vendor `--hooks <host>` form.
+- [`claude-plugin/README.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/claude-plugin/README.md) — the Claude Code plugin path (hooks + MCP + skills in one install).
+- [How to add a guardrail to a coding agent that has no plugin or hook system](how-to-add-a-guardrail-to-a-coding-agent-with-no-plugin-system.md) — the hook-less fallback: the exit code is the verdict.
+- [Deterministic hook vs agent skill — which enforces?](deterministic-hook-vs-agent-skill-which-enforces.md) — why a hook enforces where a skill only advises.
+- [FAQ: Does DOS work with Claude Code, Cursor, Codex, Gemini CLI, or other agent runtimes?](../FAQ.md#does-dos-work-with-claude-code-cursor-codex-gemini-cli-or-other-agent-runtimes) — the three surfaces (hooks, MCP, exit-code).
+
+## Also asked as
+
+- How do I wire a trust gate into Claude Code with one command?
+- One command to add a verify hook to Cursor or Codex?
+- How do I bind DOS to my agent runtime's hooks?
+- Set up a hook gate for Claude Code / Cursor / Codex / Gemini automatically?
+- How do I install the DOS hooks without editing settings.json by hand?
+- What's the one command that makes an agent's "done" get checked at the Stop hook?
+- Auto-detect my coding agent and wire the trust hooks?
 
 > The kernel is the part that doesn't believe the agents.

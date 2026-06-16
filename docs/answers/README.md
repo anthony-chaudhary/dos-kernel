@@ -81,6 +81,16 @@ story, start at the [README](../../README.md) or the
 | I have 100% coverage but the AI's tests are worthless | `dos test-witness` / `dos coverage` | [coverage-is-green-but-tests-are-worthless](coverage-is-green-but-tests-are-worthless.md) |
 | How does DOS fit into my CI/CD pipeline? | `dos commit-audit` / `dos verify` / `dos arbitrate` | [dos-for-ci-cd](dos-for-ci-cd.md) |
 | How do I stop re-reviewing code a machine already verified? | `dos commit-audit` (residual review) | [stop-re-reviewing-code-the-machine-already-verified](stop-re-reviewing-code-the-machine-already-verified.md) |
+| How do I gate a CI job on whether an agent's claim is actually backed? | `dos commit-audit` / `dos verify` (exit code) | [gate-a-ci-job-on-an-agents-claim](gate-a-ci-job-on-an-agents-claim.md) |
+| How do I wire a trust gate into Claude Code, Cursor, or Codex with one command? | `dos init --hooks` | [wire-a-trust-gate-into-claude-code-cursor-codex](wire-a-trust-gate-into-claude-code-cursor-codex.md) |
+| How does an agent read a workspace's layout instead of hardcoding it? | `dos doctor --json` | [machine-readable-workspace-report-for-an-agent](machine-readable-workspace-report-for-an-agent.md) |
+| How do I check my agent's trust-gate hooks haven't silently stopped enforcing? | `dos doctor --wiring` | [check-the-agent-guardrail-hooks-havent-drifted](check-the-agent-guardrail-hooks-havent-drifted.md) |
+| Is this agent output a real answer or a leaked reasoning log? | `dos answer-shape` | [is-this-agent-output-an-answer-or-a-leaked-reasoning-log](is-this-agent-output-an-answer-or-a-leaked-reasoning-log.md) |
+| How do I price a parallel agent fan-out before launching it? | `dos arbitrate` (plan_price) | [price-a-parallel-agent-fan-out-before-launching-it](price-a-parallel-agent-fan-out-before-launching-it.md) |
+| How do I add an agent trust gate using only exit codes, no plugin system? | `dos verify` / `dos commit-audit` (exit code) | [add-a-trust-gate-with-only-exit-codes](add-a-trust-gate-with-only-exit-codes.md) |
+| How do I detect which model died across a fleet and reroute? | `dos model-health` | [detect-a-model-outage-mid-fleet-and-reroute](detect-a-model-outage-mid-fleet-and-reroute.md) |
+| Is `dos-kernel` the real package — how do I avoid the squatter? | `pip install dos-kernel` / `dos doctor` | [is-dos-kernel-the-real-package-supply-chain](is-dos-kernel-the-real-package-supply-chain.md) |
+| How does an agent auto-pick a free, non-colliding lane to work in? | `dos arbitrate` / `dos pickable` | [auto-pick-a-free-lane-for-an-agent](auto-pick-a-free-lane-for-an-agent.md) |
 
 ## How to read the numbers on these pages
 
