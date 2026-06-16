@@ -551,6 +551,58 @@ def test_tree_write_without_path_is_unknown():
 
 
 # ==========================================================================
+# No-footprint ORCHESTRATION tools are known-empty, not unknown-blast-radius.
+# Agent/Task*/ToolSearch touch no repo file tree — they are as footprint-empty
+# as a Read. Before this fix they fell to the `((), False)` UNKNOWN branch and
+# earned a "EMPTY tree (unknown blast radius)" advisory WARN on every call (200+
+# reason-less enforce-journal records in a 6-day journal), pure ambient noise.
+# These witness tests FAIL on the unpatched code (the tools returned ((), False)
+# and the decide() call emitted a WARN, not a clean passthrough).
+# ==========================================================================
+@pytest.mark.parametrize("tool,tool_input", [
+    ("Agent", {"description": "x", "prompt": "do a thing", "subagent_type": "Explore"}),
+    ("Task", {"description": "x", "prompt": "do a thing"}),
+    ("TaskCreate", {"subject": "x", "description": "y"}),
+    ("TaskUpdate", {"taskId": "1", "status": "completed"}),
+    ("ToolSearch", {"query": "select:WebSearch"}),
+])
+def test_tree_no_footprint_tool_is_known_empty(tool, tool_input):
+    """An orchestration tool that touches no repo file is known-EMPTY, like a read —
+    NOT unknown blast radius. (An Agent's spawned CHILD write is a separate
+    PreToolUse event with its own admission + the issue #188 in-lane lineage
+    containment; the hazard is covered at the child, never at the parentless spawn.)"""
+    assert prt._tree_from_event(_event(tool, tool_input)) == ((), True)
+
+
+@pytest.mark.parametrize("tool", ["Agent", "Task", "TaskCreate", "TaskUpdate", "ToolSearch"])
+def test_no_footprint_tool_is_not_mutating(tool):
+    """A no-footprint orchestration tool mutates no repo tree — `is_mutating_tool` False,
+    same as a read (so the provenance rung short-circuits to ABSTAIN, no false gate)."""
+    assert prt.is_mutating_tool(_event(tool, {})) is False
+
+
+@pytest.mark.parametrize("tool,tool_input", [
+    ("Agent", {"description": "x", "prompt": "spawn a worker"}),
+    ("TaskUpdate", {"taskId": "1", "status": "completed"}),
+    ("ToolSearch", {"query": "select:WebSearch"}),
+])
+def test_no_footprint_tool_passes_clean_no_advisory(monkeypatch, tool, tool_input):
+    """A no-footprint orchestration tool passes CLEAN against a live lease (issue #46),
+    exactly like a read — no dialect, no advisory WARN, a `passthrough` outcome, and so
+    NO enforce-journal record. This is the fix for the 200+ reason-less enforce warns
+    on Agent/TaskUpdate/TaskCreate/ToolSearch: they could never collide (empty footprint),
+    so firing a refusal-shaped WARN on each was ambient noise that trained the operator to
+    skim past PRE-admission output. FAILS unpatched (the tool emitted a WARN dialect)."""
+    import tempfile
+    cfg = _kernel_cfg(Path(tempfile.mkdtemp()))
+    monkeypatch.setattr(prt, "live_leases_for", lambda c: [_src_lease()])
+    dialect, outcome = prt.decide(_event(tool, tool_input, cwd="/repo"), cfg)
+    assert outcome["decision"] == "passthrough", outcome
+    assert outcome["tree_known"] is True
+    assert dialect is None, "a no-footprint orchestration call emits nothing — no advisory"
+
+
+# ==========================================================================
 # A mention is not a mutation (issue #12) — a Bash command whose invoked program
 # provably cannot write gets the read-only posture (known-EMPTY tree), so a kernel
 # path appearing as PROSE inside an argument is no longer scraped into a write
