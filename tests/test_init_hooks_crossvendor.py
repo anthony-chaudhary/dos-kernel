@@ -167,6 +167,62 @@ def test_antigravity_writes_agents_hooks_json_cc_shaped_with_its_dialect(tmp_pat
     assert "version" not in cfg
 
 
+def test_augment_writes_augment_settings_as_pure_claude_code_alias(tmp_path: Path):
+    """Augment's Auggie CLI cloned the CC hook contract: `.augment/settings.json`,
+    group-wrapped, and a CC-identical deny output -- so it carries NO --dialect (the
+    default CC envelope), exactly like claude-code with a different file."""
+    dest = tmp_path / "svc"
+    proc = _cli("init", "--hooks", "augment", str(dest))
+    assert proc.returncode == 0, proc.stderr
+    spec = hi.host_spec("augment")
+    assert spec.config_path == (".augment", "settings.json")
+    cfg = _json_config(dest, spec)
+    assert _flat_commands(cfg, "PreToolUse") == ["dos hook pretool --workspace ."]
+    assert _flat_commands(cfg, "PostToolUse") == ["dos hook posttool --workspace ."]
+    assert _flat_commands(cfg, "Stop") == ["dos hook stop --workspace ."]
+    group = cfg["hooks"]["PreToolUse"][0]
+    assert set(group) == {"hooks"}
+    assert group["hooks"][0]["type"] == "command"
+
+
+def test_devin_writes_cc_shaped_config_with_the_hermes_dialect(tmp_path: Path):
+    """Devin for Terminal is the CC-config / hermes-OUTPUT split (the Antigravity
+    precedent in mirror image): `.devin/hooks.v1.json` is Claude-Code-SHAPED
+    (group-wrapped), but its deny is a flat top-level {"decision":"block"} -- so the
+    wired command carries `--dialect hermes`, NOT the CC default."""
+    dest = tmp_path / "svc"
+    proc = _cli("init", "--hooks", "devin", str(dest))
+    assert proc.returncode == 0, proc.stderr
+    spec = hi.host_spec("devin")
+    assert spec.config_path == (".devin", "hooks.v1.json")
+    cfg = _json_config(dest, spec)
+    assert _flat_commands(cfg, "PreToolUse") == ["dos hook pretool --workspace . --dialect hermes"]
+    assert _flat_commands(cfg, "PostToolUse") == ["dos hook posttool --workspace . --dialect hermes"]
+    assert _flat_commands(cfg, "Stop") == ["dos hook stop --workspace . --dialect hermes"]
+    group = cfg["hooks"]["PreToolUse"][0]
+    assert set(group) == {"hooks"}
+    assert group["hooks"][0]["type"] == "command"
+
+
+def test_cursor_cli_shares_the_cursor_hooks_file(tmp_path: Path):
+    """Cursor's cursor-agent CLI reads the SAME .cursor/hooks.json the IDE reads -- the
+    claude-cowork shared-surface precedent on the Cursor axis. Wiring `cursor-cli`
+    produces the SAME file `cursor` does."""
+    a = tmp_path / "a"
+    b = tmp_path / "b"
+    assert _cli("init", "--hooks", "cursor-cli", str(a)).returncode == 0
+    assert _cli("init", "--hooks", "cursor", str(b)).returncode == 0
+    spec = hi.host_spec("cursor-cli")
+    assert spec.config_path == (".cursor", "hooks.json")
+    fa = (a / ".cursor" / "hooks.json").read_text(encoding="utf-8")
+    fb = (b / ".cursor" / "hooks.json").read_text(encoding="utf-8")
+    assert fa == fb
+    cfg = json.loads(fa)
+    assert cfg["version"] == 1
+    for ev in ("beforeShellExecution", "beforeMCPExecution"):
+        assert _flat_commands(cfg, ev) == ["dos hook pretool --workspace . --dialect cursor"]
+
+
 def test_claude_cowork_writes_the_shared_claude_settings_file(tmp_path: Path):
     """Claude Cowork is the SHARED-surface host (docs/298): it runs the Claude Code
     harness, so its hook surface IS `.claude/settings.json` — and the wired command
@@ -347,7 +403,8 @@ def test_cursor_merge_preserves_user_hooks_and_keys(tmp_path: Path):
 
 
 def test_idempotent_rerun_does_not_duplicate(tmp_path: Path):
-    for host in ("cursor", "codex", "gemini", "antigravity", "claude-cowork", "hermes"):
+    for host in ("cursor", "codex", "gemini", "antigravity", "claude-cowork", "hermes",
+                 "augment", "devin", "cursor-cli"):
         dest = tmp_path / host
         assert _cli("init", "--hooks", host, str(dest)).returncode == 0
         proc = _cli("init", "--hooks", host, str(dest))

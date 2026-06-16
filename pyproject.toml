@@ -319,6 +319,21 @@ claude-cowork = "dos.drivers.hook_dialects:claude_cowork_install_spec"
 # deferred. No stop event: Hermes' shell hook documents none, so DOS wires only the
 # two moments it fires (the honest-coverage rule, the Trae/docs-294 discipline).
 hermes = "dos.drivers.hook_dialects:hermes_install_spec"
+# Augment Code's Auggie CLI -- `.augment/settings.json`, a PURE claude-code alias: it
+# cloned the CC hook contract byte-for-byte (group-wrapped config AND
+# hookSpecificOutput/permissionDecision deny output), so it carries NO --dialect (the
+# default CC envelope is its envelope). Zero new renderer -- install spec only.
+augment = "dos.drivers.hook_dialects:augment_install_spec"
+# Cognition's Devin for Terminal -- `.devin/hooks.v1.json`: a Claude-Code-SHAPED config
+# (group-wrapped) with a flat top-level {"decision":"block"} deny OUTPUT -- so it reuses
+# the HERMES renderer (--dialect hermes), the Antigravity precedent in mirror image
+# (CC config + non-CC output). Existing renderer; install spec only.
+devin = "dos.drivers.hook_dialects:devin_install_spec"
+# Cursor's cursor-agent CLI -- the SHARED `.cursor/hooks.json` surface (the claude-cowork
+# precedent on the Cursor axis): same file, flat entries, {"version":1}, and
+# {"permission":"deny"} output the Cursor IDE reads, so it reuses the cursor renderer.
+# Wiring `cursor` or `cursor-cli` wires the same file. Existing renderer; install spec only.
+cursor-cli = "dos.drivers.hook_dialects:cursor_cli_install_spec"
 
 # The memory-STORE providers (docs/314 P2/P3) — where a fleet's memories live, so
 # the recall gate (docs/103) and the write gate (`dos memory admit`) can run against

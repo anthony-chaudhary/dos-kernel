@@ -505,3 +505,107 @@ def claude_cowork_install_spec() -> HostHookSpec:
              "`dos hook` command must be on PATH inside the session that fires it "
              "(in Cowork's VM: pip install dos-kernel there).",
     )
+
+
+def augment_install_spec() -> HostHookSpec:
+    """Augment Code's **Auggie CLI** — `.augment/settings.json` (a pure Claude-Code alias).
+
+    Auggie cloned the Claude Code hook contract byte-for-byte (web-grounded against the
+    Augment hooks docs, 2026-06-16): BOTH the config grammar (a top-level `hooks` map
+    keyed by event -> group-wrapped `{"matcher":…,"hooks":[{"type":"command","command":…}]}`
+    entries) AND the deny OUTPUT grammar (`{"hookSpecificOutput":{"permissionDecision":
+    "deny","permissionDecisionReason":…}}` on stdout, exit 0) are identical to Claude
+    Code's. So this host carries NO `--dialect` (the implicit CC default IS its envelope)
+    and `json_group_wraps=True` — the same install facts as `claude_code_spec` with a
+    different file. Only `permissionDecision:"deny"` is honored today (allow/ask are
+    future), which is exactly the verdict DOS renders. Zero new renderer — the lowest-risk
+    host in the addressable set: an install spec over the unshadowable default envelope.
+    """
+    return HostHookSpec(
+        host="augment",
+        config_path=(".augment", "settings.json"),
+        fmt=ConfigFormat.JSON,
+        pre_events=("PreToolUse",),
+        post_events=("PostToolUse",),
+        stop_events=("Stop",),
+        dialect_flag="",          # CC-identical deny output — the default IS the envelope.
+        json_entry_has_type=True,
+        json_group_wraps=True,    # CC-shaped: entries nest under {"hooks": [...]} groups.
+        json_version=None,
+        note="Augment's Auggie CLI cloned the Claude Code hook contract — the same "
+             ".augment/settings.json group-wrapped shape and the same "
+             "hookSpecificOutput/permissionDecision deny output, so the default CC "
+             "envelope is wired (no --dialect). Today only permissionDecision:\"deny\" "
+             "is honored (allow/ask are future); the wired `dos hook` command must be "
+             "on PATH in the Auggie session.",
+    )
+
+
+def devin_install_spec() -> HostHookSpec:
+    """Cognition's **Devin for Terminal** CLI — `.devin/hooks.v1.json` (CC config, HERMES output).
+
+    Devin is the config-vs-output split made sharp (web-grounded 2026-06-16): its hook
+    CONFIG is Claude-Code-SHAPED — a top-level event map of group-wrapped
+    `{"matcher":…,"hooks":[{"type":"command","command":…,"timeout":…}]}` rules (it even
+    reads `.claude/settings.json`) — BUT its DENY OUTPUT is a FLAT top-level
+    `{"decision":"block","reason":…}` (no `hookSpecificOutput` wrapper, no nested
+    `permissionDecision`, no `continue` field). That flat block shape is byte-identical
+    to the **hermes** dialect, NOT claude-code — so the wired command carries
+    `--dialect hermes` while the config stays `json_group_wraps=True` (CC-shaped). This is
+    the Antigravity precedent in mirror image: there a CC-shaped config paired with a
+    Gemini-shaped output; here a CC-shaped config pairs with a Hermes-shaped output. The
+    `dialect_flag` (data) keeps the wired command pointed at the right renderer without
+    `command_for` ever comparing a vendor literal. Exit code 2 also blocks (a host
+    fallback, not a render concern).
+    """
+    return HostHookSpec(
+        host="devin",
+        config_path=(".devin", "hooks.v1.json"),
+        fmt=ConfigFormat.JSON,
+        pre_events=("PreToolUse",),
+        post_events=("PostToolUse",),
+        stop_events=("Stop",),
+        dialect_flag="--dialect hermes",   # flat {"decision":"block"} output = the hermes envelope.
+        json_entry_has_type=True,
+        json_group_wraps=True,             # CC-shaped config (group-wrapped), like Antigravity.
+        json_version=None,
+        note="Devin for Terminal has a Claude-Code-SHAPED hook config (group-wrapped "
+             "matcher+hooks under PreToolUse/PostToolUse/Stop, and it also reads "
+             ".claude/settings.json) but a flat top-level {\"decision\":\"block\",\"reason\":…} "
+             "deny OUTPUT — so DOS wires the CC-shaped config with --dialect hermes (the "
+             "matching flat-block renderer). The wired `dos hook` command must be on PATH "
+             "in the Devin session.",
+    )
+
+
+def cursor_cli_install_spec() -> HostHookSpec:
+    """Cursor's **cursor-agent** CLI — the SHARED `.cursor/hooks.json` surface.
+
+    The Cursor CLI (cursor-agent) reads the SAME `.cursor/hooks.json` the Cursor IDE
+    reads, with the SAME flat `{"command":…,"matcher":…,"timeout":…}` entries under a
+    top-level `hooks` map, the SAME `{"version":1}` requirement, and the SAME top-level
+    `{"permission":"deny"}` deny output (web-grounded 2026-06-16). So this is the
+    claude-cowork precedent (docs/298) on the Cursor axis: a shared config file read by
+    two runtimes (the IDE and the CLI), wired once. Every facet equals `cursor_install_spec`
+    — file, format, flat entries, version, the `--dialect cursor` renderer — so wiring
+    either name wires both, idempotent on the `dos hook ` prefix. Kept as its own host
+    name so `dos init --hooks cursor-cli` resolves and `dos hosts` lists the CLI surface
+    explicitly, and so a future CLI-only divergence has a home.
+    """
+    return HostHookSpec(
+        host="cursor-cli",
+        config_path=(".cursor", "hooks.json"),
+        fmt=ConfigFormat.JSON,
+        pre_events=("beforeShellExecution", "beforeMCPExecution"),
+        post_events=("afterFileEdit",),
+        stop_events=("stop",),
+        dialect_flag="--dialect cursor",
+        json_entry_has_type=False,   # Cursor entries are flat {"command": …}.
+        json_group_wraps=False,
+        json_version=1,              # hooks.json requires {"version": 1}.
+        note="Cursor's cursor-agent CLI reads the SAME .cursor/hooks.json the Cursor IDE "
+             "reads, with the same flat entries, {\"version\":1}, and {\"permission\":\"deny\"} "
+             "output — so wiring `cursor` or `cursor-cli` wires the same file (one set of "
+             "hooks, idempotent). The wired `dos hook` command must be on PATH in the "
+             "cursor-agent session.",
+    )
