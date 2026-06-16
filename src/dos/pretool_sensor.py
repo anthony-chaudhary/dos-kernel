@@ -106,6 +106,24 @@ _READ_ONLY_TOOLS = frozenset(
 )
 _WRITE_TOOLS = frozenset({"Write", "Edit", "MultiEdit", "NotebookEdit"})
 
+# No-footprint ORCHESTRATION tools — they touch no repo file tree at all, but are
+# NOT reads either (they add nothing to the provenance corpus). Issue #46 proved a
+# known-empty footprint should pass CLEAN (no warn); that fix only ever reached
+# `_READ_ONLY_TOOLS`, so these four fell to the `((), False)` UNKNOWN-tree branch
+# and earned an "EMPTY tree (unknown blast radius)" advisory WARN on every call —
+# 200+ reason-less enforce records in a 6-day journal (Agent 141, TaskUpdate 39,
+# TaskCreate 15, ToolSearch 5), pure ambient noise that trains the operator to skim
+# past PRE-admission output, defeating the one call that matters (a real SELF_MODIFY
+# deny). They write nothing: `Agent` SPAWNS a subagent (whose own Write/Edit is a
+# fresh PreToolUse event with its OWN admission + the issue #188 in-lane lineage
+# containment — the hazard is covered at the child, never at the parentless spawn);
+# `TaskCreate`/`TaskUpdate` mutate an in-memory task list, no repo tree; `ToolSearch`
+# loads a tool schema. So they get the same known-empty `((), True)` as a read,
+# clean-pass at the issue-#46 branch, and contribute no enforce-journal write.
+# Kept SEPARATE from `_READ_ONLY_TOOLS` so the "a read feeds provenance" semantics
+# stay legible — these feed nothing; they are footprint-empty, not corpus-entering.
+_NO_FOOTPRINT_TOOLS = frozenset({"Agent", "Task", "TaskCreate", "TaskUpdate", "ToolSearch"})
+
 # The opt-in switch for the apply-gate binding turnstile (docs/126 Phase 1.5). The
 # apply-gate generalizes the always-on SELF_MODIFY deny from the kernel's own T1
 # files to ANY held lease's tree — a stronger gate the operator OPTS INTO (docs/126
@@ -170,8 +188,9 @@ def _tree_from_event(event: dict) -> tuple[tuple[str, ...], bool]:
     tool_name = event.get("tool_name")
     if not isinstance(tool_name, str):
         return (), False
-    if tool_name in _READ_ONLY_TOOLS:
-        return (), True  # known-empty: a read takes no tree, admits
+    if tool_name in _READ_ONLY_TOOLS or tool_name in _NO_FOOTPRINT_TOOLS:
+        return (), True  # known-empty: a read / a no-footprint orchestration tool
+        # takes no tree, admits (issue #46 clean-pass — no "unknown blast radius" warn)
     tool_input = event.get("tool_input")
     if not isinstance(tool_input, dict):
         tool_input = {}
@@ -386,8 +405,8 @@ def is_mutating_tool(event: dict) -> bool:
     tool_name = event.get("tool_name")
     if not isinstance(tool_name, str):
         return False
-    if tool_name in _READ_ONLY_TOOLS:
-        return False
+    if tool_name in _READ_ONLY_TOOLS or tool_name in _NO_FOOTPRINT_TOOLS:
+        return False  # a read OR a no-footprint orchestration tool mutates no repo tree
     return True
 
 
