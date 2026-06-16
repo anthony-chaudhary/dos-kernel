@@ -62,4 +62,16 @@ correctness" would be the over-claim this benchmark is written to avoid.
 - [Open-source alternative to paid AI legal citation checkers](open-source-ai-legal-citation-checker.md) — the same tool, framed as buy-vs-build.
 - [FAQ: Does DOS need an LLM or an API key?](../FAQ.md#does-dos-need-an-llm-or-an-api-key)
 
+## Also asked as
+
+- how to verify a cited legal case actually exists before filing
+- verify a cited legal case actually exists before filing
+- check that a case citation is real not fabricated
+- does this court case the AI cited actually exist
+- confirm a legal citation resolves to a real reporter
+- AI cited a case how do I know it's not made up
+- validate case law citations against a real database
+- fact-check a legal citation before I file it
+- is this case citation hallucinated
+
 > The kernel is the part that doesn't believe the agents.

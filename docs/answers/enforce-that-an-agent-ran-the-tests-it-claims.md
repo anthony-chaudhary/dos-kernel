@@ -59,4 +59,14 @@ agrees.
 - [AI agent deleted my tests to make the build pass](ai-agent-deleted-my-tests-to-pass-the-build.md) — the adversarial version.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
+## Also asked as
+
+- how to enforce that an AI agent actually ran the tests it claims it ran
+- enforce that an AI agent actually ran the tests it claims
+- did the agent really run the tests or just say so
+- require proof an agent executed its tests
+- agent claims tests ran verify it
+- make an agent show it ran the test suite
+- confirm an agent's test run actually happened
+
 > The kernel is the part that doesn't believe the agents.

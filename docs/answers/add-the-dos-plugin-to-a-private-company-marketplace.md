@@ -92,3 +92,12 @@ reach PyPI at runtime.
 - Every install channel (uv, pip, the public plugin): [INSTALL.md](../INSTALL.md)
 - No plugin system at all? Wire a `dos` verb's exit code instead: [how to add a guardrail to a coding agent with no plugin system](how-to-add-a-guardrail-to-a-coding-agent-with-no-plugin-system.md)
 - The bundle's contents and the `python -m` choice: [claude-plugin/README.md](../../claude-plugin/README.md)
+
+## Also asked as
+
+- add the DOS plugin to a private company Claude Code marketplace
+- install DOS in an internal plugin marketplace
+- deploy the dos-kernel plugin to a company gallery
+- private marketplace setup for the DOS plugin
+- ship DOS to my org's internal Claude Code marketplace
+- host the DOS plugin in a private company registry

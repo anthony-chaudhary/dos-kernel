@@ -59,4 +59,14 @@ the two roles.
 - [Why you can't trust a model to judge its own work](why-you-cant-trust-a-model-to-judge-its-own-work.md) — why the validator must read a witness.
 - [FAQ: How is DOS different from agent evals or observability platforms?](../FAQ.md#how-is-dos-different-from-agent-evals-or-observability-platforms)
 
+## Also asked as
+
+- how to build a builder-validator chain that separates generator from evaluator
+- builder-validator chain separate generator from evaluator
+- split the agent that builds from the one that checks
+- generator-evaluator separation for coding agents
+- why the validator must not be the generator
+- two-stage agent build then independently verify
+- separate generation and evaluation in an agent pipeline
+
 > The kernel is the part that doesn't believe the agents.

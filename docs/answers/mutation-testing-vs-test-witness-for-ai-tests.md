@@ -75,4 +75,14 @@ job is to make "this test catches nothing" fail fast and cheap, on every change.
 - [Deterministic hook vs an agent skill — which actually enforces](deterministic-hook-vs-agent-skill-which-enforces.md) — why a gate beats advice.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
+## Also asked as
+
+- mutation testing vs a test-witness gate for AI-generated tests
+- mutation testing vs a test-witness gate for AI tests
+- is mutation testing enough to catch fake AI tests
+- test-witness vs mutation testing for agent tests
+- how to prove AI tests catch real bugs
+- compare mutation testing and a witness gate for tests
+- best way to validate AI-generated tests really assert
+
 > The kernel is the part that doesn't believe the agents.

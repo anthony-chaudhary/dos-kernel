@@ -57,4 +57,14 @@ rather than rubber-stamping.
 - [How to make an agent prove it did the work](make-an-agent-prove-the-work-not-self-certify.md) — the same rule on a single claim.
 - [FAQ: How do I make a "keep working until it's done" agent loop stop only when the work is really done?](../FAQ.md#how-do-i-make-a-keep-working-until-its-done-agent-loop-stop-only-when-the-work-is-really-done)
 
+## Also asked as
+
+- how to make an AI agent's done mean a checkable effect not a sentence
+- make an agent's done mean a checkable effect not a sentence
+- define done for an agent as a real observable effect
+- agent done should be a fact not a claim
+- tie an agent's completion to a verifiable effect
+- what should done mean for an autonomous agent
+- make done checkable instead of self-declared
+
 > The kernel is the part that doesn't believe the agents.

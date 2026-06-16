@@ -62,4 +62,16 @@ improved — only the measurement can, and a run of non-keeps escalates to a hum
 - [How to verify an agent actually committed code](how-to-verify-an-ai-agent-actually-committed-code.md) — the phase-level version of the same rule.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
+## Also asked as
+
+- how to make an AI agent prove it did the work instead of self-certifying done
+- make an AI agent prove the work instead of self-certifying
+- stop letting an agent grade its own completion
+- require evidence before an agent can call itself done
+- agent self-certifies done how do I demand proof
+- ground done on a witness the agent didn't write
+- prove-it-don't-claim-it for autonomous agents
+- agent marks itself complete force it to prove it
+- an agent shouldn't be its own judge of done
+
 > The kernel is the part that doesn't believe the agents.

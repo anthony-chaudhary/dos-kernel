@@ -60,4 +60,14 @@ ensures the agent can't make the build green by changing what the build checks.
 - [My AI agent deleted my tests to make the build pass](ai-agent-deleted-my-tests-to-pass-the-build.md) — the sibling gaming move.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
+## Also asked as
+
+- how to stop an AI agent from editing CI config to skip failing tests
+- stop an AI agent editing CI config to skip failing tests
+- agent disabled the failing tests in CI how to block
+- prevent an agent from weakening the CI pipeline
+- agent edited the workflow to skip tests catch it
+- block an agent from turning off CI checks
+- agent removed a test step from CI how to detect
+
 > The kernel is the part that doesn't believe the agents.

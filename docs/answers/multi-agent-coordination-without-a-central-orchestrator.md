@@ -56,4 +56,14 @@ it provides the safety contract a decentralized fleet writes against.
 - [Lease-based file locking for parallel agents](lease-based-file-locking-for-parallel-agents.md) — the lease primitive.
 - [FAQ: Is DOS an agent orchestrator or framework?](../FAQ.md#is-dos-an-agent-orchestrator-or-framework)
 
+## Also asked as
+
+- how to coordinate multiple AI agents without a central orchestrator
+- coordinate multiple AI agents without a central orchestrator
+- multi-agent coordination with contracts not a queue
+- decentralized coordination for a fleet of agents
+- no orchestrator how do agents avoid colliding
+- agents coordinate via shared rules not a controller
+- orchestrator-free multi-agent coordination
+
 > The kernel is the part that doesn't believe the agents.
