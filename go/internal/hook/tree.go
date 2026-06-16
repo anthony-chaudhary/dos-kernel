@@ -13,9 +13,11 @@ import "strings"
 //
 // Byte-for-byte port of `dos._tree.norm_tree_prefix`:
 //   - "\\" -> "/", then strip surrounding whitespace, then casefold.
-//   - truncate at the first "*" (everything after is a wildcard).
-//   - a leading-glob entry ("**/*", "*.py") truncates to the EMPTY prefix "" —
-//     the UNIVERSAL prefix that matches every path. Callers must not drop it.
+//   - truncate at the first glob metacharacter "*", "?" or "[" (everything after
+//     is a wildcard). `?`/`[` are wildcards exactly as `*` is; truncating only at
+//     `*` left them as literals and false-disjointed overlapping regions (#144).
+//   - a leading-glob entry ("**/*", "*.py", "?x", "[ab]/c") truncates to the EMPTY
+//     prefix "" — the UNIVERSAL prefix that matches every path. Callers must not drop it.
 //
 // Case is folded UNCONDITIONALLY (DOS's documented primary platform is Windows,
 // a case-insensitive FS) so the prefix algebra collides case-variants of one real
@@ -28,8 +30,15 @@ func normTreePrefix(p string) string {
 	p = strings.ReplaceAll(p, "\\", "/")
 	p = strings.TrimSpace(p)
 	p = strings.ToLower(p)
-	if i := strings.IndexByte(p, '*'); i != -1 {
-		return p[:i]
+	// Earliest of the three glob metacharacters; IndexByte returns -1 when absent.
+	cut := -1
+	for _, mc := range []byte{'*', '?', '['} {
+		if i := strings.IndexByte(p, mc); i != -1 && (cut == -1 || i < cut) {
+			cut = i
+		}
+	}
+	if cut != -1 {
+		return p[:cut]
 	}
 	return p
 }
