@@ -384,6 +384,14 @@ vibe = "dos.drivers.hook_dialects:vibe_install_spec"
 # with a flat top-level {"decision":"block"} deny OUTPUT, so it reuses the hermes renderer
 # (--dialect hermes), the Devin precedent. Existing renderer; install spec only.
 grok = "dos.drivers.hook_dialects:grok_install_spec"
+# Tencent Cloud's CodeBuddy CLI -- `.codebuddy/settings.json`, a PURE claude-code alias (cloned
+# the CC contract: group-wrapped config + nested hookSpecificOutput/permissionDecision deny), so
+# NO --dialect. The highest-adoption miss the completeness audit found. Install spec only.
+codebuddy = "dos.drivers.hook_dialects:codebuddy_install_spec"
+# Block's Goose (Linux Foundation AAIF) -- `.goose/hooks.json`: a Claude-Code-SHAPED config
+# (group-wrapped) with a flat {"decision":"block"} deny OUTPUT (PR #9304, v1.35.0), so it reuses
+# the hermes renderer (--dialect hermes), the Devin/Grok precedent. Install spec only.
+goose = "dos.drivers.hook_dialects:goose_install_spec"
 
 # The memory-STORE providers (docs/314 P2/P3) — where a fleet's memories live, so
 # the recall gate (docs/103) and the write gate (`dos memory admit`) can run against

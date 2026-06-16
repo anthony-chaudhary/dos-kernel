@@ -1025,3 +1025,77 @@ def grok_install_spec() -> HostHookSpec:
              "hermes (the matching flat-block renderer). The path is user-global "
              "(~/.grok/user-settings.json); the wired `dos hook` command must be on PATH.",
     )
+
+
+def codebuddy_install_spec() -> HostHookSpec:
+    """Tencent Cloud's **CodeBuddy** CLI — `.codebuddy/settings.json` (a pure Claude-Code alias).
+
+    CodeBuddy ("CodeBuddy Code", Tencent's full-form coding CLI) cloned the Claude Code hook
+    contract (verified against the CodeBuddy Hooks Reference, codebuddy.ai/docs/cli/hooks +
+    the Settings doc, 2026-06-16): `.codebuddy/settings.json` holds a top-level `hooks` map
+    keyed by event, each a group-wrapped `{"matcher":…,"hooks":[{"type":"command","command":…}]}`
+    entry (matchers are case-sensitive, the CC convention), and its PreToolUse deny OUTPUT is
+    the NESTED `{"hookSpecificOutput":{"permissionDecision":"deny","permissionDecisionReason":…}}`
+    (the legacy flat `{"decision":"block"}` is also accepted) — byte-identical to Claude Code.
+    So it carries NO `--dialect` (the default CC envelope), `json_group_wraps=True`. Zero new
+    renderer — the augment/qwen/continue/factory precedent, and the single highest-adoption miss
+    the host-coverage completeness audit (docs/368 §6) surfaced (Tencent-internal ~12k engineers
+    + public Tencent Cloud).
+    """
+    return HostHookSpec(
+        host="codebuddy",
+        config_path=(".codebuddy", "settings.json"),
+        fmt=ConfigFormat.JSON,
+        pre_events=("PreToolUse",),
+        post_events=("PostToolUse",),
+        stop_events=("Stop",),
+        dialect_flag="",          # CC-identical nested deny output — the default IS the envelope.
+        json_entry_has_type=True,
+        json_group_wraps=True,    # CC-shaped: entries nest under {"hooks": [...]} groups.
+        json_version=None,
+        note="Tencent's CodeBuddy CLI cloned the Claude Code hook contract — "
+             ".codebuddy/settings.json group-wrapped + nested hookSpecificOutput/"
+             "permissionDecision deny output — so the default CC envelope is wired (no "
+             "--dialect). The wired `dos hook` command must be on PATH in the CodeBuddy "
+             "session.",
+    )
+
+
+def goose_install_spec() -> HostHookSpec:
+    """Block's **Goose** (now under the Linux Foundation's Agentic AI Foundation) —
+    `.goose/hooks.json` (CC config, HERMES output).
+
+    Goose's PreToolUse-denial hook shipped in v1.35.0 (merged PR aaif-goose/goose#9304,
+    2026-05-19, verified in-source): a command-type hook reads the event JSON on stdin and
+    DENIES a tool on the FIRST explicit deny — `{"decision":"block","reason":…}` on stdout
+    (or exit code 2). The config is a group-wrapped `{"hooks":{"PreToolUse":[{"matcher":…,
+    "hooks":[{"type":"command","command":…}]}]}}` (CC-shaped, modeled on Claude Code's hooks),
+    but the deny OUTPUT is the FLAT `{"decision":"block"}` form — byte-identical to the
+    **hermes** dialect, NOT Claude Code's nested `permissionDecision`. So the wired command
+    carries `--dialect hermes` with a `json_group_wraps=True` (CC-shaped) config — the Devin/
+    Grok precedent. Only PreToolUse denies today (the granular BeforeShellExecution/
+    BeforeReadFile events remain fire-and-forget), which is exactly the seam DOS needs; Goose
+    fails OPEN on a broken hook (a host choice). Zero new renderer.
+
+    The DOS-wired file is the project `.goose/hooks.json` — the concrete, workspace-scoped
+    install target (Goose also loads plugin-root and user-scope hook files; the project file
+    is the explicit binding `dos init --hooks goose` writes).
+    """
+    return HostHookSpec(
+        host="goose",
+        config_path=(".goose", "hooks.json"),
+        fmt=ConfigFormat.JSON,
+        pre_events=("PreToolUse",),
+        post_events=("PostToolUse",),
+        stop_events=("Stop",),
+        dialect_flag="--dialect hermes",   # flat {"decision":"block"} output = the hermes envelope.
+        json_entry_has_type=True,
+        json_group_wraps=True,             # CC-shaped config (group-wrapped), like Devin/Grok.
+        json_version=None,
+        note="Goose's PreToolUse-denial hook (v1.35.0, PR #9304) reads stdin JSON and denies "
+             "a tool via a flat {\"decision\":\"block\",\"reason\":…} on stdout (or exit 2). Its "
+             "config is Claude-Code-SHAPED (group-wrapped in .goose/hooks.json) but the deny "
+             "OUTPUT is the flat block form, so DOS wires --dialect hermes. Only PreToolUse "
+             "denies today; Goose fails OPEN on a broken hook. The wired `dos hook` command "
+             "must be on PATH in the Goose session.",
+    )

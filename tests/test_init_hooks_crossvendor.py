@@ -403,6 +403,33 @@ def test_grok_writes_cc_config_with_the_hermes_dialect(tmp_path: Path):
     assert set(cfg["hooks"]["PreToolUse"][0]) == {"hooks"}
 
 
+def test_codebuddy_writes_settings_as_claude_code_alias(tmp_path: Path):
+    """Tencent's CodeBuddy cloned the CC contract: `.codebuddy/settings.json`, group-
+    wrapped, nested permissionDecision deny -- NO --dialect."""
+    dest = tmp_path / "svc"
+    assert _cli("init", "--hooks", "codebuddy", str(dest)).returncode == 0
+    spec = hi.host_spec("codebuddy")
+    assert spec.config_path == (".codebuddy", "settings.json")
+    cfg = _json_config(dest, spec)
+    assert _flat_commands(cfg, "PreToolUse") == ["dos hook pretool --workspace ."]
+    assert _flat_commands(cfg, "Stop") == ["dos hook stop --workspace ."]
+    assert set(cfg["hooks"]["PreToolUse"][0]) == {"hooks"}
+
+
+def test_goose_writes_cc_config_with_the_hermes_dialect(tmp_path: Path):
+    """Goose (PR #9304) is the Devin/Grok precedent: `.goose/hooks.json` is CC-SHAPED
+    (group-wrapped), but its deny is a flat top-level {"decision":"block"} -- so
+    `--dialect hermes`."""
+    dest = tmp_path / "svc"
+    assert _cli("init", "--hooks", "goose", str(dest)).returncode == 0
+    spec = hi.host_spec("goose")
+    assert spec.config_path == (".goose", "hooks.json")
+    cfg = _json_config(dest, spec)
+    assert _flat_commands(cfg, "PreToolUse") == ["dos hook pretool --workspace . --dialect hermes"]
+    assert _flat_commands(cfg, "Stop") == ["dos hook stop --workspace . --dialect hermes"]
+    assert set(cfg["hooks"]["PreToolUse"][0]) == {"hooks"}
+
+
 def test_claude_cowork_writes_the_shared_claude_settings_file(tmp_path: Path):
     """Claude Cowork is the SHARED-surface host (docs/298): it runs the Claude Code
     harness, so its hook surface IS `.claude/settings.json` — and the wired command
@@ -586,7 +613,7 @@ def test_idempotent_rerun_does_not_duplicate(tmp_path: Path):
     for host in ("cursor", "codex", "gemini", "antigravity", "claude-cowork", "hermes",
                  "augment", "devin", "cursor-cli", "crush", "qwen", "continue",
                  "openhands", "tabnine", "factory", "copilot", "copilot-cli",
-                 "kimi", "vibe", "grok"):
+                 "kimi", "vibe", "grok", "codebuddy", "goose"):
         dest = tmp_path / host
         assert _cli("init", "--hooks", host, str(dest)).returncode == 0
         proc = _cli("init", "--hooks", host, str(dest))
