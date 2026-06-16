@@ -58,4 +58,18 @@ project dies.
 - [What is a trust substrate for a fleet of autonomous AI agents](trust-substrate-for-a-fleet-of-autonomous-agents.md) — the category, in depth.
 - [FAQ: How is DOS different from agent evals or observability platforms?](../FAQ.md#how-is-dos-different-from-agent-evals-or-observability-platforms)
 
+## Also asked as
+
+- governance is why agentic AI projects get canceled what is the missing layer
+- governance is why agentic AI projects get canceled
+- missing governance layer for agentic AI
+- why do agentic AI projects keep getting killed
+- what governance does an autonomous agent program need
+- agentic AI canceled over trust what's the fix
+- the oversight layer agentic projects are missing
+- why agentic AI pilots get killed
+- the oversight layer agentic projects lack
+- governance gap that cancels agent programs
+- what trust layer does agentic AI need to survive
+
 > The kernel is the part that doesn't believe the agents.

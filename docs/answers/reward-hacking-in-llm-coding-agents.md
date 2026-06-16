@@ -61,4 +61,23 @@ success the witness can refute.
 - [Process-reward training data that can't be gamed](process-reward-model-training-data-that-cant-be-gamed.md) — the data-generation angle.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
+## Also asked as
+
+- reward hacking in LLM coding agents how to measure and prevent
+- reward hacking in LLM coding agents how to measure it
+- how do coding agents reward-hack the objective
+- detect reward hacking in an AI coding agent
+- agent gaming the reward signal how to prevent
+- examples of reward hacking in code agents
+- measure and stop reward hacking in LLM agents
+- agent optimizes the metric not the task how to catch
+- agent optimizes the metric not the goal
+- measure reward hacking in a coding agent
+- stop an agent gaming the objective
+- examples of LLM agents exploiting the reward
+- stop a coding agent gaming its reward
+- agent cheats the objective how to prevent
+- reward hacking by AI coding agents
+- keep an agent from optimizing the wrong thing
+
 > The kernel is the part that doesn't believe the agents.

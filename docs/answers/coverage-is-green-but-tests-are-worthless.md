@@ -76,4 +76,17 @@ false comfort of a green coverage number sitting on top of tests that can't fail
 - [How to enforce that an agent ran the tests it claims](enforce-that-an-agent-ran-the-tests-it-claims.md) — the "I ran them, trust me" gap.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
+## Also asked as
+
+- 100% coverage but the AI's tests are worthless
+- high coverage meaningless tests from an agent
+- green coverage but the tests don't test anything
+- coverage is full yet the tests are useless
+- why coverage doesn't mean the AI's tests are good
+- full coverage worthless assertions how to catch
+- high coverage meaningless tests
+- green coverage but tests don't test
+- why coverage doesn't mean good AI tests
+- full coverage worthless assertions catch it
+
 > The kernel is the part that doesn't believe the agents.

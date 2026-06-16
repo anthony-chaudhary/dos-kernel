@@ -59,4 +59,21 @@ which is the thing a faked call can't produce.
 - [How to verify what a subagent claims before folding its output](verify-what-a-subagent-claims-before-folding.md) — the same read-back at a fold barrier.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
+## Also asked as
+
+- how to catch an AI agent that fakes tool calls or fabricates output
+- catch an AI agent that fakes tool calls or fabricates output
+- agent pretended to call a tool how to detect
+- agent fabricated command output how to catch
+- detect a hallucinated tool call from an agent
+- agent faked a shell result verify the real one
+- spot an agent inventing tool output
+- Cursor faked a tool call how to detect
+- Claude Code fabricated command output catch it
+- agent hallucinated a terminal result
+- agent invented a tool result catch it
+- detect a fabricated command output from an agent
+- agent pretended to run a tool how to verify
+- hallucinated terminal output from a coding agent
+
 > The kernel is the part that doesn't believe the agents.

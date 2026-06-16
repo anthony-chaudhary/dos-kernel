@@ -60,4 +60,18 @@ witness it didn't author.
 - [My recalled agent memory is stale or wrong](recalled-agent-memory-is-stale-how-to-reverify.md) — the other memory-integrity surface.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
+## Also asked as
+
+- how to detect when an AI agent self-edited its CLAUDE.md or AGENTS.md instruction file
+- detect when an agent self-edited its CLAUDE.md instruction file
+- agent rewrote its own AGENTS.md how to catch
+- agent modified its own instruction file detect it
+- catch an agent editing the rules it's supposed to follow
+- self-modified CLAUDE.md by an agent how to detect
+- agent tampered with its own guardrail file
+- agent rewrote its own instruction file catch it
+- detect tampering with CLAUDE.md by the agent
+- agent edited the rules it should follow
+- self-modified AGENTS.md how to detect
+
 > The kernel is the part that doesn't believe the agents.

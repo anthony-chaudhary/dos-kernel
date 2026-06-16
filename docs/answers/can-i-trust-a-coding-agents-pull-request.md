@@ -56,4 +56,24 @@ not review the design or guarantee correctness; it ensures the PR's claims about
 - [How to audit AI-generated commits across a repo](audit-which-commits-were-ai-and-did-they-ship.md) — the repo-wide version.
 - [How to add a guardrail to a coding agent with no plugin system](how-to-add-a-guardrail-to-a-coding-agent-with-no-plugin-system.md) — wire it as a PR gate.
 
+## Also asked as
+
+- can I trust an AI coding agent's pull request
+- how do I review an agent-generated PR safely
+- is an AI agent's pull request safe to merge
+- verify a coding agent's PR actually does what it says
+- check an agent PR before approving it
+- trust an autonomous agent's pull request or not
+- can I trust a Copilot pull request
+- is a Cursor-generated PR safe to merge
+- review a Claude Code PR before approving
+- review an agent-generated PR safely
+- is this agent PR safe to merge
+- verify a coding agent's PR does what it says
+- check an autonomous agent's pull request before approving
+- should I trust an AI's pull request
+- is a coding agent's PR trustworthy
+- vet an agent pull request before merge
+- how safe is an AI-generated PR
+
 > The kernel is the part that doesn't believe the agents.

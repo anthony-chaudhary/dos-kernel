@@ -56,4 +56,18 @@ including the moment the agent would rather skip it.
 - [How to add a guardrail to a coding agent with no plugin system](how-to-add-a-guardrail-to-a-coding-agent-with-no-plugin-system.md) — the exit-code tier in practice.
 - [FAQ: Does DOS work with Claude Code, Cursor, Codex, Gemini CLI, or other agent runtimes?](../FAQ.md#does-dos-work-with-claude-code-cursor-codex-gemini-cli-or-other-agent-runtimes)
 
+## Also asked as
+
+- deterministic pre-commit hook vs an agent skill which actually enforces
+- deterministic hook vs an agent skill which actually enforces
+- does a skill enforce a rule or just suggest it
+- hook vs skill for enforcing agent behavior
+- why a prompt-based rule doesn't enforce like a hook
+- skill vs deterministic check which is binding
+- enforce agent rules hook or skill
+- does a prompt-based skill actually enforce a rule
+- binding hook vs advisory skill for agents
+- why a skill can't enforce like a deterministic check
+- enforce agent behavior hook or skill which
+
 > The kernel is the part that doesn't believe the agents.

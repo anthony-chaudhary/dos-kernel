@@ -78,4 +78,35 @@ shipped](do-ai-coding-agents-lie-about-what-they-shipped.md)).
 - [The incident page](../incidents/my-agent-said-it-committed-but-theres-no-commit.md) — the same failure as a story.
 - [FAQ: How do I verify an AI agent actually did what it claims?](../FAQ.md#how-do-i-verify-an-ai-agent-actually-did-what-it-claims)
 
+## Also asked as
+
+- how to verify an AI agent actually did the work
+- did my AI agent actually do the work or just say it did
+- how do I confirm an AI agent really completed a task
+- check whether a coding agent actually finished what it claimed
+- AI agent says it's done how do I trust that
+- verify agent work from git instead of its transcript
+- is my AI agent telling the truth about finishing
+- prove an agent did the work with no LLM and no API key
+- how to validate an autonomous agent's completion claim
+- ground an agent's done on evidence not self-report
+- one command to verify an AI agent actually did the work
+- how do I know my AI coding assistant really did the task
+- stop trusting an agent's I-finished-it message
+- did Cursor actually do the work or just say it did
+- verify Claude Code actually completed the task
+- Copilot says done how do I check it really is
+- confirm Codex finished the work from git
+- did my Gemini CLI agent actually do what it claimed
+- Windsurf agent reports done is it true
+- agent says done but I can't tell if it's true
+- how does a team lead verify an AI agent's work
+- trust but verify an autonomous coding agent
+- what's the witness that an agent actually did the task
+- check an agent's claim against the repo not the chat log
+- make sure an AI agent really did what it says
+- proof an agent finished the task
+- how to fact-check an AI agent's work
+- confirm an agent's work is real before trusting it
+
 > The kernel is the part that doesn't believe the agents.

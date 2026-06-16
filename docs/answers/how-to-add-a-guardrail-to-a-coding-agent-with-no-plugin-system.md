@@ -102,4 +102,22 @@ runner already has.
 - [FAQ: Does DOS work with Claude Code, Cursor, Codex, Gemini CLI, or other agent runtimes?](../FAQ.md#does-dos-work-with-claude-code-cursor-codex-gemini-cli-or-other-agent-runtimes) — the three surfaces (MCP, hooks, exit-code).
 - [Do AI coding agents lie about what they shipped?](do-ai-coding-agents-lie-about-what-they-shipped.md) — the failure this guardrail catches, as a story.
 
+## Also asked as
+
+- add a guardrail to a coding agent with no plugin system
+- enforce a rule on an agent that has no hook support
+- guardrail for an agent runtime without plugins
+- how to gate an agent that has no extension API
+- my agent host has no hooks how do I add a check
+- wire a check into any agent via exit code
+- enforce agent rules with just a command exit status
+- guardrail any CLI agent without a plugin framework
+- no plugin system how do I still constrain my agent
+- minimal guardrail for an agent with no integration points
+- constrain an agent that has no extension API
+- minimal trust check for a bare CLI agent
+- guardrail any agent runtime through exit codes
+- no hooks no plugins how do I still gate the agent
+- add a check to an agent the host can't extend
+
 > The kernel is the part that doesn't believe the agents.

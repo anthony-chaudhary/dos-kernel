@@ -56,4 +56,17 @@ can't claim work it didn't do.
 - [How to catch an empty commit / `--allow-empty "shipped"` fake-done](catch-allow-empty-shipped-fake-done.md) — the empty-commit sibling.
 - [FAQ: Do AI coding agents lie about what they shipped?](../FAQ.md#how-do-i-verify-an-ai-agent-actually-did-what-it-claims)
 
+## Also asked as
+
+- how to detect a no-op commit from an AI agent
+- detect a no-op commit from an AI agent
+- agent made a commit that changed nothing
+- spot an empty or meaningless agent commit
+- no-op commit from a coding agent how to catch
+- agent committed but did no real work detect it
+- find commits with no substantive change from an agent
+- agent committed nothing meaningful detect it
+- find empty or trivial agent commits
+- spot a commit with no real change from an agent
+
 > The kernel is the part that doesn't believe the agents.

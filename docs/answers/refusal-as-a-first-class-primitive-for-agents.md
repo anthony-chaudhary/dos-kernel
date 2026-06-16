@@ -60,4 +60,18 @@ point at a checkable condition, not a mood.
 - [How to refuse an agent action with a structured reason](refuse-an-agent-action-with-a-structured-reason.md) — the closed-vocabulary how-to.
 - [FAQ: Is DOS an agent orchestrator or framework?](../FAQ.md#is-dos-an-agent-orchestrator-or-framework)
 
+## Also asked as
+
+- why should no be a first-class verifiable primitive in an agent system
+- why should no be a first-class primitive in an agent system
+- refusal as a verifiable primitive for agents
+- make an agent's no a checkable value not an error
+- first-class declines in an agent architecture
+- why agents need a structured way to refuse
+- treat refusal as a real outcome for an agent
+- make an agent's no a real outcome
+- first-class declines in agent design
+- why agents need a structured refusal primitive
+- treat blocked as a verifiable agent result
+
 > The kernel is the part that doesn't believe the agents.

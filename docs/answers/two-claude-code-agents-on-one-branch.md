@@ -57,4 +57,17 @@ analogue of two-phase discipline applied to your tree.
 - [How to stop two AI agents overwriting each other](how-to-stop-two-ai-agents-overwriting-each-other.md) — the head version.
 - [FAQ: Don't git worktrees already solve this?](../FAQ.md#dont-git-worktrees-already-solve-this--one-isolated-checkout-per-agent)
 
+## Also asked as
+
+- two Claude Code agents on one branch keep clobbering each other
+- running two Claude Code instances on the same branch
+- two agents same branch how do I stop the conflicts
+- coordinate two Claude Code agents on one repo
+- parallel Claude Code agents overwrite each other
+- two coding agents one git branch collision fix
+- two Claude Code sessions on one branch colliding
+- parallel Claude Code agents clobber each other
+- coordinate multiple Claude Code agents on a repo
+- two agents same branch keeps breaking my work
+
 > The kernel is the part that doesn't believe the agents.

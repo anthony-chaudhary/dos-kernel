@@ -56,4 +56,20 @@ bug, and require that test to go red→green.
 - [My agent said "all tests pass" but the app is broken](ai-agent-said-tests-pass-but-app-is-broken.md) — the sibling failure.
 - [FAQ: How do I verify an AI agent actually did what it claims?](../FAQ.md#how-do-i-verify-an-ai-agent-actually-did-what-it-claims)
 
+## Also asked as
+
+- my AI agent claimed it fixed the bug but it didn't
+- agent says bug fixed but it's still broken
+- verify an agent actually fixed the bug
+- agent reports a fix that didn't work how to catch
+- is the bug really fixed or did the agent just say so
+- agent's fix claim is false how do I detect it
+- Cursor claimed it fixed the bug but it didn't
+- Copilot says fixed but the bug is still there
+- Claude Code reported a fix that didn't work
+- agent says fixed but the bug repro still fails
+- verify an agent's bug fix actually works
+- false fix claim from a coding agent
+- agent closed the bug but it's not fixed
+
 > The kernel is the part that doesn't believe the agents.

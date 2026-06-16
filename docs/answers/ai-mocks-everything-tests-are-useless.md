@@ -77,4 +77,17 @@ before it ever counts as coverage.
 - [100% coverage but the tests are worthless](coverage-is-green-but-tests-are-worthless.md) — why coverage doesn't catch this.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
+## Also asked as
+
+- my AI agent mocks everything and the tests are useless
+- agent over-mocks so the tests prove nothing
+- AI mocks the whole thing tests are meaningless
+- too much mocking by an agent how to detect
+- agent's tests mock away the real behavior
+- useless tests because the agent mocked everything
+- agent over-mocks so tests prove nothing
+- too much mocking by an agent
+- tests mock away the real behavior
+- useless tests because everything is mocked
+
 > The kernel is the part that doesn't believe the agents.

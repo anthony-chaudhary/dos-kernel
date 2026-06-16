@@ -59,4 +59,18 @@ spinning.
 - [Reward hacking in LLM coding agents](reward-hacking-in-llm-coding-agents.md) — the training-loop sibling.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
+## Also asked as
+
+- how to keep an AI self-improvement loop from keeping bad changes
+- keep a self-improvement loop from keeping bad changes
+- stop an auto-improve loop from accepting regressions
+- gate a self-improving agent on a real measured gain
+- RSI loop keeps bad edits how to prevent
+- only keep an agent's change if a witness confirms it improved
+- revert bad changes in a self-improvement loop automatically
+- auto-improve loop accepted a regression stop that
+- only keep an agent change if a witness confirms a gain
+- revert bad edits in a self-improving loop
+- gate RSI on a measured improvement not the agent's word
+
 > The kernel is the part that doesn't believe the agents.

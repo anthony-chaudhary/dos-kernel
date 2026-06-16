@@ -85,4 +85,28 @@ the agent's word, and its token count, stop being the evidence.
 - Related answers: [How do I verify an AI agent actually did the work?](how-to-verify-an-ai-agent-actually-did-the-work.md) · [How do I detect an agent loop spinning without progress?](how-to-detect-an-agent-loop-spinning-without-progress.md) · [Where do I get process-reward training data that can't be gamed?](process-reward-model-training-data-that-cant-be-gamed.md)
 - External context (others' reporting on the metric's legitimacy, not DOS results): the 2026 "token-maxxing is over / a flawed way to measure ROI" coverage and the move to loop-count / per-task cost in AI-coding pricing analyses.
 
+## Also asked as
+
+- what replaced tokens-burned as the metric for AI agents
+- is the token-maxxing era over / what is token efficiency
+- how to measure verified outcomes instead of token usage
+- is the token-maxxing era over for coding agents
+- what is token efficiency for AI agents
+- measure verified outcomes instead of token usage
+- the new metric for agents after tokens-burned
+- why tokens consumed is a bad agent metric
+- outcome-based metrics for autonomous agents
+- stop measuring agents by token count what instead
+- verified-work metric vs token-spend metric
+- 2026 shift from token-maxxing to verified outcomes
+- why token count is a vanity metric for agents
+- the post-token-maxxing agent KPI
+- measure agents on landed work not tokens spent
+- what metric matters now that tokens are cheap
+- verified-outcome scoring for coding agents
+- best metric for AI agents now
+- how to score agents past token count
+- what to measure instead of tokens for agents
+- agent KPI after the token era
+
 > The kernel is the part that doesn't believe the agents.

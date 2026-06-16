@@ -59,4 +59,16 @@ is the consequence of making most cheap lies expensive.
 - [Why you can't trust a model to judge its own work](why-you-cant-trust-a-model-to-judge-its-own-work.md) — the same axis, applied to self-grading.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
+## Also asked as
+
+- what does true mean for an AI agent's verdict
+- how is truth defined for an agent's decision
+- what counts as ground truth for an agent verdict
+- the meaning of true in an automated verdict
+- why does an agent verdict need a definition of truth
+- truth as a non-forgeable witness for agents
+- ground truth definition for an agent decision
+- what makes an automated verdict trustworthy
+- how do we define correct for an agent verdict
+
 > The kernel is the part that doesn't believe the agents.

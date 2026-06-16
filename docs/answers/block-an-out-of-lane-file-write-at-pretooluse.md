@@ -60,4 +60,18 @@ agent may write, deterministically, at the cheapest point to intervene.
 - [Lease-based file locking for parallel agents](lease-based-file-locking-for-parallel-agents.md) — the lease this gate enforces.
 - [FAQ: How do I stop two AI agents from editing the same files at the same time?](../FAQ.md#how-do-i-stop-two-ai-agents-from-editing-the-same-files-at-the-same-time)
 
+## Also asked as
+
+- how to block an out-of-lane file write before the agent makes it PreToolUse
+- block an out-of-lane file write before the agent makes it
+- deny an agent file write at PreToolUse
+- stop an agent writing outside its allowed paths
+- pre-write guard for agent file edits
+- intercept an out-of-scope agent write before it happens
+- enforce a write boundary at the PreToolUse hook
+- deny an agent write outside its lane before it happens
+- pre-write boundary check for an agent
+- intercept an out-of-scope edit at the hook
+- stop an agent writing where it shouldn't pretooluse
+
 > The kernel is the part that doesn't believe the agents.

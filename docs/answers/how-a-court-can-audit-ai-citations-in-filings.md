@@ -93,4 +93,17 @@ Two boundaries a court must hold:
 - [Verify a quoted holding appears in the opinion](verify-a-quoted-holding-appears-in-the-opinion.md) — the quote-fidelity rung.
 - [FAQ: Does DOS need an LLM or an API key?](../FAQ.md#does-dos-need-an-llm-or-an-api-key)
 
+## Also asked as
+
+- how a court can audit AI-generated citations in filings
+- court-side check for AI citations in submitted briefs
+- audit inbound filings for fabricated AI citations
+- how do courts verify citations in filings they receive
+- screen filings for hallucinated case law
+- a court's process to catch AI-invented citations
+- court screening for fabricated AI citations
+- audit inbound briefs for hallucinated case law
+- how courts verify citations in filings they receive
+- catch AI-invented citations at the courthouse
+
 > The kernel is the part that doesn't believe the agents.

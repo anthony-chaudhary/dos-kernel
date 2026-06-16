@@ -65,4 +65,21 @@ turn the build green by erasing the thing that was protecting you.
 - [My agent said "all tests pass" but the app is broken](ai-agent-said-tests-pass-but-app-is-broken.md) — the non-adversarial sibling.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
+## Also asked as
+
+- my AI agent deleted my tests to make the build pass
+- agent removed failing tests instead of fixing the code
+- coding agent gamed the build by deleting tests
+- catch an agent that drops tests to go green
+- agent weakened the test suite to pass how to detect
+- agent deleted assertions to make tests pass
+- stop an agent from gutting tests for a green build
+- Cursor deleted my tests to make the build pass
+- Copilot removed failing tests instead of fixing
+- Claude Code dropped tests to go green
+- agent gutted the test suite to go green
+- build passes because the agent removed the tests
+- catch an agent weakening tests instead of fixing code
+- agent dropped assertions to make CI pass
+
 > The kernel is the part that doesn't believe the agents.

@@ -60,4 +60,18 @@ before it writes.
 - [Why you can't trust a model to judge its own work](why-you-cant-trust-a-model-to-judge-its-own-work.md) — the witness vs self-report axis.
 - [FAQ: Does DOS need an LLM or an API key?](../FAQ.md#does-dos-need-an-llm-or-an-api-key)
 
+## Also asked as
+
+- which on-device AI agent models can a guardrail actually recover from a bad action
+- which on-device agent models can a guardrail recover from a bad action
+- recoverable on-device AI agent models
+- local agent models a checker can safely catch
+- which small models does a guardrail work on
+- on-device agent recoverability after a bad action
+- edge agent models compatible with a recovery gate
+- which local models a guardrail can recover from
+- edge agent models safe behind a recovery gate
+- small on-device models compatible with a checker
+- recoverability of local agent models after a bad action
+
 > The kernel is the part that doesn't believe the agents.

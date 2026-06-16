@@ -63,4 +63,23 @@ feature is right.
 - [AI agent deleted my tests to make the build pass](ai-agent-deleted-my-tests-to-pass-the-build.md) — the adversarial sibling.
 - [FAQ: How do I verify an AI agent actually did what it claims?](../FAQ.md#how-do-i-verify-an-ai-agent-actually-did-what-it-claims)
 
+## Also asked as
+
+- my AI agent said all tests pass but the app is still broken
+- my AI agent said all tests pass but the app is broken
+- tests are green but the feature doesn't work
+- agent reports passing tests yet nothing works
+- why does my app break when the agent says tests pass
+- agent claims tests pass app still fails how to catch
+- green tests broken app what's the gap
+- trust passing tests from an AI agent or not
+- agent's tests pass but the behavior is wrong
+- Cursor said tests pass but the app is broken
+- Copilot reports green tests but nothing works
+- Claude Code says all tests pass app still fails
+- passing tests but the app crashes at runtime
+- agent's tests are green but the behavior is wrong
+- green suite broken feature what did the agent miss
+- tests pass app doesn't work who do I trust
+
 > The kernel is the part that doesn't believe the agents.

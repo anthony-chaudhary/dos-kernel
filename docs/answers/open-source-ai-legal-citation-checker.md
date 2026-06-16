@@ -59,4 +59,17 @@ check the paid tools charge for.
 - [How to verify a cited legal case actually exists before filing](how-to-verify-a-cited-legal-case-exists.md) — the same tool, framed as the workflow.
 - [FAQ: Does DOS need an LLM or an API key?](../FAQ.md#does-dos-need-an-llm-or-an-api-key)
 
+## Also asked as
+
+- open-source alternative to paid AI legal citation checkers
+- free legal citation verification tool for AI agents
+- open source case-law citation checker
+- is there a free AI citation checker for lawyers
+- self-hosted legal citation verifier open source
+- open-source tool to check AI-generated case citations
+- free citation verifier for legal AI
+- self-hosted AI case-law checker open source
+- open source tool to validate AI legal citations
+- no-cost alternative to paid citation checkers
+
 > The kernel is the part that doesn't believe the agents.

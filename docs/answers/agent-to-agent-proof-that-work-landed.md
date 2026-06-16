@@ -58,4 +58,18 @@ premise. Fold the witnessed, route back the rest.
 - [How to verify what a subagent claims before folding its output](verify-what-a-subagent-claims-before-folding.md) — the same rule at the fold barrier.
 - [FAQ: How is DOS different from agent evals or observability platforms?](../FAQ.md#how-is-dos-different-from-agent-evals-or-observability-platforms)
 
+## Also asked as
+
+- how do agents prove to each other that work actually landed
+- how do agents prove to each other that work landed
+- agent-to-agent trust without believing claims
+- let one agent verify another agent's work
+- proof of work between cooperating agents
+- A2A verification that a task actually completed
+- agents corroborate each other's effects not words
+- let one agent confirm another's work
+- A2A proof an effect actually happened
+- agents corroborate effects not claims
+- cross-agent verification of a landed task
+
 > The kernel is the part that doesn't believe the agents.

@@ -61,4 +61,23 @@ landed effect, in time to stop the spend.
 - [How to scavenge a stalled agent lease without killing a live one](scavenge-a-stalled-lease-without-killing-a-live-one.md) — what to do once a run is STALLED.
 - [FAQ: How do I detect that an agent loop is spinning?](../FAQ.md#how-do-i-detect-that-an-agent-loop-is-spinning--running-but-not-progressing)
 
+## Also asked as
+
+- how to detect a runaway AI agent before it burns the token budget
+- stop a runaway AI agent before it burns my token budget
+- detect an agent burning tokens with nothing to show
+- how to cap an agent that won't stop spending
+- my coding agent is eating budget catch it early
+- runaway agent token spend how to detect and halt
+- early warning for an agent wasting money
+- agent burning the budget on a loop how do I stop it
+- detect cost-runaway in an autonomous agent
+- trip a breaker when an agent spends without progress
+- guard against an agent that runs up the bill
+- agent spending money with no output stop it
+- cost guard for an autonomous coding agent
+- circuit breaker for a runaway agent loop
+- agent won't stop and the bill is climbing
+- halt an agent before it blows the token budget
+
 > The kernel is the part that doesn't believe the agents.

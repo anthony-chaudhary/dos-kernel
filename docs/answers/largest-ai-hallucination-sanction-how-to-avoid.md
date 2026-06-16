@@ -72,4 +72,19 @@ itself a liability.
 - [How to catch fabricated legal citations inside my AI agent](catch-fabricated-legal-citations-in-my-ai-agent.md) — wire the check in *before* the brief is written.
 - [FAQ: Does DOS need an LLM or an API key?](../FAQ.md#does-dos-need-an-llm-or-an-api-key)
 
+## Also asked as
+
+- how to avoid getting sanctioned for AI-hallucinated legal citations
+- what is the largest AI hallucination sanction and how to avoid one
+- how to avoid an AI-hallucinated citation sanction
+- largest AI hallucination sanction what to learn from it
+- what the record AI-citation fines have in common
+- avoid getting sanctioned for AI fake citations
+- lessons from the biggest AI hallucination court sanctions
+- stay out of trouble for AI-invented legal citations
+- avoid a court sanction for AI fake citations
+- lessons from the biggest AI-citation fines
+- what the record AI-hallucination sanctions share
+- stay out of trouble for AI-invented case law
+
 > The kernel is the part that doesn't believe the agents.

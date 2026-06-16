@@ -57,4 +57,18 @@ the guarantee is that no checkable lie re-enters context as a fact.
 - [My recalled agent memory is stale or wrong — how do I re-verify it](recalled-agent-memory-is-stale-how-to-reverify.md) — the recall verb in depth.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
+## Also asked as
+
+- how to prevent context poisoning from an AI agent's own prior outputs
+- prevent context poisoning from an agent's own prior outputs
+- agent feeds its own bad output back into context
+- stop an agent poisoning itself with prior mistakes
+- context poisoning loop in an autonomous agent
+- agent's own hallucination contaminates later steps
+- break the self-poisoning feedback loop in an agent
+- agent contaminates its context with bad output
+- self-poisoning feedback loop in an agent
+- stop an agent recycling its own hallucinations
+- prevent an agent's prior mistakes from compounding
+
 > The kernel is the part that doesn't believe the agents.

@@ -61,4 +61,18 @@ yanking it from a worker that's still alive.
 - [How to detect a runaway agent before it burns the budget](detect-a-runaway-agent-before-it-burns-the-budget.md) — the liveness read this acts on.
 - [FAQ: How do I detect that an agent loop is spinning?](../FAQ.md#how-do-i-detect-that-an-agent-loop-is-spinning--running-but-not-progressing)
 
+## Also asked as
+
+- how to scavenge a stalled agent's lease without killing a live one
+- scavenge a stalled agent's lease without killing a live one
+- reclaim a dead agent's file lock safely
+- free a stuck lease but don't kill a working agent
+- stale lease cleanup that won't disrupt a live agent
+- recover a crashed agent's lease without collateral
+- safely scavenge a stalled lease in an agent fleet
+- reclaim a dead agent's lock without hurting a live one
+- clean up a crashed agent's lease safely
+- free a stuck lease but spare working agents
+- scavenge stalled leases in an agent fleet
+
 > The kernel is the part that doesn't believe the agents.

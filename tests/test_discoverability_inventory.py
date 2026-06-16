@@ -129,6 +129,29 @@ def test_arrival_queries_capture_matches_page_presence():
     assert h["arrival_query_pages"] == len({page for _, page, ok in inv["arrival_queries"] if ok})
 
 
+def test_arrival_queries_are_unique():
+    # The alias layer (the query-surface multiplier) only counts honestly if no
+    # phrasing is tracked twice — a duplicate string would silently double-count a
+    # query against the captured total. The flattening in the inventory dedupes by
+    # first occurrence across the curated core and both alias maps; pin that here so
+    # a future copy-paste dup fails loudly instead of inflating the headline.
+    queries = [q for q, _ in di.ARRIVAL_QUERIES]
+    seen: dict[str, int] = {}
+    for q in queries:
+        seen[q] = seen.get(q, 0) + 1
+    dupes = {q: n for q, n in seen.items() if n > 1}
+    assert not dupes, f"duplicate arrival-query strings (double-counted): {dupes}"
+
+
+def test_every_arrival_query_points_at_a_real_page():
+    # The alias layer adds hundreds of (query, page) tuples; every one must resolve
+    # to a page in the tree or the captured count is a lie (the same honesty rule
+    # test_arrival_queries_capture_matches_page_presence enforces, asserted directly
+    # over the multiplied list so a typo'd alias target fails here too).
+    bad = [(q, p) for q, p in di.ARRIVAL_QUERIES if not (_REPO / p).exists()]
+    assert not bad, f"arrival queries pointing at missing pages: {bad}"
+
+
 def test_transition_query_is_tracked_and_captured():
     # the 2026 token-maxxing→verified-outcomes transition query is the measured
     # delta this work added; pin it so a regression that drops the page is caught.

@@ -56,4 +56,25 @@ leave taste and style to the prompt.
 - [Deterministic pre-commit hook vs an agent skill — which actually enforces](deterministic-hook-vs-agent-skill-which-enforces.md) — the same point, sharpened.
 - [How to add a guardrail to a coding agent with no plugin system](how-to-add-a-guardrail-to-a-coding-agent-with-no-plugin-system.md) — where to put the gate.
 
+## Also asked as
+
+- why does my AI agent ignore the rules in CLAUDE.md
+- agent doesn't follow my CLAUDE.md instructions
+- make CLAUDE.md rules actually stick for an agent
+- agent skips the rules in its instruction file
+- CLAUDE.md says one thing the agent does another
+- why prompt rules don't bind an agent and what does
+- Cursor ignores my rules file
+- Claude Code doesn't follow CLAUDE.md why
+- my agent ignores AGENTS.md instructions
+- Copilot ignores the custom instructions
+- agent skips my CLAUDE.md rules
+- make instruction-file rules actually bind an agent
+- why prompt rules don't constrain an agent
+- agent ignores AGENTS.md what enforces it
+- agent won't follow my instructions file
+- how to make an agent obey CLAUDE.md
+- my coding agent ignores its rules
+- get an agent to actually follow the rules
+
 > The kernel is the part that doesn't believe the agents.

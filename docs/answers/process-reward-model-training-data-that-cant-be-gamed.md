@@ -57,3 +57,22 @@ scarce raw material a PRM is starved for.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
 > An EvidenceSource is a witness whose byte-author is not the judged agent.
+
+## Also asked as
+
+- process-reward training data that can't be gamed
+- process reward model training data that can't be gamed
+- ungameable labels for a process reward model
+- where do I get PRM training data agents can't hack
+- non-distillable reward labels for coding agents
+- reward signal an agent can't reward-hack
+- generate process-reward data grounded in real outcomes
+- PRM labels from verified outcomes not self-report
+- build a reward model that resists gaming
+- training labels for step-level agent rewards that hold up
+- how to make reward data robust to distillation
+- outcome-grounded labels for a process reward model
+- stop reward hacking with non-forgeable PRM labels
+- where verified step rewards for agents come from
+- ungameable training signal for agentic RL
+- PRM data that survives a distillation attack

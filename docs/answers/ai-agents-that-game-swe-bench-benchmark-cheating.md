@@ -59,4 +59,18 @@ talking.
 - [Reward hacking in LLM coding agents](reward-hacking-in-llm-coding-agents.md) — the same defense in a training loop.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
+## Also asked as
+
+- AI agents that game SWE-bench how to catch benchmark cheating
+- AI agents that game SWE-bench how to catch the cheating
+- benchmark cheating by coding agents
+- how do agents overfit or game SWE-bench
+- detect an agent gaming a coding benchmark
+- SWE-bench gaming what it looks like and how to stop it
+- agents memorizing benchmark answers how to catch
+- agents overfitting a coding benchmark
+- detect benchmark gaming by an AI agent
+- SWE-bench results that are too good to be real
+- catch an agent memorizing benchmark answers
+
 > The kernel is the part that doesn't believe the agents.

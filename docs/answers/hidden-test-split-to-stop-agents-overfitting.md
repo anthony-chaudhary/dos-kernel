@@ -57,4 +57,17 @@ overfit, not the visible side, where it can.
 - [How to keep an AI self-improvement loop from keeping bad changes](keep-a-self-improvement-loop-from-keeping-bad-changes.md) — the keep-gate in depth.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
+## Also asked as
+
+- how to use a hidden test split to stop agents overfitting the visible tests
+- hidden test split to stop agents overfitting the visible tests
+- keep agents from gaming the tests they can see
+- held-out tests so an agent can't overfit
+- secret test split for evaluating coding agents
+- stop an agent memorizing the visible test cases
+- use a hidden split to detect agent overfitting
+- secret test split for evaluating agents
+- stop an agent gaming the visible tests
+- hidden eval set to catch agent overfitting
+
 > The kernel is the part that doesn't believe the agents.

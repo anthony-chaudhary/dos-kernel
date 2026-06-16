@@ -60,4 +60,18 @@ tells you which commit messages your history can't trust.
 - [How do I know if my agent's commit message matches what it changed](does-the-commit-message-match-what-changed.md) — the single-commit version.
 - [Do AI coding agents lie about what they shipped?](do-ai-coding-agents-lie-about-what-they-shipped.md) — the broader pattern.
 
+## Also asked as
+
+- how to audit AI-generated commits across a repo which were AI and did they ship
+- audit which commits were AI and whether they shipped real work
+- tell which commits an AI agent made across a repo
+- audit AI-generated commits for real content
+- which commits are agent-authored and did they land work
+- review a repo's AI commits for actual changes
+- separate real agent commits from no-op ones
+- which commits in my repo were AI-authored
+- audit agent commits for real content repo-wide
+- separate real agent commits from no-ops
+- sweep a repo for AI commits and check they shipped
+
 > The kernel is the part that doesn't believe the agents.

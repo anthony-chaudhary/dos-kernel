@@ -59,4 +59,19 @@ number that breaks the recompute cannot pass as a real one.
 - [Do AI coding agents lie about what they shipped?](do-ai-coding-agents-lie-about-what-they-shipped.md) — the same forgeability rule on git.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
+## Also asked as
+
+- how to catch fabricated figures in an AI agent's financial model output
+- catch fabricated figures in an AI agent's financial model
+- AI invented numbers in a financial model how to check
+- verify the figures an agent put in a spreadsheet
+- detect made-up numbers in agent financial output
+- agent's financial model has fake figures how to catch
+- fact-check an AI-generated financial model
+- hallucinated financials from an agent how to detect
+- AI made up numbers in a model spreadsheet
+- fact-check an agent's financial figures
+- hallucinated financials from an AI tool
+- verify the numbers an agent put in a forecast
+
 > The kernel is the part that doesn't believe the agents.

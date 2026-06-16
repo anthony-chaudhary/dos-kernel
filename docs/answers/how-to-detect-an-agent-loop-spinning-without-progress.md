@@ -63,3 +63,30 @@ correctness). "Stalled" is read from the world, not from the transcript.
 - [FAQ: How do I detect that an agent loop is spinning — running but not progressing?](../FAQ.md#how-do-i-detect-that-an-agent-loop-is-spinning--running-but-not-progressing)
 
 > A loop that grades itself by re-reading its own narration always passes.
+
+## Also asked as
+
+- how to detect an agent loop spinning without progress
+- my AI agent loop is running but not making progress
+- detect an agent stuck spinning in circles
+- how to tell an agent loop is making no progress
+- agent keeps looping without finishing anything
+- catch a coding agent that's busy but accomplishing nothing
+- is my agent making progress or just burning turns
+- detect a no-progress agent loop automatically
+- agent loop never terminates how to detect the stall
+- measure whether an agent loop is actually advancing
+- spot a spinning agent before it wastes the budget
+- how do I know my agent isn't just idling in a loop
+- Cursor agent loop running but not progressing
+- Claude Code stuck in a loop making no progress
+- Aider keeps looping without finishing
+- agent burning turns without finishing anything
+- how do I know an agent loop is actually stuck
+- no forward progress in my agent loop detect it
+- agent looks busy but the repo isn't changing
+- tell a productive loop from a spinning one
+- catch an agent that's looping forever
+- agent isn't making progress detect it
+- find a stuck agent loop
+- is the agent actually getting anywhere

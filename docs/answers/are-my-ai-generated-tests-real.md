@@ -75,4 +75,17 @@ question, and it catches the lie that matters most: a test that can't fail.
 - [Why you can't trust a model to judge its own work](why-you-cant-trust-a-model-to-judge-its-own-work.md) — why re-reading the test isn't evidence.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
+## Also asked as
+
+- how do I tell if my AI-generated tests are real or just lying
+- how do I tell if my AI-generated tests are real
+- are my AI tests real or just lying to me
+- check whether AI-written tests actually verify behavior
+- tell real AI tests from fake ones
+- are these agent tests genuine or hollow
+- validate that AI-generated tests do real work
+- are my AI tests genuine or hollow
+- check whether AI-written tests verify behavior
+- validate that agent tests do real work
+
 > The kernel is the part that doesn't believe the agents.

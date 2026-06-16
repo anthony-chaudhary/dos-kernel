@@ -74,4 +74,33 @@ caught by [does the commit message match what changed](does-the-commit-message-m
 - [Do AI coding agents lie about what they shipped?](do-ai-coding-agents-lie-about-what-they-shipped.md) — the broader pattern.
 - [FAQ: How do I verify an AI agent actually did what it claims?](../FAQ.md#how-do-i-verify-an-ai-agent-actually-did-what-it-claims)
 
+## Also asked as
+
+- how to verify an AI coding agent actually committed code instead of just saying it did
+- did my agent really commit the code or just claim it
+- verify an AI agent actually committed instead of saying it did
+- check that a coding agent's commit actually exists in git
+- agent said it committed but I see no commit
+- confirm an AI agent landed a commit from git history
+- how to tell if an agent faked a commit
+- prove an agent committed code with a git-ancestry check
+- my AI assistant claims it pushed code how do I verify
+- validate that an agent's commit claim is real
+- agent committed nothing but reports success how to catch
+- is there a commit behind my agent's done message
+- did Cursor actually commit the code
+- Claude Code says it committed but I see no commit
+- verify Copilot agent actually committed instead of claiming
+- Aider says it committed confirm it from git
+- did Codex really commit or fake it
+- agent says committed but git log is empty
+- no commit behind the agent's I-committed message
+- verify a commit exists for the work the agent claims
+- agent reported a commit hash that isn't in git
+- prove the agent's commit landed not just the message
+- make sure the agent actually committed
+- confirm an agent's code change is in git
+- did the AI actually push the change
+- check the agent's commit is real not claimed
+
 > The kernel is the part that doesn't believe the agents.

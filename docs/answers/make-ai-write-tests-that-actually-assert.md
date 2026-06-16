@@ -76,4 +76,20 @@ prompt is reaching for: no test counts as done unless it can fail.
 - [Deterministic hook vs an agent skill — which actually enforces](deterministic-hook-vs-agent-skill-which-enforces.md) — the gate-beats-advice argument.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
+## Also asked as
+
+- how to make an AI agent write tests that actually assert something
+- make an AI agent write tests that actually assert something
+- force an agent to write meaningful assertions
+- get an AI to write tests with real checks
+- agent's tests have no assertions how to fix
+- make AI tests assert behavior not just run
+- require real assertions in agent-written tests
+- make Copilot write tests that actually assert
+- get Cursor to write real test assertions
+- force Claude Code tests to check behavior
+- force an agent to write real assertions
+- get an AI to write tests with actual checks
+- agent tests have no assertions fix it
+
 > The kernel is the part that doesn't believe the agents.

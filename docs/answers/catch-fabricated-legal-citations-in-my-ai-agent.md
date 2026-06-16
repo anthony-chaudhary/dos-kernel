@@ -84,4 +84,26 @@ liability — so the tool refuses to make it.
 - [How to verify a quoted holding appears in the opinion](verify-a-quoted-holding-appears-in-the-opinion.md) — the quote-fidelity rung.
 - [FAQ: Does DOS need an LLM or an API key?](../FAQ.md#does-dos-need-an-llm-or-an-api-key)
 
+## Also asked as
+
+- how to catch fabricated legal citations inside my AI agent before filing
+- MCP tool to verify case law a legal AI agent generated
+- catch fabricated legal citations inside my AI agent before filing
+- stop my legal AI agent citing fake cases
+- verify case law a legal AI agent generated
+- block hallucinated citations in a legal agent
+- legal agent invents citations how do I catch it
+- pre-filing check for AI-fabricated case law
+- my legal AI tool cited a fake case how to catch
+- ChatGPT legal research invented a citation verify it
+- stop my legal assistant citing nonexistent cases
+- stop my legal agent citing nonexistent cases
+- pre-filing fabricated-citation check
+- verify case law before my agent files it
+- legal AI invented a citation catch it early
+- keep my legal AI from inventing cases
+- stop fake citations before filing
+- check my AI's legal citations are real
+- AI legal tool made up a case catch it
+
 > The kernel is the part that doesn't believe the agents.
