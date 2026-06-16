@@ -59,6 +59,7 @@ from pathlib import Path
 
 from dos import config as _config
 from dos.packet_sidecar import SIDECAR_SCHEMA
+from dos.vcs import active_vcs
 
 
 def _workspace_root() -> Path:
@@ -130,7 +131,13 @@ def _feature_flags_view() -> dict:
 
 
 def _run(cmd: list[str], *, timeout: int = 30) -> tuple[int, str, str]:
-    """Run a subprocess, return (exit, stdout, stderr). Never raises."""
+    """Run a subprocess, return (exit, stdout, stderr). Never raises.
+
+    Still used for the NON-git spawns (`python -m dos.phase_shipped`, `dos.cli`); the
+    git reads moved to the `dos.vcs` seam (docs/360) — drift commits, the HEAD anchor,
+    and the dirty-tree status are now `commits_in_range` / `head_sha` /
+    `working_changes` on the active backend.
+    """
     try:
         p = subprocess.run(
             cmd,
@@ -303,13 +310,14 @@ def packet_freshness(packet_path: Path) -> dict:
     drift = 0
     drift_commits: list[str] = []
     if last_sha:
-        rc, out, _ = _run(["git", "log", "--oneline", f"{last_sha}..HEAD"], timeout=15)
-        if rc == 0:
-            all_drift = [l for l in out.splitlines() if l.strip()]
-            drift = len(all_drift)
-            # Keep just enough for the SKILL to spot if a recent commit on
-            # main shipped something the picks gate on. 10 is plenty.
-            drift_commits = all_drift[:10]
+        # Commits on HEAD since the packet's last_sha — the drift the gate reports.
+        # Through the VCS seam (docs/360); `<sha> <subject>` oneline shape preserved.
+        rows = active_vcs(root=_workspace_root()).commits_in_range(f"{last_sha}..HEAD")
+        all_drift = [f"{r.sha} {r.subject}" for r in rows]
+        drift = len(all_drift)
+        # Keep just enough for the SKILL to spot if a recent commit on
+        # main shipped something the picks gate on. 10 is plenty.
+        drift_commits = all_drift[:10]
     # Repo-relative path for display when the packet lives under the repo;
     # fall back to the absolute path otherwise (a packet outside REPO_ROOT —
     # e.g. a tmp_path fixture — must not crash the read).
@@ -430,34 +438,32 @@ def list_active_filtered(
 
 
 def dirty_tree_state() -> dict:
-    """Snapshot current working tree state — start_sha + bounded mod/untracked list."""
-    rc_sha, sha_out, _ = _run(["git", "rev-parse", "HEAD"], timeout=10)
-    start_sha = sha_out.strip()[:12] if rc_sha == 0 else None
-    rc_st, st_out, _ = _run(["git", "status", "--short"], timeout=10)
-    modified: list[str] = []
-    untracked: list[str] = []
+    """Snapshot current working tree state — start_sha + bounded mod/untracked list.
+
+    Reads through the VCS seam (docs/360): `head_sha(short=False)[:12]` for the start
+    anchor and `working_changes()` for the modified/untracked split. A backend that
+    cannot read a working tree (no VCS) returns None → the snapshot reports no dirty
+    paths and a null start_sha, never a crash or a false-clean fabrication.
+    """
+    backend = active_vcs(root=_workspace_root())
+    full_head = backend.head_sha(short=False)
+    start_sha = full_head[:12] if full_head else None
+    wt = backend.working_changes()
+    modified: list[str] = list(wt.modified) if wt is not None else []
+    untracked: list[str] = list(wt.untracked) if wt is not None else []
+    untracked_count_full = len(untracked)
     truncated = False
-    if rc_st == 0:
-        for line in st_out.splitlines():
-            if not line.strip():
-                continue
-            tag = line[:2]
-            path = line[3:].strip()
-            if tag.startswith("??"):
-                untracked.append(path)
-            else:
-                modified.append(f"{tag} {path}")
-        total = len(modified) + len(untracked)
-        if total > DIRTY_TREE_CAP:
-            truncated = True
-            keep = max(1, DIRTY_TREE_CAP // 2)
-            modified = modified[:keep]
-            untracked = untracked[:DIRTY_TREE_CAP - len(modified)]
+    total = len(modified) + len(untracked)
+    if total > DIRTY_TREE_CAP:
+        truncated = True
+        keep = max(1, DIRTY_TREE_CAP // 2)
+        modified = modified[:keep]
+        untracked = untracked[:DIRTY_TREE_CAP - len(modified)]
     return {
         "start_sha": start_sha,
         "modified": modified,
         "untracked": untracked,
-        "untracked_count_full": len([l for l in st_out.splitlines() if l.startswith("??")]) if rc_st == 0 else 0,
+        "untracked_count_full": untracked_count_full,
         "truncated_at": DIRTY_TREE_CAP if truncated else None,
     }
 

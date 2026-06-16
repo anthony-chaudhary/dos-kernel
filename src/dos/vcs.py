@@ -138,6 +138,23 @@ class FileDelta:
     path: str
 
 
+@dataclass(frozen=True)
+class WorkingTree:
+    """The uncommitted working-tree state: ``head`` + modified + untracked paths.
+
+    What `working_changes` returns. ``head`` is the current HEAD sha (short, or ``""``
+    if unborn). ``modified`` carries each changed-but-tracked path with its 2-char
+    status tag (``"M  src/x.py"``), ``untracked`` the new paths — the exact split
+    `preflight`'s dirty-tree snapshot reports. A non-git backend that cannot read a
+    working tree returns ``None`` from `working_changes`, never an empty `WorkingTree`
+    (which would falsely read as "clean").
+    """
+
+    head: str = ""
+    modified: tuple[str, ...] = field(default_factory=tuple)
+    untracked: tuple[str, ...] = field(default_factory=tuple)
+
+
 @runtime_checkable
 class VcsBackend(Protocol):
     """The contract a workspace implements to supply VCS evidence to the kernel.
@@ -224,6 +241,26 @@ class VcsBackend(Protocol):
 
     def commit_meta(self, ref: str) -> Commit | None:
         """The ``{sha, subject}`` for one ``ref``, or ``None`` if it does not resolve."""
+        ...
+
+    def diff_names(self, base: str, head: str) -> list[str] | None:
+        """The repo-relative paths that differ between ``base`` and ``head``, or
+        ``None`` if the range cannot be resolved (unknown ref, no VCS).
+
+        The two-ref footprint `verdict_cli`'s scope check needs — distinct from
+        `files_in_commit` (one commit) and `commits_in_range` (the commit list). ``[]``
+        means "resolved, no difference"; ``None`` means "could not resolve" — the
+        caller's empty-footprint-vs-unknown distinction rides on it."""
+        ...
+
+    def working_changes(self) -> "WorkingTree | None":
+        """The UNCOMMITTED working-tree state — modified + untracked paths + HEAD — or
+        ``None`` if it cannot be read (no VCS, read failure).
+
+        The one read that is NOT about history: `preflight`'s dirty-tree snapshot needs
+        to know what is changed-but-uncommitted right now. A non-git backend that has
+        no working-tree concept returns ``None`` and the caller treats the tree as
+        "unknown" (it never fabricates a clean tree)."""
         ...
 
     def log_records(
@@ -451,6 +488,36 @@ class GitBackend:
         rows = _parse_tab_log(res.stdout)
         return rows[0] if rows else None
 
+    def diff_names(self, base: str, head: str) -> list[str] | None:
+        if not base or not head:
+            return None
+        res = _run_git(["diff", "--name-only", f"{base}..{head}"], root=self._root)
+        if res is None or res.returncode != 0:
+            return None
+        return [ln.strip() for ln in res.stdout.splitlines() if ln.strip()]
+
+    def working_changes(self) -> "WorkingTree | None":
+        head_res = _run_git(["rev-parse", "--short", "HEAD"], root=self._root)
+        head = head_res.stdout.strip() if (head_res and head_res.returncode == 0) else ""
+        st = _run_git(["status", "--short"], root=self._root)
+        if st is None or st.returncode != 0:
+            # No working tree readable (no VCS / read failure) AND no HEAD → unknown.
+            # If HEAD resolved we still can't honestly report the dirty set, so a status
+            # failure is the deciding signal: return None (never a false "clean").
+            return None
+        modified: list[str] = []
+        untracked: list[str] = []
+        for line in st.stdout.splitlines():
+            if not line.strip():
+                continue
+            tag = line[:2]
+            path = line[3:].strip()
+            if tag.startswith("??"):
+                untracked.append(path)
+            else:
+                modified.append(f"{tag} {path}")
+        return WorkingTree(head=head, modified=tuple(modified), untracked=tuple(untracked))
+
     def log_records(
         self,
         *,
@@ -645,6 +712,12 @@ class NullVcs:
         return None
 
     def commit_meta(self, ref: str) -> Commit | None:
+        return None
+
+    def diff_names(self, base: str, head: str) -> list[str] | None:
+        return None
+
+    def working_changes(self) -> "WorkingTree | None":
         return None
 
     def log_records(

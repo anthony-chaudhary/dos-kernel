@@ -30,40 +30,31 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 from pathlib import Path
 from typing import Any, Callable
 
 from . import verdicts, scope
-
-
-_GIT_TIMEOUT_S = 15
+from .vcs import active_vcs
 
 
 # ---------------------------------------------------------------------------
-# Boundary I/O — the git-diff reader (the `git_delta` mold: the subprocess lives
-# in the consumer, the pure classifier gets an already-gathered set).
+# Boundary I/O — the VCS-diff reader (the `git_delta` mold: the read lives in the
+# consumer, the pure classifier gets an already-gathered set).
 # ---------------------------------------------------------------------------
 def _git_diff_names(base: str, head: str, *, root: Path | str) -> frozenset[str]:
-    """`git diff --name-only <base>..<head>` over `root`, as a frozenset of paths.
+    """The paths that differ between ``base`` and ``head`` over `root`, as a frozenset.
 
-    Degrades to an empty set on any failure (non-git dir, bad ref, missing git,
-    timeout, non-zero exit) — the same fail-safe as `git_delta.commits_since`: a
-    scope verdict in a repo with no diff is the honest "empty footprint", never a
-    crash.
+    Routes through the active VCS backend's `diff_names` (docs/360). Degrades to an
+    empty set on any failure (non-VCS dir, bad ref, missing binary, unresolvable
+    range) — the same fail-safe as `git_delta.commits_since`: a scope verdict in a
+    repo with no diff is the honest "empty footprint", never a crash. (`diff_names`
+    returns None on unresolvable; the empty frozenset is this caller's chosen reading
+    of that, preserving the prior contract.)
     """
-    try:
-        raw = subprocess.run(
-            ["git", "diff", "--name-only", f"{base}..{head}"],
-            cwd=str(root), capture_output=True, text=True,
-            check=False, timeout=_GIT_TIMEOUT_S,
-            stdin=subprocess.DEVNULL,  # docs/295 — never leak the caller's stdin
-        )
-    except (OSError, subprocess.TimeoutExpired):
+    names = active_vcs(root=root).diff_names(base, head)
+    if not names:
         return frozenset()
-    if raw.returncode != 0:
-        return frozenset()
-    return frozenset(ln.strip() for ln in raw.stdout.splitlines() if ln.strip())
+    return frozenset(p.strip() for p in names if p.strip())
 
 
 # ---------------------------------------------------------------------------
