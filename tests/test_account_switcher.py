@@ -850,3 +850,106 @@ def test_seed_and_enroll_roundtrip(tmp_path):
     data = json.loads(sw.account_settings_path(a).read_text())
     assert data["model"] == "opus"
     assert data["effortLevel"] == "xhigh"
+
+
+# --------------------------------------------------------------------------- #
+# merge_account_settings — deep-merge defaults into an EXISTING settings.json
+# (the `dos accounts sync` primitive, issue #219)
+# --------------------------------------------------------------------------- #
+def test_deep_merge_settings_defaults_win_and_preserve():
+    base = {"theme": "dark", "model": "haiku", "permissions": {"a": 1}}
+    overlay = {"model": "opus", "permissions": {"b": 2}}
+    out = sw._deep_merge_settings(base, overlay)
+    assert out["model"] == "opus"          # overlay wins
+    assert out["theme"] == "dark"          # base-only key preserved
+    assert out["permissions"] == {"a": 1, "b": 2}  # nested dict MERGED, not replaced
+    # purity: inputs untouched
+    assert base["model"] == "haiku"
+    assert base["permissions"] == {"a": 1}
+
+
+def test_deep_merge_settings_non_dict_overlap_replaced():
+    base = {"x": {"k": 1}}
+    overlay = {"x": [1, 2, 3]}  # list replaces dict (not merged element-wise)
+    out = sw._deep_merge_settings(base, overlay)
+    assert out["x"] == [1, 2, 3]
+
+
+def test_merge_account_settings_creates_when_absent(tmp_path):
+    a = _acct("a", tmp_path / "a")
+    assert not sw.account_settings_path(a).exists()
+    path, changed = sw.merge_account_settings(a, _SAMPLE_SETTINGS)
+    assert changed is True
+    assert path == sw.account_settings_path(a)
+    data = json.loads(path.read_text())
+    assert data["model"] == "opus"
+    assert data["permissions"]["defaultMode"] == "bypassPermissions"
+
+
+def test_merge_account_settings_preserves_account_keys(tmp_path):
+    a = _acct("a", tmp_path / "a")
+    # the account already has its OWN settings (a per-account model + a theme)
+    sw.account_settings_path(a).parent.mkdir(parents=True, exist_ok=True)
+    sw.account_settings_path(a).write_text(
+        json.dumps({"model": "haiku", "theme": "light",
+                    "permissions": {"alwaysAllow": ["Read"]}}),
+        encoding="utf-8",
+    )
+    path, changed = sw.merge_account_settings(a, _SAMPLE_SETTINGS)
+    assert changed is True
+    data = json.loads(path.read_text())
+    assert data["model"] == "opus"                # default WON over the account's haiku
+    assert data["theme"] == "light"              # account-only key preserved
+    assert data["effortLevel"] == "xhigh"        # default added
+    # nested permissions: the account's own key survives, the default is added
+    assert data["permissions"]["alwaysAllow"] == ["Read"]
+    assert data["permissions"]["defaultMode"] == "bypassPermissions"
+
+
+def test_merge_account_settings_idempotent(tmp_path):
+    a = _acct("a", tmp_path / "a")
+    first_path, first_changed = sw.merge_account_settings(a, _SAMPLE_SETTINGS)
+    assert first_changed is True
+    # a second run with the same defaults changes nothing (the #219 done-condition)
+    second_path, second_changed = sw.merge_account_settings(a, _SAMPLE_SETTINGS)
+    assert second_changed is False
+    assert second_path == first_path
+
+
+def test_merge_account_settings_idempotent_despite_key_order(tmp_path):
+    a = _acct("a", tmp_path / "a")
+    # a file that already carries the defaults, written in a DIFFERENT key order /
+    # without trailing newline — the change test compares parsed dicts, not bytes.
+    sw.account_settings_path(a).parent.mkdir(parents=True, exist_ok=True)
+    sw.account_settings_path(a).write_text(
+        '{"effortLevel": "xhigh", "permissions": {"defaultMode": "bypassPermissions"}, '
+        '"model": "opus"}',
+        encoding="utf-8",
+    )
+    _, changed = sw.merge_account_settings(a, _SAMPLE_SETTINGS)
+    assert changed is False
+
+
+def test_merge_account_settings_dry_run_does_not_write(tmp_path):
+    a = _acct("a", tmp_path / "a")
+    path, changed = sw.merge_account_settings(a, _SAMPLE_SETTINGS, dry_run=True)
+    assert changed is True          # it WOULD change
+    assert not path.exists()        # but wrote nothing
+
+
+def test_merge_account_settings_empty_is_noop(tmp_path):
+    a = _acct("a", tmp_path / "a")
+    path, changed = sw.merge_account_settings(a, {})
+    assert path is None
+    assert changed is False
+    assert not sw.account_settings_path(a).exists()
+
+
+def test_merge_account_settings_malformed_existing_is_replaced(tmp_path):
+    a = _acct("a", tmp_path / "a")
+    sw.account_settings_path(a).parent.mkdir(parents=True, exist_ok=True)
+    sw.account_settings_path(a).write_text("{not valid json", encoding="utf-8")
+    path, changed = sw.merge_account_settings(a, _SAMPLE_SETTINGS)
+    assert changed is True
+    data = json.loads(path.read_text())  # now valid, carries the defaults
+    assert data["model"] == "opus"

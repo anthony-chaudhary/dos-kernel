@@ -114,3 +114,12 @@ applied to **both** so the two stay in sync. Separately, the earlier
 `seed_account_settings` / `RosterDefaults` block (commit `b73fb47`) was added to
 the public copy only and never back-ported — a pre-existing forward drift worth a
 re-vendor pass, tracked apart from this fix.
+
+**Update (2026-06-17).** `merge_account_settings` / `_deep_merge_settings` (the
+`dos accounts sync` primitive, issue #219) join that same public-led settings
+block, pending the one batched re-vendor pass that reconciles the whole block back
+into the canonical copy. Treating it as one deferred re-vendor (rather than an
+inline cross-repo edit per change) is the established handling — and under the
+strongly-typed mandate ([docs/385](385_the-strongly-typed-mandate-and-the-python-retreat-plan.md))
+the account switcher's pure ranking core is itself queued for a Go port, so the
+Python canonical/vendored relationship is a shrinking concern, not one to deepen.

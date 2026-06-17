@@ -2588,8 +2588,54 @@ def cmd_accounts(args: argparse.Namespace) -> int:
             print("  no defaults.settings in roster — settings.json not written")
         return 0
 
+    if verb == "sync":
+        # Deep-merge the roster's defaults.settings into EVERY account's settings.json
+        # (issue #219) — the glue between load_roster_defaults + the per-account write,
+        # so a global default reaches EXISTING accounts without clobbering their own
+        # keys. Idempotent (a second run reports no change); --dry-run previews.
+        defaults = _sw.load_roster_defaults(getattr(args, "accounts_file", None))
+        if not accounts:
+            return _fail("no accounts in roster", hint=_accounts_no_roster_hint(args))
+        if not defaults.settings:
+            return _fail(
+                "roster has no defaults.settings to sync",
+                hint="add a `defaults:` / `settings:` block to the roster, then "
+                     "re-run `dos accounts sync` (see `dos accounts enroll --help`)")
+        dry = bool(getattr(args, "dry_run", False))
+        results = []
+        for a in accounts:
+            try:
+                path, changed = _sw.merge_account_settings(a, defaults.settings, dry_run=dry)
+            except Exception as e:  # noqa: BLE001 — one bad dir must not abort the sweep
+                results.append({"name": a.name, "error": str(e)})
+                continue
+            results.append({"name": a.name,
+                            "settings_path": str(path) if path else None,
+                            "changed": bool(changed)})
+        n_changed = sum(1 for r in results if r.get("changed"))
+        if as_json:
+            print(json.dumps({
+                "dry_run": dry,
+                "keys": sorted(defaults.settings.keys()),
+                "changed_count": n_changed,
+                "results": results,
+            }, indent=2))
+            return 0
+        verb_word = "would update" if dry else "updated"
+        for r in results:
+            if r.get("error"):
+                print(f"{r['name']:<24} error: {r['error']}")
+            elif r.get("changed"):
+                print(f"{r['name']:<24} {verb_word}: {r['settings_path']}")
+            else:
+                print(f"{r['name']:<24} unchanged")
+        tail = "would change" if dry else "changed"
+        print(f"# {n_changed}/{len(results)} account(s) {tail} "
+              f"(keys: {', '.join(sorted(defaults.settings))})")
+        return 0
+
     return _fail(f"unknown accounts subcommand: {verb!r}",
-                 hint="one of: list, pool, seats, env, scaffold, enroll")
+                 hint="one of: list, pool, seats, env, scaffold, enroll, sync")
 
 
 # ---------------------------------------------------------------------------
@@ -12850,6 +12896,15 @@ def build_parser() -> argparse.ArgumentParser:
                          help="the OAuth token from `claude setup-token` "
                               "(reads stdin if omitted)")
     aenroll.set_defaults(func=cmd_accounts)
+
+    async_ = accsub.add_parser(
+        "sync",
+        help="deep-merge roster defaults.settings into every account's settings.json "
+             "(issue #219; --dry-run previews, idempotent)")
+    _acc_common(async_)
+    async_.add_argument("--dry-run", dest="dry_run", action="store_true",
+                        help="preview the per-account merge without writing")
+    async_.set_defaults(func=cmd_accounts)
 
     # scope-gate (docs/102 §5) — the BINDING pre-effect scope gate. Asks the same
     #   (full prose: docs/CLI.md § "scope-gate (docs/102 §5) — the BINDING pre-effect scope gate")

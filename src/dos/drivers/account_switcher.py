@@ -403,6 +403,74 @@ def seed_account_settings(
     return path
 
 
+def _deep_merge_settings(base: dict, overlay: dict) -> dict:
+    """Deep-merge ``overlay`` onto ``base``; return a NEW dict. PURE.
+
+    Overlay keys win. A key present in BOTH whose values are BOTH dicts is merged
+    recursively, so a nested block (e.g. ``permissions``) gains the overlay's keys
+    WITHOUT dropping the base's own ones. Any other overlapping key is REPLACED by
+    the overlay value (a list / scalar default is authoritative, not merged
+    element-wise). Keys only in ``base`` are preserved untouched — the whole point
+    of ``sync``: push the roster defaults without clobbering an account's settings.
+    """
+    out = dict(base)
+    for k, v in overlay.items():
+        if isinstance(v, dict) and isinstance(out.get(k), dict):
+            out[k] = _deep_merge_settings(out[k], v)
+        else:
+            out[k] = v
+    return out
+
+
+def merge_account_settings(
+    account: Account,
+    settings: dict,
+    *,
+    dry_run: bool = False,
+) -> tuple[Optional[Path], bool]:
+    """Deep-merge ``settings`` into an account's EXISTING ``settings.json``.
+
+    The ``dos accounts sync`` primitive (issue #219). Where ``seed_account_settings``
+    only writes when the file is ABSENT (or replaces it WHOLESALE under
+    ``overwrite=True``), this MERGES the roster defaults into whatever the account
+    already has, so a global default (model, effortLevel, ``permissions.defaultMode``)
+    reaches EVERY account without dropping that account's own keys (theme, a
+    per-account model, …). Reads the current file (a missing / unreadable / non-dict
+    file is treated as ``{}``), deep-merges via ``_deep_merge_settings`` (defaults
+    win, nested dicts merged, other keys preserved), and writes the result.
+
+    Idempotent: when the merge changes nothing (the defaults are already a subset of
+    the file) it writes nothing and reports ``changed=False`` — so a re-run is a
+    no-op (issue #219's done-condition). ``dry_run=True`` computes the verdict but
+    writes nothing (the ``--dry-run`` preview).
+
+    Returns ``(path, changed)``: ``path`` is the settings.json path (``None`` only
+    when ``settings`` is empty/falsy — nothing to merge); ``changed`` is whether the
+    file content would change. Creates the config dir on a real write (matching
+    ``seed_account_settings``). The change test compares PARSED dicts, not bytes, so
+    a file already carrying the defaults in a different key order is correctly
+    ``unchanged``. Never raises on a malformed existing file — it is treated as empty
+    and replaced with the defaults (the operator asked to sync).
+    """
+    if not settings:
+        return None, False
+    path = account_settings_path(account)
+    try:
+        existing = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(existing, dict):
+            existing = {}
+    except (OSError, ValueError):
+        existing = {}
+    merged = _deep_merge_settings(existing, settings)
+    if merged == existing:
+        return path, False
+    if dry_run:
+        return path, True
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(merged, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return path, True
+
+
 @dataclass(frozen=True)
 class RosterDefaults:
     """Global defaults from the roster ``defaults`` section.
@@ -1021,6 +1089,7 @@ __all__ = [
     "env_for",
     "load_roster",
     "load_roster_defaults",
+    "merge_account_settings",
     "pick_account",
     "pick_account_spread",
     "seed_account_settings",
