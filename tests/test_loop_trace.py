@@ -592,3 +592,48 @@ def test_int_or_none_rejects_bool_and_reads_numbers():
     assert lt._int_or_none({"k": 3.9}, "k") == 3        # float coerces to int
     assert lt._int_or_none({"k": "x"}, "k") is None     # non-numeric
     assert lt._int_or_none({}, "missing") is None
+
+
+def test_render_trajectory_text_empty_trajectory_is_the_no_iterations_floor():
+    """render_trajectory_text stays byte-stable for a metric-less, iteration-less loop.
+
+    A shape the fold never produces in the wild (every real loop has >=1 improve
+    event), but the full per-loop renderer must still survive it: no metric line,
+    the breaker line stands alone, and the body reads '(no iterations)' rather
+    than crashing on an empty curve — the per-run analogue of the empty-screen floor.
+    """
+    t = lt.LoopTrajectory(
+        run_id="RID-empty", lane="", iterations=(),
+        keeps=0, reverts=0, escalates=0,
+        regressions=0, no_improvements=0, wastefuls=0,
+        start_baseline=None, latest_work=None, high_water=None, net_gain=None,
+        current_reverts=0, max_reverts=3, distance_to_escalate=3, escalated=False,
+        last_ts="", last_age_ms=None, state="stalled",
+    )
+    out = lt.render_trajectory_text(t)
+    assert "# loop RID-empty" in out
+    assert "breaker 0/3" in out
+    assert "->" not in out                  # no metric curve was recorded
+    assert "0 iteration(s)" in out
+    assert "(no iterations)" in out
+
+
+def test_render_trajectory_text_metricless_iterations_show_dash_cells():
+    """An iteration with no env-measured work renders a '—' metric cell.
+
+    Pre-#381 fossils (improve events carrying no evidence.work) still fold into a
+    trajectory; the full per-iteration view must render them with a dash rather
+    than a fabricated number, and the headline carries no metric curve.
+    """
+    evs = [
+        VerdictEvent(
+            syscall="improve", verdict="REVERT", run_id="RID-nm", lane="",
+            ts="2026-06-16T12:00:00Z", seq=1, subject="",
+            detail={"evidence.suite_passed": False, "evidence.truth_clean": True}),
+    ]
+    (t,) = lt.trajectories_from_events(
+        evs, now=NOW, max_reverts=3, stall_after_ms=lt.STALL_AFTER_MS)
+    out = lt.render_trajectory_text(t)
+    assert "# loop RID-nm" in out
+    assert "1 iteration(s)" in out
+    assert "—" in out                       # the metric cell for an iteration with no work
