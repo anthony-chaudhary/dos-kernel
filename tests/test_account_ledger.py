@@ -156,3 +156,77 @@ def test_ts_ms_autostamped_when_absent(tmp_path, monkeypatch):
     al.record_run(cfg, "acctA", "CID-1")  # no now_ms
     runs = al.read(cfg, "acctA", al.LEDGER_RUNS)
     assert isinstance(runs[0]["ts_ms"], int) and runs[0]["ts_ms"] > 0
+
+
+# --------------------------------------------------------------------------- #
+# rotate-on-wall: _stop_failure_seat_advice records the wall + suggests a seat
+# (the producer that makes the failures ledger live — docs/386 §4)
+# --------------------------------------------------------------------------- #
+def _two_seat_roster(tmp_path, *names) -> Path:
+    lines = ["accounts:"]
+    for n in names:
+        d = tmp_path / n
+        d.mkdir(parents=True, exist_ok=True)
+        (d / ".oauth-token").write_text("sk-ant-oat01-fake\n", encoding="utf-8")  # enrolled
+        lines.append(f"  - name: {n}")
+        lines.append(f"    config_dir: '{d}'")
+    f = tmp_path / "roster.yaml"
+    f.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return f
+
+
+def test_seat_advice_records_failure_and_suggests_alternate(tmp_path, monkeypatch):
+    from dos.cli import _stop_failure_seat_advice
+    from dos import breaker as brk
+    cfg = _cfg(tmp_path, monkeypatch)
+    roster = _two_seat_roster(tmp_path, "acctA", "acctB")
+    monkeypatch.setenv("CLAUDE_ACCOUNTS_FILE", str(roster))
+    monkeypatch.delenv(rid.ENV_ACCOUNT, raising=False)
+    counts = brk.BreakerCounts(consecutive=2, total=2)
+    advice = _stop_failure_seat_advice({"account": "acctA"}, cfg,
+                                       session_id="s1", counts=counts)
+    assert advice is not None
+    assert "acctB" in advice and "acctA" in advice  # rotate OFF acctA, TO acctB
+    # the wall was attributed to acctA's failures ledger
+    fails = al.read(cfg, "acctA", al.LEDGER_FAILURES)
+    assert len(fails) == 1
+    assert fails[0]["reason"] == "stop-failure"
+    assert fails[0]["consecutive"] == 2
+    assert fails[0]["session_id"] == "s1"
+
+
+def test_seat_advice_reads_account_from_cid_env(tmp_path, monkeypatch):
+    from dos.cli import _stop_failure_seat_advice
+    from dos import breaker as brk
+    cfg = _cfg(tmp_path, monkeypatch)
+    roster = _two_seat_roster(tmp_path, "acctA", "acctB")
+    monkeypatch.setenv("CLAUDE_ACCOUNTS_FILE", str(roster))
+    monkeypatch.setenv(rid.ENV_ACCOUNT, "acctB")  # the seat lineage env
+    advice = _stop_failure_seat_advice({}, cfg, session_id="s2",
+                                       counts=brk.BreakerCounts(consecutive=1, total=1))
+    assert advice is not None and "acctB" in advice
+    assert len(al.read(cfg, "acctB", al.LEDGER_FAILURES)) == 1
+
+
+def test_seat_advice_none_when_seat_unknown(tmp_path, monkeypatch):
+    from dos.cli import _stop_failure_seat_advice
+    from dos import breaker as brk
+    cfg = _cfg(tmp_path, monkeypatch)
+    monkeypatch.delenv(rid.ENV_ACCOUNT, raising=False)
+    advice = _stop_failure_seat_advice({}, cfg, session_id="s3",
+                                       counts=brk.BreakerCounts(consecutive=1, total=1))
+    assert advice is None  # no seat → nothing attributed, no suggestion
+    assert al.known_accounts(cfg) == []
+
+
+def test_seat_advice_records_even_with_no_alternate(tmp_path, monkeypatch):
+    from dos.cli import _stop_failure_seat_advice
+    from dos import breaker as brk
+    cfg = _cfg(tmp_path, monkeypatch)
+    roster = _two_seat_roster(tmp_path, "acctA")  # only one seat
+    monkeypatch.setenv("CLAUDE_ACCOUNTS_FILE", str(roster))
+    advice = _stop_failure_seat_advice({"account": "acctA"}, cfg, session_id="s4",
+                                       counts=brk.BreakerCounts(consecutive=1, total=1))
+    assert advice is not None
+    assert "no alternate" in advice
+    assert len(al.read(cfg, "acctA", al.LEDGER_FAILURES)) == 1  # still recorded

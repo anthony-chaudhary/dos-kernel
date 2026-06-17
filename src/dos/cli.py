@@ -6327,6 +6327,49 @@ def _journal_pretool_outcome(event: dict, outcome: dict, cfg) -> None:
 _STOP_FAILURE_BACKOFF_S: tuple = (30, 60, 120, 240, 300)  # cap at 5 min
 
 
+def _stop_failure_seat_advice(event: dict, cfg, *, session_id: str, counts) -> "str | None":
+    """Attribute a StopFailure to its seat + compute a rotation suggestion. Fail-soft.
+
+    On a transient API wall DOS backs off and the harness re-launches the SAME seat.
+    The 10x step — rotate to a serving account — needs an asyncRewake env-override
+    channel the harness does not yet expose (docs/386 §4), so this does the half that
+    IS reachable now: it ATTRIBUTES the failure to the seat the session ran on (the
+    per-account `failures` ledger) and COMPUTES a serving seat to rotate to, returning
+    a one-line suggestion to fold into the rewake message. The seat is read from the
+    event or the `CID_ACCOUNT` lineage env (caller-supplied — the kernel never derives
+    an account). Any error → None: a ledger/roster fault must NEVER break the rewake."""
+    try:
+        from dos import run_id as _run_id
+        current = ((event.get("account") if isinstance(event, dict) else None)
+                   or os.environ.get(_run_id.ENV_ACCOUNT) or "").strip()
+        if not current:
+            return None  # the seat is unknown — nothing to attribute or rotate off
+        from dos import account_ledger as _al
+        _al.record_failure(
+            cfg, current, reason="stop-failure", category="transient_overload",
+            session_id=session_id,
+            extra={"consecutive": counts.consecutive, "total": counts.total})
+        # A serving seat that is NOT the walled one (fail-open: no probe → enrolled
+        # accounts count as serving). The pick is COMPUTED + surfaced, not applied —
+        # the relaunch-under-it is gated on the harness contract (docs/386 §4).
+        alt = None
+        try:
+            _sw = _load_account_switcher()
+            accounts, policy = _sw.load_roster(None)
+            pool = _sw.serving_pool(accounts, policy=policy)
+            alt = next((a.name for a in pool if a.name != current), None)
+        except Exception:  # noqa: BLE001 — a roster fault must not break the advice
+            alt = None
+        if alt:
+            return (f"Seat {current!r} hit an API wall (recorded to its ledger). "
+                    f"A serving seat is free — rotate to {alt!r} on relaunch "
+                    f"(`dos accounts env --name {alt}`).")
+        return (f"Seat {current!r} hit an API wall (recorded); no alternate serving "
+                "seat found — backing off this one.")
+    except Exception:  # noqa: BLE001 — advisory only; never break the hook
+        return None
+
+
 def cmd_hook_stop_failure(args: argparse.Namespace) -> int:
     """A StopFailure asyncRewake hook: backoff-retry on transient API failures.
 
@@ -6432,6 +6475,12 @@ def cmd_hook_stop_failure(args: argparse.Namespace) -> int:
         f"breaker={verdict.state.value}"
     )
 
+    # 4b. Attribute the failure to its seat + compute a rotation suggestion (docs/386).
+    #     Records to the per-account ledger regardless of the verdict; the suggestion
+    #     is surfaced only on a rewake (an OPEN breaker stops, so a rotation hint is moot).
+    seat_advice = _stop_failure_seat_advice(
+        event, cfg, session_id=session_id, counts=new_counts)
+
     # 5. Circuit OPEN → emit reason, exit 0 (no rewake — operator handles it).
     if verdict.is_open:
         print(
@@ -6449,12 +6498,14 @@ def cmd_hook_stop_failure(args: argparse.Namespace) -> int:
     _time.sleep(wait)
 
     # Stdout is appended to rewakeMessage by the harness.
-    print(
+    msg = (
         f"Retry #{new_counts.consecutive} after {wait}s backoff "
         f"(circuit {new_counts.consecutive}/{policy.max_consecutive} consecutive). "
-        "Re-orient with `dos doctor --workspace .` then resume.",
-        flush=True,
+        "Re-orient with `dos doctor --workspace .` then resume."
     )
+    if seat_advice:
+        msg += " " + seat_advice
+    print(msg, flush=True)
     return 2  # asyncRewake fires
 
 
