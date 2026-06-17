@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="316" viewBox="0 0 720 316" role="img" aria-label="The kernel re-checks its own memory before trusting it" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <title>The kernel re-checks its own memory before trusting it</title>
+  <desc>Of the memories the kernel recalled, a single stacked bar split into re-verified-still-true, could-not-re-verify, and gone-stale, with a flow from one source node.</desc>
+  <rect x="0" y="0" width="720" height="316" fill="#f6f8fa" rx="8" stroke="#d0d7de" stroke-width="1"/>
+  <text x="16" y="30" font-size="16" fill="#1f2328" font-weight="bold">It re-checks its own memory before trusting it</text>
+  <text x="16" y="50" font-size="12" fill="#59636e">75 memories recalled — how many were still TRUE on re-check</text>
+  <rect x="16" y="90" width="18" height="150" fill="#57606a" rx="3"/>
+  <text x="16" y="260" font-size="13" fill="#1f2328" font-weight="bold">75 recalled</text>
+  <polygon points="34,90 470,90 470,130 34,130" fill="#bfe3c8"/>
+  <rect x="470" y="90" width="234" height="40" fill="#1a7f37" rx="3"/>
+  <text x="478" y="114" font-size="12" fill="#1f2328">20 (27%) still true</text>
+  <polygon points="34,130 470,130 470,238 34,238" fill="#f0e0a8"/>
+  <rect x="470" y="130" width="234" height="108" fill="#d4a72c" rx="3"/>
+  <text x="478" y="188" font-size="12" fill="#1f2328">54 (72%) unverifiable</text>
+  <polygon points="34,238 470,238 470,240 34,240" fill="#f3c0c4"/>
+  <rect x="470" y="238" width="234" height="2" fill="#cf222e" rx="3"/>
+  <line x1="704" y1="239" x2="660" y2="270" stroke="#cf222e" stroke-width="1"/>
+  <text x="656" y="274" font-size="11" fill="#cf222e" text-anchor="end" font-weight="bold">1 STALE — the note was wrong now</text>
+  <line x1="16" y1="278" x2="704" y2="278" stroke="#d0d7de" stroke-width="1"/>
+  <text x="16" y="294" font-size="11" fill="#59636e">Only 20 of 75 recalled memories re-verified as still true; 54 were unverifiable, 1 had gone stale.</text>
+  <text x="16" y="309" font-size="11" fill="#59636e">FRESH = the memory&#x27;s claims re-check against git + the working tree now.</text>
+</svg>

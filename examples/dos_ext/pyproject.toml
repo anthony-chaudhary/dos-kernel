@@ -59,5 +59,19 @@ keyword = "dos_ext.judge:KeywordJudge"
 [project.entry-points."dos.overlap_policies"]
 semantic-groups = "dos_ext.overlap:SemanticGroupPolicy"
 
+# A host-policy DRIVER (Axis 1 — the `dos.drivers` seam). The copy-me proof that a whole
+# host policy pack (its lanes/paths/facts) can ship in a THIRD-PARTY package: `dos --driver
+# acme` resolves `dos_ext.driver:acme_config` by name, with no kernel fork. In-tree packs
+# (workshop/job) resolve FIRST and are unshadowable; `acme` is found after the in-tree miss.
+[project.entry-points."dos.drivers"]
+acme = "dos_ext.driver:acme_config"
+
+# An MCP tool (the `dos.mcp_tools` seam). The copy-me proof that a third party can ADD a
+# verb to the `dos` MCP server: `register(mcp)` wires `acme_lane_hint` onto the server with
+# the same deadline/learn-more wrapping the built-in `dos_*` tools get. Additive — never
+# replaces a built-in. (Needs `dos-kernel[mcp]` for the server to be runnable.)
+[project.entry-points."dos.mcp_tools"]
+acme = "dos_ext.mcp_tools:register"
+
 [tool.setuptools]
 packages = ["dos_ext"]

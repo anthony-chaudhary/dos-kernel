@@ -248,26 +248,23 @@ def plan_review(verdicts: list[ClaimVerdict], rev_range: str) -> ReviewPlan:
 # --- Subjects (a thin git read at the boundary, like commit_audit's) ---------
 
 def _subjects(rev_range: str, root: str, limit: int = 500) -> dict[str, str]:
-    """sha -> subject, for labelling. Boundary I/O; empty on any failure."""
-    import subprocess
+    """sha -> subject, for labelling. Boundary I/O through the `dos.vcs` seam; empty
+    on any failure.
 
-    try:
-        out = subprocess.run(
-            ["git", "-C", root, "log", f"-{int(limit)}",
-             "--pretty=format:%H\x1f%s", rev_range],
-            capture_output=True, text=True, check=False,
-            stdin=subprocess.DEVNULL,  # evidence reader: never inherit the caller's stdin (docs/295)
-            # git emits subjects as UTF-8; the platform default (cp1252 on
-            # Windows) would mojibake an international contributor's subject INTO
-            # the data, not just the terminal. Mirror commit_audit._git.
-            encoding="utf-8", errors="replace",
-        )
-    except OSError:
-        return {}
-    if out.returncode != 0:
+    Routed through `active_vcs(...).log_lines` rather than shelling `git` here so the
+    kernel's VCS-read seam stays the single git boundary (docs/379, pinned by
+    `tests/test_vcs_layering.py`). The seam's `_run_git` keeps the same envelope this
+    read had directly — `stdin=DEVNULL` (docs/295) and utf-8/replace decoding so an
+    international contributor's subject can't mojibake into the data (mirroring
+    `commit_audit`)."""
+    from dos.vcs import active_vcs
+
+    lines = active_vcs(root=root).log_lines(
+        (f"-{int(limit)}", "--pretty=format:%H\x1f%s", rev_range))
+    if not lines:
         return {}
     m: dict[str, str] = {}
-    for line in out.stdout.splitlines():
+    for line in lines:
         if "\x1f" in line:
             sha, subj = line.split("\x1f", 1)
             m[sha.strip()] = subj
@@ -303,25 +300,26 @@ def build_plan(rev_range: str, root: str = ".") -> ReviewPlan:
 # editor's quickfix list, or a PR-comment thread.
 
 def _commit_diffstat(sha: str, root: str) -> str:
-    """`git show --stat` for one commit — the boundary read for a review card."""
-    import subprocess
+    """The per-file line-delta for one commit — the boundary read for a review card.
 
-    try:
-        out = subprocess.run(
-            ["git", "-C", root, "show", "--stat", "--oneline", "--no-color", sha],
-            capture_output=True, text=True, check=False,
-            stdin=subprocess.DEVNULL,  # evidence reader: never inherit the caller's stdin (docs/295)
-            # UTF-8, like _subjects / commit_audit._git — a diffstat can carry a
-            # non-ASCII path or a renamed file's old name.
-            encoding="utf-8", errors="replace",
-        )
-    except OSError:
+    Routed through the `dos.vcs` seam's `commit_diffstat` (docs/379) rather than
+    shelling `git show --stat` here, so the kernel keeps a single VCS-read boundary
+    (`tests/test_vcs_layering.py`). The seam returns structured `FileDelta`s; we
+    render one `path | +A -R` line per file (a binary file — git's numstat `-`,
+    carried as the `-1` sentinel — renders `path | bin`). Empty on any failure (the
+    seam returns None / an empty list)."""
+    from dos.vcs import active_vcs
+
+    deltas = active_vcs(root=root).commit_diffstat(sha)
+    if not deltas:
         return ""
-    if out.returncode != 0:
-        return ""
-    # Drop the leading oneline header (subject already shown on the card).
-    lines = out.stdout.splitlines()
-    return "\n".join(lines[1:]).strip() if len(lines) > 1 else ""
+    rows: list[str] = []
+    for d in deltas:
+        if d.added < 0 or d.removed < 0:  # binary — no countable line delta
+            rows.append(f"{d.path} | bin")
+        else:
+            rows.append(f"{d.path} | +{d.added} -{d.removed}")
+    return "\n".join(rows)
 
 
 def render_walk(plan: ReviewPlan, root: str = ".") -> str:

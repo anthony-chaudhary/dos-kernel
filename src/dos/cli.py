@@ -87,32 +87,16 @@ from dos import interpret as _interpret  # the --explain next-action hint (share
 
 
 def _resolve_driver_config(name: str, workspace=None):
-    """Resolve a host policy driver BY CONVENTION — no hardcoded host name.
+    """Resolve a host policy driver BY NAME — in-tree first, then the `dos.drivers`
+    entry-point group (so a third party ships a host pack in their OWN pip package,
+    no kernel fork). Delegates to the `dos.drivers_seam` resolver; named here only as
+    the CLI's call boundary. No hardcoded host name.
 
     Detail: docs/CLI.md § _resolve_driver_config.
     """
-    import importlib
+    from dos import drivers_seam
 
-    if "." in name or "/" in name or "\\" in name:
-        raise ValueError(
-            f"unknown driver {name!r}: a driver name is a single module token "
-            f"(no '.', '/' or '\\'); drivers live in src/dos/drivers/, see "
-            f"dos.drivers.workshop for a template")
-    try:
-        mod = importlib.import_module(f"dos.drivers.{name}")
-    except ModuleNotFoundError as e:
-        if (e.name or "") in (f"dos.drivers.{name}", "dos.drivers"):
-            raise ValueError(
-                f"unknown driver {name!r} (no module dos.drivers.{name}); "
-                f"drivers live in src/dos/drivers/, see dos.drivers.workshop "
-                f"for a template") from None
-        raise
-    factory = getattr(mod, f"{name}_config", None)
-    if factory is None:
-        raise ValueError(
-            f"driver {name!r} (dos.drivers.{name}) exposes no "
-            f"{name}_config(workspace) factory")
-    return factory(workspace)
+    return drivers_seam.resolve_driver_config(name, workspace)
 
 
 def _apply_workspace(args: argparse.Namespace) -> None:
@@ -523,14 +507,14 @@ def _render_init_config(target: Path) -> tuple[str, str]:
 def _resolve_driver_taxonomy(name: str):
     """The `LaneTaxonomy` of a named driver pack — the single source of truth.
 
+    In-tree first, then the `dos.drivers` entry-point group (same resolution as
+    `_resolve_driver_config`). Delegates to the `dos.drivers_seam` resolver.
+
     Detail: docs/CLI.md § _resolve_driver_taxonomy.
     """
-    import importlib
-    if not name.isidentifier():
-        raise ValueError(f"driver name must be a bare identifier, got {name!r}")
-    mod = importlib.import_module(f"dos.drivers.{name}")
-    factory = getattr(mod, f"{name}_config")
-    return factory(None).lanes
+    from dos import drivers_seam
+
+    return drivers_seam.resolve_driver_taxonomy(name)
 
 
 def _render_driver_config(name: str, taxonomy) -> str:
@@ -2946,6 +2930,65 @@ def cmd_efficiency(args: argparse.Namespace) -> int:
     verdict = efficiency.classify(evidence, policy)
 
     return _EFFICIENCY_EXITS.emit(args, verdict, verdict.verdict.value)
+
+
+# ---------------------------------------------------------------------------
+# efficiency-advice  (the recommender capstone — the SECOND-ORDER fold of the
+#   loop-economics family). Where `efficiency` classifies one measured ratio,
+#   `efficiency-advice` folds a BUNDLE of already-measured, env-authored signals
+#   (the spend split, the work count, the no-op streak, the over-claim count, the
+#   cross-run trend verdict, the serving-window count) into a RANKED list of typed,
+#   vendor-free recommendations + a CLEAN/ADVISE/WASTE rollup. No plan, no git —
+#   the verdict IS the exit code. The only reader that adjudicates the spend KPIs
+#   `dos efficiency --usage-json` computes but never judges.
+_EFFICIENCY_ADVICE_EXITS = ExitMap(
+    {"CLEAN": 0, "ADVISE": 3, "WASTE": 4},
+    unknown=5,  # a future verdict the CLI hasn't caught up to — non-zero, distinct
+)
+_EFFICIENCY_ADVICE_EXIT_CONTRACT_ERROR = _EFFICIENCY_ADVICE_EXITS.contract_error
+
+
+def cmd_efficiency_advice(args: argparse.Namespace) -> int:
+    """Fold the loop-economics signals into a ranked advice report: CLEAN/ADVISE/WASTE (ADV).
+
+    The second-order verb of the efficiency family. Builds the policy from flags
+    (the tuned ratio rungs stay DISABLED until a `--*-floor`/`--*-ceiling` arms one)
+    and the signals from flags + an optional `--usage-json` spend record, then hands
+    them to the pure `efficiency_advice.recommend`. No plan, no git, no `.dos` — like
+    `dos efficiency`, the verdict is the exit code.
+    """
+    _apply_workspace(args)
+    from dos import efficiency_advice as adv
+
+    try:
+        policy = adv.AdvicePolicy(
+            min_tokens=args.min_tokens if args.min_tokens is not None
+            else adv.DEFAULT_POLICY.min_tokens,
+            noop_budget=args.noop_budget if args.noop_budget is not None
+            else adv.DEFAULT_POLICY.noop_budget,
+            efficiency_floor=args.efficiency_floor,
+            cache_hit_floor=args.cache_hit_floor,
+            reasoning_ceiling=args.reasoning_ceiling,
+            output_ceiling=args.output_ceiling,
+        )
+        spend = _read_usage_breakdown(args)
+        signals = adv.EfficiencySignals(
+            work=args.work,
+            tokens=args.tokens,
+            noop_turns=args.noop_turns,
+            overclaim=args.overclaim,
+            degrading_trend=args.degrading_trend,
+            serving_accounts=args.serving_accounts,
+            seats_used=args.seats_used,
+            spend=spend,
+        )
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return _EFFICIENCY_ADVICE_EXIT_CONTRACT_ERROR
+
+    report = adv.recommend(signals, policy)
+
+    return _EFFICIENCY_ADVICE_EXITS.emit(args, report, report.verdict.value)
 
 
 # ---------------------------------------------------------------------------
@@ -7112,8 +7155,8 @@ def cmd_pulse(args: argparse.Namespace) -> int:
     # 3b. ENFORCEMENT OVER-BLOCKING (docs/365): fold the OP_ENFORCE journal into the
     #     false-DENY / held-catch metric and surface it when the false-DENY count
     #     crosses the threshold. The continuous-OBSERVE half of the autonomous
-    #     enforcement-tuning loop — pulse names the over-blocking; the cadence's
-    #     the autonomous `dos enforce-tune` cadence acts on it. Fail-soft: absent ⇒ the fold's silent
+    #     enforcement-tuning loop — pulse names the over-blocking; the autonomous
+    #     `dos enforce-tune` cadence acts on it. Fail-soft: absent ⇒ the fold's silent
     #     default (0 false-denies, no line).
     enforce_metric = None
     try:
@@ -7122,9 +7165,22 @@ def cmd_pulse(args: argparse.Namespace) -> int:
     except Exception:  # noqa: BLE001 — advisory fail-safe; absent ⇒ silent default
         enforce_metric = None
 
+    # 3c. The HUMAN escalation rung's own saturation (the always-on regime, docs/121
+    #     §4.1): are decisions arriving faster than a human drains them? Gathered at this
+    #     boundary from the SAME decisions + journal sources, folded by the pure
+    #     queue_saturation.classify. A SATURATED verdict reframes the pending count: the
+    #     fold surfaces "auto-degrade" at URGENT instead of one more unread line.
+    saturation = None
+    try:
+        from dos import queue_saturation as _qs
+        _qe = _gather_queue_evidence(cfg, now_ms=now_ms, window_seconds=3600)
+        saturation = _qs.classify(_qe, cfg.queue_saturation)
+    except Exception:  # noqa: BLE001 — advisory fail-safe; absent ⇒ the fold's silent default
+        saturation = None
+
     digest = _pulse.fold_pulse(
         liveness=verdicts, decisions=human_rows, breaker_verdict=breaker_verdict,
-        enforce_metric=enforce_metric)
+        enforce_metric=enforce_metric, saturation=saturation)
 
     # 4. SILENCE RULE: an all-clear pulse pushes nothing and exits 0 (unless --json,
     #    which always emits the machine surface for a scripted cron).
@@ -7211,6 +7267,128 @@ class _PulseBreaker:
         class _E:
             value = esc
         return _E()
+
+
+# ---------------------------------------------------------------------------
+# queue-saturation — is the HUMAN escalation rung still a real target (the always-on
+# regime, docs/121 §4.1)? Boundary gather + the pure queue_saturation.classify fold.
+# ---------------------------------------------------------------------------
+# The journal ops that mean "a HUMAN-rung decision LEFT the queue" — a drain. A
+# RELEASE / SCAVENGE frees the lease the refusal guarded; an OVERRIDE admits past it.
+# All are written by the lease machinery (not the worker) — the byte-author floor that
+# makes the drain count non-forgeable.
+_QUEUE_DRAIN_OPS = ("RELEASE", "SCAVENGE", "OVERRIDE")
+
+
+def _gather_queue_evidence(cfg, *, now_ms: int, window_seconds: int):
+    """Read the HUMAN-queue arrival/drain counts over a recent window. BOUNDARY I/O only.
+
+    Returns a frozen `queue_saturation.QueueEvidence` the pure `classify` folds — the
+    "I/O at the boundary, data to the pure core" rule (the `cmd_pulse` liveness-gather
+    idiom). Both counts are env/journal-authored, downstream of an already-decided
+    verdict:
+
+      arrivals — HUMAN-resolver `decisions.Decision`s whose age is within the window
+                 (they ENTERED the queue during it). An untimestamped row (age None) is
+                 counted as in-window — it is a live unresolved decision either way, and
+                 dropping it would understate the arrival rate (the safe direction).
+      drains   — lane-journal RELEASE/SCAVENGE/OVERRIDE events whose `ts` falls in the
+                 window (a decision LEFT the queue).
+      pending  — the current HUMAN queue depth (every unresolved row, regardless of age).
+
+    Any single read fault degrades that leg to 0 (the advisory fail-safe — a saturation
+    read never crashes a pulse cron). With zero arrivals the verdict abstains to
+    DRAINING, so a total read failure is conservatively read as "the rung is fine".
+    """
+    from dos import queue_saturation as _qs
+
+    window_seconds = max(int(window_seconds), 0)
+
+    # arrivals + pending — the HUMAN decisions queue.
+    arrivals = 0
+    pending = 0
+    try:
+        from dos import decisions as _decisions
+        human_rows = _decisions.collect_decisions(cfg, resolver="HUMAN")
+        pending = len(human_rows)
+        for r in human_rows:
+            age = getattr(r, "age_seconds", None)
+            # in-window iff age unknown (count it — the safe direction) or age <= window.
+            if window_seconds == 0 or age is None or int(age) <= window_seconds:
+                arrivals += 1
+    except Exception:  # noqa: BLE001 — advisory fail-safe; no rows ⇒ 0 arrivals ⇒ abstain
+        pass
+
+    # drains — RELEASE/SCAVENGE/OVERRIDE journal events inside the window.
+    drains = 0
+    try:
+        import datetime as _dt
+        from dos import lane_journal as _lj
+        cutoff_ms = now_ms - window_seconds * 1000 if window_seconds else None
+        for e in _lj.read_all():
+            op = str(e.get("op") or "").upper()
+            if op not in _QUEUE_DRAIN_OPS:
+                continue
+            if cutoff_ms is None:
+                drains += 1
+                continue
+            ts = e.get("ts")
+            if not ts:
+                drains += 1  # untimestamped drain — count it (the safe direction)
+                continue
+            try:
+                parsed = _dt.datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+                ev_ms = int(parsed.timestamp() * 1000)
+            except (ValueError, OverflowError, OSError):
+                drains += 1  # unparseable ts — count it rather than silently drop
+                continue
+            if ev_ms >= cutoff_ms:
+                drains += 1
+    except Exception:  # noqa: BLE001 — advisory fail-safe
+        pass
+
+    return _qs.QueueEvidence(
+        arrivals=arrivals, drains=drains, pending=pending,
+        window_seconds=window_seconds,
+    )
+
+
+def cmd_queue_saturation(args: argparse.Namespace) -> int:
+    """`dos queue-saturation` — is the HUMAN escalation rung draining, or already drowned?
+
+    The always-on verdict (docs/121 §4.1): every recovery path in the kernel escalates
+    to a HUMAN, assuming a human reads it in time. When decisions arrive faster than a
+    human drains them, "escalate to a human" is a silent no-op. This verb gathers the
+    arrival/drain counts of the HUMAN decisions queue over a recent window AT THIS
+    BOUNDARY, folds them with the pure `queue_saturation.classify`, and reports
+    DRAINING / SATURATING / SATURATED — so an unattended fleet (or an auto-degrade
+    consumer) can SEE that the rung is gone instead of queuing one more unread line.
+
+    Read-only / advisory (docs/99): it REPORTS the verdict; it takes no lease, stops no
+    run, sheds nothing — the ACT (shed / HUMAN->JUDGE / auto-approve a safe class) is a
+    host/driver decision. Exit 0 on DRAINING, 1 on SATURATING/SATURATED (so a cron can
+    trip on a saturated rung), or with --json always 0 (the machine surface).
+    """
+    _apply_workspace(args)
+    import time
+    from dos import queue_saturation as _qs
+
+    cfg = _config.active()
+    now_ms = args.now_ms if getattr(args, "now_ms", None) is not None else int(time.time() * 1000)
+    window_seconds = int(getattr(args, "window", 3600) or 3600)
+
+    ev = _gather_queue_evidence(cfg, now_ms=now_ms, window_seconds=window_seconds)
+    verdict = _qs.classify(ev, cfg.queue_saturation)
+
+    if getattr(args, "json", False):
+        print(json.dumps(verdict.to_dict(), indent=2, sort_keys=True))
+        return 0
+
+    print(f"{verdict.verdict.value}  ρ={verdict.load_factor:.2f}  "
+          f"({ev.arrivals} arrivals / {ev.drains} drains / {ev.pending} pending "
+          f"over {window_seconds}s)")
+    print(f"  {verdict.reason}")
+    return 0 if verdict.verdict is _qs.Saturation.DRAINING else 1
 
 
 # ---------------------------------------------------------------------------
@@ -8082,6 +8260,50 @@ def cmd_skillify(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_plugins(args: argparse.Namespace) -> int:
+    """`dos plugins` — the extension-surface manifest: every pluggable seam, its built-in
+    floor, and what third-party plugins are installed. A pure read of entry-point
+    metadata (no lease, no mutation). Detail: docs/CLI.md § cmd_plugins."""
+    from dos import plugins as _plugins
+
+    reports = _plugins.fold()
+    if getattr(args, "json", False):
+        print(_plugins.render_json(reports))
+    else:
+        print(_plugins.render_text(reports))
+    return 0
+
+
+def cmd_plugin_new(args: argparse.Namespace) -> int:
+    """`dos plugin new <seam> --name <n>` — scaffold an installable plugin package that
+    registers one occupant under the named seam. Writes the file set `plugins.scaffold`
+    plans into `--out` (default: ./<pkg>). Detail: docs/CLI.md § cmd_plugin_new."""
+    import os
+
+    from dos import plugins as _plugins
+
+    try:
+        plan = _plugins.scaffold(args.seam, args.name)
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    out_root = os.path.abspath(args.out) if getattr(args, "out", None) else os.path.abspath(plan.pkg)
+    if os.path.exists(out_root) and os.listdir(out_root):
+        print(f"error: {out_root} exists and is not empty; pass --out to a fresh dir",
+              file=sys.stderr)
+        return 2
+    for rel, content in plan.files.items():
+        dest = os.path.join(out_root, rel)
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        # write bytes with explicit UTF-8 + LF — never write_text (which would CRLF on
+        # win32 and corrupt a generated source file).
+        with open(dest, "wb") as f:
+            f.write(content.encode("utf-8"))
+    print(f"scaffolded {plan.seam.group} plugin '{args.name}' in {out_root}")
+    print(f"  next:  pip install -e {out_root}  &&  dos plugins")
+    return 0
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     _apply_workspace(args)
     cfg = _config.active()
@@ -8299,6 +8521,23 @@ def cmd_doctor(args: argparse.Namespace) -> int:
           f"spin_halt_after={_spin_halt})")
     git = cfg.paths.root / ".git"
     print(f"is git workspace    {'yes' if git.exists() else 'no'}")
+    # docs/366 — single-filesystem lease boundary: if this workspace has a git
+    # remote (implying the repo is shared across machines), note that the lease
+    # WAL is local-filesystem only and cross-host workers share no serialization
+    # point. Advisory (exit 0, never a failure); read-only, fail-soft.
+    if git.exists():
+        try:
+            import subprocess as _sp
+            _remote = _sp.run(
+                ["git", "-C", str(cfg.paths.root), "remote"],
+                capture_output=True, text=True, timeout=3,
+            )
+            if _remote.returncode == 0 and _remote.stdout.strip():
+                print("lease scope         local filesystem only — "
+                      "workers on other machines share no serialization point "
+                      "(docs/366)")
+        except Exception:  # noqa: BLE001 — never break doctor
+            pass
     # docs/221 — which agent runtimes have the DOS hooks wired in THIS workspace, so
     # an adopter can confirm `dos init --hooks <host>` actually took effect (a
     # mis-wired hook is otherwise a silent no-op). Read-only: probes each host's
@@ -8472,6 +8711,7 @@ def _exit_code_contract() -> dict:
         "liveness": _LIVENESS_EXITS.contract(),
         "productivity": _PRODUCTIVITY_EXITS.contract(),
         "efficiency": _EFFICIENCY_EXITS.contract(),
+        "efficiency-advice": _EFFICIENCY_ADVICE_EXITS.contract(),
         "efficiency-trend": _EFFICIENCY_TREND_EXITS.contract(),
         "work-account": _WORK_ACCOUNT_EXITS.contract(),
         "improve": _IMPROVE_EXITS.contract(),
@@ -11073,6 +11313,72 @@ def build_parser() -> argparse.ArgumentParser:
     _add_output_flag(peff)
     peff.set_defaults(func=cmd_efficiency)
 
+    # efficiency-advice (ADV) — the recommender capstone: the SECOND-ORDER fold of the
+    #   loop-economics family. Folds a bundle of already-measured, env-authored signals
+    #   into a RANKED list of typed recommendations + a CLEAN/ADVISE/WASTE rollup. The
+    #   structural rungs are armed by default; the tuned ratio rungs stay disabled until
+    #   a --*-floor / --*-ceiling arms one (the efficiency.floor discipline). No plan,
+    #   no git — the verdict is the exit code.
+    padv = sub.add_parser(
+        "efficiency-advice",
+        help="the recommender capstone: fold the loop-economics signals into ranked "
+             "advice (CLEAN/ADVISE/WASTE)",
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    _add_workspace_flags(padv)
+    # The measured signals (each OPTIONAL — an absent flag is 'not measured', never 0).
+    padv.add_argument("--work", type=int, default=None, metavar="UNITS",
+                      help="ground-truth work the environment WITNESSED (commits / changed "
+                           "bytes / passed tests). 0 with meaningful --tokens ⇒ WASTEFUL_SPEND")
+    padv.add_argument("--tokens", type=int, default=None, metavar="N",
+                      help="tokens the run SPENT (the provider usage record). Derived from "
+                           "--usage-json when that is given instead")
+    padv.add_argument("--noop-turns", dest="noop_turns", type=int, default=None, metavar="N",
+                      help="consecutive turns that landed no work — at/over --noop-budget "
+                           "⇒ NOOP_SPIN")
+    padv.add_argument("--overclaim", type=int, default=None, metavar="N",
+                      help="claimed ships the truth syscall did NOT confirm (docs/138) — "
+                           ">0 ⇒ OVERCLAIM")
+    padv.add_argument("--degrading-trend", dest="degrading_trend", action="store_true",
+                      default=None,
+                      help="the cross-run efficiency-trend verdict says work/token is "
+                           "FALLING ⇒ DEGRADING_TREND")
+    padv.add_argument("--serving-accounts", dest="serving_accounts", type=int, default=None,
+                      metavar="N",
+                      help="provider serving windows available this wave")
+    padv.add_argument("--seats-used", dest="seats_used", type=int, default=None, metavar="N",
+                      help="serving windows the fleet actually used — under --serving-accounts "
+                           "⇒ SEAT_UNDERUTILIZED")
+    padv.add_argument("--usage-json", dest="usage_json", default=None, metavar="PATH",
+                      help="read the provider usage record (a JSON file, or `-` for stdin) — "
+                           "derives --tokens and arms the tuned ratio rungs (cache-hit / "
+                           "reasoning / decode shares)")
+    # The policy knobs. The tuned ratio rungs are DISABLED unless their floor/ceiling is set.
+    padv.add_argument("--min-tokens", dest="min_tokens", type=int, default=None, metavar="N",
+                      help="minimum tokens spent before a spend-shaped rung accuses the run "
+                           "(default 1000)")
+    padv.add_argument("--noop-budget", dest="noop_budget", type=int, default=None, metavar="N",
+                      help="the no-op streak at/over which NOOP_SPIN fires (default 4)")
+    padv.add_argument("--efficiency-floor", dest="efficiency_floor", type=float, default=None,
+                      metavar="RATIO",
+                      help="arm COSTLY_RATIO: the work/token floor under which a nonzero-work "
+                           "run is flagged (default disabled)")
+    padv.add_argument("--cache-hit-floor", dest="cache_hit_floor", type=float, default=None,
+                      metavar="FRACTION",
+                      help="arm COLD_CACHE: the cache-hit fraction under which the cache is "
+                           "flagged cold (default disabled)")
+    padv.add_argument("--reasoning-ceiling", dest="reasoning_ceiling", type=float, default=None,
+                      metavar="FRACTION",
+                      help="arm OVERTHINKING: the reasoning-share fraction over which the "
+                           "decode is flagged over-deliberated (default disabled)")
+    padv.add_argument("--output-ceiling", dest="output_ceiling", type=float, default=None,
+                      metavar="FRACTION",
+                      help="arm DECODE_HEAVY: the decode-share fraction over which the spend "
+                           "is flagged decode-dominated (default disabled)")
+    padv.add_argument("--json", action="store_true",
+                      help="machine-readable {verdict, reason, signals, recommendations}")
+    _add_output_flag(padv)
+    padv.set_defaults(func=cmd_efficiency_advice)
+
     # efficiency-trend (docs/300) — the cross-run fold over the same two counts:
     # is work-per-token fading ACROSS runs? Evidence comes caller-assembled
     # (--samples) or from the verdict journal's fossils (--from-journal).
@@ -12667,6 +12973,39 @@ def build_parser() -> argparse.ArgumentParser:
                              "always emitted, even when the digest is empty")
     ppulse.set_defaults(func=cmd_pulse)
 
+    # queue-saturation — is the HUMAN escalation rung still a real target (docs/121
+    # §4.1, the always-on regime)? Every recovery path escalates to a HUMAN assuming a
+    # human reads it in time; when decisions arrive faster than they drain, that is a
+    # silent no-op. This verb folds the arrival/drain rate of the HUMAN decisions queue
+    # into a DRAINING / SATURATING / SATURATED verdict so an unattended fleet can SEE
+    # the rung is gone. Read-only / advisory — it reports; the ACT is host policy.
+    pqsat = sub.add_parser(
+        "queue-saturation",
+        help="is the HUMAN escalation rung draining or saturated? (the always-on regime)",
+        description=(
+            "Adjudicate whether the HUMAN escalation rung is still a meaningful target. "
+            "Every recovery path in DOS escalates to a HUMAN (breaker on_trip=HUMAN, the "
+            "decisions queue, pulse pending_human), silently assuming a human reads it in "
+            "time. In an always-on fleet, decisions arrive faster than a human drains "
+            "them and 'escalate to a human' becomes a no-op (docs/121 §4.1). This verb "
+            "gathers the arrival/drain counts of the HUMAN decisions queue over a recent "
+            "window AT THIS BOUNDARY, folds them with the pure queue_saturation.classify, "
+            "and reports DRAINING / SATURATING / SATURATED with the computed load factor. "
+            "Fail-to-abstain: thin evidence (few arrivals) is DRAINING, never a false "
+            "accusation. Read-only / advisory (docs/99): it REPORTS; the ACT (shed / "
+            "HUMAN->JUDGE / auto-approve a safe class) is host policy. Exit 1 on "
+            "SATURATING/SATURATED so a cron can trip."),
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    _add_workspace_flags(pqsat)
+    pqsat.add_argument("--window", type=int, default=3600, metavar="SECONDS",
+                       help="the recent window the arrival/drain rate is measured over "
+                            "(default 3600 = 1h)")
+    pqsat.add_argument("--now-ms", type=int, default=None,
+                       help="inject the wall clock (epoch-ms) for deterministic runs")
+    pqsat.add_argument("--json", action="store_true",
+                       help="machine-readable verdict {verdict, load_factor, counts}")
+    pqsat.set_defaults(func=cmd_queue_saturation)
+
     # trace — the cross-surface join (docs/137): walk one run across the spine,
     # the intent ledger, the WAL, and git, joined by its run_id. A read-only
     # projection (the `decisions`/`top`/`plan` posture); no new verdict.
@@ -13001,6 +13340,31 @@ def build_parser() -> argparse.ArgumentParser:
                     help="machine-readable workspace report (paths/lanes/stamp/git) "
                          "— what a generic skill reads to discover its layout (SKP)")
     pd.set_defaults(func=cmd_doctor)
+
+    # `dos plugins` — the extension-surface manifest (every pluggable seam, its built-in
+    # floor, installed third-party plugins). A pure read of entry-point metadata; needs
+    # no workspace. `dos plugin new <seam>` scaffolds an installable plugin package.
+    pp = sub.add_parser("plugins",
+                        help="list DOS's pluggable seams + installed third-party plugins")
+    pp.add_argument("--json", action="store_true",
+                    help="machine-readable manifest (group/protocol/invariant/occupants)")
+    pp.set_defaults(func=cmd_plugins)
+
+    pn = sub.add_parser("plugin",
+                        help="scaffold a DOS extension plugin (dos plugin new <seam>)")
+    pn_sub = pn.add_subparsers(dest="plugin_action")
+    pnn = pn_sub.add_parser("new",
+                            help="scaffold an installable plugin package for a seam")
+    pnn.add_argument("seam",
+                     help="the seam to extend (e.g. judges, drivers, mcp_tools); "
+                          "run `dos plugins` to see them all")
+    pnn.add_argument("--name", required=True,
+                     help="the occupant name to register (e.g. acme)")
+    pnn.add_argument("--out",
+                     help="output directory (default: ./dos_<name>_plugin)")
+    pnn.set_defaults(func=cmd_plugin_new)
+    # `dos plugin` with no action prints help rather than a stack trace.
+    pn.set_defaults(func=lambda a: (pn.print_help() or 0) if not getattr(a, "plugin_action", None) else 0)
 
     # docs/227 (G1 from docs/189) — the config-integrity linter as a focused verb:
     #   (full prose: docs/CLI.md § "docs/227 (G1 from docs/189) — the config-integrity linter as")

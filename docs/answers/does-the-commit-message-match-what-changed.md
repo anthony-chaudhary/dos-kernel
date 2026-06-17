@@ -64,4 +64,16 @@ narrower, load-bearing gap where the *message* is the only evidence.
 - [How to verify an agent actually committed code](how-to-verify-an-ai-agent-actually-committed-code.md) — the presence question, where this starts.
 - [FAQ: How do I verify an AI agent actually did what it claims?](../FAQ.md#how-do-i-verify-an-ai-agent-actually-did-what-it-claims)
 
+## Also asked as
+
+- how do I know if my AI agent's commit message matches what it actually changed
+- does my AI agent's commit message match what it changed
+- commit subject says one thing the diff does another
+- verify a commit message against its actual diff
+- catch a lying commit message from an agent
+- agent commit message doesn't match the changes
+- check that the commit subject reflects the diff
+- audit whether a commit's claim matches its content
+- commit says fix but the diff only touched a readme
+
 > The kernel is the part that doesn't believe the agents.

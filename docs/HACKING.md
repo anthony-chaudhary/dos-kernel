@@ -39,6 +39,45 @@ This doc is the *how-to* those two motivate.
 
 The rule of thumb: **data in `dos.toml`, behavior in `entry_points`, provider surface in a driver, workflow in a shipped skill.**
 
+### Every pluggable seam, in one table
+
+The behavior/driver rows above are not three seams but **one pattern applied to ~18
+entry-point groups**. Each follows the identical shape — `resolve_X(name)` → built-ins
+first (unshadowable) → `entry_points(group="dos.X")` by name → fail-loud (selectors) or
+fail-soft (advisory occupants). To extend any of them: ship a small pip package, register
+one entry point, `pip install`. The kernel never imports your package; it discovers it by
+name at the call boundary.
+
+`dos plugins` prints this table live (with what's installed); `dos plugin new <seam>
+--name <yours>` scaffolds a correct stub. The authoritative roster (with the stability
+floor) is [`STABILITY.md`](STABILITY.md).
+
+| Group | Axis | Occupant contract | Safety invariant | I/O? |
+|---|---|---|---|---|
+| `dos.drivers` | 1 — host policy | `<name>_config(workspace) -> SubstrateConfig` | selector → fail-loud; in-tree packs unshadowable; kernel attaches workspace facts | pure |
+| `dos.judges` | 6 — adjudicators | `Judge.rule(claim, config) -> JudgeVerdict` | advisory; FAILS TO ABSTAIN (never auto-AGREE) | I/O |
+| `dos.predicates` | 3 — admission | `AdmissionPredicate.check(request, config)` | CONJUNCTIVE-ONLY — can only REFUSE, never force-admit | pure |
+| `dos.overlap_policies` | 7 — disjointness | `OverlapPolicy.overlap(a, b) -> float` | AND-ed UNDER the prefix floor — only ever STRICTER | pure |
+| `dos.renderers` | 4 — presentation | `Renderer.render(verdict) -> str` | PURE presentation — decides nothing, mutates nothing | pure |
+| `dos.exporters` | — observability | `Exporter.export(events) -> ExportResult` | FAIL-SOFT — never crashes the observed verb | I/O |
+| `dos.notifiers` | — notification | `Notifier.send(note) -> NotifyResult` | FAIL-SOFT — a dead transport never crashes a verb | I/O |
+| `dos.evidence_sources` | — witness | `EvidenceSource.gather(subject, config)` | believe-UNDER-floor; FAIL-SAFE to NO_SIGNAL | I/O |
+| `dos.enforce_handlers` | — actuation | `EnforcementHandler.handle(event)` | advisory side-effects; never overrides allow/deny | I/O |
+| `dos.hook_dialects` | — host output | `HookDialect.render(verdict) -> dict` | OUTPUT downstream of the verdict — formats, never decides | pure |
+| `dos.hook_installs` | — host wiring | `HostHookSpec` | install-spec data; `claude-code` default unshadowable | pure |
+| `dos.plan_sources` | — planning | `PlanSource.plans() -> list` | FAIL-TO-EMPTY — a broken source never crashes a sweep | I/O |
+| `dos.stop_policies` | — loop halt | `StopPolicy.decide(...)` | AND-ed UNDER the `resource_blocked` floor — only ADDs a halt | I/O |
+| `dos.log_sources` | — log routing | `LogSource` | pure routing by accountability | I/O |
+| `dos.scope_sources` | — completion mode | `ScopeSource` | pure selection | pure |
+| `dos.memory_stores` | — memory | `MemoryStore` | READ-ONLY; `file` store unshadowable | I/O |
+| `dos.vcs` | — version control | `VcsBackend(root)` | `git`/`null` unshadowable; READS history only | I/O |
+| `dos.mcp_tools` | — MCP surface | `register(mcp)` or a bare tool callable | ADDITIVE — adds a verb, never replaces a built-in | I/O |
+
+The "I/O?" column is the litmus for *where* an occupant lives: a **pure** occupant may be a
+plain entry-point class; an **I/O** occupant (a provider, network, subprocess, disk) lives
+in a `drivers/` module the kernel points to but never imports. Either way the kernel stays
+pure — the I/O is downstream of the verdict, behind the resolver.
+
 > **Calling vs. extending — the MCP server (`docs/80_*`).** The four rows above
 > are how you *extend* DOS. A different axis is how an **agent** *calls* it: the
 > shipped MCP server (`pip install dos-kernel[mcp]`; the `dos-mcp` console script)
@@ -276,16 +315,31 @@ shape. A driver is exactly **two pieces**, the same two `job` has:
 > applies even here: the facts are gathered once at config-build time so the pure
 > `arbitrate` verdict stays workspace-aware without re-probing the disk.
 
-**The by-convention loader (`dos --driver <name>`).** The CLI resolves a driver by
-name, never by a hardcoded host string: `dos --driver <name>` imports
-`dos.drivers.<name>` and calls its `<name>_config(workspace)`
-(`_resolve_driver_config`, `src/dos/cli.py:45`). So a new host is a single module
-under `src/dos/drivers/` and the CLI (a layer-3 helper) never learns its name —
-the same one-way arrow the kernel obeys. `--job` is just the back-compat spelling
-of `--driver job`. A dotted or path-y name (`foo.bar`, `../evil`) is rejected up
-front as "unknown" (a path-traversal guard), and a `ModuleNotFoundError` from a
-driver's own *broken internal import* is re-raised, never masked as "no such
-driver" — a genuine bug in your driver fails loud.
+**The by-name loader (`dos --driver <name>`).** The CLI resolves a driver by name,
+never by a hardcoded host string, through the `dos.drivers_seam` resolver
+(`_resolve_driver_config`). Resolution is the same built-in-first shape every seam
+shares: it tries the **in-tree** `dos.drivers.<name>` module + `<name>_config(workspace)`
+FIRST (unshadowable — a third-party `workshop` can't displace the reference one), then
+falls through to the **`dos.drivers` entry-point group**. So a new host is EITHER a module
+under `src/dos/drivers/` OR — and this is the part that no longer requires a fork — an
+entry point in your **own pip package**:
+
+```toml
+# in your package's pyproject.toml
+[project.entry-points."dos.drivers"]
+acme = "acme_pkg:acme_config"     # points DIRECTLY at the factory
+```
+
+After `pip install`, `dos --driver acme` resolves it by name; the CLI (a layer-3 helper)
+never learns the name, and the kernel never imports your package — the same one-way arrow
+the kernel obeys. `--job` is the back-compat spelling of `--driver job`. A dotted or path-y
+name (`foo.bar`, `../evil`) is rejected up front as "unknown" (a path-traversal guard on
+the in-tree branch; entry-point names like `acme-driver` are matched literally and may
+carry a hyphen). A `ModuleNotFoundError` from a driver's own *broken internal import* is
+re-raised, never masked as "no such driver" — a genuine bug in your driver fails loud. The
+resolver also attaches workspace facts if your factory left them unset, so the SELF_MODIFY
+guard scope stays kernel-owned. The reference third-party pack is
+[`examples/dos_ext/dos_ext/driver.py`](../examples/dos_ext/dos_ext/driver.py) (`acme`).
 
 ```bash
 # the same two pieces a [lanes] table declares, but the config is built in code:

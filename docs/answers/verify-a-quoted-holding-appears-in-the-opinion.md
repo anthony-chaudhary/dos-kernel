@@ -58,4 +58,15 @@ A real, correctly-quoted case can still be the wrong case for your argument.
 - [How to verify a cited legal case actually exists](how-to-verify-a-cited-legal-case-exists.md) — the existence rung this builds on.
 - [FAQ: Does DOS need an LLM or an API key?](../FAQ.md#does-dos-need-an-llm-or-an-api-key)
 
+## Also asked as
+
+- how to verify a quoted holding actually appears in the cited opinion
+- verify a quoted holding actually appears in the opinion
+- check that a quote is really in the cited case
+- did the AI quote the opinion accurately or invent it
+- confirm a holding quote matches the source opinion
+- validate a legal quotation against the real text
+- AI quoted a case is the quote actually there
+- quote-fidelity check for AI legal citations
+
 > The kernel is the part that doesn't believe the agents.

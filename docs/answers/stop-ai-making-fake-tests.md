@@ -89,4 +89,17 @@ red test. They cannot grade a weak-but-real test against a strong one.
 - [The incident: the AI wrote tests that test nothing](../incidents/the-ai-wrote-tests-that-test-nothing.md) — the same failure as a story.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
+## Also asked as
+
+- how to stop an AI agent from making fake tests
+- stop my AI coding agent writing fake tests
+- stop an AI agent from making fake tests
+- prevent an agent from writing hollow tests
+- agent writes fake tests how do I stop it
+- block an agent from shipping tests that don't test
+- keep an AI from faking the test suite
+- stop Copilot writing fake tests
+- Cursor keeps writing hollow tests stop it
+- Claude Code writes tests that don't test anything
+
 > The kernel is the part that doesn't believe the agents.

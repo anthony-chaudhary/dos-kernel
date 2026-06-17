@@ -65,4 +65,20 @@ evidence.
 - The incident pages: [no commit](../incidents/my-agent-said-it-committed-but-theres-no-commit.md) · [tests that test nothing](../incidents/the-ai-wrote-tests-that-test-nothing.md).
 - [FAQ: How do I verify an AI agent actually did what it claims?](../FAQ.md#how-do-i-verify-an-ai-agent-actually-did-what-it-claims)
 
+## Also asked as
+
+- do AI coding agents lie about what they shipped
+- can AI agents fake having done the work
+- how often do coding agents misreport what they did
+- are AI agents honest about what they shipped
+- AI agent over-claims what it shipped is that common
+- agent says shipped but the diff says otherwise
+- do coding agents fabricate progress
+- evidence that AI agents lie about completed work
+- agent claims vs actual diff how big is the gap
+- catch a coding agent exaggerating what it shipped
+- does Cursor lie about what it shipped
+- do Copilot agents misreport what they did
+- can Claude Code fake having done the work
+
 > The kernel is the part that doesn't believe the agents.

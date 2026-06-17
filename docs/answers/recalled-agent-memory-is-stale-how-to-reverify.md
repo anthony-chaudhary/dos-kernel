@@ -62,4 +62,15 @@ can't be re-injected as a current fact on its own say-so.
 - [How to make an agent prove it did the work](make-an-agent-prove-the-work-not-self-certify.md) — the same distrust applied to a candidate change.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
+## Also asked as
+
+- recalled AI agent memory is stale or wrong how to re-verify it
+- my recalled agent memory is stale how do I re-verify it
+- agent memory is out of date check it against reality
+- re-verify a saved memory before trusting it
+- is this recalled fact still true for my agent
+- stale agent memory how to revalidate at read time
+- agent remembers something that's no longer true
+- check a memory's claims against current git state
+
 > The kernel is the part that doesn't believe the agents.

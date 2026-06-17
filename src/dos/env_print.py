@@ -259,34 +259,23 @@ def _platform_tag() -> str:
 
 
 def _kernel_sha(kernel_root: Path | None) -> str | None:
-    """The git HEAD SHA of the kernel's OWN tree, or ``None``. Guarded `subprocess`.
+    """The HEAD SHA of the kernel's OWN tree, or ``None``.
 
     Anchored on the kernel package's own location (the directory `dos/` lives in),
     NOT the served workspace — the question is "which commit of DOS is running,"
     which is a property of the installed kernel, not of the repo it is adjudicating.
-    Fail-safe to ``None`` on every failure (no git, not a checkout, timeout) — a
-    wheel-installed kernel has no SHA and that is a recorded fact, not an error (the
-    `git_delta` returns-[] posture, lifted to "returns None").
+    So it reads through `GitBackend` DIRECTLY (the kernel ships via git; its own
+    provenance is always a git SHA), not the workspace's configured `active_vcs`
+    backend — a workspace that declares `[vcs] backend = "null"` must still record
+    which DOS commit adjudicated it. Fail-safe to ``None`` on every failure (no git,
+    not a checkout, timeout) — a wheel-installed kernel has no SHA and that is a
+    recorded fact, not an error (the `git_delta` returns-[] posture, lifted to
+    "returns None"). The git subprocess lives in `dos.vcs` (the VCS-read litmus).
     """
+    from dos.vcs import GitBackend
+
     root = kernel_root or Path(__file__).resolve().parent
-    try:
-        out = subprocess.run(
-            ["git", "-C", str(root), "rev-parse", "HEAD"],
-            capture_output=True,
-            text=True,
-            timeout=_GIT_TIMEOUT_S,
-            # Never inherit the caller's stdin: inside a long-lived stdio server
-            # (dos-mcp) it is the live transport pipe, and a git child holding it
-            # wedges on Windows — the docs/295 stall. An evidence probe reads no
-            # stdin, so it declares that.
-            stdin=subprocess.DEVNULL,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if out.returncode != 0:
-        return None
-    sha = out.stdout.strip()
-    return sha or None
+    return GitBackend(root=root).head_sha()
 
 
 def _tool_version(name: str) -> str:

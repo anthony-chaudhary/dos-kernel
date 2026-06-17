@@ -151,8 +151,12 @@ def test_every_mapped_slug_resolves_to_a_real_page():
 
 
 def test_mapping_covers_every_verdict_tool():
-    """Every verdict tool (all tools except the retrieval tool) has a back-link."""
-    names = {t.name for t in build_server()._tool_manager.list_tools()}
+    """Every BUILT-IN verdict tool (all `dos_*` tools except the retrieval tool) has
+    a back-link. Third-party tools from the `dos.mcp_tools` seam (docs/378) carry
+    their own prose and are not in the curated `_ANSWER_FOR_TOOL` map, so the
+    coverage check is scoped to the `dos_*` ABI."""
+    names = {t.name for t in build_server()._tool_manager.list_tools()
+             if t.name.startswith("dos_")}
     verdict_tools = names - {"dos_answer"}
     uncovered = verdict_tools - set(_ANSWER_FOR_TOOL)
     assert not uncovered, f"verdict tools with no learn_more mapping: {uncovered}"

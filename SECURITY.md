@@ -69,6 +69,14 @@ limits before relying on DOS:
   trusted policy from the workspace operator. Running DOS against a workspace whose
   `dos.toml` or installed entry-point plugins you do not control is equivalent to
   running untrusted configuration/code — don't.
+- **Lease coordination is local-filesystem only.** The lane-lease WAL and its
+  O_EXCL mutex live on one disk. Workers on separate machines that share only a
+  git remote have no common serialization point for `arbitrate` — two hosts can
+  each be granted the same lane simultaneously. The *verification* half (`verify`,
+  `commit-audit`, `liveness`) travels across machines fine because it reads git
+  history; the *admission* half does not. Do not rely on `dos arbitrate` for
+  cross-machine mutual exclusion until a remote-lease driver exists. See
+  [docs/366](docs/366_single-filesystem-lease-boundary.md).
 - **It's pre-1.0.** Interfaces and guarantees can change.
 
 ## Dependencies

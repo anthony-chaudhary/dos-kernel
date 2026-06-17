@@ -68,4 +68,15 @@ two-phase discipline, applied to a file tree.
 - [How to stop two AI agents overwriting each other](how-to-stop-two-ai-agents-overwriting-each-other.md) — the same primitive, framed as the head problem.
 - [FAQ: Don't git worktrees already solve this?](../FAQ.md#dont-git-worktrees-already-solve-this--one-isolated-checkout-per-agent)
 
+## Also asked as
+
+- lease-based file locking to coordinate parallel coding agents
+- lease-based file locking to coordinate parallel agents
+- file leases for multiple coding agents
+- how do agents claim a file region before editing
+- lease a set of files so agents don't collide
+- admission control for parallel agent file writes
+- lock a file tree for one agent at a time
+- lease-based coordination for a fleet of agents
+
 > The kernel is the part that doesn't believe the agents.

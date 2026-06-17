@@ -77,4 +77,14 @@ by construction, and the verdict says so before it ever banks a green suite.
 - [The incident: the AI wrote tests that test nothing](../incidents/the-ai-wrote-tests-that-test-nothing.md) — the same failure as a story.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
+## Also asked as
+
+- my AI writes tests that pass but test nothing
+- AI generated tests that always pass and assert nothing
+- AI generated tests that pass but test nothing
+- AI tests that always pass and assert nothing
+- tests that pass without checking anything from an agent
+- agent's tests are green but assert nothing
+- vacuous passing tests from an AI agent
+
 > The kernel is the part that doesn't believe the agents.

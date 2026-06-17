@@ -140,4 +140,14 @@ which was added — the honesty-check loop working as designed.
 - [Deterministic hook vs. agent skill — which enforces?](deterministic-hook-vs-agent-skill-which-enforces.md) — where a skill's witness should sit.
 - [Why you can't trust a model to judge its own work](why-you-cant-trust-a-model-to-judge-its-own-work.md) — consistency vs. grounding.
 
+## Also asked as
+
+- how to make any agent skill verify its own work
+- make any agent skill verify its own work
+- add self-verification to an existing agent skill
+- ground a skill's claims on a real check
+- turn a belief-based skill into a verified one
+- wrap any skill so it proves what it did
+- give an agent skill a witness for its output
+
 > The kernel is the part that doesn't believe the agents.

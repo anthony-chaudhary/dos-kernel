@@ -82,7 +82,6 @@ from __future__ import annotations
 
 import enum
 import re
-import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -90,10 +89,7 @@ from typing import Optional
 
 from dos import config as _config
 from dos import git_delta, oracle, retire
-
-# git probes are boundary I/O — cap them so a pathological repo can't hang a
-# recall sweep. Matches the 10s bound `git_delta` and the doctor calls use.
-_GIT_TIMEOUT_S = 10
+from dos.vcs import active_vcs
 
 
 # ---------------------------------------------------------------------------
@@ -826,20 +822,11 @@ def _pickaxe_fix(literal: str, repo_file: str, root: Path) -> str:
     is no longer present-as-code, this names the commit that removed it — obtained
     BY RE-CHECK (git pickaxe), never parroted from the memory body.
     """
-    try:
-        raw = subprocess.run(
-            ["git", "log", "-S", literal, "-n", "1", "--pretty=format:%h\t%s", "--", repo_file],
-            cwd=str(root), capture_output=True, text=True, check=False, timeout=_GIT_TIMEOUT_S,
-            stdin=subprocess.DEVNULL,  # docs/295 — never leak the caller's stdin
-        )
-    except (OSError, subprocess.TimeoutExpired):
+    rows = active_vcs(root=root).history_search(
+        mode="pickaxe", literal=literal, path=repo_file, limit=1)
+    if not rows:
         return ""
-    if raw.returncode != 0 or not raw.stdout.strip():
-        return ""
-    parts = raw.stdout.splitlines()[0].split("\t", 1)
-    if len(parts) != 2:
-        return ""
-    return f"{parts[0]} ({parts[1]!r})"
+    return f"{rows[0].sha} ({rows[0].subject!r})"
 
 
 # Where to look for a bare-basename file ref (the memory writes `cli.py`, the repo
@@ -939,16 +926,13 @@ def _probe_sha(claim: MemoryClaim, root: Path) -> ClaimEvidence:
     if claim.polarity is not Polarity.ASSERTS_SHIPPED:
         return ClaimEvidence(claim, ProbeStatus.UNKNOWN, "bare SHA reference, no ship assertion", "none")
     sha = claim.raw
-    try:
-        r = subprocess.run(
-            ["git", "merge-base", "--is-ancestor", sha, "HEAD"],
-            cwd=str(root), capture_output=True, check=False, timeout=_GIT_TIMEOUT_S,
-            stdin=subprocess.DEVNULL,  # docs/295 — never leak the caller's stdin
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return ClaimEvidence(claim, ProbeStatus.UNKNOWN, "git unavailable", "none")
-    # `--is-ancestor` exits 0=ancestor, 1=not, 128=bad object (unknown sha).
-    if r.returncode == 0:
+    # The backend's three-valued `is_ancestor` (docs/360) maps EXACTLY onto this
+    # probe's 0/1/128 logic: True = on HEAD's history (CONFIRMS), False = resolved but
+    # orphaned/dropped (CONTRADICTS), None = unresolvable / unknown sha / no VCS
+    # (UNKNOWN — abstain, never a false CONTRADICTS for a foreign repo's SHA quoted in
+    # prose). This is the load-bearing reason the seam's is_ancestor is three-valued.
+    anc = active_vcs(root=root).is_ancestor(sha)
+    if anc is True:
         subj = ""
         for c in git_delta.recent_commits(300, root=root):
             if c["sha"].startswith(sha[:7]) or sha.startswith(c["sha"]):
@@ -956,13 +940,12 @@ def _probe_sha(claim: MemoryClaim, root: Path) -> ClaimEvidence:
                 break
         gt = f"{sha} is an ancestor of HEAD" + (f" ({subj!r})" if subj else "")
         return ClaimEvidence(claim, ProbeStatus.CONFIRMS, gt, "ancestry")
-    if r.returncode == 1:
+    if anc is False:
         return ClaimEvidence(claim, ProbeStatus.CONTRADICTS,
                              f"{sha} is NOT an ancestor of HEAD (orphaned, dropped, or rebased away)",
                              "ancestry")
-    # 128 / anything else: the object is unknown to this repo — can't bind a
-    # SHIPPED claim against a SHA git doesn't know. Abstain (it may be a different
-    # repo's SHA quoted in prose), never a false CONTRADICTS.
+    # None: the object is unknown to this repo / no VCS — can't bind a SHIPPED claim
+    # against a SHA the backend doesn't know. Abstain, never a false CONTRADICTS.
     return ClaimEvidence(claim, ProbeStatus.UNKNOWN,
                          f"{sha} is unknown to this repo (cannot verify ancestry)", "none")
 
@@ -974,18 +957,11 @@ def _path_deleting_commit(repo_file: str, root: Path) -> str:
     that once lived in this tree (a relocation/strip). The path-analogue of
     `_pickaxe_fix`. Fail-safe → "" (git absent / never tracked / still present).
     """
-    try:
-        raw = subprocess.run(
-            ["git", "log", "--diff-filter=D", "-n", "1", "--pretty=format:%h\t%s", "--", repo_file],
-            cwd=str(root), capture_output=True, text=True, check=False, timeout=_GIT_TIMEOUT_S,
-            stdin=subprocess.DEVNULL,  # docs/295 — never leak the caller's stdin
-        )
-    except (OSError, subprocess.TimeoutExpired):
+    rows = active_vcs(root=root).history_search(
+        mode="deleted", path=repo_file, limit=1)
+    if not rows:
         return ""
-    if raw.returncode != 0 or not raw.stdout.strip():
-        return ""
-    parts = raw.stdout.splitlines()[0].split("\t", 1)
-    return f"{parts[0]} ({parts[1]!r})" if len(parts) == 2 else ""
+    return f"{rows[0].sha} ({rows[0].subject!r})"
 
 
 def _path_ever_tracked(repo_file: str, root: Path) -> Optional[bool]:
@@ -998,17 +974,14 @@ def _path_ever_tracked(repo_file: str, root: Path) -> Optional[bool]:
     `src/foo.py` example — which the driver must ABSTAIN on, not contradict). This
     replaces fragile prose-cue guessing with what git actually records.
     """
-    try:
-        raw = subprocess.run(
-            ["git", "log", "--all", "-n", "1", "--pretty=format:%h", "--", repo_file],
-            cwd=str(root), capture_output=True, text=True, check=False, timeout=_GIT_TIMEOUT_S,
-            stdin=subprocess.DEVNULL,  # docs/295 — never leak the caller's stdin
-        )
-    except (OSError, subprocess.TimeoutExpired):
+    # `history_search` returns None on a read failure (git missing / non-zero exit)
+    # and [] for a never-tracked path (git log --all exits 0 with no rows): the
+    # three-valued result the abstain-vs-contradict decision needs (docs/360). None
+    # here → caller abstains; [] → False (never here); a row → True (was here).
+    rows = active_vcs(root=root).history_search(mode="tracked", path=repo_file, limit=1)
+    if rows is None:
         return None
-    if raw.returncode != 0:
-        return None
-    return bool(raw.stdout.strip())
+    return bool(rows)
 
 
 def _probe_path(claim: MemoryClaim, root: Path) -> ClaimEvidence:

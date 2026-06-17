@@ -63,4 +63,15 @@ act on it mechanically.
 - [How to stop two AI agents overwriting each other](how-to-stop-two-ai-agents-overwriting-each-other.md) — the arbiter refuses with the same closed-set discipline.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
+## Also asked as
+
+- how to refuse an agent action with a structured reason instead of free text
+- refuse an agent action with a structured reason not free text
+- give an agent a machine-readable reason for blocking
+- structured refusal vocabulary for agent actions
+- how to say no to an agent in a verifiable way
+- typed refusal reasons instead of prose errors
+- make an agent's blocked reason checkable
+- first-class refusal with a reason code for agents
+
 > The kernel is the part that doesn't believe the agents.

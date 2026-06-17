@@ -62,4 +62,15 @@ premise. Fold the confirmed, route back the rest.
 - [How to make an agent prove it did the work](make-an-agent-prove-the-work-not-self-certify.md) — the same rule on a single agent's keep decision.
 - [FAQ: How is DOS different from agent evals or observability platforms?](../FAQ.md#how-is-dos-different-from-agent-evals-or-observability-platforms)
 
+## Also asked as
+
+- how to verify what a subagent claims before folding its output
+- verify what a subagent claims before folding its output
+- don't trust a subagent's return string check the effect
+- validate a worker agent's claim at the fold step
+- subagent says it did X confirm before merging
+- check a child agent's output before using it
+- witness a subagent's effect instead of believing it
+- fold only confirmed effects from a subagent
+
 > The kernel is the part that doesn't believe the agents.

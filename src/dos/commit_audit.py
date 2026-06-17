@@ -88,11 +88,10 @@ from __future__ import annotations
 
 import dataclasses
 import re
-import subprocess
 from enum import Enum
 from pathlib import Path
 
-_GIT_TIMEOUT_S = 15
+from dos.vcs import active_vcs
 
 
 class ClaimKind(Enum):
@@ -751,33 +750,16 @@ def sweep_summary(verdicts: list[ClaimVerdict]) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Boundary I/O — read a commit's subject + diff facts from git. NOT pure.
+# Boundary I/O — read a commit's subject + diff facts from the VCS backend. NOT pure.
 # ---------------------------------------------------------------------------
 #
-# The git reads happen HERE (the `git_delta`/`liveness` discipline); `classify`
-# above never shells out. `root` is passed EXPLICITLY (never the process-global
+# The VCS reads happen HERE (the `git_delta`/`liveness` discipline); `classify`
+# above never reads history. `root` is passed EXPLICITLY (never the process-global
 # config) so a long-lived caller — the MCP server, a CI runner — gets the right
-# tree. Every failure degrades to a safe value (an empty/abstaining read), never a
-# crash: a non-git dir, a missing binary, a bad ref, a timeout.
-
-
-def _git(root: Path | str, *args: str) -> tuple[int, str]:
-    try:
-        # Decode git output as UTF-8 explicitly: git emits UTF-8 (commit
-        # subjects, author names) but `text=True` alone uses the platform
-        # default (cp1252 on Windows), which raises UnicodeDecodeError on any
-        # non-Latin-1 byte — crashing the audit on a repo with international
-        # contributors. `errors="replace"` keeps a stray byte from aborting the
-        # read; the subject/diff are matched against ASCII markers, so a
-        # replaced byte never changes a verdict.
-        r = subprocess.run(["git", "-C", str(root), *args],
-                           capture_output=True, text=True, check=False,
-                           encoding="utf-8", errors="replace",
-                           timeout=_GIT_TIMEOUT_S,
-                           stdin=subprocess.DEVNULL)  # docs/295
-    except (OSError, subprocess.SubprocessError, UnicodeError):
-        return 1, ""
-    return r.returncode, r.stdout
+# tree. The reads route through `active_vcs(root=…)` (default `GitBackend`; docs/360),
+# so a workspace on a non-git VCS audits its own commits; the UTF-8/error-replace
+# decoding and the fail-to-empty-on-bad-ref contract live in the backend now. Every
+# failure degrades to a safe value (an unreadable commit → None), never a crash.
 
 
 def read_commit(ref: str, *, root: Path | str) -> tuple[CommitClaim, DiffFacts] | None:
@@ -789,44 +771,33 @@ def read_commit(ref: str, *, root: Path | str) -> tuple[CommitClaim, DiffFacts] 
     ``-``/``-`` numstat and are counted as touched files but contribute no line
     delta.
     """
-    rc, sha = _git(root, "rev-parse", "--short", ref)
-    if rc != 0 or not sha.strip():
+    # The commit's identity + subject in one resolve. `commit_meta` returns the SHORT
+    # sha (the `rev-parse --short` shape this has always reported) and the subject; a
+    # ref that does not resolve yields None → unreadable. A commit can carry a
+    # null/absent subject (some imported/malformed history); `commit_meta` yields an
+    # empty subject there, which the rest of this function treats as "no checkable
+    # claim" → ABSTAIN, never a crash.
+    backend = active_vcs(root=root)
+    meta = backend.commit_meta(ref)
+    if meta is None or not meta.sha:
         return None
-    sha = sha.strip()
-    rc, subject = _git(root, "log", "-1", "--pretty=format:%s", ref)
-    if rc != 0:
-        return None
-    # A commit can carry a null/absent subject (some imported or malformed
-    # history does); `%s` then yields nothing and `subject` may be None. Guard
-    # it so a single such commit can't crash a corpus-scale sweep (the rest of
-    # this function treats an empty subject as "no checkable claim" → ABSTAIN).
-    subject = (subject or "").strip()
+    sha = meta.sha
+    subject = (meta.subject or "").strip()
 
-    # numstat: "<added>\t<removed>\t<path>" per file; binary → "-\t-\t<path>".
-    rc, numstat = _git(root, "show", "--numstat", "--format=", "--no-renames", ref)
+    # The per-file numstat (added/removed/path), via the backend's optional diffstat
+    # capability; binary files carry the -1 sentinel (git's `-` marker). A backend
+    # that cannot produce a numstat returns None → no files counted (the safe floor).
+    deltas = backend.commit_diffstat(ref)
     files: list[str] = []
     test_add = test_rem = 0
     have_test_delta = False
-    if rc == 0:
-        for line in numstat.splitlines():
-            line = line.rstrip("\n")
-            if not line.strip():
-                continue
-            parts = line.split("\t")
-            if len(parts) != 3:
-                continue
-            added_s, removed_s, path = parts
-            path = path.strip()
-            if not path:
-                continue
-            files.append(path)
-            if _is_test(path) and added_s != "-" and removed_s != "-":
-                try:
-                    test_add += int(added_s)
-                    test_rem += int(removed_s)
-                    have_test_delta = True
-                except ValueError:
-                    pass
+    if deltas is not None:
+        for d in deltas:
+            files.append(d.path)
+            if _is_test(d.path) and d.added != -1 and d.removed != -1:
+                test_add += d.added
+                test_rem += d.removed
+                have_test_delta = True
 
     diff = DiffFacts(
         files=tuple(files),
@@ -858,15 +829,13 @@ def audit_range(rev_range: str, *, root: Path | str = ".",
     Returns newest-first `ClaimVerdict`s, capped at ``limit`` so a huge range
     can't hang an audit. Empty list on any read failure (the fail-safe floor).
     """
-    rc, out = _git(root, "log", f"-{int(limit)}", "--pretty=format:%H", rev_range)
-    if rc != 0:
-        return []
+    rows = active_vcs(root=root).commits_in_range(
+        rev_range, limit=int(limit), full_sha=True)
     verdicts: list[ClaimVerdict] = []
-    for sha in out.splitlines():
-        sha = sha.strip()
-        if not sha:
+    for row in rows:
+        if not row.sha:
             continue
-        v = audit_commit(sha, root=root, policy=policy)
+        v = audit_commit(row.sha, root=root, policy=policy)
         if v is not None:
             verdicts.append(v)
     return verdicts

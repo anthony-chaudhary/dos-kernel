@@ -59,4 +59,13 @@ green doesn't substitute for shipped.
 - [How to prove a phase or feature actually shipped from git history](prove-a-phase-shipped-from-git-history.md) — the verify verb in depth.
 - [FAQ: How is DOS different from agent evals or observability platforms?](../FAQ.md#how-is-dos-different-from-agent-evals-or-observability-platforms)
 
+## Also asked as
+
+- CI passed but the feature isn't there how to catch that
+- green CI but the feature was never implemented
+- pipeline is green yet the work is missing
+- CI green but nothing actually shipped
+- passing CI doesn't mean the feature exists how to verify
+- feature absent despite a passing build
+
 > The kernel is the part that doesn't believe the agents.

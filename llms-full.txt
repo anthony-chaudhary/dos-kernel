@@ -207,8 +207,38 @@ change it.
 
 The trouble is you launched the agents and then let them grade their own
 homework. DOS gives you the missing signal — a verdict from ground truth — so
-the loop closes (the loop-hero figure above is exactly this: believe the
-narration on the left, steer on a verdict on the right).
+the loop closes. Here is the same fleet under both regimes:
+
+<!-- Don't reference the diagram's left/right in prose. Mermaid decides where
+     disconnected subgraphs land (GitHub stacks them vertically), so a positional
+     caption is a claim about a render nobody verified — name the subgraph
+     titles instead; those travel with the boxes wherever the renderer puts
+     them. -->
+<details open>
+<summary>The two regimes as a flowchart — <strong>NO REFEREE:</strong> you believe the narration; <strong>DOS ADJUDICATES:</strong> you steer on a verdict</summary>
+
+```mermaid
+flowchart LR
+  subgraph OPEN["NO REFEREE — you believe the narration"]
+    direction TB
+    A1["agent: 'done!'"] --> B1[["believed"]]
+    A2["agent: 'done!'"] --> B1
+    A3["agent: 'done!'"] --> B1
+    B1 --> C1["silent corruption piles up<br/>(lies · collisions · spin)"]
+    C1 --> D1["'sorta works' — can't be changed"]
+  end
+  subgraph CLOSED["DOS ADJUDICATES — you steer on a verdict"]
+    direction TB
+    A4["agent: 'done!'"] --> V{{"dos verify<br/>reads git"}}
+    V -->|in git ancestry| S["SHIPPED (exit 0)"]
+    V -->|found nowhere| N["NOT_SHIPPED (exit 1)"]
+    S --> L["land it"]
+    N --> R["re-dispatch / flag — caught"]
+    R -.verdict steers the loop.-> A4
+  end
+```
+
+</details>
 
 Here are the failures a fleet actually produces, each next to the ground truth
 that quietly contradicts the worker's story — and the verdict DOS hands back:
@@ -230,16 +260,78 @@ what makes it cheap to adopt: `verify` needs no plan, no registry, no config,
 and the exit code *is* the verdict — any shell or CI step can branch on it
 without parsing a word.
 
-You adopt it through whichever surface matches how you already work — an MCP
-host, your agent's runtime hooks, a bare exit-code check, Python, or your fleet
-framework — and it works on a plain `git init` with zero config, getting smarter
-the more you tell it. Both axes — *how deep your config goes* and *how you call
-the referee* — are laid out, surface by surface, in
-**[Wire it in](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/guide/wire-it-in.md)**. The verbs the table above names
-(`arbitrate`, `scope-gate`, `liveness`) are each in the
-[syscall + CLI reference](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/guide/cli-reference.md).
+<sub>*Prefer to watch it move?* The two loops are also a self-contained animation you
+step through one frame at a time — clone the repo and open
+[`docs/assets/loop_visual.html`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/assets/loop_visual.html) in a browser. (It's an
+HTML file, so GitHub shows its source rather than running it — open it locally.)</sub>
 
-*Next level up — wire the verdict into your own stack: [Wire it in](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/guide/wire-it-in.md).*
+**Lease scope — single filesystem today.** The verification half (`verify`,
+`commit-audit`, `liveness`) travels across machines freely because it reads git
+history. The admission half (`arbitrate`, lane leases) is local-filesystem only:
+the WAL lives on one disk, and workers on separate machines share no
+serialization point. A fleet that runs all its workers on one machine or in one
+shared filesystem is fully covered; a fleet spanning multiple hosts should treat
+`dos arbitrate` as advisory (not a hard mutex) until a remote-lease driver
+ships. See [docs/366](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/366_single-filesystem-lease-boundary.md) for the
+design.
+
+### How far you take it
+
+It works on a plain `git init` with zero config, and gets smarter the more you
+tell it. You don't adopt a framework and pick a tier; you start at the shallow
+end and it keeps paying off as you wade deeper — the same kernel the whole way:
+
+- **Zero config.** Point `dos verify PLAN PHASE` at a plain git
+  repo — no plan, no registry, no `dos.toml`. It answers from commit history
+  alone (`via grep-subject` / `via none`). This is the whole of
+  [QUICKSTART](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/QUICKSTART.md) and the day-one CI win above.
+- **Tell it your structure.** `dos init` writes a `dos.toml` (lanes, paths,
+  ship grammar as data); add a plan doc and `dos plan` lays each phase's
+  *claim* beside the oracle's verdict. Here's [exactly what a plan file looks
+  like](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/plans/example-plan.md) (copyable, round-trips with the built-in
+  reader), and four worked [example workspaces](https://github.com/anthony-chaudhary/dos-kernel/tree/master/examples/workspaces).
+- **Teach it your own types.** Declare your own block reasons, gate
+  verdicts, output renderers, admission predicates, a model-backed judge, a
+  custom plan dialect, or a whole host driver — all as workspace policy,
+  never a fork. The map is **[docs/HACKING.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/HACKING.md)** (seven extension
+  axes) + the copy-me **[`examples/dos_ext/`](https://github.com/anthony-chaudhary/dos-kernel/tree/master/examples/dos_ext)**.
+
+### How you plug it in
+
+That slope is how deep your config goes. The other axis is how you call the
+referee at all — and you adopt through whichever surface matches how you
+already work, not by restructuring your stack. The same kernel verdicts are
+reachable through every row here, lowest-friction first:
+
+| Surface | Adopt it when… | The move |
+|---|---|---|
+| **MCP server** | you drive an agent through an MCP host (Claude Desktop, Cursor, Cline, an Agent-SDK app) | add one line to the host config (`{ "command": "dos-mcp" }`) and ask the agent to `dos_verify` its own last claim — **zero code**. The *advisory* path (the agent asks). See [Give your agent a lie detector](#give-your-agent-a-lie-detector-mcp). |
+| **Runtime hooks** | you run an agent loop (Claude Code, Cursor, Codex CLI, Gemini CLI) and want the verdict to *act*, not just be available | `dos init --hooks <runtime>` wires the verdict into that host's own hook config — a refused call is **denied before it runs**, a false "done" is **refused**. The *enforcement* path (the host denies). One command, no hand-edited YAML. See [QUICKSTART](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/QUICKSTART.md) + [docs/221](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/221_the-cross-vendor-hook-installer.md). |
+| **CLI exit-code** | you have *any* command-running environment — a CI step, a `pre-push` hook, or an agentic CLI like **aider** whose lint/test-cmd trusts a "done" | branch on a `dos` verb's exit code (`dos verify`: `0` shipped / `1` not; `dos commit-audit`: `0` clean / `1` over-claim) — **the verdict *is* the exit code**, no hook adapter and no MCP client. The honest tier for hook-less hosts (Windsurf, Warp, Zed). The [exit-code tier cookbook](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/cookbook-exit-code-tier.md). |
+| **Python API** | your dispatcher/orchestrator is already Python | `import dos` and call the pure syscalls (`dos.oracle.is_shipped`, `dos.arbiter.arbitrate`, …) — state-in / verdict-out, no subprocess. The [Python cookbook](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/cookbook-python-api.md). |
+| **Fleet framework** | your fleet already runs on LangGraph, CrewAI, AutoGen, or the OpenAI/Claude Agents SDK | bolt the referee onto the framework's own seam — a referee node, a termination condition only git can satisfy, an output guardrail with a git tripwire. One function, no rewrite; every seam executed against the real framework. The [fleet-framework cookbook](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/cookbook-fleet-frameworks.md). |
+| **Swarm runtime** | your agents run on **Hermes, OpenClaw**, or a SwarmClaw-style autonomous swarm — privileged tools, shared memory docs / task boards, and **no lock manager** for either | drop a two-function adapter into the tool-execution loop: `guard_action` refuses an arbitrary-exec command **before it runs**, and `acquire_lease` / `release_lease` bracket each shared-state write so the lost update never lands. No `import dos` — it shells the CLI; Hermes' `pre_tool_call` hook also speaks DOS natively (`dos hook pretool --dialect hermes`). The runnable, A/B-measured [Hermes / OpenClaw worked example](https://github.com/anthony-chaudhary/dos-kernel/tree/master/examples/hermes_integration) + [docs/278](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/278_integrating-dos-with-hermes-and-openclaw-the-missing-lock-manager-for-agent-swarms.md). |
+| **Skill pack** | you run agents in Claude Code and want the workflow, not just the verdict | `dos init --skills` drops editable `SKILL.md` screenplays that wire the syscalls into a snapshot → audit → gate → take-a-lane loop. See [QUICKSTART §2](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/QUICKSTART.md). |
+| **Driver** | your lanes must be *computed*, or you add a provider-backed judge | write one `dos/drivers/<host>.py` (a `LaneTaxonomy` + a config factory), loaded by name, never imported by the kernel. The map is [HACKING.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/HACKING.md). |
+
+The two axes are independent: a zero-config repo can adopt through any surface,
+and a deeply-configured one still answers over the same CLI and MCP tools.
+Start at the top row — it's the one that costs nothing to try. The first two
+rows also compose: MCP advises (the agent checks its own work), hooks enforce
+(the host stops a bad action) — wire both for the full loop.
+
+Those surfaces are the upstream half of the value chain — who calls the
+referee. The same verdicts also flow downstream, to the systems that act on
+them: every adjudication lands in a verdict journal that `dos export` drains to
+your observability stack (Datadog / Honeycomb / Grafana —
+[docs/266](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/266_the-verdict-exporter-shipping-the-journal-to-where-dashboards-live.md)),
+`dos notify` pushes what-needs-a-human to Slack, `dos reward` gates what a
+fine-tune may train on, and `dos attest` mints a signed receipt a skeptic can
+check without loop access
+([docs/246](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/246_dos-attest-the-portable-signed-receipt.md)). One kernel, one
+verdict vocabulary, from the agent's tool call to your dashboard.
+
+*Next level up — run it every day: [Operating a fleet](#operating-a-fleet).*
 
 ## Citation
 
@@ -2843,6 +2935,30 @@ edit to one is never an edit to the substrate:
   *adjudication* can branch on which vendor is acting — a dialect is OUTPUT chosen by
   `--dialect`, strictly downstream of an already-decided verdict. Pinned by
   `tests/test_vendor_agnostic_kernel.py` + `tests/test_hook_dialect.py`.
+- **The kernel reads VCS only through `dos.vcs`.** Every commit/ancestry/ship-stamp/
+  working-tree read the kernel makes goes through a `VcsBackend` (docs/379), the
+  evidence-gathering analogue of the judge/dialect/overlap seams. The kernel seam
+  `dos.vcs` holds the `VcsBackend` Protocol + the value types (`Commit`/`FileDelta`/
+  `WorkingTree`) + the by-name `resolve_vcs`/`active_vcs` + TWO unshadowable built-ins:
+  `GitBackend` (the default — the existing git reads, lifted verbatim) and `NullVcs`
+  (the honest-empty no-VCS fallback, the `AbstainJudge` analogue). **Git is NOT a
+  vendor the bulkhead forbids** — it is the kernel's ground-truth substrate, so its
+  default backend ships IN the kernel beside the protocol (unlike a ruling judge or a
+  non-default dialect). An *alternative* backend (Mercurial / Sapling / a remote-API
+  reader) names its VCS as code, so it lives in a **driver** and registers through the
+  `dos.vcs` entry-point group — the same kernel/driver split as `judges`/`overlap`/
+  `hook_dialect`. The contract that keeps a swappable evidence source honest is
+  thin-&-policy-free (a backend returns raw facts, never parses a subject against the
+  ship grammar — that stays in `dos.stamp`) + fail-to-EMPTY (a read that can't answer
+  returns `[]`/`None`, never raises; the CALLER keeps its own failsafe — `git_delta`'s
+  permissive-empty, `resume_evidence`'s fail-closed `False`, all preserved) +
+  three-valued where the truth is (`is_ancestor → bool|None`, so `memory_recall`'s
+  UNKNOWN abstention survives). The backend NAME is `SubstrateConfig.vcs_backend`
+  (`dos.toml [vcs] backend`, default `git`), carried across the one subprocess boundary
+  (`oracle → phase_shipped --batch`) by `ENV_VCS_BACKEND` exactly as the stamp
+  convention is. AST-pinned: no `src/dos/*.py` outside `vcs.py`/`drivers/`/`cli.py`
+  contains a `subprocess.run(["git", …])` (`cli.py` is the layer-3 boundary shell where
+  direct I/O is sanctioned). Pinned by `tests/test_vcs_layering.py` + `tests/test_vcs.py`.
 - **A shipped generic skill names no host.** No `SKILL.md` under
   `src/dos/skills/` may name a host directory (`docs/_plans`, `output/next-up`), a
   host lane (`apply`/`tailor`/`discovery`), or a host commit prefix (`docs/dispatch:`)
@@ -2869,8 +2985,8 @@ edit to one is never an edit to the substrate:
 | `reward()` | `dos.reward` (join: `dos.effect_witness` → `dos.evidence`) | the **reward-set admission verdict** (docs/230/234) — "may a fine-tune *train* on this trajectory?" The on-ramp that puts the deterministic floor *inside a training loop*: `admit(claim_present, readbacks) -> ACCEPT / REJECT_POISON / ABSTAIN / NO_CLAIM`. `effect_witness`'s lab-facing consumer — a self-judged sampler banks every "resolved" claim as a positive (training the policy to over-claim more); this purges the poison a non-forgeable witness REFUTES (the dispreferred DPO member). The **non-distillable label**: the accept bit is a pure function of the witness the agent authors zero bytes of, so no answer text can move it reject→accept (inherits `believe_under_floor`; a forgeable read-back is structurally ignored). PURE, no I/O, names no host (the claim extractor + witness are the host's). Advisory. CLI: `dos reward --claim --witness {confirm,refute,none} [--forgeable]` (ACCEPT 0 / REJECT_POISON 3 / ABSTAIN 4 / NO_CLAIM 5). |
 | `model_health()` / `model_reroute` | `dos.model_health`, `dos.provider_limit` (driver: `dos.drivers.model_reroute`) | the **per-MODEL fleet-death rollup + reroute heal** (docs/272 neighborhood) — "which model is down across the children and grandchildren, and what do I route AWAY from?" `model_health` is a PURE fold over already-adjudicated `result_state` death verdicts + a boundary reader that walks ONE session JSONL, builds the sub-agent tree by `parentUuid` depth, and attributes each `MODEL_UNAVAILABLE` death to the model NAME parsed from its own (un-forgeable) error text. `provider_limit` is the heal-taxonomy that splits a MODEL being down/suspended from an account-budget window. ADVISORY (PDP): it REPORTS `reroute_targets`; the `model_reroute` DRIVER (the only home for a model roster) PROPOSES a sibling and ESCALATEs a policy-suspended model (#140) — neither launches a worker. The kernel half of the safe heterogeneous-fleet migration story; the floor-still-catches-a-stronger-model proof is docs/272. CLI: `dos model-health --session T` (healthy 0 / model_down 3) · `dos model-reroute --roster …` (healed 0 / escalate 5). |
 | `refuse(reason_class)` | `dos.wedge_reason`, `dos.picker_oracle` (vocabulary: `dos.reasons`) | **structured refusal** — a closed reason vocabulary, simultaneously emittable, verifiable, refusable. The reason set is `SubstrateConfig.reasons` (a `dos.reasons.ReasonRegistry`, base `BASE_REASONS`), declarable per-workspace in `dos.toml` `[reasons]`. |
-| `lease()` / `arbitrate()` | `dos.arbiter` | the **pure admission kernel** — `arbitrate(request, live_leases, config) -> decision`, state-in / decision-out, no I/O. |
-| `spawn()` / `reap()` | `dos.run_id`, `dos.lane_journal` | the **correlation spine** (sortable, lineage-carrying run-ids) + the lease **write-ahead log**. |
+| `lease()` / `arbitrate()` | `dos.arbiter` | the **pure admission kernel** — `arbitrate(request, live_leases, config) -> decision`, state-in / decision-out, no I/O. **Scope:** the lease WAL is a local filesystem file; workers on separate machines that share only a git remote have no common serialization point — cross-machine mutual exclusion requires a remote-lease driver (docs/366, not yet shipped). |
+| `spawn()` / `reap()` | `dos.run_id`, `dos.lane_journal` | the **correlation spine** (sortable, lineage-carrying run-ids) + the lease **write-ahead log** (local filesystem only — see `lease()` scope note above). |
 | `pickable()` / `enumerate()` / `cooldown()` / `reconcile()` | `dos.pickable`, `dos.enumerate`, `dos.cooldown`, `dos.reconcile` (grammar: `dos.toml` `[enumerate]`/`[cooldown]`/`[lifecycle]`) | the **picker substrate** (docs/168 + docs/207) — the producers/gates that decide *is there anything pickable, why-not, have I tried it, and did the claim hold?* `enumerate` produces the `declared` phase set; `pickable` is the pre-dispatch gate (OFFERABLE / HELD); `cooldown` is the anti-churn fold over `OP_ATTEMPT` (CLEAR / RECENTLY_ATTEMPTED — the cross-run memory breaking the re-pick storm); `reconcile` is the quiet-completion join (VERIFIED / QUIET_INCOMPLETE / HONEST_OPEN, fail-closed on the claim). All PURE; reads at the CLI boundary. CLI: `dos pickable`/`enumerate`/`cooldown`/`reconcile`. |
 | `notify()` | `dos.notify` (transport: a `dos.notifiers` driver, e.g. `dos.drivers.notify_slack`) | the **notification spine** (docs/225) — "push *what needs a human* / *what's running* to where the operator is (Slack first)." NOT a verdict: the FOURTH pure-protocol + by-name-resolver seam, on the DELIVERY side. Two PURE adapters turn the `decisions`/`dispatch_top` projections into one transport-agnostic `Notification`; `send_safely` delivers FAIL-SOFT (a transport raise → a non-delivered result, never a crashed producer); the built-in `null` sink is the safe default. Advisory (docs/99): reads a projection → push; takes no lease, stops no run. CLI: `dos notify {decisions,top} [--notifier slack --channel NAME] [--dry-run] [--json]`. |
 | `lint()` | `dos.config_lint` (algebra: `dos._tree`) | the **config-integrity linter** (docs/227, G1 from docs/189) — "is there *dead policy* in this workspace's own declarations?" A PURE `lint(LaneTaxonomy, ReasonRegistry) -> tuple[Finding, ...]`, the `detectUnreachableRules` analogue. Finds a treeless lane, a concurrent∩exclusive contradiction, a dangling autopick/alias/`see_also` target, an order-sensitive roster, and the real unreachable-rule case — a concurrent lane whose region is a strict subset of another's (`LANE_REGION_SHADOWED`). SHADOW (subset → remove) vs OVERLAP (intersection → disjoin) is the load-bearing split. Typed `Finding` (closed `LintKind` + `Severity`). Advisory. CLI: `dos lint [--strict] [--json]` (0 clean / 1 error-or-warn), folded into `dos doctor --check`. |
@@ -3061,6 +3177,7 @@ dos`; nothing under `src/dos/` imports them): release/dev tooling (`scripts/`,
 - The kernel never imports a judge implementation — ruling judges are drivers, resolved by name; fail-to-abstain.
 - An overlap policy can only refuse-MORE — AND-ed under the prefix-disjointness floor.
 - The kernel names no vendor in code — dialect renderers beyond the built-in `claude-code` default are drivers; a dialect is output, downstream of the verdict.
+- The kernel reads VCS only through `dos.vcs` — no kernel module outside `vcs.py`/`drivers/`/`cli.py` shells `git`; evidence-gatherers call `active_vcs(root=…)`. Git is the in-kernel default `GitBackend` (not a vendor — it's the ground-truth substrate); a Mercurial/Sapling/remote backend is a driver under the `dos.vcs` entry-point group; `NullVcs` is the honest-empty no-VCS fallback (docs/379).
 - A shipped generic skill names no host — host specifics come from `dos doctor --json` / `dos.toml`.
 
 The litmus-to-test mapping and full arguments: ARCHITECTURE.md.
@@ -3205,6 +3322,45 @@ This doc is the *how-to* those two motivate.
 | **Workflow** — the *screenplay* that sequences the syscalls (`/dos-next-up`, `/dos-dispatch`, `/dos-replan`, …) | a `SKILL.md` in the shipped skill pack (`dos/skills/`), customized via the data tables above | The order "snapshot → audit via `verify` → render → `gate` → take a lane → archive" is domain-free; only the paths/lanes/grammar it reads are policy, and those are already `dos.toml` data. So the workflow ships as prose that shells `dos` verbs, not code. |
 
 The rule of thumb: **data in `dos.toml`, behavior in `entry_points`, provider surface in a driver, workflow in a shipped skill.**
+
+### Every pluggable seam, in one table
+
+The behavior/driver rows above are not three seams but **one pattern applied to ~18
+entry-point groups**. Each follows the identical shape — `resolve_X(name)` → built-ins
+first (unshadowable) → `entry_points(group="dos.X")` by name → fail-loud (selectors) or
+fail-soft (advisory occupants). To extend any of them: ship a small pip package, register
+one entry point, `pip install`. The kernel never imports your package; it discovers it by
+name at the call boundary.
+
+`dos plugins` prints this table live (with what's installed); `dos plugin new <seam>
+--name <yours>` scaffolds a correct stub. The authoritative roster (with the stability
+floor) is [`STABILITY.md`](STABILITY.md).
+
+| Group | Axis | Occupant contract | Safety invariant | I/O? |
+|---|---|---|---|---|
+| `dos.drivers` | 1 — host policy | `<name>_config(workspace) -> SubstrateConfig` | selector → fail-loud; in-tree packs unshadowable; kernel attaches workspace facts | pure |
+| `dos.judges` | 6 — adjudicators | `Judge.rule(claim, config) -> JudgeVerdict` | advisory; FAILS TO ABSTAIN (never auto-AGREE) | I/O |
+| `dos.predicates` | 3 — admission | `AdmissionPredicate.check(request, config)` | CONJUNCTIVE-ONLY — can only REFUSE, never force-admit | pure |
+| `dos.overlap_policies` | 7 — disjointness | `OverlapPolicy.overlap(a, b) -> float` | AND-ed UNDER the prefix floor — only ever STRICTER | pure |
+| `dos.renderers` | 4 — presentation | `Renderer.render(verdict) -> str` | PURE presentation — decides nothing, mutates nothing | pure |
+| `dos.exporters` | — observability | `Exporter.export(events) -> ExportResult` | FAIL-SOFT — never crashes the observed verb | I/O |
+| `dos.notifiers` | — notification | `Notifier.send(note) -> NotifyResult` | FAIL-SOFT — a dead transport never crashes a verb | I/O |
+| `dos.evidence_sources` | — witness | `EvidenceSource.gather(subject, config)` | believe-UNDER-floor; FAIL-SAFE to NO_SIGNAL | I/O |
+| `dos.enforce_handlers` | — actuation | `EnforcementHandler.handle(event)` | advisory side-effects; never overrides allow/deny | I/O |
+| `dos.hook_dialects` | — host output | `HookDialect.render(verdict) -> dict` | OUTPUT downstream of the verdict — formats, never decides | pure |
+| `dos.hook_installs` | — host wiring | `HostHookSpec` | install-spec data; `claude-code` default unshadowable | pure |
+| `dos.plan_sources` | — planning | `PlanSource.plans() -> list` | FAIL-TO-EMPTY — a broken source never crashes a sweep | I/O |
+| `dos.stop_policies` | — loop halt | `StopPolicy.decide(...)` | AND-ed UNDER the `resource_blocked` floor — only ADDs a halt | I/O |
+| `dos.log_sources` | — log routing | `LogSource` | pure routing by accountability | I/O |
+| `dos.scope_sources` | — completion mode | `ScopeSource` | pure selection | pure |
+| `dos.memory_stores` | — memory | `MemoryStore` | READ-ONLY; `file` store unshadowable | I/O |
+| `dos.vcs` | — version control | `VcsBackend(root)` | `git`/`null` unshadowable; READS history only | I/O |
+| `dos.mcp_tools` | — MCP surface | `register(mcp)` or a bare tool callable | ADDITIVE — adds a verb, never replaces a built-in | I/O |
+
+The "I/O?" column is the litmus for *where* an occupant lives: a **pure** occupant may be a
+plain entry-point class; an **I/O** occupant (a provider, network, subprocess, disk) lives
+in a `drivers/` module the kernel points to but never imports. Either way the kernel stays
+pure — the I/O is downstream of the verdict, behind the resolver.
 
 > **Calling vs. extending — the MCP server (`docs/80_*`).** The four rows above
 > are how you *extend* DOS. A different axis is how an **agent** *calls* it: the
@@ -3443,16 +3599,31 @@ shape. A driver is exactly **two pieces**, the same two `job` has:
 > applies even here: the facts are gathered once at config-build time so the pure
 > `arbitrate` verdict stays workspace-aware without re-probing the disk.
 
-**The by-convention loader (`dos --driver <name>`).** The CLI resolves a driver by
-name, never by a hardcoded host string: `dos --driver <name>` imports
-`dos.drivers.<name>` and calls its `<name>_config(workspace)`
-(`_resolve_driver_config`, `src/dos/cli.py:45`). So a new host is a single module
-under `src/dos/drivers/` and the CLI (a layer-3 helper) never learns its name —
-the same one-way arrow the kernel obeys. `--job` is just the back-compat spelling
-of `--driver job`. A dotted or path-y name (`foo.bar`, `../evil`) is rejected up
-front as "unknown" (a path-traversal guard), and a `ModuleNotFoundError` from a
-driver's own *broken internal import* is re-raised, never masked as "no such
-driver" — a genuine bug in your driver fails loud.
+**The by-name loader (`dos --driver <name>`).** The CLI resolves a driver by name,
+never by a hardcoded host string, through the `dos.drivers_seam` resolver
+(`_resolve_driver_config`). Resolution is the same built-in-first shape every seam
+shares: it tries the **in-tree** `dos.drivers.<name>` module + `<name>_config(workspace)`
+FIRST (unshadowable — a third-party `workshop` can't displace the reference one), then
+falls through to the **`dos.drivers` entry-point group**. So a new host is EITHER a module
+under `src/dos/drivers/` OR — and this is the part that no longer requires a fork — an
+entry point in your **own pip package**:
+
+```toml
+# in your package's pyproject.toml
+[project.entry-points."dos.drivers"]
+acme = "acme_pkg:acme_config"     # points DIRECTLY at the factory
+```
+
+After `pip install`, `dos --driver acme` resolves it by name; the CLI (a layer-3 helper)
+never learns the name, and the kernel never imports your package — the same one-way arrow
+the kernel obeys. `--job` is the back-compat spelling of `--driver job`. A dotted or path-y
+name (`foo.bar`, `../evil`) is rejected up front as "unknown" (a path-traversal guard on
+the in-tree branch; entry-point names like `acme-driver` are matched literally and may
+carry a hyphen). A `ModuleNotFoundError` from a driver's own *broken internal import* is
+re-raised, never masked as "no such driver" — a genuine bug in your driver fails loud. The
+resolver also attaches workspace facts if your factory left them unset, so the SELF_MODIFY
+guard scope stays kernel-owned. The reference third-party pack is
+[`examples/dos_ext/dos_ext/driver.py`](../examples/dos_ext/dos_ext/driver.py) (`acme`).
 
 ```bash
 # the same two pieces a [lanes] table declares, but the config is built in code:
@@ -4324,6 +4495,7 @@ leaves.
 
   | Entry-point group | Contract | Kernel seam module |
   |---|---|---|
+  | `dos.drivers` | `<name>_config(workspace) -> SubstrateConfig` factory | `dos.drivers_seam` |
   | `dos.judges` | `Judge` Protocol | `dos.judges` |
   | `dos.predicates` | `AdmissionPredicate` Protocol | `dos.admission` |
   | `dos.overlap_policies` | `OverlapPolicy` Protocol | `dos.overlap_policy` |
@@ -4339,6 +4511,8 @@ leaves.
   | `dos.enforce_handlers` | `EnforcementHandler` Protocol | `dos.enforce` |
   | `dos.hook_installs` | `HostHookSpec` spec | `dos.hook_install` |
   | `dos.memory_stores` | `MemoryStore` Protocol | `dos.memory_stores` |
+  | `dos.vcs` | `VcsBackend(root)` backend | `dos.vcs` |
+  | `dos.mcp_tools` | `register(mcp)` registrar or a bare tool callable | `dos_mcp.server` |
 
 - **The `dos.toml` schema.** A declared key keeps its meaning; new keys are
   additive; an unknown key keeps failing loud where it does today.
@@ -4571,6 +4745,14 @@ limits before relying on DOS:
   trusted policy from the workspace operator. Running DOS against a workspace whose
   `dos.toml` or installed entry-point plugins you do not control is equivalent to
   running untrusted configuration/code — don't.
+- **Lease coordination is local-filesystem only.** The lane-lease WAL and its
+  O_EXCL mutex live on one disk. Workers on separate machines that share only a
+  git remote have no common serialization point for `arbitrate` — two hosts can
+  each be granted the same lane simultaneously. The *verification* half (`verify`,
+  `commit-audit`, `liveness`) travels across machines fine because it reads git
+  history; the *admission* half does not. Do not rely on `dos arbitrate` for
+  cross-machine mutual exclusion until a remote-lease driver exists. See
+  [docs/366](docs/366_single-filesystem-lease-boundary.md).
 - **It's pre-1.0.** Interfaces and guarantees can change.
 
 ## Dependencies
@@ -5839,6 +6021,17 @@ covers.
 - [How to avoid an AI-citation sanction](largest-ai-hallucination-sanction-how-to-avoid.md) — the failure class this duty guards against.
 - [FAQ: Does DOS need an LLM or an API key?](../FAQ.md#does-dos-need-an-llm-or-an-api-key)
 
+## Also asked as
+
+- does ABA Opinion 512 require me to verify AI-generated citations
+- a lawyer's duty to verify AI-generated case law citations
+- does ABA Opinion 512 require me to verify AI citations
+- ABA 512 duty to check AI-generated citations
+- lawyer's duty to verify AI case law under ABA 512
+- what does ABA Formal Opinion 512 say about AI citations
+- am I required to verify AI citations ABA guidance
+- ABA 512 and AI citation verification duty
+
 > The kernel is the part that doesn't believe the agents.
 
 <!-- ====== answer: docs/answers/add-a-trust-gate-with-only-exit-codes.md ====== -->
@@ -6002,6 +6195,15 @@ reach PyPI at runtime.
 - No plugin system at all? Wire a `dos` verb's exit code instead: [how to add a guardrail to a coding agent with no plugin system](how-to-add-a-guardrail-to-a-coding-agent-with-no-plugin-system.md)
 - The bundle's contents and the `python -m` choice: [claude-plugin/README.md](../../claude-plugin/README.md)
 
+## Also asked as
+
+- add the DOS plugin to a private company Claude Code marketplace
+- install DOS in an internal plugin marketplace
+- deploy the dos-kernel plugin to a company gallery
+- private marketplace setup for the DOS plugin
+- ship DOS to my org's internal Claude Code marketplace
+- host the DOS plugin in a private company registry
+
 <!-- ====== answer: docs/answers/agent-claimed-it-fixed-the-bug-but-it-didnt.md ====== -->
 
 # My AI agent claimed it fixed the bug, but it didn't
@@ -6061,6 +6263,18 @@ bug, and require that test to go red→green.
 - [`benchmark/BENCHMARKS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/BENCHMARKS.md) — every benchmark, with a $0 offline arm.
 - [My agent said "all tests pass" but the app is broken](ai-agent-said-tests-pass-but-app-is-broken.md) — the sibling failure.
 - [FAQ: How do I verify an AI agent actually did what it claims?](../FAQ.md#how-do-i-verify-an-ai-agent-actually-did-what-it-claims)
+
+## Also asked as
+
+- my AI agent claimed it fixed the bug but it didn't
+- agent says bug fixed but it's still broken
+- verify an agent actually fixed the bug
+- agent reports a fix that didn't work how to catch
+- is the bug really fixed or did the agent just say so
+- agent's fix claim is false how do I detect it
+- Cursor claimed it fixed the bug but it didn't
+- Copilot says fixed but the bug is still there
+- Claude Code reported a fix that didn't work
 
 > The kernel is the part that doesn't believe the agents.
 
@@ -6125,6 +6339,16 @@ premise. Fold the witnessed, route back the rest.
 - [`benchmark/BENCHMARKS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/BENCHMARKS.md) — every benchmark, with a $0 offline arm.
 - [How to verify what a subagent claims before folding its output](verify-what-a-subagent-claims-before-folding.md) — the same rule at the fold barrier.
 - [FAQ: How is DOS different from agent evals or observability platforms?](../FAQ.md#how-is-dos-different-from-agent-evals-or-observability-platforms)
+
+## Also asked as
+
+- how do agents prove to each other that work actually landed
+- how do agents prove to each other that work landed
+- agent-to-agent trust without believing claims
+- let one agent verify another agent's work
+- proof of work between cooperating agents
+- A2A verification that a task actually completed
+- agents corroborate each other's effects not words
 
 > The kernel is the part that doesn't believe the agents.
 
@@ -6197,6 +6421,19 @@ turn the build green by erasing the thing that was protecting you.
 - [My agent said "all tests pass" but the app is broken](ai-agent-said-tests-pass-but-app-is-broken.md) — the non-adversarial sibling.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
+## Also asked as
+
+- my AI agent deleted my tests to make the build pass
+- agent removed failing tests instead of fixing the code
+- coding agent gamed the build by deleting tests
+- catch an agent that drops tests to go green
+- agent weakened the test suite to pass how to detect
+- agent deleted assertions to make tests pass
+- stop an agent from gutting tests for a green build
+- Cursor deleted my tests to make the build pass
+- Copilot removed failing tests instead of fixing
+- Claude Code dropped tests to go green
+
 > The kernel is the part that doesn't believe the agents.
 
 <!-- ====== answer: docs/answers/ai-agent-said-tests-pass-but-app-is-broken.md ====== -->
@@ -6266,6 +6503,21 @@ feature is right.
 - [AI agent deleted my tests to make the build pass](ai-agent-deleted-my-tests-to-pass-the-build.md) — the adversarial sibling.
 - [FAQ: How do I verify an AI agent actually did what it claims?](../FAQ.md#how-do-i-verify-an-ai-agent-actually-did-what-it-claims)
 
+## Also asked as
+
+- my AI agent said all tests pass but the app is still broken
+- my AI agent said all tests pass but the app is broken
+- tests are green but the feature doesn't work
+- agent reports passing tests yet nothing works
+- why does my app break when the agent says tests pass
+- agent claims tests pass app still fails how to catch
+- green tests broken app what's the gap
+- trust passing tests from an AI agent or not
+- agent's tests pass but the behavior is wrong
+- Cursor said tests pass but the app is broken
+- Copilot reports green tests but nothing works
+- Claude Code says all tests pass app still fails
+
 > The kernel is the part that doesn't believe the agents.
 
 <!-- ====== answer: docs/answers/ai-agents-that-game-swe-bench-benchmark-cheating.md ====== -->
@@ -6330,6 +6582,16 @@ talking.
 - [`benchmark/BENCHMARKS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/BENCHMARKS.md) — every benchmark, with a $0 offline arm.
 - [Reward hacking in LLM coding agents](reward-hacking-in-llm-coding-agents.md) — the same defense in a training loop.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
+
+## Also asked as
+
+- AI agents that game SWE-bench how to catch benchmark cheating
+- AI agents that game SWE-bench how to catch the cheating
+- benchmark cheating by coding agents
+- how do agents overfit or game SWE-bench
+- detect an agent gaming a coding benchmark
+- SWE-bench gaming what it looks like and how to stop it
+- agents memorizing benchmark answers how to catch
 
 > The kernel is the part that doesn't believe the agents.
 
@@ -6414,6 +6676,16 @@ by construction, and the verdict says so before it ever banks a green suite.
 - [The incident: the AI wrote tests that test nothing](../incidents/the-ai-wrote-tests-that-test-nothing.md) — the same failure as a story.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
+## Also asked as
+
+- my AI writes tests that pass but test nothing
+- AI generated tests that always pass and assert nothing
+- AI generated tests that pass but test nothing
+- AI tests that always pass and assert nothing
+- tests that pass without checking anything from an agent
+- agent's tests are green but assert nothing
+- vacuous passing tests from an AI agent
+
 > The kernel is the part that doesn't believe the agents.
 
 <!-- ====== answer: docs/answers/ai-mocks-everything-tests-are-useless.md ====== -->
@@ -6497,6 +6769,15 @@ before it ever counts as coverage.
 - [100% coverage but the tests are worthless](coverage-is-green-but-tests-are-worthless.md) — why coverage doesn't catch this.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
+## Also asked as
+
+- my AI agent mocks everything and the tests are useless
+- agent over-mocks so the tests prove nothing
+- AI mocks the whole thing tests are meaningless
+- too much mocking by an agent how to detect
+- agent's tests mock away the real behavior
+- useless tests because the agent mocked everything
+
 > The kernel is the part that doesn't believe the agents.
 
 <!-- ====== answer: docs/answers/are-my-ai-generated-tests-real.md ====== -->
@@ -6578,6 +6859,16 @@ question, and it catches the lie that matters most: a test that can't fail.
 - [Why you can't trust a model to judge its own work](why-you-cant-trust-a-model-to-judge-its-own-work.md) — why re-reading the test isn't evidence.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
+## Also asked as
+
+- how do I tell if my AI-generated tests are real or just lying
+- how do I tell if my AI-generated tests are real
+- are my AI tests real or just lying to me
+- check whether AI-written tests actually verify behavior
+- tell real AI tests from fake ones
+- are these agent tests genuine or hollow
+- validate that AI-generated tests do real work
+
 > The kernel is the part that doesn't believe the agents.
 
 <!-- ====== answer: docs/answers/audit-which-commits-were-ai-and-did-they-ship.md ====== -->
@@ -6643,6 +6934,16 @@ tells you which commit messages your history can't trust.
 - [`benchmark/BENCHMARKS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/BENCHMARKS.md) — every benchmark, with a $0 offline arm.
 - [How do I know if my agent's commit message matches what it changed](does-the-commit-message-match-what-changed.md) — the single-commit version.
 - [Do AI coding agents lie about what they shipped?](do-ai-coding-agents-lie-about-what-they-shipped.md) — the broader pattern.
+
+## Also asked as
+
+- how to audit AI-generated commits across a repo which were AI and did they ship
+- audit which commits were AI and whether they shipped real work
+- tell which commits an AI agent made across a repo
+- audit AI-generated commits for real content
+- which commits are agent-authored and did they land work
+- review a repo's AI commits for actual changes
+- separate real agent commits from no-op ones
 
 > The kernel is the part that doesn't believe the agents.
 
@@ -6770,6 +7071,16 @@ agent may write, deterministically, at the cheapest point to intervene.
 - [Lease-based file locking for parallel agents](lease-based-file-locking-for-parallel-agents.md) — the lease this gate enforces.
 - [FAQ: How do I stop two AI agents from editing the same files at the same time?](../FAQ.md#how-do-i-stop-two-ai-agents-from-editing-the-same-files-at-the-same-time)
 
+## Also asked as
+
+- how to block an out-of-lane file write before the agent makes it PreToolUse
+- block an out-of-lane file write before the agent makes it
+- deny an agent file write at PreToolUse
+- stop an agent writing outside its allowed paths
+- pre-write guard for agent file edits
+- intercept an out-of-scope agent write before it happens
+- enforce a write boundary at the PreToolUse hook
+
 > The kernel is the part that doesn't believe the agents.
 
 <!-- ====== answer: docs/answers/builder-validator-chain-separate-generator-from-evaluator.md ====== -->
@@ -6835,6 +7146,16 @@ the two roles.
 - [Why you can't trust a model to judge its own work](why-you-cant-trust-a-model-to-judge-its-own-work.md) — why the validator must read a witness.
 - [FAQ: How is DOS different from agent evals or observability platforms?](../FAQ.md#how-is-dos-different-from-agent-evals-or-observability-platforms)
 
+## Also asked as
+
+- how to build a builder-validator chain that separates generator from evaluator
+- builder-validator chain separate generator from evaluator
+- split the agent that builds from the one that checks
+- generator-evaluator separation for coding agents
+- why the validator must not be the generator
+- two-stage agent build then independently verify
+- separate generation and evaluation in an agent pipeline
+
 > The kernel is the part that doesn't believe the agents.
 
 <!-- ====== answer: docs/answers/can-i-trust-a-coding-agents-pull-request.md ====== -->
@@ -6896,6 +7217,18 @@ not review the design or guarantee correctness; it ensures the PR's claims about
 - [`benchmark/BENCHMARKS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/BENCHMARKS.md) — every benchmark, with a $0 offline arm.
 - [How to audit AI-generated commits across a repo](audit-which-commits-were-ai-and-did-they-ship.md) — the repo-wide version.
 - [How to add a guardrail to a coding agent with no plugin system](how-to-add-a-guardrail-to-a-coding-agent-with-no-plugin-system.md) — wire it as a PR gate.
+
+## Also asked as
+
+- can I trust an AI coding agent's pull request
+- how do I review an agent-generated PR safely
+- is an AI agent's pull request safe to merge
+- verify a coding agent's PR actually does what it says
+- check an agent PR before approving it
+- trust an autonomous agent's pull request or not
+- can I trust a Copilot pull request
+- is a Cursor-generated PR safe to merge
+- review a Claude Code PR before approving
 
 > The kernel is the part that doesn't believe the agents.
 
@@ -6963,6 +7296,17 @@ wrong. The narrow, load-bearing guarantee: the loop can't terminate on a sentenc
 - [How do I know if my agent's commit message matches what it changed](does-the-commit-message-match-what-changed.md) — the general subject-vs-diff case.
 - [FAQ: How do I verify an AI agent actually did what it claims?](../FAQ.md#how-do-i-verify-an-ai-agent-actually-did-what-it-claims)
 
+## Also asked as
+
+- how to catch an empty commit allow-empty shipped fake done
+- catch an empty commit faking done
+- agent used git commit allow-empty to fake shipping
+- detect a shipped commit that changed nothing
+- empty commit pretending to be real work how to catch
+- agent committed allow-empty shipped is that a lie
+- spot a no-content commit claiming completion
+- fake-done via an empty commit how do I block it
+
 > The kernel is the part that doesn't believe the agents.
 
 <!-- ====== answer: docs/answers/catch-an-agent-that-fakes-tool-calls-or-output.md ====== -->
@@ -7028,6 +7372,19 @@ which is the thing a faked call can't produce.
 - [How to verify what a subagent claims before folding its output](verify-what-a-subagent-claims-before-folding.md) — the same read-back at a fold barrier.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
+## Also asked as
+
+- how to catch an AI agent that fakes tool calls or fabricates output
+- catch an AI agent that fakes tool calls or fabricates output
+- agent pretended to call a tool how to detect
+- agent fabricated command output how to catch
+- detect a hallucinated tool call from an agent
+- agent faked a shell result verify the real one
+- spot an agent inventing tool output
+- Cursor faked a tool call how to detect
+- Claude Code fabricated command output catch it
+- agent hallucinated a terminal result
+
 > The kernel is the part that doesn't believe the agents.
 
 <!-- ====== answer: docs/answers/catch-fabricated-figures-in-agent-financial-output.md ====== -->
@@ -7092,6 +7449,17 @@ number that breaks the recompute cannot pass as a real one.
 - [`benchmark/BENCHMARKS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/BENCHMARKS.md) — every benchmark, with a $0 offline arm.
 - [Do AI coding agents lie about what they shipped?](do-ai-coding-agents-lie-about-what-they-shipped.md) — the same forgeability rule on git.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
+
+## Also asked as
+
+- how to catch fabricated figures in an AI agent's financial model output
+- catch fabricated figures in an AI agent's financial model
+- AI invented numbers in a financial model how to check
+- verify the figures an agent put in a spreadsheet
+- detect made-up numbers in agent financial output
+- agent's financial model has fake figures how to catch
+- fact-check an AI-generated financial model
+- hallucinated financials from an agent how to detect
 
 > The kernel is the part that doesn't believe the agents.
 
@@ -7182,6 +7550,20 @@ liability — so the tool refuses to make it.
 - [How to verify a cited legal case actually exists](how-to-verify-a-cited-legal-case-exists.md) — the existence rung, for the person filing rather than the person building.
 - [How to verify a quoted holding appears in the opinion](verify-a-quoted-holding-appears-in-the-opinion.md) — the quote-fidelity rung.
 - [FAQ: Does DOS need an LLM or an API key?](../FAQ.md#does-dos-need-an-llm-or-an-api-key)
+
+## Also asked as
+
+- how to catch fabricated legal citations inside my AI agent before filing
+- MCP tool to verify case law a legal AI agent generated
+- catch fabricated legal citations inside my AI agent before filing
+- stop my legal AI agent citing fake cases
+- verify case law a legal AI agent generated
+- block hallucinated citations in a legal agent
+- legal agent invents citations how do I catch it
+- pre-filing check for AI-fabricated case law
+- my legal AI tool cited a fake case how to catch
+- ChatGPT legal research invented a citation verify it
+- stop my legal assistant citing nonexistent cases
 
 > The kernel is the part that doesn't believe the agents.
 
@@ -7318,6 +7700,15 @@ green doesn't substitute for shipped.
 - [How to prove a phase or feature actually shipped from git history](prove-a-phase-shipped-from-git-history.md) — the verify verb in depth.
 - [FAQ: How is DOS different from agent evals or observability platforms?](../FAQ.md#how-is-dos-different-from-agent-evals-or-observability-platforms)
 
+## Also asked as
+
+- CI passed but the feature isn't there how to catch that
+- green CI but the feature was never implemented
+- pipeline is green yet the work is missing
+- CI green but nothing actually shipped
+- passing CI doesn't mean the feature exists how to verify
+- feature absent despite a passing build
+
 > The kernel is the part that doesn't believe the agents.
 
 <!-- ====== answer: docs/answers/coverage-is-green-but-tests-are-worthless.md ====== -->
@@ -7399,6 +7790,15 @@ false comfort of a green coverage number sitting on top of tests that can't fail
 - [AI writes tests that pass but test nothing](ai-generated-tests-that-pass-but-test-nothing.md) — the VACUOUS verdict, in detail.
 - [How to enforce that an agent ran the tests it claims](enforce-that-an-agent-ran-the-tests-it-claims.md) — the "I ran them, trust me" gap.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
+
+## Also asked as
+
+- 100% coverage but the AI's tests are worthless
+- high coverage meaningless tests from an agent
+- green coverage but the tests don't test anything
+- coverage is full yet the tests are useless
+- why coverage doesn't mean the AI's tests are good
+- full coverage worthless assertions how to catch
 
 > The kernel is the part that doesn't believe the agents.
 
@@ -7526,6 +7926,16 @@ can't claim work it didn't do.
 - [How to catch an empty commit / `--allow-empty "shipped"` fake-done](catch-allow-empty-shipped-fake-done.md) — the empty-commit sibling.
 - [FAQ: Do AI coding agents lie about what they shipped?](../FAQ.md#how-do-i-verify-an-ai-agent-actually-did-what-it-claims)
 
+## Also asked as
+
+- how to detect a no-op commit from an AI agent
+- detect a no-op commit from an AI agent
+- agent made a commit that changed nothing
+- spot an empty or meaningless agent commit
+- no-op commit from a coding agent how to catch
+- agent committed but did no real work detect it
+- find commits with no substantive change from an agent
+
 > The kernel is the part that doesn't believe the agents.
 
 <!-- ====== answer: docs/answers/detect-a-runaway-agent-before-it-burns-the-budget.md ====== -->
@@ -7593,6 +8003,20 @@ landed effect, in time to stop the spend.
 - [How to scavenge a stalled agent lease without killing a live one](scavenge-a-stalled-lease-without-killing-a-live-one.md) — what to do once a run is STALLED.
 - [FAQ: How do I detect that an agent loop is spinning?](../FAQ.md#how-do-i-detect-that-an-agent-loop-is-spinning--running-but-not-progressing)
 
+## Also asked as
+
+- how to detect a runaway AI agent before it burns the token budget
+- stop a runaway AI agent before it burns my token budget
+- detect an agent burning tokens with nothing to show
+- how to cap an agent that won't stop spending
+- my coding agent is eating budget catch it early
+- runaway agent token spend how to detect and halt
+- early warning for an agent wasting money
+- agent burning the budget on a loop how do I stop it
+- detect cost-runaway in an autonomous agent
+- trip a breaker when an agent spends without progress
+- guard against an agent that runs up the bill
+
 > The kernel is the part that doesn't believe the agents.
 
 <!-- ====== answer: docs/answers/detect-a-self-edited-claude-md-instruction-file.md ====== -->
@@ -7659,6 +8083,16 @@ witness it didn't author.
 - [My recalled agent memory is stale or wrong](recalled-agent-memory-is-stale-how-to-reverify.md) — the other memory-integrity surface.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
+## Also asked as
+
+- how to detect when an AI agent self-edited its CLAUDE.md or AGENTS.md instruction file
+- detect when an agent self-edited its CLAUDE.md instruction file
+- agent rewrote its own AGENTS.md how to catch
+- agent modified its own instruction file detect it
+- catch an agent editing the rules it's supposed to follow
+- self-modified CLAUDE.md by an agent how to detect
+- agent tampered with its own guardrail file
+
 > The kernel is the part that doesn't believe the agents.
 
 <!-- ====== answer: docs/answers/deterministic-hook-vs-agent-skill-which-enforces.md ====== -->
@@ -7720,6 +8154,16 @@ including the moment the agent would rather skip it.
 - [`benchmark/BENCHMARKS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/BENCHMARKS.md) — every benchmark, with a $0 offline arm.
 - [How to add a guardrail to a coding agent with no plugin system](how-to-add-a-guardrail-to-a-coding-agent-with-no-plugin-system.md) — the exit-code tier in practice.
 - [FAQ: Does DOS work with Claude Code, Cursor, Codex, Gemini CLI, or other agent runtimes?](../FAQ.md#does-dos-work-with-claude-code-cursor-codex-gemini-cli-or-other-agent-runtimes)
+
+## Also asked as
+
+- deterministic pre-commit hook vs an agent skill which actually enforces
+- deterministic hook vs an agent skill which actually enforces
+- does a skill enforce a rule or just suggest it
+- hook vs skill for enforcing agent behavior
+- why a prompt-based rule doesn't enforce like a hook
+- skill vs deterministic check which is binding
+- enforce agent rules hook or skill
 
 > The kernel is the part that doesn't believe the agents.
 
@@ -7792,6 +8236,22 @@ evidence.
 - The incident pages: [no commit](../incidents/my-agent-said-it-committed-but-theres-no-commit.md) · [tests that test nothing](../incidents/the-ai-wrote-tests-that-test-nothing.md).
 - [FAQ: How do I verify an AI agent actually did what it claims?](../FAQ.md#how-do-i-verify-an-ai-agent-actually-did-what-it-claims)
 
+## Also asked as
+
+- do AI coding agents lie about what they shipped
+- can AI agents fake having done the work
+- how often do coding agents misreport what they did
+- are AI agents honest about what they shipped
+- AI agent over-claims what it shipped is that common
+- agent says shipped but the diff says otherwise
+- do coding agents fabricate progress
+- evidence that AI agents lie about completed work
+- agent claims vs actual diff how big is the gap
+- catch a coding agent exaggerating what it shipped
+- does Cursor lie about what it shipped
+- do Copilot agents misreport what they did
+- can Claude Code fake having done the work
+
 > The kernel is the part that doesn't believe the agents.
 
 <!-- ====== answer: docs/answers/does-the-commit-message-match-what-changed.md ====== -->
@@ -7861,6 +8321,18 @@ narrower, load-bearing gap where the *message* is the only evidence.
 - [The incident page](../incidents/the-ai-wrote-tests-that-test-nothing.md) — a commit that claims tests it never added.
 - [How to verify an agent actually committed code](how-to-verify-an-ai-agent-actually-committed-code.md) — the presence question, where this starts.
 - [FAQ: How do I verify an AI agent actually did what it claims?](../FAQ.md#how-do-i-verify-an-ai-agent-actually-did-what-it-claims)
+
+## Also asked as
+
+- how do I know if my AI agent's commit message matches what it actually changed
+- does my AI agent's commit message match what it changed
+- commit subject says one thing the diff does another
+- verify a commit message against its actual diff
+- catch a lying commit message from an agent
+- agent commit message doesn't match the changes
+- check that the commit subject reflects the diff
+- audit whether a commit's claim matches its content
+- commit says fix but the diff only touched a readme
 
 > The kernel is the part that doesn't believe the agents.
 
@@ -8030,6 +8502,16 @@ agrees.
 - [AI agent deleted my tests to make the build pass](ai-agent-deleted-my-tests-to-pass-the-build.md) — the adversarial version.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
+## Also asked as
+
+- how to enforce that an AI agent actually ran the tests it claims it ran
+- enforce that an AI agent actually ran the tests it claims
+- did the agent really run the tests or just say so
+- require proof an agent executed its tests
+- agent claims tests ran verify it
+- make an agent show it ran the test suite
+- confirm an agent's test run actually happened
+
 > The kernel is the part that doesn't believe the agents.
 
 <!-- ====== answer: docs/answers/gate-a-ci-job-on-an-agents-claim.md ====== -->
@@ -8178,6 +8660,16 @@ project dies.
 - [What is a trust substrate for a fleet of autonomous AI agents](trust-substrate-for-a-fleet-of-autonomous-agents.md) — the category, in depth.
 - [FAQ: How is DOS different from agent evals or observability platforms?](../FAQ.md#how-is-dos-different-from-agent-evals-or-observability-platforms)
 
+## Also asked as
+
+- governance is why agentic AI projects get canceled what is the missing layer
+- governance is why agentic AI projects get canceled
+- missing governance layer for agentic AI
+- why do agentic AI projects keep getting killed
+- what governance does an autonomous agent program need
+- agentic AI canceled over trust what's the fix
+- the oversight layer agentic projects are missing
+
 > The kernel is the part that doesn't believe the agents.
 
 <!-- ====== answer: docs/answers/hidden-test-split-to-stop-agents-overfitting.md ====== -->
@@ -8240,6 +8732,16 @@ overfit, not the visible side, where it can.
 - [`benchmark/BENCHMARKS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/BENCHMARKS.md) — every benchmark, with a $0 offline arm.
 - [How to keep an AI self-improvement loop from keeping bad changes](keep-a-self-improvement-loop-from-keeping-bad-changes.md) — the keep-gate in depth.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
+
+## Also asked as
+
+- how to use a hidden test split to stop agents overfitting the visible tests
+- hidden test split to stop agents overfitting the visible tests
+- keep agents from gaming the tests they can see
+- held-out tests so an agent can't overfit
+- secret test split for evaluating coding agents
+- stop an agent memorizing the visible test cases
+- use a hidden split to detect agent overfitting
 
 > The kernel is the part that doesn't believe the agents.
 
@@ -8339,6 +8841,15 @@ Two boundaries a court must hold:
 - [How to verify a cited legal case actually exists](how-to-verify-a-cited-legal-case-exists.md) — the filer-seat version of the same witness.
 - [Verify a quoted holding appears in the opinion](verify-a-quoted-holding-appears-in-the-opinion.md) — the quote-fidelity rung.
 - [FAQ: Does DOS need an LLM or an API key?](../FAQ.md#does-dos-need-an-llm-or-an-api-key)
+
+## Also asked as
+
+- how a court can audit AI-generated citations in filings
+- court-side check for AI citations in submitted briefs
+- audit inbound filings for fabricated AI citations
+- how do courts verify citations in filings they receive
+- screen filings for hallucinated case law
+- a court's process to catch AI-invented citations
 
 > The kernel is the part that doesn't believe the agents.
 
@@ -8448,6 +8959,19 @@ runner already has.
 - [FAQ: Does DOS work with Claude Code, Cursor, Codex, Gemini CLI, or other agent runtimes?](../FAQ.md#does-dos-work-with-claude-code-cursor-codex-gemini-cli-or-other-agent-runtimes) — the three surfaces (MCP, hooks, exit-code).
 - [Do AI coding agents lie about what they shipped?](do-ai-coding-agents-lie-about-what-they-shipped.md) — the failure this guardrail catches, as a story.
 
+## Also asked as
+
+- add a guardrail to a coding agent with no plugin system
+- enforce a rule on an agent that has no hook support
+- guardrail for an agent runtime without plugins
+- how to gate an agent that has no extension API
+- my agent host has no hooks how do I add a check
+- wire a check into any agent via exit code
+- enforce agent rules with just a command exit status
+- guardrail any CLI agent without a plugin framework
+- no plugin system how do I still constrain my agent
+- minimal guardrail for an agent with no integration points
+
 > The kernel is the part that doesn't believe the agents.
 
 <!-- ====== answer: docs/answers/how-to-detect-an-agent-loop-spinning-without-progress.md ====== -->
@@ -8517,6 +9041,24 @@ correctness). "Stalled" is read from the world, not from the transcript.
 - [FAQ: How do I detect that an agent loop is spinning — running but not progressing?](../FAQ.md#how-do-i-detect-that-an-agent-loop-is-spinning--running-but-not-progressing)
 
 > A loop that grades itself by re-reading its own narration always passes.
+
+## Also asked as
+
+- how to detect an agent loop spinning without progress
+- my AI agent loop is running but not making progress
+- detect an agent stuck spinning in circles
+- how to tell an agent loop is making no progress
+- agent keeps looping without finishing anything
+- catch a coding agent that's busy but accomplishing nothing
+- is my agent making progress or just burning turns
+- detect a no-progress agent loop automatically
+- agent loop never terminates how to detect the stall
+- measure whether an agent loop is actually advancing
+- spot a spinning agent before it wastes the budget
+- how do I know my agent isn't just idling in a loop
+- Cursor agent loop running but not progressing
+- Claude Code stuck in a loop making no progress
+- Aider keeps looping without finishing
 
 <!-- ====== answer: docs/answers/how-to-stop-two-ai-agents-overwriting-each-other.md ====== -->
 
@@ -8588,6 +9130,25 @@ discipline. A git worktree per agent isolates the *checkout* but not the shared
 - [The incident page](../incidents/two-agents-overwrote-each-others-work.md) — the same failure as a story.
 - [FAQ: How do I stop two AI agents from editing the same files at the same time?](../FAQ.md#how-do-i-stop-two-ai-agents-from-editing-the-same-files-at-the-same-time)
 
+## Also asked as
+
+- how to stop two AI agents overwriting each other
+- two AI agents keep overwriting each other's files
+- stop parallel coding agents from clobbering each other
+- prevent two agents editing the same file at once
+- how to coordinate file writes between multiple agents
+- agents on the same repo overwrite each other's changes
+- lock files so two agents don't collide
+- concurrent AI agents stepping on each other how to fix
+- keep parallel agents from racing on shared files
+- how do I run multiple coding agents without conflicts
+- two agents one workspace stop the overwrite problem
+- serialize agent edits to shared state
+- two Cursor agents overwriting each other's files
+- stop two Copilot agents clobbering the same file
+- multiple Aider sessions colliding on one repo
+- run several Claude Code agents without file conflicts
+
 > The kernel is the part that doesn't believe the agents.
 
 <!-- ====== answer: docs/answers/how-to-verify-a-cited-legal-case-exists.md ====== -->
@@ -8655,6 +9216,18 @@ correctness" would be the over-claim this benchmark is written to avoid.
 - [`benchmark/BENCHMARKS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/BENCHMARKS.md) — every benchmark, with a $0 offline arm.
 - [Open-source alternative to paid AI legal citation checkers](open-source-ai-legal-citation-checker.md) — the same tool, framed as buy-vs-build.
 - [FAQ: Does DOS need an LLM or an API key?](../FAQ.md#does-dos-need-an-llm-or-an-api-key)
+
+## Also asked as
+
+- how to verify a cited legal case actually exists before filing
+- verify a cited legal case actually exists before filing
+- check that a case citation is real not fabricated
+- does this court case the AI cited actually exist
+- confirm a legal citation resolves to a real reporter
+- AI cited a case how do I know it's not made up
+- validate case law citations against a real database
+- fact-check a legal citation before I file it
+- is this case citation hallucinated
 
 > The kernel is the part that doesn't believe the agents.
 
@@ -8735,6 +9308,26 @@ caught by [does the commit message match what changed](does-the-commit-message-m
 - [The incident page](../incidents/my-agent-said-it-committed-but-theres-no-commit.md) — the same failure as a story.
 - [Do AI coding agents lie about what they shipped?](do-ai-coding-agents-lie-about-what-they-shipped.md) — the broader pattern.
 - [FAQ: How do I verify an AI agent actually did what it claims?](../FAQ.md#how-do-i-verify-an-ai-agent-actually-did-what-it-claims)
+
+## Also asked as
+
+- how to verify an AI coding agent actually committed code instead of just saying it did
+- did my agent really commit the code or just claim it
+- verify an AI agent actually committed instead of saying it did
+- check that a coding agent's commit actually exists in git
+- agent said it committed but I see no commit
+- confirm an AI agent landed a commit from git history
+- how to tell if an agent faked a commit
+- prove an agent committed code with a git-ancestry check
+- my AI assistant claims it pushed code how do I verify
+- validate that an agent's commit claim is real
+- agent committed nothing but reports success how to catch
+- is there a commit behind my agent's done message
+- did Cursor actually commit the code
+- Claude Code says it committed but I see no commit
+- verify Copilot agent actually committed instead of claiming
+- Aider says it committed confirm it from git
+- did Codex really commit or fake it
 
 > The kernel is the part that doesn't believe the agents.
 
@@ -8819,6 +9412,28 @@ shipped](do-ai-coding-agents-lie-about-what-they-shipped.md)).
 - [`benchmark/BENCHMARKS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/BENCHMARKS.md) — every benchmark, with a $0 offline arm.
 - [The incident page](../incidents/my-agent-said-it-committed-but-theres-no-commit.md) — the same failure as a story.
 - [FAQ: How do I verify an AI agent actually did what it claims?](../FAQ.md#how-do-i-verify-an-ai-agent-actually-did-what-it-claims)
+
+## Also asked as
+
+- how to verify an AI agent actually did the work
+- did my AI agent actually do the work or just say it did
+- how do I confirm an AI agent really completed a task
+- check whether a coding agent actually finished what it claimed
+- AI agent says it's done how do I trust that
+- verify agent work from git instead of its transcript
+- is my AI agent telling the truth about finishing
+- prove an agent did the work with no LLM and no API key
+- how to validate an autonomous agent's completion claim
+- ground an agent's done on evidence not self-report
+- one command to verify an AI agent actually did the work
+- how do I know my AI coding assistant really did the task
+- stop trusting an agent's I-finished-it message
+- did Cursor actually do the work or just say it did
+- verify Claude Code actually completed the task
+- Copilot says done how do I check it really is
+- confirm Codex finished the work from git
+- did my Gemini CLI agent actually do what it claimed
+- Windsurf agent reports done is it true
 
 > The kernel is the part that doesn't believe the agents.
 
@@ -9004,6 +9619,16 @@ spinning.
 - [Reward hacking in LLM coding agents](reward-hacking-in-llm-coding-agents.md) — the training-loop sibling.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
+## Also asked as
+
+- how to keep an AI self-improvement loop from keeping bad changes
+- keep a self-improvement loop from keeping bad changes
+- stop an auto-improve loop from accepting regressions
+- gate a self-improving agent on a real measured gain
+- RSI loop keeps bad edits how to prevent
+- only keep an agent's change if a witness confirms it improved
+- revert bad changes in a self-improvement loop automatically
+
 > The kernel is the part that doesn't believe the agents.
 
 <!-- ====== answer: docs/answers/largest-ai-hallucination-sanction-how-to-avoid.md ====== -->
@@ -9082,6 +9707,17 @@ itself a liability.
 - [How to catch fabricated legal citations inside my AI agent](catch-fabricated-legal-citations-in-my-ai-agent.md) — wire the check in *before* the brief is written.
 - [FAQ: Does DOS need an LLM or an API key?](../FAQ.md#does-dos-need-an-llm-or-an-api-key)
 
+## Also asked as
+
+- how to avoid getting sanctioned for AI-hallucinated legal citations
+- what is the largest AI hallucination sanction and how to avoid one
+- how to avoid an AI-hallucinated citation sanction
+- largest AI hallucination sanction what to learn from it
+- what the record AI-citation fines have in common
+- avoid getting sanctioned for AI fake citations
+- lessons from the biggest AI hallucination court sanctions
+- stay out of trouble for AI-invented legal citations
+
 > The kernel is the part that doesn't believe the agents.
 
 <!-- ====== answer: docs/answers/last-writer-wins-multi-agent-shared-memory.md ====== -->
@@ -9145,6 +9781,16 @@ two-phase discipline applied to a shared store.
 - [`benchmark/BENCHMARKS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/BENCHMARKS.md) — every benchmark, with a $0 offline arm.
 - [Lease-based file locking for parallel agents](lease-based-file-locking-for-parallel-agents.md) — the lease mechanism.
 - [FAQ: How do I stop two AI agents from editing the same files at the same time?](../FAQ.md#how-do-i-stop-two-ai-agents-from-editing-the-same-files-at-the-same-time)
+
+## Also asked as
+
+- the last-writer-wins problem in multi-agent shared memory
+- last-writer-wins problem in multi-agent shared memory
+- agents overwrite shared memory last write wins
+- stop lost updates in multi-agent shared state
+- concurrent agents clobber shared memory how to fix
+- shared memory race between agents last writer wins
+- coordinate writes to shared agent memory
 
 > The kernel is the part that doesn't believe the agents.
 
@@ -9219,6 +9865,17 @@ two-phase discipline, applied to a file tree.
 - [`benchmark/BENCHMARKS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/BENCHMARKS.md) — every benchmark, with a $0 offline arm.
 - [How to stop two AI agents overwriting each other](how-to-stop-two-ai-agents-overwriting-each-other.md) — the same primitive, framed as the head problem.
 - [FAQ: Don't git worktrees already solve this?](../FAQ.md#dont-git-worktrees-already-solve-this--one-isolated-checkout-per-agent)
+
+## Also asked as
+
+- lease-based file locking to coordinate parallel coding agents
+- lease-based file locking to coordinate parallel agents
+- file leases for multiple coding agents
+- how do agents claim a file region before editing
+- lease a set of files so agents don't collide
+- admission control for parallel agent file writes
+- lock a file tree for one agent at a time
+- lease-based coordination for a fleet of agents
 
 > The kernel is the part that doesn't believe the agents.
 
@@ -9380,6 +10037,16 @@ rather than rubber-stamping.
 - [How to make an agent prove it did the work](make-an-agent-prove-the-work-not-self-certify.md) — the same rule on a single claim.
 - [FAQ: How do I make a "keep working until it's done" agent loop stop only when the work is really done?](../FAQ.md#how-do-i-make-a-keep-working-until-its-done-agent-loop-stop-only-when-the-work-is-really-done)
 
+## Also asked as
+
+- how to make an AI agent's done mean a checkable effect not a sentence
+- make an agent's done mean a checkable effect not a sentence
+- define done for an agent as a real observable effect
+- agent done should be a fact not a claim
+- tie an agent's completion to a verifiable effect
+- what should done mean for an autonomous agent
+- make done checkable instead of self-declared
+
 > The kernel is the part that doesn't believe the agents.
 
 <!-- ====== answer: docs/answers/make-ai-write-tests-that-actually-assert.md ====== -->
@@ -9462,6 +10129,19 @@ prompt is reaching for: no test counts as done unless it can fail.
 - [Deterministic hook vs an agent skill — which actually enforces](deterministic-hook-vs-agent-skill-which-enforces.md) — the gate-beats-advice argument.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
+## Also asked as
+
+- how to make an AI agent write tests that actually assert something
+- make an AI agent write tests that actually assert something
+- force an agent to write meaningful assertions
+- get an AI to write tests with real checks
+- agent's tests have no assertions how to fix
+- make AI tests assert behavior not just run
+- require real assertions in agent-written tests
+- make Copilot write tests that actually assert
+- get Cursor to write real test assertions
+- force Claude Code tests to check behavior
+
 > The kernel is the part that doesn't believe the agents.
 
 <!-- ====== answer: docs/answers/make-an-agent-prove-the-work-not-self-certify.md ====== -->
@@ -9529,6 +10209,18 @@ improved — only the measurement can, and a run of non-keeps escalates to a hum
 - [`benchmark/BENCHMARKS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/BENCHMARKS.md) — every benchmark, with a $0 offline arm.
 - [How to verify an agent actually committed code](how-to-verify-an-ai-agent-actually-committed-code.md) — the phase-level version of the same rule.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
+
+## Also asked as
+
+- how to make an AI agent prove it did the work instead of self-certifying done
+- make an AI agent prove the work instead of self-certifying
+- stop letting an agent grade its own completion
+- require evidence before an agent can call itself done
+- agent self-certifies done how do I demand proof
+- ground done on a witness the agent didn't write
+- prove-it-don't-claim-it for autonomous agents
+- agent marks itself complete force it to prove it
+- an agent shouldn't be its own judge of done
 
 > The kernel is the part that doesn't believe the agents.
 
@@ -9676,6 +10368,16 @@ which was added — the honesty-check loop working as designed.
 - [Deterministic hook vs. agent skill — which enforces?](deterministic-hook-vs-agent-skill-which-enforces.md) — where a skill's witness should sit.
 - [Why you can't trust a model to judge its own work](why-you-cant-trust-a-model-to-judge-its-own-work.md) — consistency vs. grounding.
 
+## Also asked as
+
+- how to make any agent skill verify its own work
+- make any agent skill verify its own work
+- add self-verification to an existing agent skill
+- ground a skill's claims on a real check
+- turn a belief-based skill into a verified one
+- wrap any skill so it proves what it did
+- give an agent skill a witness for its output
+
 > The kernel is the part that doesn't believe the agents.
 
 <!-- ====== answer: docs/answers/multi-agent-coordination-without-a-central-orchestrator.md ====== -->
@@ -9737,6 +10439,16 @@ it provides the safety contract a decentralized fleet writes against.
 - [`benchmark/BENCHMARKS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/BENCHMARKS.md) — every benchmark, with a $0 offline arm.
 - [Lease-based file locking for parallel agents](lease-based-file-locking-for-parallel-agents.md) — the lease primitive.
 - [FAQ: Is DOS an agent orchestrator or framework?](../FAQ.md#is-dos-an-agent-orchestrator-or-framework)
+
+## Also asked as
+
+- how to coordinate multiple AI agents without a central orchestrator
+- coordinate multiple AI agents without a central orchestrator
+- multi-agent coordination with contracts not a queue
+- decentralized coordination for a fleet of agents
+- no orchestrator how do agents avoid colliding
+- agents coordinate via shared rules not a controller
+- orchestrator-free multi-agent coordination
 
 > The kernel is the part that doesn't believe the agents.
 
@@ -9819,6 +10531,16 @@ job is to make "this test catches nothing" fail fast and cheap, on every change.
 - [Deterministic hook vs an agent skill — which actually enforces](deterministic-hook-vs-agent-skill-which-enforces.md) — why a gate beats advice.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
+## Also asked as
+
+- mutation testing vs a test-witness gate for AI-generated tests
+- mutation testing vs a test-witness gate for AI tests
+- is mutation testing enough to catch fake AI tests
+- test-witness vs mutation testing for agent tests
+- how to prove AI tests catch real bugs
+- compare mutation testing and a witness gate for tests
+- best way to validate AI-generated tests really assert
+
 > The kernel is the part that doesn't believe the agents.
 
 <!-- ====== answer: docs/answers/open-source-ai-legal-citation-checker.md ====== -->
@@ -9884,6 +10606,15 @@ check the paid tools charge for.
 - [How to verify a cited legal case actually exists before filing](how-to-verify-a-cited-legal-case-exists.md) — the same tool, framed as the workflow.
 - [FAQ: Does DOS need an LLM or an API key?](../FAQ.md#does-dos-need-an-llm-or-an-api-key)
 
+## Also asked as
+
+- open-source alternative to paid AI legal citation checkers
+- free legal citation verification tool for AI agents
+- open source case-law citation checker
+- is there a free AI citation checker for lawyers
+- self-hosted legal citation verifier open source
+- open-source tool to check AI-generated case citations
+
 > The kernel is the part that doesn't believe the agents.
 
 <!-- ====== answer: docs/answers/prevent-context-poisoning-from-an-agents-own-outputs.md ====== -->
@@ -9946,6 +10677,16 @@ the guarantee is that no checkable lie re-enters context as a fact.
 - [`benchmark/BENCHMARKS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/BENCHMARKS.md) — every benchmark, with a $0 offline arm.
 - [My recalled agent memory is stale or wrong — how do I re-verify it](recalled-agent-memory-is-stale-how-to-reverify.md) — the recall verb in depth.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
+
+## Also asked as
+
+- how to prevent context poisoning from an AI agent's own prior outputs
+- prevent context poisoning from an agent's own prior outputs
+- agent feeds its own bad output back into context
+- stop an agent poisoning itself with prior mistakes
+- context poisoning loop in an autonomous agent
+- agent's own hallucination contaminates later steps
+- break the self-poisoning feedback loop in an agent
 
 > The kernel is the part that doesn't believe the agents.
 
@@ -10084,6 +10825,20 @@ scarce raw material a PRM is starved for.
 
 > An EvidenceSource is a witness whose byte-author is not the judged agent.
 
+## Also asked as
+
+- process-reward training data that can't be gamed
+- process reward model training data that can't be gamed
+- ungameable labels for a process reward model
+- where do I get PRM training data agents can't hack
+- non-distillable reward labels for coding agents
+- reward signal an agent can't reward-hack
+- generate process-reward data grounded in real outcomes
+- PRM labels from verified outcomes not self-report
+- build a reward model that resists gaming
+- training labels for step-level agent rewards that hold up
+- how to make reward data robust to distillation
+
 <!-- ====== answer: docs/answers/prove-a-phase-shipped-from-git-history.md ====== -->
 
 # How to prove a phase or feature actually shipped from git history
@@ -10153,6 +10908,17 @@ close the gap from "a commit exists" toward "the right change landed".
 - [How to verify an agent actually committed code](how-to-verify-an-ai-agent-actually-committed-code.md) — the same verb on a single claim.
 - [FAQ: Do I need to restructure my repository or write plan files first?](../FAQ.md#do-i-need-to-restructure-my-repository-or-write-plan-files-first)
 
+## Also asked as
+
+- how to prove a phase or feature actually shipped from git history
+- prove a phase or feature actually shipped from git history
+- confirm a milestone landed using git ancestry
+- did this phase ship check the git log not the plan
+- verify a feature shipped from commits alone
+- prove work landed with no registry just git
+- git-based proof that a phase is complete
+- show a feature shipped from the commit history
+
 > The kernel is the part that doesn't believe the agents.
 
 <!-- ====== answer: docs/answers/recalled-agent-memory-is-stale-how-to-reverify.md ====== -->
@@ -10221,6 +10987,17 @@ can't be re-injected as a current fact on its own say-so.
 - [How to make an agent prove it did the work](make-an-agent-prove-the-work-not-self-certify.md) — the same distrust applied to a candidate change.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
+## Also asked as
+
+- recalled AI agent memory is stale or wrong how to re-verify it
+- my recalled agent memory is stale how do I re-verify it
+- agent memory is out of date check it against reality
+- re-verify a saved memory before trusting it
+- is this recalled fact still true for my agent
+- stale agent memory how to revalidate at read time
+- agent remembers something that's no longer true
+- check a memory's claims against current git state
+
 > The kernel is the part that doesn't believe the agents.
 
 <!-- ====== answer: docs/answers/refusal-as-a-first-class-primitive-for-agents.md ====== -->
@@ -10286,6 +11063,16 @@ point at a checkable condition, not a mood.
 - [`benchmark/BENCHMARKS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/BENCHMARKS.md) — every benchmark, with a $0 offline arm.
 - [How to refuse an agent action with a structured reason](refuse-an-agent-action-with-a-structured-reason.md) — the closed-vocabulary how-to.
 - [FAQ: Is DOS an agent orchestrator or framework?](../FAQ.md#is-dos-an-agent-orchestrator-or-framework)
+
+## Also asked as
+
+- why should no be a first-class verifiable primitive in an agent system
+- why should no be a first-class primitive in an agent system
+- refusal as a verifiable primitive for agents
+- make an agent's no a checkable value not an error
+- first-class declines in an agent architecture
+- why agents need a structured way to refuse
+- treat refusal as a real outcome for an agent
 
 > The kernel is the part that doesn't believe the agents.
 
@@ -10356,6 +11143,17 @@ act on it mechanically.
 - [How to stop two AI agents overwriting each other](how-to-stop-two-ai-agents-overwriting-each-other.md) — the arbiter refuses with the same closed-set discipline.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
+## Also asked as
+
+- how to refuse an agent action with a structured reason instead of free text
+- refuse an agent action with a structured reason not free text
+- give an agent a machine-readable reason for blocking
+- structured refusal vocabulary for agent actions
+- how to say no to an agent in a verifiable way
+- typed refusal reasons instead of prose errors
+- make an agent's blocked reason checkable
+- first-class refusal with a reason code for agents
+
 > The kernel is the part that doesn't believe the agents.
 
 <!-- ====== answer: docs/answers/reward-hacking-in-llm-coding-agents.md ====== -->
@@ -10423,6 +11221,17 @@ success the witness can refute.
 - [Process-reward training data that can't be gamed](process-reward-model-training-data-that-cant-be-gamed.md) — the data-generation angle.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
+## Also asked as
+
+- reward hacking in LLM coding agents how to measure and prevent
+- reward hacking in LLM coding agents how to measure it
+- how do coding agents reward-hack the objective
+- detect reward hacking in an AI coding agent
+- agent gaming the reward signal how to prevent
+- examples of reward hacking in code agents
+- measure and stop reward hacking in LLM agents
+- agent optimizes the metric not the task how to catch
+
 > The kernel is the part that doesn't believe the agents.
 
 <!-- ====== answer: docs/answers/scavenge-a-stalled-lease-without-killing-a-live-one.md ====== -->
@@ -10489,6 +11298,16 @@ yanking it from a worker that's still alive.
 - [`benchmark/BENCHMARKS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/BENCHMARKS.md) — every benchmark, with a $0 offline arm.
 - [How to detect a runaway agent before it burns the budget](detect-a-runaway-agent-before-it-burns-the-budget.md) — the liveness read this acts on.
 - [FAQ: How do I detect that an agent loop is spinning?](../FAQ.md#how-do-i-detect-that-an-agent-loop-is-spinning--running-but-not-progressing)
+
+## Also asked as
+
+- how to scavenge a stalled agent's lease without killing a live one
+- scavenge a stalled agent's lease without killing a live one
+- reclaim a dead agent's file lock safely
+- free a stuck lease but don't kill a working agent
+- stale lease cleanup that won't disrupt a live agent
+- recover a crashed agent's lease without collateral
+- safely scavenge a stalled lease in an agent fleet
 
 > The kernel is the part that doesn't believe the agents.
 
@@ -10585,6 +11404,19 @@ red test. They cannot grade a weak-but-real test against a strong one.
 - [The incident: the AI wrote tests that test nothing](../incidents/the-ai-wrote-tests-that-test-nothing.md) — the same failure as a story.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
+## Also asked as
+
+- how to stop an AI agent from making fake tests
+- stop my AI coding agent writing fake tests
+- stop an AI agent from making fake tests
+- prevent an agent from writing hollow tests
+- agent writes fake tests how do I stop it
+- block an agent from shipping tests that don't test
+- keep an AI from faking the test suite
+- stop Copilot writing fake tests
+- Cursor keeps writing hollow tests stop it
+- Claude Code writes tests that don't test anything
+
 > The kernel is the part that doesn't believe the agents.
 
 <!-- ====== answer: docs/answers/stop-an-agent-editing-ci-to-skip-tests.md ====== -->
@@ -10650,6 +11482,16 @@ ensures the agent can't make the build green by changing what the build checks.
 - [`benchmark/BENCHMARKS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/BENCHMARKS.md) — every benchmark, with a $0 offline arm.
 - [My AI agent deleted my tests to make the build pass](ai-agent-deleted-my-tests-to-pass-the-build.md) — the sibling gaming move.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
+
+## Also asked as
+
+- how to stop an AI agent from editing CI config to skip failing tests
+- stop an AI agent editing CI config to skip failing tests
+- agent disabled the failing tests in CI how to block
+- prevent an agent from weakening the CI pipeline
+- agent edited the workflow to skip tests catch it
+- block an agent from turning off CI checks
+- agent removed a test step from CI how to detect
 
 > The kernel is the part that doesn't believe the agents.
 
@@ -10841,6 +11683,16 @@ weak rung's error can subtract approval, never add it.
 - [Why you can't trust a model to judge its own work](why-you-cant-trust-a-model-to-judge-its-own-work.md) — why the judge rung is advisory.
 - [FAQ: How is DOS different from agent evals or observability platforms?](../FAQ.md#how-is-dos-different-from-agent-evals-or-observability-platforms)
 
+## Also asked as
+
+- how to combine a deterministic check an LLM judge and a human reviewer for agent oversight
+- combine a deterministic check an LLM judge and a human reviewer
+- trust ladder for agent oversight oracle judge human
+- when to use a hard check vs an LLM judge vs a human
+- tiered oversight for autonomous agents
+- layer deterministic judge and human review for agents
+- escalation ladder from oracle to judge to human
+
 > The kernel is the part that doesn't believe the agents.
 
 <!-- ====== answer: docs/answers/trust-substrate-for-a-fleet-of-autonomous-agents.md ====== -->
@@ -10905,6 +11757,16 @@ it does not certify correctness; it certifies what the fleet actually did.
 - [How do agents prove to each other that work actually landed](agent-to-agent-proof-that-work-landed.md) — the agent-to-agent surface.
 - [FAQ: Is DOS an agent orchestrator or framework?](../FAQ.md#is-dos-an-agent-orchestrator-or-framework)
 
+## Also asked as
+
+- what is a trust substrate for a fleet of autonomous AI agents
+- what is a trust substrate for a fleet of autonomous agents
+- trust layer for many unreliable AI agents
+- substrate that adjudicates truth across an agent fleet
+- how do I make a fleet of agents trustworthy
+- a referee layer for autonomous agents
+- ground truth for a fleet of self-narrating agents
+
 > The kernel is the part that doesn't believe the agents.
 
 <!-- ====== answer: docs/answers/two-claude-code-agents-on-one-branch.md ====== -->
@@ -10967,6 +11829,15 @@ analogue of two-phase discipline applied to your tree.
 - [`benchmark/BENCHMARKS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/BENCHMARKS.md) — every benchmark, with a $0 offline arm.
 - [How to stop two AI agents overwriting each other](how-to-stop-two-ai-agents-overwriting-each-other.md) — the head version.
 - [FAQ: Don't git worktrees already solve this?](../FAQ.md#dont-git-worktrees-already-solve-this--one-isolated-checkout-per-agent)
+
+## Also asked as
+
+- two Claude Code agents on one branch keep clobbering each other
+- running two Claude Code instances on the same branch
+- two agents same branch how do I stop the conflicts
+- coordinate two Claude Code agents on one repo
+- parallel Claude Code agents overwrite each other
+- two coding agents one git branch collision fix
 
 > The kernel is the part that doesn't believe the agents.
 
@@ -11032,6 +11903,17 @@ A real, correctly-quoted case can still be the wrong case for your argument.
 - [How to verify a cited legal case actually exists](how-to-verify-a-cited-legal-case-exists.md) — the existence rung this builds on.
 - [FAQ: Does DOS need an LLM or an API key?](../FAQ.md#does-dos-need-an-llm-or-an-api-key)
 
+## Also asked as
+
+- how to verify a quoted holding actually appears in the cited opinion
+- verify a quoted holding actually appears in the opinion
+- check that a quote is really in the cited case
+- did the AI quote the opinion accurately or invent it
+- confirm a holding quote matches the source opinion
+- validate a legal quotation against the real text
+- AI quoted a case is the quote actually there
+- quote-fidelity check for AI legal citations
+
 > The kernel is the part that doesn't believe the agents.
 
 <!-- ====== answer: docs/answers/verify-an-llm-didnt-hallucinate-a-function-or-api.md ====== -->
@@ -11095,6 +11977,19 @@ half.
 - [`benchmark/BENCHMARKS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/BENCHMARKS.md) — every benchmark, with a $0 offline arm.
 - [My agent claimed it fixed the bug, but it didn't](agent-claimed-it-fixed-the-bug-but-it-didnt.md) — the same witness on a fix.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
+
+## Also asked as
+
+- how to verify an LLM didn't hallucinate a function or API that doesn't exist
+- verify an LLM didn't hallucinate a function or API
+- agent called an API that doesn't exist how to catch
+- detect a hallucinated function in agent code
+- check that the API the agent used is real
+- LLM invented a method does it actually exist
+- catch made-up library calls in AI-generated code
+- Copilot used a function that doesn't exist
+- Cursor called an API that isn't real
+- Claude hallucinated a method does it exist
 
 > The kernel is the part that doesn't believe the agents.
 
@@ -11164,6 +12059,17 @@ premise. Fold the confirmed, route back the rest.
 - [How to make an agent prove it did the work](make-an-agent-prove-the-work-not-self-certify.md) — the same rule on a single agent's keep decision.
 - [FAQ: How is DOS different from agent evals or observability platforms?](../FAQ.md#how-is-dos-different-from-agent-evals-or-observability-platforms)
 
+## Also asked as
+
+- how to verify what a subagent claims before folding its output
+- verify what a subagent claims before folding its output
+- don't trust a subagent's return string check the effect
+- validate a worker agent's claim at the fold step
+- subagent says it did X confirm before merging
+- check a child agent's output before using it
+- witness a subagent's effect instead of believing it
+- fold only confirmed effects from a subagent
+
 > The kernel is the part that doesn't believe the agents.
 
 <!-- ====== answer: docs/answers/what-is-truth-for-an-ai-agent-verdict.md ====== -->
@@ -11228,6 +12134,15 @@ is the consequence of making most cheap lies expensive.
 - [`benchmark/BENCHMARKS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/BENCHMARKS.md) — every benchmark, with a $0 offline arm.
 - [Why you can't trust a model to judge its own work](why-you-cant-trust-a-model-to-judge-its-own-work.md) — the same axis, applied to self-grading.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
+
+## Also asked as
+
+- what does true mean for an AI agent's verdict
+- how is truth defined for an agent's decision
+- what counts as ground truth for an agent verdict
+- the meaning of true in an automated verdict
+- why does an agent verdict need a definition of truth
+- truth as a non-forgeable witness for agents
 
 > The kernel is the part that doesn't believe the agents.
 
@@ -11320,6 +12235,21 @@ the agent's word, and its token count, stop being the evidence.
 - Related answers: [How do I verify an AI agent actually did the work?](how-to-verify-an-ai-agent-actually-did-the-work.md) · [How do I detect an agent loop spinning without progress?](how-to-detect-an-agent-loop-spinning-without-progress.md) · [Where do I get process-reward training data that can't be gamed?](process-reward-model-training-data-that-cant-be-gamed.md)
 - External context (others' reporting on the metric's legitimacy, not DOS results): the 2026 "token-maxxing is over / a flawed way to measure ROI" coverage and the move to loop-count / per-task cost in AI-coding pricing analyses.
 
+## Also asked as
+
+- what replaced tokens-burned as the metric for AI agents
+- is the token-maxxing era over / what is token efficiency
+- how to measure verified outcomes instead of token usage
+- is the token-maxxing era over for coding agents
+- what is token efficiency for AI agents
+- measure verified outcomes instead of token usage
+- the new metric for agents after tokens-burned
+- why tokens consumed is a bad agent metric
+- outcome-based metrics for autonomous agents
+- stop measuring agents by token count what instead
+- verified-work metric vs token-spend metric
+- 2026 shift from token-maxxing to verified outcomes
+
 > The kernel is the part that doesn't believe the agents.
 
 <!-- ====== answer: docs/answers/which-on-device-agent-models-are-recoverable.md ====== -->
@@ -11386,6 +12316,16 @@ before it writes.
 - [Why you can't trust a model to judge its own work](why-you-cant-trust-a-model-to-judge-its-own-work.md) — the witness vs self-report axis.
 - [FAQ: Does DOS need an LLM or an API key?](../FAQ.md#does-dos-need-an-llm-or-an-api-key)
 
+## Also asked as
+
+- which on-device AI agent models can a guardrail actually recover from a bad action
+- which on-device agent models can a guardrail recover from a bad action
+- recoverable on-device AI agent models
+- local agent models a checker can safely catch
+- which small models does a guardrail work on
+- on-device agent recoverability after a bad action
+- edge agent models compatible with a recovery gate
+
 > The kernel is the part that doesn't believe the agents.
 
 <!-- ====== answer: docs/answers/why-does-my-agent-ignore-the-rules-in-claude-md.md ====== -->
@@ -11447,6 +12387,19 @@ leave taste and style to the prompt.
 - [`benchmark/BENCHMARKS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/BENCHMARKS.md) — every benchmark, with a $0 offline arm.
 - [Deterministic pre-commit hook vs an agent skill — which actually enforces](deterministic-hook-vs-agent-skill-which-enforces.md) — the same point, sharpened.
 - [How to add a guardrail to a coding agent with no plugin system](how-to-add-a-guardrail-to-a-coding-agent-with-no-plugin-system.md) — where to put the gate.
+
+## Also asked as
+
+- why does my AI agent ignore the rules in CLAUDE.md
+- agent doesn't follow my CLAUDE.md instructions
+- make CLAUDE.md rules actually stick for an agent
+- agent skips the rules in its instruction file
+- CLAUDE.md says one thing the agent does another
+- why prompt rules don't bind an agent and what does
+- Cursor ignores my rules file
+- Claude Code doesn't follow CLAUDE.md why
+- my agent ignores AGENTS.md instructions
+- Copilot ignores the custom instructions
 
 > The kernel is the part that doesn't believe the agents.
 
@@ -11516,6 +12469,17 @@ own work is consistency, not grounding — and grounding is what you wanted.
 - [`benchmark/BENCHMARKS.md`](https://github.com/anthony-chaudhary/dos-kernel/blob/master/benchmark/BENCHMARKS.md) — every benchmark, with a $0 offline arm.
 - [How to make an agent prove it did the work](make-an-agent-prove-the-work-not-self-certify.md) — the keep-gate in practice.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
+
+## Also asked as
+
+- why you can't trust an AI model to judge its own work
+- why can't I trust a model to judge its own work
+- is an LLM judging itself reliable
+- self-evaluation bias in AI coding agents
+- why model self-grading doesn't work
+- should an agent grade its own output
+- LLM-as-judge of its own work what's wrong with it
+- the problem with an agent scoring itself
 
 > The kernel is the part that doesn't believe the agents.
 

@@ -65,4 +65,15 @@ close the gap from "a commit exists" toward "the right change landed".
 - [How to verify an agent actually committed code](how-to-verify-an-ai-agent-actually-committed-code.md) — the same verb on a single claim.
 - [FAQ: Do I need to restructure my repository or write plan files first?](../FAQ.md#do-i-need-to-restructure-my-repository-or-write-plan-files-first)
 
+## Also asked as
+
+- how to prove a phase or feature actually shipped from git history
+- prove a phase or feature actually shipped from git history
+- confirm a milestone landed using git ancestry
+- did this phase ship check the git log not the plan
+- verify a feature shipped from commits alone
+- prove work landed with no registry just git
+- git-based proof that a phase is complete
+- show a feature shipped from the commit history
+
 > The kernel is the part that doesn't believe the agents.

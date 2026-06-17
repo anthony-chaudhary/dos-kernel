@@ -72,4 +72,15 @@ covers.
 - [How to avoid an AI-citation sanction](largest-ai-hallucination-sanction-how-to-avoid.md) — the failure class this duty guards against.
 - [FAQ: Does DOS need an LLM or an API key?](../FAQ.md#does-dos-need-an-llm-or-an-api-key)
 
+## Also asked as
+
+- does ABA Opinion 512 require me to verify AI-generated citations
+- a lawyer's duty to verify AI-generated case law citations
+- does ABA Opinion 512 require me to verify AI citations
+- ABA 512 duty to check AI-generated citations
+- lawyer's duty to verify AI case law under ABA 512
+- what does ABA Formal Opinion 512 say about AI citations
+- am I required to verify AI citations ABA guidance
+- ABA 512 and AI citation verification duty
+
 > The kernel is the part that doesn't believe the agents.

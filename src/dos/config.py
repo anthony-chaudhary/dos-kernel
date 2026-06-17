@@ -51,6 +51,10 @@ from dos.improve import ImprovePolicy, DEFAULT_POLICY as DEFAULT_IMPROVE_POLICY
 from dos.productivity import ProductivityPolicy, DEFAULT_POLICY as DEFAULT_PRODUCTIVITY_POLICY
 from dos.efficiency_trend import TrendPolicy, DEFAULT_POLICY as DEFAULT_TREND_POLICY
 from dos.supervise import SupervisePolicy, DEFAULT_POLICY as DEFAULT_SUPERVISE_POLICY
+from dos.queue_saturation import (
+    SaturationPolicy,
+    DEFAULT_POLICY as DEFAULT_SATURATION_POLICY,
+)
 from dos.lifecycle import LifecyclePolicy, GENERIC_LIFECYCLE
 from dos.reason_morphology import MorphologyRuleset, GENERIC_REASON_MORPHOLOGY
 from dos.concurrency_class import ClassBudgets, NO_CLASS_BUDGETS
@@ -87,6 +91,16 @@ ENV_DOS_HOME = "DISPATCH_HOME"
 # bootstrap reads it back (see `phase_shipped._bootstrap_active_config`). This is
 # what makes the convention authoritative across the process boundary.
 ENV_STAMP_CONVENTION = "DISPATCH_STAMP_CONVENTION"
+
+# The env var that carries the ACTIVE vcs-backend NAME into the same grep-rung
+# subprocess (`python -m dos.phase_shipped`) — the sibling of ENV_STAMP_CONVENTION
+# for the `dos.vcs` seam (docs/360). The child re-derives `active()` from scratch, so
+# without this a `dos.toml`-declared (or `set_active`-installed) backend name — e.g.
+# `null` for a no-VCS workspace, or a registered Mercurial backend — would be lost and
+# the child would fall back to `git`. The parent sets the backend NAME (a plain
+# string, unlike the JSON-encoded stamp convention — a backend is resolved by name);
+# the child's bootstrap reads it back into the config it rebuilds.
+ENV_VCS_BACKEND = "DISPATCH_VCS_BACKEND"
 
 
 @dataclass(frozen=True)
@@ -668,9 +682,26 @@ class SubstrateConfig:
     efficiency_trend: "TrendPolicy" = DEFAULT_TREND_POLICY
     lifecycle: "LifecyclePolicy" = GENERIC_LIFECYCLE
     supervise: "SupervisePolicy" = DEFAULT_SUPERVISE_POLICY
+    queue_saturation: "SaturationPolicy" = DEFAULT_SATURATION_POLICY
     marker: MarkerPolicy = DEFAULT_MARKER_POLICY
     non_git_oracle: str = ""
     ci: dict = field(default_factory=dict)
+    # ``vcs_backend`` is the **VCS-read seam** (`docs/360`, the `dos.vcs` companion to
+    # the ``non_git_oracle`` evidence seam above): WHICH backend gathers the kernel's
+    # commit/ancestry/ship-stamp evidence. ``non_git_oracle`` adds a witness BEYOND git;
+    # ``vcs_backend`` makes the GIT READ ITSELF swappable — so a workspace on Mercurial /
+    # Sapling / a remote API, or with no VCS at all, supplies evidence through a backend
+    # of its choosing instead of a hardcoded ``git`` subprocess. Default ``"git"`` =
+    # `dos.vcs.GitBackend` = the existing reads, byte-identical (the back-compatible
+    # default; every `test_verify_no_plan.py`-style contract is unchanged). A workspace
+    # declares its own in `dos.toml [vcs] backend` — the built-in ``"null"`` (the
+    # honest-empty `NullVcs`, for a no-VCS tree) or a name registered under the
+    # ``dos.vcs`` entry-point group. Resolved at the call boundary by
+    # `dos.vcs.active_vcs(root=…, cfg=…)`, never imported by a verdict; the kernel reads
+    # VCS evidence ONLY through that seam (the `test_vcs_layering` litmus). Same
+    # mechanism/policy split as ``stamp``/``non_git_oracle``: this carries only the NAME;
+    # the backend is the mechanism, resolved by it.
+    vcs_backend: str = "git"
     # docs/342 M3 / docs/126 P3 / docs/114 §A3 — the BINDING completion rung.
     # ``exec_cmd`` is a HOST-SUPPLIED acceptance command (`dos.toml [verify] exec_cmd`):
     # when set, `verify` runs it through `drivers/os_acceptance` at the very commit the
@@ -689,6 +720,20 @@ class SubstrateConfig:
     @property
     def root(self) -> Path:
         return self.paths.root
+
+    def vcs(self):
+        """The VCS backend this workspace's evidence reads route through (docs/360).
+
+        The boundary entry point for the `dos.vcs` seam: resolves ``vcs_backend``
+        (default ``"git"`` → `GitBackend`) bound to this config's ``root``, so a
+        caller writes ``cfg.vcs().commits_since(sha)`` without re-deriving the name or
+        the tree. Imported lazily (a function-local import) because `dos.vcs` imports
+        `dos.config` for the active-config fallback — the lazy import keeps the module
+        load order acyclic, the same posture the other seam resolvers take.
+        """
+        from dos.vcs import active_vcs
+
+        return active_vcs(root=self.paths.root, cfg=self)
 
     @property
     def kernel_runtime_files(self) -> tuple[str, ...] | None:
@@ -1350,6 +1395,17 @@ def load_workspace_config(
         "marker",
         lambda: _marker_gate.load_from_toml(toml_path, base=cfg.marker),
         cfg.marker))
+    # [queue] — OVERRIDE the human-escalation-rung saturation thresholds (the always-on
+    # regime, docs/121 §4.1). A present [queue] table tunes warn_ratio / saturated_ratio /
+    # min_arrivals (the ρ bands the queue_saturation verdict classifies); absent inherits
+    # the generic conservative default (warn 0.9, saturated 1.0, abstain below 5 arrivals).
+    # Malformed warns + keeps base. The verdict itself stays the pure queue_saturation.classify;
+    # this only supplies its policy.
+    from dos import queue_saturation as _queue_saturation
+    cfg = dataclasses.replace(cfg, queue_saturation=_layer(
+        "queue",
+        lambda: _queue_saturation.load_from_toml(toml_path, base=cfg.queue_saturation),
+        cfg.queue_saturation))
     # [precursor] — REPLACE the mandated-precursor grammar (docs/147). A present
     # [precursor.requires] / [precursor.aliases] table declares which mutating tool
     # needs which lookup first; absent inherits the EMPTY grammar (the gate
@@ -1409,6 +1465,37 @@ def load_workspace_config(
     cfg = dataclasses.replace(
         cfg, non_git_oracle=_verify_ci[0], ci=_verify_ci[1],
         exec_cmd=_verify_ci[2], prefer_artifact_rung=_verify_ci[3])
+    # [vcs] — OVERRIDE which backend gathers the kernel's commit/ancestry evidence
+    # (docs/360). `[vcs] backend` names a built-in (`git`/`null`) or a `dos.vcs`
+    # entry-point plugin; absent → "git" → byte-identical to today. An inline scalar
+    # (a name string), so it degrades to base on a missing table like the siblings.
+    # Unlike `non_git_oracle` (a driver consulted lazily) the NAME is validated to
+    # RESOLVE here — a typo'd/unknown backend is a host's own-claim error worth
+    # surfacing now, not a silent fall-back to `git` (the `resolve_vcs` fail-loud rule
+    # brought forward to config-load). A malformed table is warned + base-kept, so a
+    # broken `[vcs]` never wedges a command that does not read VCS evidence.
+    def _load_vcs_backend():
+        v_table = _load_toml_table(toml_path, "vcs")
+        name = cfg.vcs_backend
+        if v_table is not None:
+            raw = v_table.get("backend", name)
+            if not isinstance(raw, str):
+                raise ValueError(
+                    f"[vcs] backend must be a string, got {type(raw).__name__}")
+            name = raw.strip() or "git"
+            # Validate the name RESOLVES (built-in or a registered plugin). A bare
+            # name check, root-independent — resolution binds `root` later at the
+            # call boundary; here we only confirm the host named a real backend.
+            from dos import vcs as _vcs
+            if name not in _vcs._BUILT_IN_VCS:
+                known = dict(_vcs._discover_entry_point_vcs())
+                if name not in known:
+                    raise ValueError(
+                        f"[vcs] backend {name!r} is not a known backend; known: "
+                        f"{', '.join(sorted(set(_vcs._BUILT_IN_VCS) | set(known)))}")
+        return name
+    cfg = dataclasses.replace(
+        cfg, vcs_backend=_layer("vcs", _load_vcs_backend, cfg.vcs_backend))
     return cfg
 
 

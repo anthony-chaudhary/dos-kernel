@@ -201,6 +201,7 @@ believe the commit message.
 
 ## See also
 
+- [docs/377 — the review surface is the product: the four-question law](377_the-review-surface-is-the-product-the-four-question-law.md) — the doctrine this mechanism serves: the residual is the "what did the agent skip" answer in a reviewer's four-question acceptance test.
 - [`examples/residual_review/residual_review.py`](../examples/residual_review/residual_review.py) — the shipped mechanism (the three-band re-projection).
 - [docs/214 — commit-audit: the author-neutral claim-vs-diff floor](214_commit-audit-the-author-neutral-claim-vs-diff-floor.md) — the `diff-witnessed` / `subject-only` rung this stands on.
 - [docs/answers/stop-re-reviewing-code-the-machine-already-verified.md](answers/stop-re-reviewing-code-the-machine-already-verified.md) — the answer-corpus page for the colloquial query.

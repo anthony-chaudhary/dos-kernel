@@ -187,14 +187,14 @@ def test_module_imports_no_host_or_vendor():
 
 
 def test_module_imports_only_kernel_and_stdlib():
-    """The only non-stdlib import is `dos.commit_audit` (a kernel sibling) — the
+    """The only non-stdlib import is `dos.commit_audit` + the `dos.vcs` read seam (kernel siblings) — the
     surface stands on the SHIPPED verdict and recomputes no rung."""
     src = inspect.getsource(rr)
     tree = ast.parse(src)
     modules = {n.module for n in ast.walk(tree)
                if isinstance(n, ast.ImportFrom) and n.module}
     non_stdlib = {m for m in modules if m.startswith("dos")}
-    assert non_stdlib == {"dos.commit_audit"}, non_stdlib
+    assert non_stdlib == {"dos.commit_audit", "dos.vcs"}, non_stdlib
 
 
 # --- 4. zero new trust: a pure re-projection of the shipped verdict -----------

@@ -32,7 +32,6 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import subprocess
 import sys
 from dataclasses import dataclass, field
 from enum import Enum
@@ -433,23 +432,26 @@ _ARCHIVE_PATHSPEC = ("docs/_dispatch_loops/", "docs/_chained_runs/")
 
 
 def _git_log_subjects(scan_depth: int) -> list[str]:
-    """`git log --oneline -<scan_depth> -- <archive dirs>` → subject lines.
+    """The archive-dir commit subjects (newest-first), as `<short-sha> <subject>` lines.
 
-    Best-effort: a git failure (no repo, detached, etc.) yields [] so the gate
-    degrades to "no history → proceed" rather than crashing the loop's Step 0.
+    Routes through the active VCS backend's `log_records` (docs/360), restricted to the
+    archive pathspec. Best-effort: a read failure (no repo, detached, no VCS) yields []
+    so the gate degrades to "no history → proceed" rather than crashing the loop's
+    Step 0. Returns the `<sha> <subject>` shape the caller's prior `--oneline` parse
+    expected, so its downstream matching is byte-unchanged.
     """
-    try:
-        proc = subprocess.run(
-            ["git", "log", "--oneline", f"-{scan_depth}", "--", *_ARCHIVE_PATHSPEC],
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=20,
-            stdin=subprocess.DEVNULL,  # docs/295 — never leak the caller's stdin
-        )
-    except (OSError, subprocess.SubprocessError):
+    from dos import config as _config
+    from dos.vcs import active_vcs
+
+    root = _config.active().paths.root
+    # `log_lines` (raw passthrough) rather than `log_records`, so the `--oneline`
+    # output is byte-identical to before — including merge commits, which the prior
+    # call did NOT exclude (unlike the grep rung's `--no-merges` records).
+    lines = active_vcs(root=root).log_lines(
+        ("--oneline", f"-{int(scan_depth)}", "--", *_ARCHIVE_PATHSPEC))
+    if lines is None:
         return []
-    if proc.returncode != 0:
-        return []
-    return [ln for ln in proc.stdout.splitlines() if ln.strip()]
+    return [ln for ln in lines if ln.strip()]
 
 
 def check(

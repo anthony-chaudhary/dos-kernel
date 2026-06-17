@@ -63,4 +63,15 @@ own work is consistency, not grounding — and grounding is what you wanted.
 - [How to make an agent prove it did the work](make-an-agent-prove-the-work-not-self-certify.md) — the keep-gate in practice.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
+## Also asked as
+
+- why you can't trust an AI model to judge its own work
+- why can't I trust a model to judge its own work
+- is an LLM judging itself reliable
+- self-evaluation bias in AI coding agents
+- why model self-grading doesn't work
+- should an agent grade its own output
+- LLM-as-judge of its own work what's wrong with it
+- the problem with an agent scoring itself
+
 > The kernel is the part that doesn't believe the agents.

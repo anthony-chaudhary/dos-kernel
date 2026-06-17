@@ -122,7 +122,6 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -153,27 +152,23 @@ def _workspace_root():
 
 
 def _git_log(args: list[str]) -> list[str]:
-    """Run `git log` with the given args. Returns the lines. Raises on error.
+    """Run the VCS log with the given git-log args. Returns the lines. Raises on error.
 
-    Runs in the served workspace so the grep rung scans the target repo's
-    history, not the dos package's own (the workspace-parameterized port).
+    Routes through the active VCS backend's `log_lines` escape hatch (docs/360) so the
+    grep rung scans the served workspace's history through whatever backend is wired —
+    `GitBackend` runs `git log <args>` exactly as before; a non-git backend that cannot
+    serve raw git-arg logs returns ``None`` here. Either way a ``None`` becomes a
+    ``RuntimeError`` so every existing caller's ``except RuntimeError`` degrade
+    (→ ``[]``) fires unchanged — the grep rung's behavior is byte-identical on git and
+    fails safe (no evidence) on a backend that can't answer.
     """
-    result = subprocess.run(
-        ["git", "log"] + args,
-        cwd=str(_workspace_root()),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=False,
-        # Never inherit the caller's stdin: inside a long-lived stdio server
-        # (dos-mcp) it is the live transport pipe, and a git child holding it
-        # wedges on Windows — the docs/295 stall.
-        stdin=subprocess.DEVNULL,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"git log failed: {result.stderr.strip()}")
-    return result.stdout.splitlines()
+    from dos.vcs import active_vcs
+
+    lines = active_vcs(root=_workspace_root()).log_lines(tuple(args))
+    if lines is None:
+        raise RuntimeError("vcs log unavailable (non-zero exit, missing binary, or a "
+                           "backend that does not serve raw git-arg logs)")
+    return lines
 
 
 # Global oneline-scan window (commit count). SIZED BY CADENCE, NOT TIME — a phase
@@ -481,18 +476,30 @@ def _bootstrap_active_config() -> None:
     resolve). A malformed `dos.toml [stamp]` IS surfaced on the CLI's own
     `_apply_workspace` path; here, in the shelled-out rung, we stay defensive.
     """
+    import dataclasses
     import json
     import os
     from dos import config as _config
     from dos import stamp as _stamp
 
+    # (A) The vcs-backend NAME handed down by the parent (docs/360) — installed FIRST
+    # and independently of the stamp resolution below, so the rung's own git reads
+    # (`_git_log` → `active_vcs`) honour a `null`/plugin backend the parent selected.
+    # A plain name string; an absent/empty var leaves the default `git`.
     cur = _config.active()
-    # (1) explicit convention handed down by the parent process.
+    vcs_name = os.environ.get(_config.ENV_VCS_BACKEND, "").strip()
+    if vcs_name and vcs_name != cur.vcs_backend:
+        try:
+            cur = dataclasses.replace(cur, vcs_backend=vcs_name)
+            _config.set_active(cur)
+        except Exception:
+            pass  # never block the rung on a bad backend name — stay on the default
+
+    # (1) explicit stamp convention handed down by the parent process.
     raw = os.environ.get(_config.ENV_STAMP_CONVENTION)
     if raw:
         try:
             conv = _stamp.StampConvention.from_dict(json.loads(raw))
-            import dataclasses
             _config.set_active(dataclasses.replace(cur, stamp=conv))
             return
         except Exception:
@@ -502,7 +509,6 @@ def _bootstrap_active_config() -> None:
         toml_path = cur.paths.root / "dos.toml"
         conv = _stamp.load_from_toml(toml_path, base=cur.stamp)
         if conv is not cur.stamp:
-            import dataclasses
             _config.set_active(dataclasses.replace(cur, stamp=conv))
     except Exception:
         pass  # (3) leave the default convention in place

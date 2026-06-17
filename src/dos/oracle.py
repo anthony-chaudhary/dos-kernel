@@ -90,6 +90,7 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 from dos import config as _config
+from dos.vcs import active_vcs
 
 # Path coupling resolves against the ACTIVE WORKSPACE (separation refactor),
 # not the package's own tree. Env overrides preserved for tests. The pure
@@ -684,27 +685,15 @@ def _git_touched_files(sha: str, *, timeout: int = 15) -> set[str] | None:
     cached = _TOUCHED_FILES_CACHE.get(cache_key)
     if cached is not None:
         return set(cached)
-    try:
-        res = subprocess.run(
-            ["git", "show", "--name-only", "--format=", sha],
-            cwd=root,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout,
-            check=False,
-            stdin=subprocess.DEVNULL,  # docs/295 — never leak the caller's stdin
-        )
-    except (subprocess.TimeoutExpired, OSError):
+    # Route through the active VCS backend (docs/360): `files_in_commit` returns the
+    # repo-relative paths or None (unknown sha / shallow / no VCS) — the same
+    # permissive None this caller has always treated as "not verifiable, never a false
+    # negative". `timeout` is now the backend's standing bound. None results are NOT
+    # cached (a transient failure must be retried, not frozen into a miss).
+    paths = active_vcs(root=root).files_in_commit(sha)
+    if paths is None:
         return None
-    if res.returncode != 0:
-        return None
-    files = {
-        ln.strip().replace("\\", "/")
-        for ln in res.stdout.splitlines()
-        if ln.strip()
-    }
+    files = {p.replace("\\", "/") for p in paths if p.strip()}
     _TOUCHED_FILES_CACHE[cache_key] = frozenset(files)
     return files
 
@@ -1593,6 +1582,13 @@ def _grep_batch_subprocess(
         child_env[_config.ENV_STAMP_CONVENTION] = json.dumps(
             _config.active().stamp.to_dict()
         )
+        # Carry the ACTIVE vcs-backend NAME into the rung subprocess too (docs/360):
+        # the child re-derives `config.active()` from scratch and would default to
+        # `git`, so a `dos.toml`-declared (or `set_active`-installed) backend — e.g.
+        # `null` for a no-VCS workspace — must be handed across explicitly, exactly as
+        # the stamp convention is. A plain name string (a backend resolves by name);
+        # the child's `_bootstrap_active_config` reads it back.
+        child_env[_config.ENV_VCS_BACKEND] = _config.active().vcs_backend
     except Exception:
         pass  # never block the rung on a serialization hiccup
     try:

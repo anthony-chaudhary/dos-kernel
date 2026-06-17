@@ -58,4 +58,14 @@ it does not certify correctness; it certifies what the fleet actually did.
 - [How do agents prove to each other that work actually landed](agent-to-agent-proof-that-work-landed.md) — the agent-to-agent surface.
 - [FAQ: Is DOS an agent orchestrator or framework?](../FAQ.md#is-dos-an-agent-orchestrator-or-framework)
 
+## Also asked as
+
+- what is a trust substrate for a fleet of autonomous AI agents
+- what is a trust substrate for a fleet of autonomous agents
+- trust layer for many unreliable AI agents
+- substrate that adjudicates truth across an agent fleet
+- how do I make a fleet of agents trustworthy
+- a referee layer for autonomous agents
+- ground truth for a fleet of self-narrating agents
+
 > The kernel is the part that doesn't believe the agents.

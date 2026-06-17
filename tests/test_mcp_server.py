@@ -54,7 +54,10 @@ def _tools(server) -> dict:
 def test_server_registers_the_syscall_tools():
     server = build_server()
     listed = asyncio.run(server.list_tools())
-    names = {t.name for t in listed}
+    # The built-in syscall ABI is the `dos_*` surface; any non-`dos_` tool came
+    # from the `dos.mcp_tools` third-party seam (docs/378) — a host installing an
+    # extension must not perturb the curated ABI this test pins.
+    names = {t.name for t in listed if t.name.startswith("dos_")}
     assert names == {
         "dos_verify", "dos_commit_audit", "dos_review", "dos_arbitrate",
         "dos_refuse_reasons", "dos_check_reason", "dos_doctor", "dos_recall",

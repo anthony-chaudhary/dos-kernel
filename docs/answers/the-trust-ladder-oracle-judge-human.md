@@ -57,4 +57,14 @@ weak rung's error can subtract approval, never add it.
 - [Why you can't trust a model to judge its own work](why-you-cant-trust-a-model-to-judge-its-own-work.md) — why the judge rung is advisory.
 - [FAQ: How is DOS different from agent evals or observability platforms?](../FAQ.md#how-is-dos-different-from-agent-evals-or-observability-platforms)
 
+## Also asked as
+
+- how to combine a deterministic check an LLM judge and a human reviewer for agent oversight
+- combine a deterministic check an LLM judge and a human reviewer
+- trust ladder for agent oversight oracle judge human
+- when to use a hard check vs an LLM judge vs a human
+- tiered oversight for autonomous agents
+- layer deterministic judge and human review for agents
+- escalation ladder from oracle to judge to human
+
 > The kernel is the part that doesn't believe the agents.

@@ -66,4 +66,23 @@ discipline. A git worktree per agent isolates the *checkout* but not the shared
 - [The incident page](../incidents/two-agents-overwrote-each-others-work.md) — the same failure as a story.
 - [FAQ: How do I stop two AI agents from editing the same files at the same time?](../FAQ.md#how-do-i-stop-two-ai-agents-from-editing-the-same-files-at-the-same-time)
 
+## Also asked as
+
+- how to stop two AI agents overwriting each other
+- two AI agents keep overwriting each other's files
+- stop parallel coding agents from clobbering each other
+- prevent two agents editing the same file at once
+- how to coordinate file writes between multiple agents
+- agents on the same repo overwrite each other's changes
+- lock files so two agents don't collide
+- concurrent AI agents stepping on each other how to fix
+- keep parallel agents from racing on shared files
+- how do I run multiple coding agents without conflicts
+- two agents one workspace stop the overwrite problem
+- serialize agent edits to shared state
+- two Cursor agents overwriting each other's files
+- stop two Copilot agents clobbering the same file
+- multiple Aider sessions colliding on one repo
+- run several Claude Code agents without file conflicts
+
 > The kernel is the part that doesn't believe the agents.

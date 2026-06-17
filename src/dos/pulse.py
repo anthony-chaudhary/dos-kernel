@@ -84,6 +84,7 @@ class PulseDigest:
     pending_human: int = 0
     breaker_open: bool = False
     enforce_false_denies: int = 0  # docs/365 — denies the operator later overrode
+    queue_saturated: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -94,6 +95,7 @@ class PulseDigest:
             "pending_human": self.pending_human,
             "breaker_open": self.breaker_open,
             "enforce_false_denies": self.enforce_false_denies,
+            "queue_saturated": self.queue_saturated,
         }
 
 
@@ -139,6 +141,21 @@ def _decision_phrase(d: Any) -> str:
     if dup > 1:
         phrase = f"{phrase} ×{dup}"
     return phrase
+
+
+def _saturation_word(saturation: Any) -> str:
+    """The uppercase verdict string from a `queue_saturation.SaturationVerdict` stand-in.
+
+    Reads `.verdict.value` (a `SaturationVerdict` carries a `Saturation` enum), then
+    `.value`, then `str()` — duck-typed exactly like `_verdict_word`, so this module
+    needs no `queue_saturation` import (the same robustness the liveness/breaker reads
+    have). None / absent ⇒ "" (no saturation signal was gathered — the silent default).
+    """
+    if saturation is None:
+        return ""
+    inner = getattr(saturation, "verdict", saturation)
+    word = getattr(inner, "value", inner)
+    return str(word or "").upper()
 
 
 def _breaker_is_open(breaker_verdict: Any) -> bool:
@@ -188,13 +205,14 @@ def fold_pulse(
     breaker_verdict: Any = None,
     enforce_metric: Any = None,
     enforce_threshold: int = _ENFORCE_FALSE_DENY_THRESHOLD,
+    saturation: Any = None,
 ) -> PulseDigest:
     """Fold the already-gathered fleet facts into one `PulseDigest`. PURE — no I/O.
 
     Returns an EMPTY digest (the silence rule) when nothing is wrong: no STALLED run,
     an empty HUMAN decisions queue, a CLOSED/absent breaker, an enforcement false-DENY
-    count below threshold. Otherwise the digest names each finding in `lines` and
-    carries the worst-signal `severity`.
+    count below threshold, and a DRAINING/absent queue. Otherwise the digest names each
+    finding in `lines` and carries the worst-signal `severity`.
 
     `liveness`        — per-run `liveness.LivenessVerdict`s the boundary classified,
                         each carrying the run id + lane it was gathered for. Only
@@ -210,6 +228,15 @@ def fold_pulse(
                         surfaces a WARN tuning signal — the continuous-OBSERVE half of
                         the autonomous enforcement-tuning loop (pulse names the
                         over-blocking; the autonomous `enforce-tune` cadence acts on it).
+    `saturation`      — a folded `queue_saturation.SaturationVerdict` (or None): the
+                        verdict on whether the HUMAN escalation rung itself is still a
+                        meaningful target. The always-on twist on the `pending_human`
+                        count: pushing one more unread line is pointless once the rung
+                        is gone. SATURATED is URGENT (the rung is gone NOW — auto-
+                        degrade), SATURATING is WARN (under pressure), DRAINING/absent
+                        is silent. Surfaced ABOVE the raw pending count so an operator
+                        (or an auto-degrade consumer) reads "the rung is saturated"
+                        rather than just "N pending".
     """
     lines: list[str] = []
     severity = INFO
@@ -229,7 +256,29 @@ def fold_pulse(
             severity = WARN
         lines.append(f"SPINNING: run {_run_label(v)} alive but not progressing")
 
-    # 2. Unread HUMAN decisions — the absent-operator's-proxy. A pending queue is WARN
+    # 2. The HUMAN escalation rung itself — is it still a meaningful target, or already
+    #    drowned (docs/121 §4.1, the always-on regime)? This is folded BEFORE the raw
+    #    pending count because it reframes it: once the rung is SATURATED, queuing one
+    #    more unread decision is a no-op — the right response is to auto-degrade, not to
+    #    wait for a human. SATURATED is as urgent as a hung run (the rung is gone NOW);
+    #    SATURATING is a growing-pressure WARN; DRAINING/absent is silent.
+    sat_word = _saturation_word(saturation)
+    queue_saturated = sat_word == "SATURATED"
+    if queue_saturated:
+        severity = URGENT
+        reason = str(getattr(saturation, "reason", "") or "").strip()
+        tail = f" — {reason}" if reason else ""
+        lines.append(f"QUEUE SATURATED: the HUMAN escalation rung is no longer "
+                     f"draining; auto-degrade rather than queue more{tail}")
+    elif sat_word == "SATURATING":
+        if severity == INFO:
+            severity = WARN
+        reason = str(getattr(saturation, "reason", "") or "").strip()
+        tail = f" — {reason}" if reason else ""
+        lines.append(f"QUEUE SATURATING: the HUMAN escalation rung is under "
+                     f"pressure{tail}")
+
+    # 3. Unread HUMAN decisions — the absent-operator's-proxy. A pending queue is WARN
     #    (it needs a person, but not the NOW urgency of a hung run).
     human = list(decisions)
     if human:
@@ -241,7 +290,7 @@ def fold_pulse(
         more = "" if n <= 5 else f"; +{n - 5} more"
         lines.append(f"{head} ({phrases}{more})")
 
-    # 3. An OPEN breaker — a failure class has tripped to an escalation. WARN.
+    # 4. An OPEN breaker — a failure class has tripped to an escalation. WARN.
     breaker_open = _breaker_is_open(breaker_verdict)
     if breaker_open:
         if severity == INFO:
@@ -276,6 +325,7 @@ def fold_pulse(
         pending_human=len(human),
         breaker_open=breaker_open,
         enforce_false_denies=false_denies,
+        queue_saturated=queue_saturated,
     )
 
 

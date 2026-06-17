@@ -24,9 +24,16 @@ interesting one:
      fail-to-abstain, and abstention-first (`dos.judges`).
 
 Both kinds obey the one-way arrow: **they import the kernel; the kernel never
-imports them.** Adding a host, or a new adjudicator, means adding a module here (or
-a `dos.judges`/`dos.predicates`/`dos.renderers` entry-point plugin), never touching
-the kernel.
+imports them.** Adding a host, or a new adjudicator, means adding a module here OR —
+and this is the part that no longer requires touching this package at all — shipping
+an entry-point plugin from your OWN pip package. Every seam resolves the same way:
+built-ins (the modules here) first and unshadowable, then a `dos.<seam>` entry-point
+group discovered by name at the call boundary. The host-policy pack itself is the
+`dos.drivers` group (`dos.drivers_seam`, resolved by `dos --driver <name>`); the
+adjudicators are `dos.judges`; and the other axes (`dos.predicates`, `dos.renderers`,
+`dos.exporters`, `dos.mcp_tools`, …) follow the identical shape. `dos plugins` lists
+every seam and what's installed; `dos plugin new <seam>` scaffolds one. The reference
+third-party pack is `examples/dos_ext` (its `acme` driver + MCP tool).
 """
 
 from __future__ import annotations

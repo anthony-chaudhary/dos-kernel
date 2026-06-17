@@ -60,4 +60,15 @@ wrong. The narrow, load-bearing guarantee: the loop can't terminate on a sentenc
 - [How do I know if my agent's commit message matches what it changed](does-the-commit-message-match-what-changed.md) — the general subject-vs-diff case.
 - [FAQ: How do I verify an AI agent actually did what it claims?](../FAQ.md#how-do-i-verify-an-ai-agent-actually-did-what-it-claims)
 
+## Also asked as
+
+- how to catch an empty commit allow-empty shipped fake done
+- catch an empty commit faking done
+- agent used git commit allow-empty to fake shipping
+- detect a shipped commit that changed nothing
+- empty commit pretending to be real work how to catch
+- agent committed allow-empty shipped is that a lie
+- spot a no-content commit claiming completion
+- fake-done via an empty commit how do I block it
+
 > The kernel is the part that doesn't believe the agents.

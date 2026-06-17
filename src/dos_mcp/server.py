@@ -1054,7 +1054,83 @@ def build_server() -> FastMCP:
             f"in dos.toml [reasons]."
         )
 
+    # ---------------------------------------------------------------------
+    # Third-party MCP tools — the `dos.mcp_tools` entry-point seam.
+    #
+    # The built-in syscall tools above are the curated ABI. This seam lets a third
+    # party ADD a tool/verb to the `dos` server from their OWN pip package, with no
+    # fork — the MCP-surface analogue of `dos.judges` / `dos.drivers`. A plugin
+    # registers `name = "pkg.module:register"` under
+    # `[project.entry-points."dos.mcp_tools"]`; `register(mcp)` is handed THIS server
+    # and calls `mcp.tool()` itself, so its tools get the SAME deadline + deep-answer
+    # wrapping the built-ins do (the patched `mcp.tool` above). A bare tool callable
+    # is also accepted and registered directly. The seam is ADDITIVE — a plugin adds a
+    # verb, never replaces a built-in (FastMCP keeps the first registration of a name).
+    # A broken plugin is SKIPPED with a stderr note (MCP hosts capture stderr), never
+    # crashing the server — the same fail-soft discovery posture the kernel seams take.
+    _register_entry_point_tools(mcp)
+
     return mcp
+
+
+def _register_entry_point_tools(mcp: "FastMCP", *, _stderr=None) -> list[str]:
+    """Discover + register `dos.mcp_tools` plugins on `mcp`. Returns the names registered.
+
+    Factored out so a test can build a server and assert a fake entry point was wired
+    without starting the stdio transport. Discovery I/O at build time only; a plugin that
+    fails to load or register is skipped with a one-line stderr note."""
+    stderr = _stderr if _stderr is not None else sys.stderr
+    registered: list[str] = []
+    try:
+        from importlib.metadata import entry_points
+    except Exception:  # pragma: no cover - importlib.metadata always present py3.11+
+        return registered
+    try:
+        eps = entry_points(group="dos.mcp_tools")
+    except TypeError:  # pragma: no cover - py<3.10 selectable-API fallback
+        eps = entry_points().get("dos.mcp_tools", [])  # type: ignore[attr-defined]
+    except Exception:  # pragma: no cover - defensive: never let discovery crash the server
+        return registered
+    for ep in sorted(eps, key=lambda e: e.name):
+        try:
+            obj = ep.load()
+            # A `register(mcp)` callable wires its own tools (preferred — it can register
+            # several and pick titles); a bare tool function is registered directly.
+            if _looks_like_registrar(obj):
+                obj(mcp)
+            else:
+                mcp.tool()(obj)
+            registered.append(ep.name)
+        except Exception as e:  # pragma: no cover - depends on third-party plugin
+            print(
+                f"warning: mcp_tools plugin {ep.name!r} failed to load ({e}); skipping",
+                file=stderr,
+            )
+            continue
+    return registered
+
+
+def _looks_like_registrar(obj: Any) -> bool:
+    """Is `obj` a `register(mcp)`-style callable (vs a bare tool function)?
+
+    A registrar takes exactly the server handle — its single required parameter is the
+    `mcp`. A bare tool function has the tool's own parameters (text/plan/…). We treat a
+    callable named `register`, or one whose only required parameter is named `mcp`/`server`,
+    as a registrar; anything else is a bare tool. Pure introspection; no I/O."""
+    if not callable(obj):
+        return False
+    if getattr(obj, "__name__", "") == "register":
+        return True
+    try:
+        import inspect
+
+        params = list(inspect.signature(obj).parameters.values())
+    except (TypeError, ValueError):  # pragma: no cover - builtins without a signature
+        return False
+    required = [p for p in params
+                if p.default is p.empty
+                and p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)]
+    return len(required) == 1 and required[0].name in ("mcp", "server")
 
 
 def main(argv: list[str] | None = None) -> int:

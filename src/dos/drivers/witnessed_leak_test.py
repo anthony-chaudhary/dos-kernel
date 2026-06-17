@@ -731,16 +731,18 @@ def _witness_landed_effects(
     lo, hi = window
     if not lo or not hi:
         return 0
-    # `git log --since/--until` over the bucket's time window; ISO timestamps are
-    # accepted by git. Then audit each commit's claim-vs-diff.
-    rc, out = _ca._git(
-        workspace, "log", f"-{int(limit)}", "--pretty=format:%H",
-        f"--since={lo}", f"--until={hi}",
-    )
-    if rc != 0:
+    # `git log --since/--until` over the bucket's time window, routed through the
+    # `dos.vcs` read seam (docs/379) — `commit_audit._git` was retired when the
+    # kernel's git reads moved behind the backend. ISO timestamps are accepted by
+    # git. Then audit each commit's claim-vs-diff.
+    from dos.vcs import active_vcs
+
+    lines = active_vcs(root=workspace).log_lines(
+        (f"-{int(limit)}", "--pretty=format:%H", f"--since={lo}", f"--until={hi}"))
+    if lines is None:
         return 0
     witnessed = 0
-    for sha in out.splitlines():
+    for sha in lines:
         sha = sha.strip()
         if not sha:
             continue

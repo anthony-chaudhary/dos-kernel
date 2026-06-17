@@ -58,4 +58,17 @@ half.
 - [My agent claimed it fixed the bug, but it didn't](agent-claimed-it-fixed-the-bug-but-it-didnt.md) — the same witness on a fix.
 - [FAQ: Can't the agent just game the verdict?](../FAQ.md#cant-the-agent-just-game-the-verdict)
 
+## Also asked as
+
+- how to verify an LLM didn't hallucinate a function or API that doesn't exist
+- verify an LLM didn't hallucinate a function or API
+- agent called an API that doesn't exist how to catch
+- detect a hallucinated function in agent code
+- check that the API the agent used is real
+- LLM invented a method does it actually exist
+- catch made-up library calls in AI-generated code
+- Copilot used a function that doesn't exist
+- Cursor called an API that isn't real
+- Claude hallucinated a method does it exist
+
 > The kernel is the part that doesn't believe the agents.
