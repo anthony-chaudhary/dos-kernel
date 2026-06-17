@@ -78,6 +78,7 @@ class HookAction(enum.Enum):
     """The dialect-neutral decision. Maps 1:1 onto every host's grammar."""
 
     DENY = "deny"  # withhold the call / refuse the stop
+    ASK = "ask"    # escalate to the human's permission prompt (do NOT decide for them)
     WARN = "warn"  # add context, do NOT block (turn-preserving)
     PASS = "pass"  # emit nothing
 
@@ -96,6 +97,94 @@ class HookVerdict:
     action: HookAction
     reason: str = ""
     context: str = ""
+
+
+# ---------------------------------------------------------------------------
+# The enforcement POSTURE — how a refusal is SURFACED (docs/370). The kernel
+# computes ONE verdict; the operator picks whether a refusal hard-blocks, asks
+# the human, or merely records. PURE: a posture only ever RE-SHAPES a refusal
+# (DENY) into a softer surface; it never hardens a PASS/WARN into a block, and
+# never turns an admit into a deny. So a posture is monotone-softening — the
+# refuse-equal-or-softer dual of the overlap policy's refuse-MORE-only floor.
+#
+# DOS shipped assuming the headless / bypass-permissions deployment, where DOS
+# is the ONLY gate, so a refusal must BLOCK. The control-oriented deployment
+# keeps a human in the loop and wants DOS to ESCALATE to that human's existing
+# permission prompt instead of deciding for them. The posture is that choice.
+# ---------------------------------------------------------------------------
+class Posture(enum.Enum):
+    """How the host surfaces a DOS refusal. Selected by the operator, never by an agent.
+
+      OBSERVE — record only. A refusal degrades to a turn-preserving WARN: DOS
+                names the violation but never blocks and never prompts. The
+                cautious first-adopter posture (the pre-docs/364 behavior, now an
+                explicit choice).
+      BLOCK   — a refusal hard-DENYs the call. DOS is the gate. The headless /
+                bypass-permissions default — byte-for-byte today's behavior, so an
+                operator who sets nothing sees no change (the parity floor).
+      GATE    — a refusal ESCALATES to the human's permission prompt (an ASK at the
+                PRE moment). DOS does not decide for the human; it hands them an
+                adjudicated reason the agent could not have authored. The
+                control-oriented / human-in-the-loop posture.
+    """
+
+    OBSERVE = "observe"
+    BLOCK = "block"
+    GATE = "gate"
+
+
+#: The default — BLOCK, so an operator who declares no posture gets exactly the
+#: bytes DOS has emitted since the hooks shipped (the docs/370 parity floor).
+DEFAULT_POSTURE = Posture.BLOCK
+
+
+def parse_posture(name: Optional[str]) -> Posture:
+    """Resolve a posture name to a `Posture`. PURE. Lenient → `DEFAULT_POSTURE`.
+
+    Unlike `resolve_dialect` (fail-LOUD), an unknown / empty posture name falls
+    back to BLOCK — the SAFE direction (more restrictive than GATE/OBSERVE), and
+    the one that preserves today's bytes. A typo can only ever make DOS *stricter*,
+    never silently drop a gate; `dos doctor` surfaces the effective posture so the
+    typo is visible without breaking the hook hot path.
+    """
+    if not name:
+        return DEFAULT_POSTURE
+    try:
+        return Posture(str(name).strip().lower())
+    except ValueError:
+        return DEFAULT_POSTURE
+
+
+def under_posture(verdict: HookVerdict, posture: Posture) -> HookVerdict:
+    """Re-shape a verdict's SURFACE for the operator's posture. PURE, total.
+
+    Only a DENY is ever re-shaped (a PASS/WARN/ASK passes through untouched — a
+    posture never hardens). The mapping:
+
+      * BLOCK   → unchanged (a DENY stays a DENY — today's behavior).
+      * OBSERVE → a DENY becomes a WARN; the refusal's `reason` is folded into the
+                  `context` so the human still reads WHY, but nothing blocks.
+      * GATE    → a PRE-moment DENY becomes an ASK (route to the human's permission
+                  prompt). A non-PRE DENY (a Stop refusal, a Post context) stays a
+                  DENY: "ask the human" is meaningful only BEFORE a tool runs — a
+                  stop has no permission-prompt seam to escalate into, so GATE leaves
+                  it a block (the honest-coverage direction, never a fabricated ask).
+
+    The transform is the keystone that lets DOS PARTICIPATE in a host's permission
+    flow rather than replace it: the same adjudicated verdict, surfaced as the
+    operator chose.
+    """
+    if verdict.action is not HookAction.DENY:
+        return verdict
+    if posture is Posture.OBSERVE:
+        merged = " ".join(p for p in (verdict.reason, verdict.context) if p).strip()
+        return HookVerdict(moment=verdict.moment, action=HookAction.WARN, context=merged)
+    if posture is Posture.GATE and verdict.moment is HookMoment.PRE:
+        return HookVerdict(
+            moment=verdict.moment, action=HookAction.ASK,
+            reason=verdict.reason, context=verdict.context,
+        )
+    return verdict
 
 
 # ---------------------------------------------------------------------------
@@ -118,10 +207,11 @@ def parse_cc(cc_dict: Optional[dict], *, moment: HookMoment) -> HookVerdict:
     decision = hso.get("permissionDecision")
     context = hso.get("additionalContext")
     context = context if isinstance(context, str) else ""
-    if decision == "deny":
+    if decision in ("deny", "ask"):
         reason = hso.get("permissionDecisionReason")
         reason = reason if isinstance(reason, str) else ""
-        return HookVerdict(moment=moment, action=HookAction.DENY, reason=reason, context=context)
+        act = HookAction.DENY if decision == "deny" else HookAction.ASK
+        return HookVerdict(moment=moment, action=act, reason=reason, context=context)
     if context:
         # additionalContext present, no deny → a WARN (turn-preserving re-surface).
         return HookVerdict(moment=moment, action=HookAction.WARN, context=context)
@@ -164,10 +254,15 @@ class ClaudeCodeDialect:
         if verdict.action is HookAction.PASS:
             return None
         event = _CC_EVENT[verdict.moment]
-        if verdict.action is HookAction.DENY:
+        if verdict.action in (HookAction.DENY, HookAction.ASK):
+            # `deny` withholds the call; `ask` routes it to the human's permission
+            # prompt — both are the `permissionDecision` gate CC honors
+            # (`z.enum(['allow','deny','ask'])`, verified against the CC source). The
+            # only field that differs is the verb; the why + corrective ride the same
+            # `permissionDecisionReason` / `additionalContext` channels.
             hso = {
                 "hookEventName": event,
-                "permissionDecision": "deny",
+                "permissionDecision": "deny" if verdict.action is HookAction.DENY else "ask",
                 "permissionDecisionReason": verdict.reason,
             }
             if verdict.context:
