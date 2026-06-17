@@ -1,24 +1,33 @@
-"""GHF3 — the differential parity gate over the Go hook fast-path (docs/125).
+"""GHF3 — the differential parity gate over the Go hook fast-path (docs/125/385).
 
-This is the CI ratchet that keeps the native `dos-hook` decider byte-identical to
-the Python `dos hook pretool` verb on the gated decision projection (the docs/124
-contract). It is the Python side of the cross-engine differential:
+The cross-engine ratchet that keeps the native `dos-hook` decider and the Python
+`dos hook pretool` verb byte-identical on the gated decision projection (the
+docs/124 contract). **As of docs/385 TP1 the truth-pointer has FLIPped: Go is the
+canonical engine for the hook deciders, and Python is the corpus-pinned SHADOW.**
+The corpus is byte-pinned to the *Go* decider's output by the Go `TestParityCorpus`
+(`go == corpus`, asserted every CI run); this pytest is the SHADOW side, proving
+the surviving Python decider still reproduces that Go-canonical corpus (the
+docs/100 fallback a pure-Python install relies on — docs/385 §6: the fallback
+stands, nothing is deleted yet). The two halves:
 
-  1. it regenerates the hermetic parity corpus from the LIVE Python decider
-     (`go/internal/hook/parity/gen_corpus.py`), so the corpus can never drift from
-     the Python behavior it claims to mirror; then
+  1. it regenerates the hermetic parity corpus from the in-process Python shadow
+     (`go/internal/hook/parity/gen_corpus.py`) and asserts it still reproduces the
+     committed, Go-canonical bytes — a tripwire on the Python shadow drifting out
+     from under the Go spec; then
   2. it runs `go test` over the same corpus, which replays each case through the
-     native decider and asserts byte-equality (`TestParityCorpus`).
+     native decider and asserts byte-equality (`TestParityCorpus` — the canonical
+     pin: `go == corpus`).
 
-If the Go toolchain is absent, the test SKIPS (the gate runs wherever Go is
-available — CI installs it; a pure-Python dev box without Go still gets a green
-suite, just without this cross-engine check). If `go test` reports a byte drift,
-this FAILS loudly with the Go diff.
+Direction of authority (the docs/385 §3 flip). A divergence is reconciled toward
+**Go**, not Python: if the Python shadow drifts, fix Python to match the
+Go-canonical corpus; an intended behavior change is authored Go-first, re-soaked,
+and only then does the corpus follow. (Before the flip the arrow pointed the
+other way — the corpus was whatever Python emitted and Go had to match it.)
 
-It also pins the corpus's own self-consistency on the Python side: every case's
-`expected_stdout` must reproduce when re-run through the Python decider with the
-SAME injected inputs — a tripwire on the Python decider regressing out from under
-a stale corpus.
+If the Go toolchain is absent, the cross-engine half SKIPS (the gate runs wherever
+Go is available — CI installs it; a pure-Python dev box without Go still gets a
+green suite, just without the cross-engine check). If `go test` reports a byte
+drift, this FAILS loudly with the Go diff.
 
 Run: `python -m pytest tests/test_go_hook_parity.py -q`
 """
@@ -62,27 +71,32 @@ def _regen_corpus() -> str:
 
 
 def test_corpus_regenerates_and_is_self_consistent():
-    """The corpus must regenerate deterministically and reproduce the SAME bytes
-    as the committed corpus.jsonl (a tripwire on either the Python decider OR the
-    generator drifting). Regenerates and compares line-by-line."""
+    """The Python SHADOW must still reproduce the committed, Go-canonical corpus
+    (docs/385 TP1): re-running the in-process Python decider over the same injected
+    inputs yields byte-identical lines. A drift means the Python shadow has moved
+    out from under the Go spec. Regenerates and compares line-by-line."""
     fresh = _regen_corpus().strip().splitlines()
     committed = CORPUS.read_text(encoding="utf-8").strip().splitlines()
     assert fresh == committed, (
-        "the parity corpus is stale — regenerate it with\n"
-        f"  python {GEN.relative_to(REPO)} > {CORPUS.relative_to(REPO)}\n"
-        "(the Python decider or the generator changed; the corpus must track it)."
+        "the Python shadow drifted from the Go-canonical corpus (docs/385 §3).\n"
+        "Reconcile toward Go: fix the Python decider to match the committed\n"
+        f"  {CORPUS.relative_to(REPO)}\n"
+        "An INTENDED behavior change is authored Go-first, re-soaked, and only then\n"
+        f"does the corpus follow (regen the shadow's view with `python {GEN.relative_to(REPO)}`)."
     )
 
 
 def test_posttool_corpus_regenerates_and_is_self_consistent():
-    """The stream-stateful posttool corpus must likewise regenerate to the committed
-    bytes (the tripwire on the posttool decider / tool_stream fold drifting)."""
+    """The stream-stateful posttool shadow must likewise still reproduce the
+    committed, Go-canonical bytes (docs/385 TP1) — the tripwire on the Python
+    posttool decider / tool_stream fold drifting out from under the Go spec."""
     fresh = _regen(GEN_POST).strip().splitlines()
     committed = CORPUS_POST.read_text(encoding="utf-8").strip().splitlines()
     assert fresh == committed, (
-        "the posttool parity corpus is stale — regenerate it with\n"
-        f"  python {GEN_POST.relative_to(REPO)} > {CORPUS_POST.relative_to(REPO)}\n"
-        "(the posttool decider or tool_stream fold changed; the corpus must track it)."
+        "the Python posttool shadow drifted from the Go-canonical corpus (docs/385 §3).\n"
+        "Reconcile toward Go: fix the Python decider to match the committed\n"
+        f"  {CORPUS_POST.relative_to(REPO)}\n"
+        f"(an intended change is Go-first + re-soaked; regen the shadow with `python {GEN_POST.relative_to(REPO)}`)."
     )
 
 
@@ -104,9 +118,10 @@ def test_corpus_covers_every_decision_branch():
 
 @pytest.mark.skipif(not _have_go(), reason="Go toolchain not installed — cross-engine gate skipped")
 def test_go_decider_byte_parity():
-    """Run `go test` over the hook decider — this is the cross-engine assertion that
-    the native Go decider emits bytes IDENTICAL to the Python decider on every
-    corpus case (`TestParityCorpus`) plus the Go unit + pyjson tests."""
+    """Run `go test` over the hook decider — the CANONICAL pin (docs/385 TP1):
+    `TestParityCorpus` asserts the native Go decider's bytes ARE the committed
+    corpus on every case (`go == corpus`), so a Python-shadow drift surfaces here
+    as a Go-test failure. Plus the Go unit + pyjson tests."""
     # Ensure the corpora the Go tests will read are the freshly-regenerated ones
     # (both the pretool decision corpus and the stream-stateful posttool corpus).
     # newline="\n": the committed blobs are LF; without it, Windows' text-mode

@@ -156,10 +156,15 @@ func overrideFromCorpus(t *testing.T, c parityCase) (*OverrideFacts, time.Time) 
 	return &OverrideFacts{Until: until, Reason: c.Override.Reason, Scope: scope}, now
 }
 
-// TestParityCorpus is the differential parity gate (GHF3). For every corpus case
-// it injects the SAME leases + runtime files the Python oracle saw, runs the
-// native decider, and asserts the emitted bytes are IDENTICAL to the Python
-// decider's. A decision drift fails here loudly; this is the CI ratchet.
+// TestParityCorpus is the differential parity gate (GHF3) and — as of docs/385
+// TP1 — the CANONICAL pin: the truth-pointer has flipped, so Go is the spec for
+// the hook deciders and this assertion defines the corpus rather than chasing it.
+// For every corpus case it injects the SAME leases + runtime files, runs the
+// native decider, and asserts the committed `expected_stdout` IS the Go decider's
+// output (`go == corpus`). The Python decider is now the corpus-pinned SHADOW
+// (tests/test_go_hook_parity.py): a drift between the two surfaces here as a Go
+// failure and is reconciled toward Go, not Python. A decision drift fails loudly;
+// this is the CI ratchet.
 func TestParityCorpus(t *testing.T) {
 	cases := loadCorpus(t)
 	for _, c := range cases {

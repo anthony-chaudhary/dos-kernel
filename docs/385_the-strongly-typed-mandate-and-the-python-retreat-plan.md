@@ -296,6 +296,30 @@ the same substrate rather than waiting for a big-bang at the end. That is the
 phased-plan ceremony's own rule (no feature stranded at the last phase), applied
 to the retreat itself.
 
+### TP1 — landed (2026-06-17): the truth-pointer flip
+
+The first TP1 slice ships the *pointer move* the phase is named for. The hook
+deciders (`pretool`/`posttool`/`marker`/`stop`) and the ports they already needed
+(`admission`, `overlap`, `tree`, `claim_extract`, the dialect transcoder, proc
+liveness) are now declared **Go-canonical** in a closed, kernel-read registry
+(`src/dos/native_canonical.py`), and `dos doctor` reports the flip — so the §8
+litmus "*the truth-pointer is single and known per decider*" is an OBSERVED fact
+(a `go-canonical` text line + a `truth_pointer` map in `--json`), not a doc
+sentence. The parity corpus stays green and is reframed as the Go-canonical pin:
+the Go `TestParityCorpus` asserts the committed corpus IS the Go decider's output
+(`go == corpus`, the canonical pin), and the Python `tests/test_go_hook_parity.py`
+proves the Python *shadow* still reproduces it. A divergence is now reconciled
+toward Go (§3), not Python.
+
+What this slice deliberately does NOT do (the §6 cost ledger, honestly): it does
+not delete the Python twins. The Python deciders survive as the docs/100 fallback
+a pure-Python install relies on (§6: the fallback stands until the Python copy is
+deleted). Thinning them onto a binding follows once the `c-archive` binding (TP5,
+§5.1) exists; until then §6's per-decider fallback discipline keeps a binary-less
+install deciding. The truth-pointer has flipped; the deletion is a later slice.
+
+**Files:** `src/dos/native_canonical.py`, `src/dos/cli.py`, `tests/test_native_canonical.py`, `tests/test_go_hook_parity.py`, `go/internal/hook/parity_test.go`
+
 ## 8. Acceptance / litmus for the direction
 
 Not all of these are test-pinned today (the direction is forward-looking); each

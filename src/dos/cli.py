@@ -8759,6 +8759,28 @@ def _wiring_drift_rows(root: Path) -> list[dict]:
     return rows
 
 
+def _truth_pointer_facts() -> dict:
+    """docs/385 §8 — the per-decider truth-pointer (which engine is canonical),
+    for `dos doctor --json`. Each FLIPped decider maps to its canonical engine,
+    the phase that flipped it, the soak evidence, and the surviving shadow side.
+    Fail-soft to an empty map: a registry import fault degrades the row, never the
+    report (a report row never breaks doctor)."""
+    try:
+        from dos import native_canonical as _nc
+
+        return {
+            p.decider: {
+                "canonical": p.canonical,
+                "phase": p.phase,
+                "soak": list(p.soak),
+                "shadow": p.shadow,
+            }
+            for p in _nc.go_canonical_deciders()
+        }
+    except Exception:  # noqa: BLE001 — a report row must never break doctor
+        return {}
+
+
 def _dot_dos_facts(cfg: "_config.SubstrateConfig") -> dict:
     """The `.dos` surface, sized (docs/313 P4): the policy provenance (`dos.toml`
     declared vs the generic default), the schema-versioned identity card, and
@@ -9122,6 +9144,10 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             # identity card, and each fossil's existence/row-count, so "what
             # does my .dos know?" is one doctor read (docs/DOT_DOS.md).
             "dot_dos": _dot_dos_facts(cfg),
+            # docs/385 §8 — the truth-pointer: which kernel deciders have FLIPped to
+            # Go-canonical (the strongly-typed mandate). Empty until the first flip;
+            # populated by `dos.native_canonical` once a decider's spec is Go.
+            "truth_pointer": _truth_pointer_facts(),
         }
         if check_requested:
             report["findings"] = list(findings)
@@ -9259,6 +9285,21 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     except Exception:  # noqa: BLE001 — a report row must never break doctor
         print("self-mod override   disarmed")
     print(f"layout style        {cfg.paths.style}")
+    # docs/385 §8 TP1 — the truth-pointer: which kernel deciders are now
+    # Go-canonical (the strongly-typed mandate, CLAUDE.md). The Go core began as
+    # an accelerator graded against Python; the ratchet inversion (docs/385 §3)
+    # makes Go the spec per decider, on a soak gate. This line reports the FLIPped
+    # set so the truth-pointer is an OBSERVED fact (§8 litmus), not a doc sentence.
+    # Read-only, fail-soft — a registry read never breaks the report.
+    try:
+        from dos import native_canonical as _nc
+        _flipped = _nc.go_canonical_deciders()
+        if _flipped:
+            _names = ", ".join(p.decider for p in _flipped)
+            print(f"go-canonical        {_names}  "
+                  f"(Go is the spec; Python the corpus-pinned fallback — docs/385 TP1)")
+    except Exception:  # noqa: BLE001 — a report row must never break doctor
+        pass
     # docs/313 P4 — the `.dos` surface, sized: where this repo's policy came
     # from, whether the identity card exists, and how much each per-project
     # fossil has accumulated (the throughline page, docs/DOT_DOS.md).
