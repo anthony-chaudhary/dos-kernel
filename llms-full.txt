@@ -3135,6 +3135,23 @@ relevant cold section before editing a kernel leaf.
 > logs/fixtures; synthetic fixtures use neutral roots. Cross-link by filename,
 > don't duplicate; nothing under `src/dos/` depends on `dos-private`.
 
+> **Strongly typed by default (language direction, 2026-06-17).** Going forward
+> DOS is written in a strongly-typed language — **Go** is the chosen one. New
+> decision-bearing logic is born in Go, not added to the Python core. Python is
+> allowed only at **rare seams and interconnects**: the `import dos` / PyPI
+> binding over the Go core, the MCP server, the differential test harness, and
+> the genuine OS calls (git, fs, clock). That short list is the whole exception
+> — keeping new logic in Python because it is easier is a step backward, not a
+> seam. This **reverses** the old default (Python was the spec; Go an optional
+> accelerator): the spec migrates to Go, decider by decider, on the same parity
+> ratchet that built the accelerator — port → soak byte-green → flip the
+> truth-pointer to Go. The mechanics are unchanged
+> ([docs/100](docs/100_native-spine-port-plan.md),
+> [docs/124](docs/124_the-go-core-build-plan-and-the-parity-contract.md)); only
+> the direction flips. The reasoning, the seam list, and the phased retreat order
+> live in
+> [docs/385](docs/385_the-strongly-typed-mandate-and-the-python-retreat-plan.md).
+
 ## The layering — keep these apart
 
 One rule: **mechanism is the kernel; policy is a driver; the phased-plan
