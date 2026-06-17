@@ -106,9 +106,9 @@ wires the command" contract `os_acceptance` already lives under.
 | Persisted-store delta | OS/THIRD | `content_diff`, `state_diff` | `dos attest --before/--after` × |
 | Human approval envelope | THIRD_PARTY | `slack_approval` | `dos witness slack_approval` × |
 | **Live HTTP endpoint** | **THIRD_PARTY** | **`http_probe`** | **`dos witness http_probe`** × |
-| Process / port liveness | OS_RECORDED | `os_process` | `dos witness os_process` ○ |
+| **Process / port liveness** | **OS_RECORDED** | **`os_process`** | **`dos witness os_process`** × |
 | Filesystem artifact | floor → OS (w/ gold) | `fs_artifact` | `dos witness fs_artifact` ○ |
-| **Rendered screen / screenshot** | **OS_RECORDED** (kernel-captured) | **`visual_witness`** | **`dos witness visual_witness`** ○ |
+| **Rendered screen / screenshot** | **OS_RECORDED** (kernel-captured) | **`visual_witness`** | **`dos witness visual_witness`** × |
 
 ## Roadmap — designed here, built next (each must ship its backend, or it stays SPEC)
 
@@ -117,7 +117,7 @@ only when its backend is registered and resolves. So each item below ships
 **driver + registration + census row** together, or it is listed SPEC (out of the
 covered headline) until it does.
 
-### `os_process` — process / port liveness as a witnessed effect (OS_RECORDED)
+### `os_process` — process / port liveness as a witnessed effect (OS_RECORDED) — ✅ SHIPPED
 "The service I deployed is running / listening." The kernel reads the OS process table
 and/or opens a socket — the OS authors the fact; a dead process cannot keep a socket
 listening. Reuses the existing `dos/proc_delta.py` probe (the PID-reuse-defended,
@@ -139,7 +139,7 @@ the `content_diff` discipline. Subject grammar: `<path>` (existence, floor) ·
 the floor: "you claimed you built X — it is absent." (It is the awkward-but-covered
 `persisted_state_diff` shape's *direct-on-disk* ergonomic form.)
 
-### `visual_witness` — the rendered-screen / screenshot witness (the new shape)
+### `visual_witness` — the rendered-screen / screenshot witness (the new shape) — ✅ SHIPPED
 The headline new TYPE the census does not yet enumerate. An agent's claim "the page
 renders correctly / the chart was produced" is witnessed by **pixels the kernel
 captured**, not the agent's narration. The kernel reads a captured image (PPM/PGM —
@@ -179,7 +179,13 @@ judge level — never silently promoted from one to the other.
 
 ## Status
 
-- **Shipped:** the `dos witness` verb; the `http_probe` backend + registration; tests
-  for both.
-- **Next:** `os_process`, `fs_artifact`, `visual_witness` — each as driver +
-  registration + census row + tests, in that-each-keeps-the-census-green order.
+- **Shipped (this arc):** the `dos witness` verb; **four** registered backends with
+  tests — `http_probe` (THIRD_PARTY, live endpoint), `os_process` (OS_RECORDED, process/
+  port liveness — the "OS stuff"), and `visual_witness` (OS_RECORDED, the
+  rendered-screen/screenshot shape — the headline new TYPE). The wired witness
+  population grew from 8 to 11 sources across all three trust rungs.
+- **Next:** `fs_artifact` (filesystem artifact — honest floor + sha256-gold); the
+  perceptual/semantic visual JUDGE rung; and folding the new shapes into the coverage
+  census (`scripts/source_census.py`) as their own source rows so the measured number
+  reflects the broadened universe — each as driver/row + tests, in
+  that-each-keeps-the-census-green order.
