@@ -240,6 +240,29 @@ def test_narrated_never_enters_a_band_or_count():
     assert "BEST IMPROVEMENT" not in note
 
 
+def test_iteration_note_bare_and_unknown_verdict_fallbacks():
+    """`_iteration_note`'s fallback branches the metric-bearing notes never reach.
+
+    `test_narrated_never_enters_a_band_or_count` only exercises a KEEP that CARRIES
+    a metric (work/baseline/delta) → the `metric N -> M` line. The other arms — a
+    KEEP with no metric detail, an ESCALATE/REVERT with no cause, and the terminal
+    empty/unknown-verdict fallbacks — had no coverage, so a regression in any of
+    those one-line situations folded silently. Pin each verbatim."""
+    LI = lt.LoopIteration
+    # A KEEP with no baseline/work/delta → the bare "last KEEP" (no metric to show).
+    assert lt._iteration_note(LI(ts="", seq=1, verdict="KEEP")) == "last KEEP"
+    # ESCALATE with no revert_cause → no parenthetical cause.
+    assert (lt._iteration_note(LI(ts="", seq=1, verdict="ESCALATE"))
+            == "last ESCALATE: handed to a human")
+    # REVERT with no cause → the "reverted" default.
+    assert (lt._iteration_note(LI(ts="", seq=1, verdict="REVERT"))
+            == "last REVERT: reverted")
+    # An empty verdict → the terminal "no verdict" fallback.
+    assert lt._iteration_note(LI(ts="", seq=1, verdict="")) == "no verdict"
+    # An unknown verdict → the generic "last <verdict>".
+    assert lt._iteration_note(LI(ts="", seq=1, verdict="MYSTERY")) == "last MYSTERY"
+
+
 def test_missing_metric_detail_folds_to_none_curve_not_crash():
     """A pre-#381 fossil with no evidence.* detail still folds (None curve)."""
     ev = VerdictEvent(syscall="improve", verdict="KEEP", run_id="RID-z",
