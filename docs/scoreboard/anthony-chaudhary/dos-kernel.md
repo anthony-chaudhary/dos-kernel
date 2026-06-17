@@ -14,6 +14,11 @@
 > and the precise definition:
 > [docs/311](../../311_scoreboard-per-repo-index-plan.md).
 
+Audited the last 500 commits, ending 2026-06-16.
+
+<details markdown="1">
+<summary><strong>Technical provenance &amp; reproduce exactly</strong></summary>
+
 ## As of
 
 | | |
@@ -80,6 +85,8 @@ dos commit-audit --sweep --json --workspace . \
 A newer auditor over the same pinned range may count differently as
 fire-narrowing continues (each narrowing is a public issue, e.g. #79/#81);
 the as-of block above is what this page graded, with what.
+
+</details>
 
 ## Corrections
 

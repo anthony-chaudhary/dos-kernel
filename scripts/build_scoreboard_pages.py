@@ -143,8 +143,13 @@ def render(root: Path, out_dir: Path, date: str) -> list[str]:
         title = _inc._title_text(md_text)
         h1 = _inc._h1_text(md_text)
         desc = _inc._description(md_text)
+        # md_in_html: the per-repo pages collapse their SHAs/receipts into a
+        # `<details markdown="1">` provenance drawer (docs/382 §5); without this
+        # extension the tables inside the drawer would render as raw markdown
+        # text. A page with no `markdown=` attribute is unaffected.
         body_html = markdown.markdown(
-            md_text, extensions=["tables", "fenced_code", "sane_lists"])
+            md_text,
+            extensions=["tables", "fenced_code", "sane_lists", "md_in_html"])
         # Scoreboard-aware link rewrite: cross-links between built pages become
         # live HTML; methodology/report/311 (no /scoreboard/ HTML twin) become
         # GitHub blob URLs. Links resolve relative to THIS page's directory.

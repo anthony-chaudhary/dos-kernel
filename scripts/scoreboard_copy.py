@@ -544,6 +544,14 @@ def page_headline_tail() -> str:
     )
 
 
+def at_a_glance_line(*, commits: int, rendered: str) -> str:
+    """The ONE date/scale fact above the fold — the plain replacement for the
+    SHA-heavy "As of" block, which moves into the provenance drawer (docs/382
+    §5.4). A reader gets the scope in a glance; the skeptic opens the drawer for
+    the exact BASE→HEAD SHAs, the auditor version, and the full range."""
+    return f"Audited the last {commits:,} commits, ending {rendered}."
+
+
 # ---------------------------------------------------------------------------
 # The "How AI built this" section — the new lede that makes each page DIFFER:
 # the agent-authored share, the agent mix, and the claims-backed rate, all in

@@ -355,13 +355,25 @@ def render_page(sweep: dict, meta: dict) -> tuple[str, str]:
     else:
         adjudicated_cell = "**no grade — adjudication incomplete**"
 
+    # === The front door (docs/382 §5) ======================================
+    # Lead with the plain verdict and the relatable failure; demote every hash,
+    # SHA, version string, and internal word into the provenance drawer below.
+    # Nothing above the drawer carries a commit hash (the done-condition).
     lines: list[str] = []
     lines.append(copy.page_h1(repo))
     lines.append("")
     lines.append("> " + headline)
+    # §5.1/§5.3: the verdict blockquote + the non-accusation/ethics line folded
+    # into the tail (not a standalone disclaimer).
     quote_tail = " ".join(
         part for part in (notes.get("headline"), _HEADLINE_TAIL) if part)
     lines.extend(_fill_quote(quote_tail).splitlines())
+
+    # -- §5.4 the at-a-glance line: the ONE date/scale fact above the fold. The
+    # exact BASE→HEAD SHAs, the auditor version, and the full range live in the
+    # drawer — the front door carries no hash (docs/382 §1, §5).
+    lines += ["", _fill(copy.at_a_glance_line(
+        commits=int(sweep["commits"]), rendered=meta["rendered"]))]
 
     # -- the "How AI built this" lede — the facts that make each page DIFFER:
     # the agent-authored share, which agents, and the claims-backed rate, all
@@ -373,17 +385,27 @@ def render_page(sweep: dict, meta: dict) -> tuple[str, str]:
     if built:
         lines += built
 
-    # A CLEAN page makes "clean" concrete: show the shape that WOULD have
-    # flagged, so green reads as earned, not as "nothing happened".
+    # §5.2 the mismatch example box: a CLEAN page makes "clean" concrete — show
+    # the shape that WOULD have flagged, so green reads as earned, not as
+    # "nothing happened". A non-clean page's real flags are the example; they
+    # sit in the receipts inside the drawer.
     if state == CLEAN:
         lines += ["", copy.clean_passed_block()]
 
-    # -- §5.2 the as-of block ------------------------------------------------
+    # === The provenance drawer (docs/382 §5.5) =============================
+    # Everything an engineer checks and a stranger skips — the SHAs, the
+    # raw-vs-adjudicated split, the by-kind breakdown, the per-flag receipts,
+    # and the exact reproduce command — collapses behind one fold. KEPT, never
+    # deleted (the §2 inspectability guardrail). `markdown="1"` so the per-repo
+    # HTML twin (build_scoreboard_pages, md_in_html) renders the tables inside;
+    # GitHub renders markdown in <details> natively and ignores the attribute.
+    drawer: list[str] = []
+
+    # -- §5.5a the as-of block (the SHAs + the auditor version) --------------
     commits_cell = str(sweep["commits"])
     if rng.get("commits_note"):
         commits_cell += f" ({rng['commits_note']})"
-    lines += [
-        "",
+    drawer += [
         "## As of",
         "",
         "| | |",
@@ -396,9 +418,9 @@ def render_page(sweep: dict, meta: dict) -> tuple[str, str]:
         f"| Attribution | {meta['attribution']} |",
     ]
 
-    # -- §5.3 the verdict table: raw and adjudicated BOTH, always -----------
+    # -- §5.5b the verdict table: raw and adjudicated BOTH, always -----------
     raw_rate = f"{(int(sweep['unwitnessed']) / checkable if checkable else 0.0):.1%}"
-    lines += [
+    drawer += [
         "",
         "## The verdict",
         "",
@@ -409,13 +431,13 @@ def render_page(sweep: dict, meta: dict) -> tuple[str, str]:
         f"| {adjudicated_cell} |",
     ]
     if notes.get("verdict"):
-        lines += ["", _fill(notes["verdict"])]
+        drawer += ["", _fill(notes["verdict"])]
 
-    # -- §5.4 by claim kind ---------------------------------------------------
+    # -- §5.5c by claim kind --------------------------------------------------
     by_kind = sweep["by_kind"]
     kinds = [k for k in _KIND_ORDER if k in by_kind]
     kinds += sorted(k for k in by_kind if k not in _KIND_ORDER)
-    lines += [
+    drawer += [
         "",
         "## By kind of claim",
         "",
@@ -425,18 +447,18 @@ def render_page(sweep: dict, meta: dict) -> tuple[str, str]:
     for kind in kinds:
         row = by_kind[kind]
         if kind == "none":
-            lines.append(f"| {copy.kind_label('none')} | — | — "
-                         f"| {row['abstain']} |")
+            drawer.append(f"| {copy.kind_label('none')} | — | — "
+                          f"| {row['abstain']} |")
         else:
-            lines.append(f"| {copy.kind_label(kind)} | {row['witnessed']} "
-                         f"| {row['unwitnessed']} | {row['abstain']} |")
+            drawer.append(f"| {copy.kind_label(kind)} | {row['witnessed']} "
+                          f"| {row['unwitnessed']} | {row['abstain']} |")
 
-    # -- §5.5 the receipts: one row per raw flag ------------------------------
-    lines += ["", "## The receipts — every flag, adjudicated", ""]
+    # -- §5.5d the receipts: one row per raw flag ----------------------------
+    drawer += ["", "## The receipts — every flag, adjudicated", ""]
     if not matched:
-        lines.append("No flags in range.")
+        drawer.append("No flags in range.")
     else:
-        lines += [
+        drawer += [
             "| Commit | Subject | Ruling | Rung | Rationale |",
             "|---|---|---|---|---|",
         ]
@@ -458,19 +480,19 @@ def render_page(sweep: dict, meta: dict) -> tuple[str, str]:
                     ruling = "`UNADJUDICATED`"
                 rung = rec.get("rung") or "—"
                 rationale = _cell(rec.get("rationale") or "—")
-            lines.append(f"| {commit_cell} | {subject} | {ruling} "
-                         f"| {rung} | {rationale} |")
+            drawer.append(f"| {commit_cell} | {subject} | {ruling} "
+                          f"| {rung} | {rationale} |")
     if notes.get("receipts"):
-        lines += ["", _fill(notes["receipts"])]
+        drawer += ["", _fill(notes["receipts"])]
 
-    # -- §5.6 reproduce it -----------------------------------------------------
-    lines += ["", "## Reproduce it", ""]
+    # -- §5.5e reproduce it ---------------------------------------------------
+    drawer += ["", "## Reproduce it", ""]
     if notes.get("reproduce"):
-        lines += [_fill(notes["reproduce"]), ""]
+        drawer += [_fill(notes["reproduce"]), ""]
     name = repo.split("/", 1)[1]
     install = ("pip install -e ." if repo == _AUDITOR_REPO
                else "pip install dos-kernel")
-    lines += [
+    drawer += [
         "```bash",
         f"git clone https://github.com/{repo}.git && cd {name}",
         f"git checkout {rng['head_sha']}",
@@ -482,7 +504,18 @@ def render_page(sweep: dict, meta: dict) -> tuple[str, str]:
         _fill(_REPRODUCE_TAIL),
     ]
 
-    # -- §5.7 the correction path ----------------------------------------------
+    # wrap the whole drawer in one collapsible <details> (the §5.5 fold).
+    lines += [
+        "",
+        '<details markdown="1">',
+        "<summary><strong>Technical provenance &amp; reproduce exactly"
+        "</strong></summary>",
+        "",
+    ]
+    lines += drawer
+    lines += ["", "</details>"]
+
+    # -- §5.7 the correction path (plain, no hash — stays out of the drawer) --
     lines += ["", "## Corrections", "", _fill(_CORRECTIONS)]
 
     return "\n".join(lines) + "\n", state
