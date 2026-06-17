@@ -164,6 +164,59 @@ def test_env_for_emits_oauth_token_when_present(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
+# token vs. auto-refreshing creds file — the live-session propagation fix.
+# A static CLAUDE_CODE_OAUTH_TOKEN freezes a live process at launch-time creds
+# (a running process's env cannot be updated). When a present+unexpired
+# `.credentials.json` is there, the launcher must defer to it — Claude
+# auto-refreshes that file in place, so a refresh propagates to live sessions.
+# --------------------------------------------------------------------------- #
+def test_env_for_prefers_refreshing_creds_over_static_token(tmp_path):
+    cfg = tmp_path / "claude-a"
+    _enroll(cfg)          # present + unexpired .credentials.json (auto-refreshes)
+    _enroll_token(cfg)    # AND a stored setup-token
+    env = sw.env_for(_acct("a", cfg))
+    # config-dir only: the live session reads the auto-refreshing file, so a
+    # token/login refresh on disk propagates instead of being shadowed + frozen.
+    assert env == {"CLAUDE_CONFIG_DIR": str(cfg)}
+    assert "CLAUDE_CODE_OAUTH_TOKEN" not in env
+
+
+def test_env_for_injects_token_when_creds_expired(tmp_path):
+    cfg = tmp_path / "claude-a"
+    _enroll(cfg, expires_at_ms=int((1_700_000_000.0 - 100) * 1000))  # expired creds
+    _enroll_token(cfg, token="sk-ant-oat01-tok-a")
+    # The on-disk access token is stale → the file can't serve, so the durable
+    # setup-token must still be spliced (else the `-p` child auths as not-logged-in).
+    env = sw.env_for(_acct("a", cfg))
+    assert env["CLAUDE_CODE_OAUTH_TOKEN"] == "sk-ant-oat01-tok-a"
+
+
+def test_account_env_overrides_skips_token_when_fresh_creds(tmp_path):
+    cfg = tmp_path / "claude-a"
+    _enroll(cfg)
+    _enroll_token(cfg)
+    env = sw.account_env_overrides(_acct("a", cfg))
+    assert env == {"CLAUDE_CONFIG_DIR": str(cfg)}  # defers to the refreshing file
+
+
+def test_account_env_overrides_injects_token_when_token_only(tmp_path):
+    cfg = tmp_path / "claude-a"
+    _enroll_token(cfg, token="sk-ant-oat01-tok-a")  # token only, no creds file
+    env = sw.account_env_overrides(_acct("a", cfg))
+    assert env["CLAUDE_CODE_OAUTH_TOKEN"] == "sk-ant-oat01-tok-a"
+
+
+def test_has_fresh_login_creds_reflects_creds_state(tmp_path):
+    cfg = tmp_path / "claude-a"
+    a = _acct("a", cfg)
+    assert sw._has_fresh_login_creds(a, now_epoch=NOW) is False  # no file
+    _enroll(cfg)
+    assert sw._has_fresh_login_creds(a, now_epoch=NOW) is True   # present+unexpired
+    _enroll(cfg, expires_at_ms=int((NOW - 100) * 1000))          # now expired
+    assert sw._has_fresh_login_creds(a, now_epoch=NOW) is False
+
+
+# --------------------------------------------------------------------------- #
 # pick_account — the switcher decision
 # --------------------------------------------------------------------------- #
 def test_pick_first_serving_in_roster_order(tmp_path):

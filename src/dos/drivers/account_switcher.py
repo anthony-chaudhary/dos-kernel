@@ -191,12 +191,17 @@ def account_env_overrides(
 ) -> dict[str, str]:
     """Build the child-process env overrides to run Claude Code as ``account``.
 
-    Emits ``CLAUDE_CONFIG_DIR`` (the launcher contract) and, for a setup-token
-    account, splices its ``CLAUDE_CODE_OAUTH_TOKEN`` so the child authenticates as
-    this account directly. A config dir that does not exist on disk raises
+    Emits ``CLAUDE_CONFIG_DIR`` (the launcher contract) and, for a *token-only*
+    dir, splices its ``CLAUDE_CODE_OAUTH_TOKEN`` so the child authenticates as this
+    account directly. A config dir that does not exist on disk raises
     ``OriginError`` (a fresh dir would be a logged-out identity — fail now with the
     login recipe, not at request time). This is the host-free inline of the env
     shape the ``--origin`` launcher seam uses, so the emitted env is byte-identical.
+
+    The static token is spliced ONLY when no present+unexpired ``.credentials.json``
+    is there to defer to (see ``_has_fresh_login_creds``): that file is Claude's own
+    auto-refreshing source, so a refresh on disk propagates to every live session
+    reading it, whereas a static env token would shadow + freeze it.
 
     ``environ`` (default ``os.environ``) is consulted only to let an explicit
     ``CLAUDE_CODE_OAUTH_TOKEN`` already in the env win over the on-disk token.
@@ -209,11 +214,20 @@ def account_env_overrides(
             + _LOGIN_RECIPE.replace("<dir>", str(cfg))
         )
     overrides: dict[str, str] = {"CLAUDE_CONFIG_DIR": str(cfg)}
-    # Token-only config dirs (a stored `claude setup-token`, no `.credentials.json`)
-    # must carry their OAuth token in the env or the child authenticates as
-    # apiKeySource=none ("Not logged in" under `-p`). Skip if the env already
-    # carries a token (an explicit caller wins) or there is no token file.
-    if not (environ.get("CLAUDE_CODE_OAUTH_TOKEN") or "").strip():
+    # Token-only config dirs (a stored `claude setup-token`, no usable
+    # `.credentials.json`) must carry their OAuth token in the env or the child
+    # authenticates as apiKeySource=none ("Not logged in" under `-p`). Skip when:
+    # the env already carries a token (an explicit caller wins); there is no token
+    # file; OR a present+unexpired `.credentials.json` is already there. That last
+    # case is the propagation fix — Claude auto-refreshes the creds file in place,
+    # so a static env token would only SHADOW it and freeze the session at its
+    # launch-time creds (a running process's env cannot be updated from outside),
+    # defeating the refresh-propagates-to-live-sessions behavior the operator
+    # expects from Claude by default. Defer to the file when it can serve.
+    if (
+        not (environ.get("CLAUDE_CODE_OAUTH_TOKEN") or "").strip()
+        and not _has_fresh_login_creds(account)
+    ):
         try:
             tok = (cfg / _TOKEN_FILENAME).read_text(encoding="utf-8").strip()
         except (OSError, ValueError):
@@ -467,6 +481,29 @@ def _token_expired(creds_path: Path, now_epoch: float) -> tuple[bool, bool]:
     if isinstance(exp, (int, float)) and exp > 0:
         return True, (exp / 1000.0 <= now_epoch)
     return True, False  # present, unknown expiry → usable (auto-refresh)
+
+
+def _has_fresh_login_creds(
+    account: Account, *, now_epoch: float | None = None
+) -> bool:
+    """True when the config dir carries a present, UNEXPIRED ``.credentials.json``
+    — Claude Code's own auto-refreshing credential source.
+
+    Such a file is the live source of truth: the CLI re-reads it and rolls the
+    short-lived access token in place, so a login/token refresh on disk PROPAGATES
+    to every session reading it. The launcher contract (``account_env_overrides`` /
+    ``env_for``) uses this to decide NOT to splice a static ``CLAUDE_CODE_OAUTH_TOKEN``
+    when the file can serve — a static env token would shadow the file and freeze a
+    live session at its launch-time creds (a running process's env cannot be updated
+    from outside), defeating the refresh-propagates-to-live-sessions behavior the
+    operator expects. A token-only dir (no creds, or expired) returns False, so the
+    durable setup-token is still spliced where it is genuinely required.
+
+    Never raises (delegates to ``_token_expired``, which is itself fail-safe).
+    """
+    now = time.time() if now_epoch is None else now_epoch
+    present, expired = _token_expired(account_creds_path(account), now)
+    return present and not expired
 
 
 def account_state(
@@ -869,17 +906,26 @@ def env_for(
 ) -> dict[str, str]:
     """The child-process env overrides to run Claude Code as this account.
 
-    Emits ``CLAUDE_CONFIG_DIR`` (byte-identical to the launcher contract) and, for
-    a setup-token account, ``CLAUDE_CODE_OAUTH_TOKEN`` so the child authenticates
-    as this account directly (the ~1yr token, not the config dir's short-lived
-    login creds). A ``login``-enrolled account emits config-dir only. Raises
-    ``OriginError`` if the config dir is missing (the account isn't enrolled) — a
-    loud failure is correct here because the caller asked to launch AS this account.
+    Emits ``CLAUDE_CONFIG_DIR`` (byte-identical to the launcher contract). The
+    OAuth token is spliced as ``CLAUDE_CODE_OAUTH_TOKEN`` ONLY for a token-only dir
+    — one whose ``.credentials.json`` is absent or expired — so a ``-p`` child there
+    does not auth as ``apiKeySource=none`` ("Not logged in"). When a present+unexpired
+    ``.credentials.json`` IS there, this emits config-dir only and defers to that
+    file: it is Claude's own auto-refreshing source, so a token or login refresh
+    PROPAGATES to every live session reading it — whereas a static env token would
+    shadow the file and freeze the session at its launch-time creds (a running
+    process's env cannot be updated). A ``login``-enrolled account thus emits
+    config-dir only. Raises ``OriginError`` if the config dir is missing (the
+    account isn't enrolled) — a loud failure is correct here because the caller
+    asked to launch AS this account.
     """
     env = account_env_overrides(account, environ=environ)
-    token = read_account_token(account)
-    if token:
-        env["CLAUDE_CODE_OAUTH_TOKEN"] = token
+    # Defer to an auto-refreshing creds file when one can serve (see docstring);
+    # splice the durable static token only for a token-only / expired-creds dir.
+    if "CLAUDE_CODE_OAUTH_TOKEN" not in env and not _has_fresh_login_creds(account):
+        token = read_account_token(account)
+        if token:
+            env["CLAUDE_CODE_OAUTH_TOKEN"] = token
     return env
 
 
