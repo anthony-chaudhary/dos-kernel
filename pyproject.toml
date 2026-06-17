@@ -430,6 +430,22 @@ goose = "dos.drivers.hook_dialects:goose_install_spec"
 [project.entry-points."dos.memory_stores"]
 mem0 = "dos.drivers.memory_mem0:Mem0Store"
 
+# The per-agent account-auth specs (docs/386) — what makes the account switcher
+# AGENT-pluggable. Each names ONE agent's auth literals (its isolated-config-dir env
+# var, static-token env, creds/token file names, token prefix, enroll flow) as a
+# `dos.account_auth.AccountAuthSpec`. A spec names its vendor's env vars as CODE,
+# which the vendor-blindness litmus forbids in a kernel module — so it lives in a
+# DRIVER (`dos.drivers.agent_auth.*`) and registers here, the same kernel/driver
+# split as `dos.hook_dialects` / `dos.vcs`. The kernel seam (`dos.account_auth`)
+# holds only the typed spec + the by-name resolver + the `claude` default; the seat
+# picker stays agent-blind. `resolve_account_auth("codex")` discovers these by name
+# (in-tree first); the kernel imports none of them. Adding an agent = a module here
+# (or a third-party plugin), never a switcher edit.
+[project.entry-points."dos.account_auth"]
+claude = "dos.drivers.agent_auth.claude:SPEC"
+codex = "dos.drivers.agent_auth.codex:SPEC"
+gemini = "dos.drivers.agent_auth.gemini:SPEC"
+
 [project.urls]
 Homepage = "https://github.com/anthony-chaudhary/dos-kernel"
 Website = "https://anthony-chaudhary.github.io/dos-kernel/"

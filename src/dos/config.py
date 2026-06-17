@@ -728,6 +728,20 @@ class SubstrateConfig:
     # mechanism/policy split as ``stamp``/``non_git_oracle``: this carries only the NAME;
     # the backend is the mechanism, resolved by it.
     vcs_backend: str = "git"
+    # ``agent_kind`` is the **account-auth seam** (`docs/386`, the `dos.account_auth`
+    # companion to ``vcs_backend``): WHICH agent the host runs its fleet on, so the
+    # account switcher emits the RIGHT per-agent auth env. The seat picker
+    # (pick/pool/seats) is agent-blind; only the auth glue — the isolated-config-dir
+    # env var, the static-token env, the token/creds file names, the enroll flow —
+    # varies, and it is lifted into a resolvable ``account_auth.AccountAuthSpec``.
+    # Default ``"claude"`` = the in-tree ``dos.drivers.agent_auth.claude`` spec =
+    # byte-identical to today (the back-compatible default). A workspace running on
+    # Codex/Gemini declares ``dos.toml [agent] kind = "codex"`` (or a per-account
+    # roster ``agent_kind`` field); resolved at the CLI boundary by
+    # ``account_auth.resolve_account_auth(name)`` (fail-LOUD on an unknown kind),
+    # never imported by a verdict. Same mechanism/policy split as ``vcs_backend`` —
+    # this carries only the NAME; the spec is the data, resolved by it.
+    agent_kind: str = "claude"
     # docs/342 M3 / docs/126 P3 / docs/114 §A3 — the BINDING completion rung.
     # ``exec_cmd`` is a HOST-SUPPLIED acceptance command (`dos.toml [verify] exec_cmd`):
     # when set, `verify` runs it through `drivers/os_acceptance` at the very commit the
@@ -1533,6 +1547,28 @@ def load_workspace_config(
         return name
     cfg = dataclasses.replace(
         cfg, vcs_backend=_layer("vcs", _load_vcs_backend, cfg.vcs_backend))
+    # [agent] — OVERRIDE which agent the account switcher emits auth env for
+    # (docs/386). `[agent] kind` names an in-tree `dos.drivers.agent_auth.*` spec
+    # (claude/codex/gemini) or a `dos.account_auth` plugin; absent → "claude" →
+    # byte-identical to today. Validated to RESOLVE here (the `resolve_account_auth`
+    # fail-loud rule brought forward to config-load) — a typo'd agent_kind is a
+    # host's own-claim error worth surfacing now, not a silent fall-back that would
+    # launch a fleet under the wrong agent's auth env. A malformed table is warned +
+    # base-kept, so a broken `[agent]` never wedges a command that names no agent.
+    def _load_agent_kind():
+        a_table = _load_toml_table(toml_path, "agent")
+        name = cfg.agent_kind
+        if a_table is not None:
+            raw = a_table.get("kind", name)
+            if not isinstance(raw, str):
+                raise ValueError(
+                    f"[agent] kind must be a string, got {type(raw).__name__}")
+            name = raw.strip() or "claude"
+            from dos import account_auth as _aa
+            _aa.resolve_account_auth(name)  # raises on an unknown agent_kind
+        return name
+    cfg = dataclasses.replace(
+        cfg, agent_kind=_layer("agent", _load_agent_kind, cfg.agent_kind))
     return cfg
 
 
