@@ -495,3 +495,9 @@ def _split_json_objects(text: str) -> list[str]:
                 objs.append(text[start:i + 1])
                 start = None
     return objs
+
+
+def test_downsample_nonpositive_width_returns_input_unchanged():
+    """_downsample width<=0 is a no-op guard — the series passes through untouched."""
+    assert lt._downsample([3, 1, 4, 1, 5], 0) == [3, 1, 4, 1, 5]
+    assert lt._downsample([3, 1, 4], -2) == [3, 1, 4]
