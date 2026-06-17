@@ -8,6 +8,26 @@
             "type": "command",
             "shell": "bash",
             "command": "dos hook stop --workspace . 2>/dev/null || true"
+          },
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "dos hook stop-failure --success --workspace . 2>/dev/null || true"
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "asyncRewake": true,
+            "rewakeMessage": "Session resumed after an API failure (rate limit / overload). DOS breaker state:",
+            "rewakeSummary": "API-failure backoff retry",
+            "timeout": 320,
+            "command": "python scripts/rate_limit_rewake.py --workspace ."
           }
         ]
       }

@@ -189,6 +189,30 @@ def test_hooks_wire_the_dos_verbs():
                     f"{event} hook entry must be type=command: {h}"
 
 
+def test_stopfailure_rewake_and_heal_are_wired():
+    """The rate-limit auto-restart machinery is actually wired (not just shipped).
+
+    The breaker + asyncRewake code (cmd_hook_stop_failure) existed long before it
+    was bound to an event. This pins the binding: a StopFailure asyncRewake hook
+    that runs `hook stop-failure`, and a Stop-event heal that runs the same verb
+    with `--success` so the breaker resets after a clean session.
+    """
+    hooks = _load(PLUGIN_HOOKS)
+    # StopFailure → asyncRewake retry on the failure verb.
+    sf_groups = hooks["hooks"].get("StopFailure", [])
+    sf_hooks = [h for g in sf_groups for h in g.get("hooks", [])]
+    assert sf_hooks, "no StopFailure hook wired — rate-limit auto-restart is dead"
+    assert any(h.get("asyncRewake") is True for h in sf_hooks), \
+        "StopFailure hook must set asyncRewake:true (the harness re-launch signal)"
+    assert any("hook stop-failure" in h.get("command", "")
+               and "--success" not in h.get("command", "") for h in sf_hooks), \
+        "StopFailure must run `hook stop-failure` (the failure/backoff path)"
+    # Stop → the heal (so the breaker doesn't open from stale failures).
+    stop_cmds = _hook_commands(hooks, "Stop")
+    assert any("hook stop-failure" in c and "--success" in c for c in stop_cmds), \
+        "Stop must also run `hook stop-failure --success` to heal the breaker"
+
+
 def test_hook_verbs_are_real_cli_subcommands():
     """Guard against a typo'd verb: each wired `hook <verb>` is a real `dos` command.
 
