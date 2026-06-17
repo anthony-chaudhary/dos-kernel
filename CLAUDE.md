@@ -106,7 +106,7 @@ non-distillable label; `breaker`, `exec_capability`, `hook_exit`);
 
 ```bash
 pip install -e ".[dev,mcp]" # editable + test toolchain (a bare `-e .` ships no pytest)
-python -m pytest -q         # full suite — must stay green (~5,600 tests, ~4–5 min; run foreground)
+python -m pytest -q         # full suite — must stay green (~6,600 tests, ~4–5 min; run foreground)
 dos doctor --workspace .    # the active workspace + lane taxonomy
 dos verify --workspace . PLAN PHASE   # the truth syscall (no plan needed)
 ```

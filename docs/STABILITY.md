@@ -109,6 +109,7 @@ leaves.
   | `dos.memory_stores` | `MemoryStore` Protocol | `dos.memory_stores` |
   | `dos.vcs` | `VcsBackend(root)` backend | `dos.vcs` |
   | `dos.mcp_tools` | `register(mcp)` registrar or a bare tool callable | `dos_mcp.server` |
+  | `dos.chat_bridges` | `serve(cfg, *, host, port, verify_token) -> int` callable | `dos.chat_control` |
 
 - **The `dos.toml` schema.** A declared key keeps its meaning; new keys are
   additive; an unknown key keeps failing loud where it does today.
