@@ -60,7 +60,15 @@ keep an unwitnessed one. That asymmetry is the whole design.
 ```bash
 dos doctor --workspace . --json
 dos arbitrate --workspace . --lane <LANE>
+RID=$(dos run-id mint dos-self-improve \
+      | python -c "import sys,json;print(json.load(sys.stdin)['run_id'])")
 ```
+
+`RID` is the loop's **correlation run-id** — pass it (with `--observe`) on every
+`dos improve` call below so the kernel records each cycle under THIS loop, and an
+operator (or DOS) can watch the whole trajectory live with `dos observe --loops`
+(docs/383). A long RSI run is otherwise dark while it runs: without `--observe` the per-cycle
+verdict evaporates and the only artifact is the final loop record (Step 5).
 
 Then establish the baseline — and this gate is non-negotiable:
 
@@ -128,8 +136,14 @@ dos improve --workspace . \
   $( <truth clean> && echo --truth-clean ) \
   --work "$W" --baseline-work "$B" --tokens "$T" \
   --consecutive-reverts "$REVERTS" --max-reverts <N> \
-  --narrated "<the subagent's description>" --json
+  --narrated "<the subagent's description>" \
+  --observe --run-id "$RID" --subject "cycle-$CYCLE" --json
 ```
+
+The last line is the observability wiring (docs/383): `--observe` records this
+verdict to the journal, `--run-id "$RID"` groups it with the rest of THIS loop, and
+`--subject "cycle-$CYCLE"` tags the iteration — so `dos observe --loops` can fold the
+loop's metric curve, breaker distance-to-escalate, and liveness while it runs.
 
 The verdict IS the exit code — branch on it, do not re-read the prose:
 
@@ -176,6 +190,20 @@ verdicts, the kept/reverted/skipped counts, the final baseline — the high-wate
 mark that measures how much the loop improved the codebase, and the stop reason),
 and release the lane lease. Commit any kept improvements with a generic subject
 read from config — no hardcoded prefix.
+
+**Watch it live (any time during the run).** Because each cycle was `--observe`d under
+`$RID`, an operator or a supervising agent can fold the loop's trajectory from the
+kernel's own verdict stream — no need to ask the loop how it is doing (docs/383):
+
+```bash
+dos observe --loops              # every RSI loop: iteration, metric curve, breaker, liveness
+dos observe --loops --run "$RID" # THIS loop's full per-cycle curve
+```
+
+A loop reads ACTIVE (a fresh cycle landed), STALLED (no cycle within the window —
+wedged), or ESCALATED (the breaker handed back to a human). The metric high-water and
+the `breaker N/max` distance-to-escalate come straight from the env-authored verdicts,
+never the candidate's self-assessment.
 
 ## Why this is the honest version of recursive self-improvement
 

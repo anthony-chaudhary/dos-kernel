@@ -1708,6 +1708,16 @@ dimension; `--by DIM` folds on verdict/run_id/lane/source instead of syscall.
 `--tail N` shows the last N raw events. `--json` is machine-readable (the
 trajectory-audit's kernel-native data source).
 
+`--loops` (docs/383) switches to the RSI-loop **trajectory** projection
+(`loop_trace`): instead of the flat rollup it folds the `improve`-syscall stream
+(every `dos-self-improve` / `dos-enforce-tune` cycle) into one trajectory per
+`run_id` — iteration count, the metric high-water curve, the breaker
+distance-to-escalate, and an ACTIVE/STALLED/ESCALATED liveness band. The shape an
+operator watching a long-running, always-on loop actually needs (a flat count
+cannot answer "is it still climbing / how close to a human escalation / is it
+wedged"). `--loops --run RID` renders that one loop's full per-cycle curve; the
+breaker bound comes from the workspace's `[improve] max_consecutive_reverts`.
+
 Exit code: 0 always when the journal is readable (an empty journal is a valid,
 honest "nothing recorded yet", not an error); 1 only if a non-trailing corrupt
 line was found (an integrity breach worth a non-zero so a cron can alert).

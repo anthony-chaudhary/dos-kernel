@@ -68,6 +68,8 @@ or raise a confidence bar so a marginal mint earns WARN, not BLOCK).
 ```bash
 dos doctor --workspace . --json
 dos arbitrate --workspace . --lane <LANE>
+RID=$(dos run-id mint dos-enforce-tune \
+      | python -c "import sys,json;print(json.load(sys.stdin)['run_id'])")
 python -m pytest -q                      # MUST be green to start
 dos enforce-tune --cases <corpus> --suite-passed --truth-clean \
   --baseline-work 0 --json --workspace . # read measured_work = the BASELINE policy's score
@@ -75,6 +77,10 @@ dos enforce-tune --cases <corpus> --suite-passed --truth-clean \
 
 Record the baseline `measured_work` `B`. **You cannot measure improvement from a red
 baseline** — if the suite is red, fix it first (an ordinary task, not a tuning cycle).
+`RID` is the loop's correlation run-id; pass it with `--observe` on every
+`dos enforce-tune` call so `dos observe --loops` can fold this always-on tuner's
+trajectory while it runs (docs/383) — otherwise a long-lived cadence is invisible
+between its commits.
 
 ## Step 2 — Per cycle: propose ONE policy-knob edit in an ISOLATED worktree
 
@@ -110,8 +116,12 @@ dos enforce-tune --cases <corpus> \
   $( [ "$SUITE" -eq 0 ] && echo --suite-passed ) \
   --truth-clean \
   --changed-files $CHANGED \
-  --max-reverts <N> --json --workspace .
+  --max-reverts <N> \
+  --observe --run-id "$RID" --subject "cycle-$CYCLE" --json --workspace .
 ```
+
+The `--observe --run-id "$RID" --subject "cycle-$CYCLE"` line records the cycle to the
+verdict journal so `dos observe --loops` folds this loop's trajectory live (docs/383).
 
 `dos enforce-tune` re-scores the CANDIDATE policy (loaded from its worktree dos.toml),
 applies the runtime-logic rail to `--changed-files`, and rides `dos improve`. The
@@ -147,7 +157,8 @@ cycle per firing and merges on a KEEP by reading the exit code:
 # per firing, in an isolated worktree the runner created off the lane HEAD:
 dos enforce-tune --cases <corpus> --policy-toml <wt>/dos.toml \
   --baseline-work "$B" --suite-passed --truth-clean \
-  --changed-files $(git -C <wt> diff --name-only HEAD~1 HEAD) --workspace .
+  --changed-files $(git -C <wt> diff --name-only HEAD~1 HEAD) \
+  --observe --run-id "$RID" --subject "cycle-$N" --workspace .
 case $? in
   0) git merge --ff-only <candidate-sha> ;;   # KEEP — auto-merge + ratchet B
   4) dos decisions ... ; exit 0 ;;            # ESCALATE — surface to a human, stop
@@ -155,9 +166,18 @@ case $? in
 esac
 ```
 
+The cadence keeps ONE `$RID` across all its firings (persist it in the runner's `.dos/`
+state), so every cycle folds into the SAME trajectory — an always-on tuner that would
+otherwise be invisible between commits becomes a live curve in `dos observe --loops`.
+
 Each firing is bounded (one cycle; over many firings the breaker + cap still hold),
 so it always terminates — never an unbounded run. `dos pulse` keeps its observe leg,
 so the heartbeat surfaces the false-DENY rate the loop acts on.
+
+**Watch the tuner live:** `dos observe --loops` (every loop) or
+`dos observe --loops --run "$RID"` (this tuner's full per-cycle curve) — the metric
+high-water, the `breaker N/max` distance-to-escalate, and the ACTIVE/STALLED/ESCALATED
+band, all folded from the kernel's own verdicts (docs/383).
 
 ## Why the autonomous merge is safe
 
