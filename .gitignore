@@ -357,3 +357,14 @@ benchmark/enterpriseops/_verify_witness_claim.py
 # PUBLISH_LEAK floor hit, never repo source. Root-anchored so the family can never
 # be staged again. Removed 2026-06-15.
 /UsersUSER.claude-*/
+
+# Claude-account roster + credentials — host-local secrets, NEVER repo source.
+# The roster (`dos accounts scaffold` output) carries literal account names + the
+# per-seat CLAUDE_CONFIG_DIR paths; the creds/token files carry live OAuth material.
+# By design these live under $HOME, outside any repo (docs/380); these patterns are
+# defense-in-depth so a stray copy ANYWHERE in the tree can never be staged. (Not a
+# `.claude-*/` glob — that would also catch the tracked `.claude-plugin/`.)
+accounts.yaml
+accounts.yml
+.credentials.json
+.oauth-token
