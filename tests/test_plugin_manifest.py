@@ -328,6 +328,39 @@ def test_ps1_comment_does_not_claim_it_is_wired():
         "dos-hook.ps1 must not claim hooks.json invokes it (it does not)"
 
 
+def test_bundled_skill_frontmatter_is_valid_yaml():
+    """Every bundled skill's YAML frontmatter PARSES and carries name + description.
+
+    A skill whose frontmatter fails to parse loads at runtime with EMPTY metadata —
+    Claude Code silently drops every field (name, description, the trigger), so the
+    skill is un-invokable and `claude plugin validate ./claude-plugin` errors. The
+    classic break is a `: ` (colon-space) in an *unquoted* description scalar within
+    the first 1024 chars, which a spec-compliant YAML parser reads as a mapping key
+    (the dos-skillify regression this guards). Checks the bundled copies — the bytes
+    that actually ship — with the same YAML parse the host validator performs.
+    """
+    import yaml  # the kernel's one runtime dependency; always present
+    fm_re = re.compile(r"^---\n(.*?)\n---\n", re.S)
+    for skill_md in sorted(PLUGIN_SKILLS.rglob("SKILL.md")):
+        rel = skill_md.relative_to(_REPO_ROOT)
+        text = skill_md.read_text(encoding="utf-8")
+        m = fm_re.match(text)
+        assert m, f"{rel} has no leading `---` YAML frontmatter block"
+        try:
+            meta = yaml.safe_load(m.group(1))
+        except yaml.YAMLError as e:
+            raise AssertionError(
+                f"{rel} frontmatter is not valid YAML — it loads with EMPTY metadata "
+                f"at runtime (all fields dropped) and fails `claude plugin validate`. "
+                f"A `: ` in an unquoted description is the usual cause; quote it or use "
+                f"an em-dash. Parser said: {e}") from e
+        assert isinstance(meta, dict), f"{rel} frontmatter must be a YAML mapping"
+        for key in ("name", "description"):
+            val = meta.get(key)
+            assert isinstance(val, str) and val.strip(), \
+                f"{rel} frontmatter is missing a non-empty `{key}`"
+
+
 def test_bundled_skills_include_generic_pack_and_setup():
     found = {p.parent.name for p in PLUGIN_SKILLS.rglob("SKILL.md")}
     # Every generic-pack skill is bundled...
