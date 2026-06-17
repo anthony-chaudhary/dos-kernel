@@ -252,6 +252,25 @@ slack = "dos.drivers.notify_slack:SlackNotifier"
 # [notify-slack]). `resolve_notifier("webhook")` finds it by name; the kernel imports
 # none. The "PagerDuty / email / a webhook are later drivers" gap notify.py names.
 webhook = "dos.drivers.notify_webhook:WebhookNotifier"
+# The WhatsApp transport (docs/382): renders a Notification to a WhatsApp text and
+# POSTs it through the official Meta Cloud API (`/<phone_number_id>/messages`).
+# Stdlib-only (urllib), so it needs NO extra and ships in the core (like `webhook`,
+# unlike `slack`). `resolve_notifier("whatsapp")` finds it by name; the kernel
+# imports none. The OUTBOUND half of the WhatsApp control surface; the INBOUND half
+# (a chat line → a read-only verb) is dos.drivers.whatsapp_bridge over the
+# vendor-blind dos.chat_control. Credentials resolve from $DOS_WHATSAPP_* / .env.
+whatsapp = "dos.drivers.notify_whatsapp:WhatsAppNotifier"
+
+# The chat-BRIDGE transports (docs/382) — the INBOUND sibling of the notifiers
+# above: where the notifiers PUSH a projection outward, a bridge RECEIVES a chat
+# line and routes it through the vendor-blind control surface (`dos.chat_control`)
+# back to the sender. A bridge owns a vendor wire shape (the WhatsApp webhook
+# envelope + verification handshake), which the kernel forbids in a kernel module —
+# so it lives in a DRIVER and registers here. `chat_control.resolve_bridge("whatsapp")`
+# discovers its `serve` callable by name; the CLI names it by string, never by import
+# (the no-kernel-imports-a-driver litmus). Stdlib-only (http.server), so NO extra.
+[project.entry-points."dos.chat_bridges"]
+whatsapp = "dos.drivers.whatsapp_bridge:serve"
 
 # The verdict-EXPORTER transports (docs/266) — the delivery-side sibling of the
 # notifiers above, on a new axis: the verdict STREAM (verdict_journal), drained outward
@@ -298,7 +317,7 @@ citation_resolve = "dos.drivers.citation_resolve:CitationResolveSource"  # legal
 content_diff = "dos.drivers.content_diff:ContentDiffEvidenceSource"  # blob CONTENT vs a gold — the W2→W3 climb (rung capped at min(blob,gold), docs/192)
 provider_ledger = "dos.drivers.provider_ledger:ProviderLedgerEvidenceSource"  # external-effect vs a different-principal ledger — the THIRD_PARTY band (docs/261)
 slack_approval = "dos.drivers.slack_approval:SlackApprovalSource"  # "an accountable human approved this" via the Slack envelope (THIRD_PARTY, docs/93 §3)
-http_probe = "dos.drivers.http_probe:HttpProbeEvidenceSource"  # the kernel GETs a URL; the server authored the response — the live-endpoint "deploy shipped" rung (THIRD_PARTY, docs/383)
+http_probe = "dos.drivers.http_probe:HttpProbeEvidenceSource"  # the kernel GETs a URL; the server authored the response — the live-endpoint "deploy shipped" rung (THIRD_PARTY, docs/384)
 
 # The cross-vendor hook INSTALL specs (docs/221) — the install-side sibling of the
 # dialect renderers above: where/how `dos init --hooks <host>` wires the DOS hooks
