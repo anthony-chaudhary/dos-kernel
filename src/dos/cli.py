@@ -2415,6 +2415,26 @@ def _accounts_roster(args):
     return _sw.load_roster(getattr(args, "accounts_file", None))
 
 
+def _resolve_agent_auth(args):
+    """The active `AccountAuthSpec` for `dos accounts` (the docs/386 seam).
+
+    A per-invocation `--agent-kind` wins; else the workspace's `cfg.agent_kind`
+    (from `dos.toml [agent] kind`, default "claude"). Resolved by name through
+    `account_auth.resolve_account_auth` (fail-LOUD on an unknown kind), so the env a
+    seat launches under is always the RIGHT agent's — never a silent wrong-identity
+    fallback. `account_auth` is a kernel module (not a driver), imported directly."""
+    from dos import account_auth as _aa
+    override = (getattr(args, "agent_kind", None) or "").strip()
+    name = override or getattr(_config.active(), "agent_kind", None) or _aa.DEFAULT_AGENT_KIND
+    return _aa.resolve_account_auth(name)
+
+
+def _aa_available() -> list:
+    """The resolvable agent kinds (in-tree specs + dos.account_auth plugins)."""
+    from dos import account_auth as _aa
+    return _aa.available_account_auths()
+
+
 def _account_to_dict(acct) -> dict:
     return {"name": acct.name, "config_dir": acct.config_dir,
             "email": acct.email, "enabled": acct.enabled}
@@ -2539,16 +2559,71 @@ def cmd_accounts(args: argparse.Namespace) -> int:
         if match is None:
             return _fail(f"no account named {name!r} in roster",
                          hint="run `dos accounts list` to see roster names")
-        try:
-            env = _sw.env_for(match)
-        except _sw.OriginError as e:
-            return _fail(str(e))
+        spec = _resolve_agent_auth(args)
+        if spec.agent_kind == "claude":
+            # The verified baseline keeps the switcher's own (docs/380-aware) env
+            # builder — it defers to a fresh `.credentials.json` rather than freezing
+            # a static token into a live session. Other agents use the generic spec.
+            try:
+                env = _sw.env_for(match)
+            except _sw.OriginError as e:
+                return _fail(str(e))
+        else:
+            # Generic per-agent launch env from the resolved spec: the agent's
+            # isolated-config-dir env var (when it has one) + an optional sibling
+            # token; the agent then reads its OWN creds file inside that dir.
+            from pathlib import Path as _Path
+            cfg_dir = str(_Path(match.config_dir).expanduser())
+            token = None
+            if spec.token_file_name:
+                try:
+                    token = (_Path(cfg_dir) / spec.token_file_name
+                             ).read_text(encoding="utf-8").strip() or None
+                except OSError:
+                    token = None
+            env = spec.env_overrides(cfg_dir, token=token)
+            if not env:
+                return _fail(
+                    f"agent {spec.agent_kind!r} emits no launch env for {name!r}",
+                    hint=(f"{spec.agent_kind} has no config-dir env var — isolate "
+                          "another way" + (f"; enroll: {spec.enroll_hint}"
+                                           if spec.enroll_hint else "")))
         if as_json:
-            print(json.dumps({"name": name, "env": env}, indent=2))
+            print(json.dumps(
+                {"name": name, "agent_kind": spec.agent_kind, "env": env}, indent=2))
             return 0
         # Shell-source-able lines (POSIX); a host launcher splices these per child.
         for k, v in env.items():
             print(f'{k}={v}')
+        return 0
+
+    if verb == "agent":
+        # Inspect the ACTIVE agent the account switcher emits auth env for (the
+        # `dos.account_auth` seam, docs/386). Read-only: names the resolved spec, its
+        # auth env vars, whether it supports per-account config-dir isolation, and the
+        # enroll hint — so an operator can see "what will `dos accounts env` emit".
+        spec = _resolve_agent_auth(args)
+        known = _aa_available()
+        if as_json:
+            print(json.dumps({
+                "agent_kind": spec.agent_kind,
+                "config_dir_env": spec.config_dir_env,
+                "token_env": spec.token_env,
+                "creds_file_name": spec.creds_file_name,
+                "supports_config_dir_isolation": spec.supports_config_dir_isolation,
+                "enroll_methods": list(spec.enroll_methods),
+                "enroll_hint": spec.enroll_hint,
+                "available": known,
+            }, indent=2))
+            return 0
+        print(f"agent_kind         {spec.agent_kind}")
+        print(f"config_dir_env     {spec.config_dir_env or '(none — no env isolation)'}")
+        print(f"token_env          {spec.token_env or '(none)'}")
+        print(f"creds_file         {spec.creds_file_name or '(none)'}")
+        print(f"config-dir isolation  {'yes' if spec.supports_config_dir_isolation else 'NO'}")
+        if spec.enroll_hint:
+            print(f"enroll             {spec.enroll_hint}")
+        print(f"available agents   {', '.join(known)}")
         return 0
 
     if verb == "enroll":
@@ -2635,7 +2710,7 @@ def cmd_accounts(args: argparse.Namespace) -> int:
         return 0
 
     return _fail(f"unknown accounts subcommand: {verb!r}",
-                 hint="one of: list, pool, seats, env, scaffold, enroll, sync")
+                 hint="one of: list, pool, seats, env, scaffold, enroll, sync, agent")
 
 
 # ---------------------------------------------------------------------------
@@ -12916,10 +12991,20 @@ def build_parser() -> argparse.ArgumentParser:
     ase.set_defaults(func=cmd_accounts)
 
     aen = accsub.add_parser(
-        "env", help="env_for(<name>): CLAUDE_CONFIG_DIR (+token) to launch as a seat")
+        "env", help="env_for(<name>): the per-agent launch env (config-dir +token) for a seat")
     _acc_common(aen)
     aen.add_argument("--name", required=True, help="roster account name")
+    aen.add_argument("--agent-kind", dest="agent_kind", default=None,
+                     help="override the agent (claude/codex/gemini/…); "
+                          "default: dos.toml [agent] kind or 'claude'")
     aen.set_defaults(func=cmd_accounts)
+
+    aag = accsub.add_parser(
+        "agent", help="show the ACTIVE agent the switcher emits auth env for (docs/386)")
+    _acc_common(aag)
+    aag.add_argument("--agent-kind", dest="agent_kind", default=None,
+                     help="inspect a specific agent instead of the active one")
+    aag.set_defaults(func=cmd_accounts)
 
     asc = accsub.add_parser(
         "scaffold",
