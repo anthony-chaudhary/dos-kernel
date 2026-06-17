@@ -7363,6 +7363,63 @@ def cmd_notify(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# chat  (the generic, transport-agnostic CONTROL SURFACE — docs/382: a chat line
+# in, a compact read-only reply out. The same router every chat transport drives;
+# `dos whatsapp serve` is its WhatsApp binding. Read-only by construction.)
+# ---------------------------------------------------------------------------
+def cmd_chat(args: argparse.Namespace) -> int:
+    """`dos chat <command...>` — run a read-only control command, print the reply.
+
+    Detail: docs/CLI.md § cmd_chat.
+    """
+    _apply_workspace(args)
+    from dos import chat_control as _cc
+    cfg = _config.active()
+    message = " ".join(getattr(args, "message", None) or []).strip()
+    reply = _cc.handle(
+        message, cfg,
+        max_lines=int(getattr(args, "max_lines", _cc._DEFAULT_MAX_LINES)),
+        max_chars=int(getattr(args, "max_chars", _cc._DEFAULT_MAX_CHARS)))
+    if getattr(args, "json", False):
+        print(json.dumps(reply.to_dict(), indent=2, default=str))
+        return 0
+    print(reply.text)
+    # Exit non-zero on an unknown command so a script can detect a typo; a
+    # successful read-only reply (including the `help` menu) is 0.
+    return 0 if reply.ok else 1
+
+
+# ---------------------------------------------------------------------------
+# whatsapp  (the WhatsApp binding of the chat surface — docs/382. `serve` runs the
+# inbound webhook receiver; OUTBOUND push is `dos notify --notifier whatsapp`.
+# The WhatsApp wire shape lives in the driver, never here.)
+# ---------------------------------------------------------------------------
+def cmd_whatsapp(args: argparse.Namespace) -> int:
+    """`dos whatsapp serve` — run the inbound WhatsApp control bridge.
+
+    Detail: docs/CLI.md § cmd_whatsapp.
+    """
+    _apply_workspace(args)
+    from dos import chat_control as _cc
+    cfg = _config.active()
+    sub = getattr(args, "whatsapp_cmd", None)
+    if sub == "serve":
+        # Reach the bridge by NAME through the chat-bridge seam (never a static
+        # `import dos.drivers.*` — the no-kernel-imports-a-driver litmus).
+        try:
+            serve = _cc.resolve_bridge("whatsapp")
+        except ValueError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 2
+        return serve(
+            cfg, host=getattr(args, "host", "127.0.0.1"),
+            port=int(getattr(args, "port", 8080)),
+            verify_token=getattr(args, "verify_token", "") or "")
+    print("error: `dos whatsapp` needs a subcommand (serve)", file=sys.stderr)
+    return 2
+
+
+# ---------------------------------------------------------------------------
 # beat  (the cron dead-man's switch — the freshness seam's boundary). `pulse`
 # watches every live RUN; `dos beat` makes the WATCHERS themselves observable:
 # each always-on job records a proof-of-fire beat (`dos beat <job>`), and
@@ -13537,7 +13594,8 @@ def build_parser() -> argparse.ArgumentParser:
         _add_workspace_flags(p)
         p.add_argument("--notifier", default="null", metavar="NAME",
                        help="transport: built-in `null` (render only, default), or a "
-                            "registered `dos.notifiers` plugin (e.g. `slack`)")
+                            "registered `dos.notifiers` plugin (`slack`, `webhook`, "
+                            "`whatsapp`)")
         p.add_argument("--channel", default="", metavar="NAME|ID",
                        help="target channel: a logical name in slack_config.json, or "
                             "a raw id (C0…). Required for the `slack` transport.")
@@ -13565,6 +13623,49 @@ def build_parser() -> argparse.ArgumentParser:
         "top", help="push the live fleet status (lanes/leases/verdicts), edit-in-place")
     _add_notify_common(pnt)
     pnt.set_defaults(func=cmd_notify)
+
+    # chat — the generic, transport-agnostic CONTROL SURFACE (docs/382): a chat
+    # line in, a compact read-only reply out. The same router every chat transport
+    # drives (`dos whatsapp serve` is the WhatsApp binding). Run it from a shell to
+    # see exactly what a phone would get; read-only by construction.
+    pchat = sub.add_parser(
+        "chat",
+        help="run a read-only control command (top/decisions/plan/doctor/help) "
+             "and print the reply — the generic chat-control surface")
+    _add_workspace_flags(pchat)
+    pchat.add_argument("message", nargs="*", metavar="COMMAND",
+                       help="the control line, e.g. `top`, `decisions`, `help` "
+                            "(empty shows the menu)")
+    pchat.add_argument("--json", action="store_true",
+                       help="machine-readable {text, command, ok}")
+    pchat.add_argument("--max-lines", type=int, default=40, dest="max_lines",
+                       metavar="N",
+                       help="cap the reply to N lines (phone-shaping; default 40)")
+    pchat.add_argument("--max-chars", type=int, default=3500, dest="max_chars",
+                       metavar="N",
+                       help="cap the reply to N chars (default 3500; WhatsApp limit 4096)")
+    pchat.set_defaults(func=cmd_chat)
+
+    # whatsapp — the WhatsApp binding of the chat surface (docs/382). `serve` runs
+    # the inbound webhook receiver (messages → `dos chat` → reply); OUTBOUND push
+    # is `dos notify --notifier whatsapp`. WhatsApp's wire shape lives in the
+    # driver (dos.drivers.whatsapp_bridge / notify_whatsapp), never here.
+    pwa = sub.add_parser(
+        "whatsapp",
+        help="WhatsApp control bridge: `serve` the inbound webhook "
+             "(outbound push is `dos notify --notifier whatsapp`)")
+    wasub = pwa.add_subparsers(dest="whatsapp_cmd", required=True)
+    pwas = wasub.add_parser(
+        "serve",
+        help="run the inbound webhook receiver (routes messages through dos chat)")
+    _add_workspace_flags(pwas)
+    pwas.add_argument("--host", default="127.0.0.1", metavar="HOST",
+                      help="bind address (default 127.0.0.1; front with HTTPS at your edge)")
+    pwas.add_argument("--port", type=int, default=8080, metavar="PORT",
+                      help="bind port (default 8080)")
+    pwas.add_argument("--verify-token", default="", dest="verify_token", metavar="TOKEN",
+                      help="Meta webhook verify token (or $DOS_WHATSAPP_VERIFY_TOKEN / .env)")
+    pwas.set_defaults(func=cmd_whatsapp)
 
     # beat — the cron dead-man's switch (the freshness seam). `dos beat <job>`
     # records an always-on job's proof-of-fire; `dos beat --check` folds the ledger
