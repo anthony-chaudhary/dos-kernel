@@ -7359,6 +7359,147 @@ def cmd_notify(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# beat  (the cron dead-man's switch — the freshness seam's boundary). `pulse`
+# watches every live RUN; `dos beat` makes the WATCHERS themselves observable:
+# each always-on job records a proof-of-fire beat (`dos beat <job>`), and
+# `dos beat --check` folds the ledger against the declared `[heartbeats]` cadences
+# into per-job FRESH/LATE/MISSING. The pure verdict is `freshness.classify`; this
+# is the I/O boundary (append the beat / read the ledger) + the verb.
+# ---------------------------------------------------------------------------
+
+
+def _append_beat(cfg, *, job_id: str, ts_ms: int, ok: bool = True, detail: str = "") -> None:
+    """Append one beat to the cron beat-ledger (append-only JSONL). BOUNDARY I/O.
+
+    One `{job, ts_ms, ok, detail?}` record per line, O_APPEND + fsync'd so a beat
+    survives a crash — the lane-journal WAL posture, scaled down (a beat is a single
+    small atomic line, so no per-write mutex is needed: O_APPEND is atomic for a
+    write below PIPE_BUF on every platform DOS targets). The boundary stamps `ts_ms`,
+    NOT the job — so a job cannot make a missed window look on-time (the freshness
+    non-forgeable-timing floor)."""
+    import json as _json
+    import os as _os
+
+    path = cfg.paths.beat_ledger
+    if path is None:
+        raise RuntimeError("workspace has no beat_ledger path configured")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rec: dict = {"job": str(job_id), "ts_ms": int(ts_ms), "ok": bool(ok)}
+    if detail:
+        rec["detail"] = str(detail)
+    line = (_json.dumps(rec, separators=(",", ":")) + "\n").encode("utf-8")
+    fd = _os.open(str(path), _os.O_WRONLY | _os.O_CREAT | _os.O_APPEND, 0o644)
+    try:
+        _os.write(fd, line)
+        try:
+            _os.fsync(fd)
+        except OSError:  # pragma: no cover - fsync unsupported on some FS
+            pass
+    finally:
+        _os.close(fd)
+
+
+def _read_beats(cfg) -> list:
+    """Read every beat record from the ledger, torn-tail tolerant. BOUNDARY I/O.
+
+    Returns a list of `{job, ts_ms, ...}` dicts for `freshness.latest_beats` to
+    fold. A missing ledger ⇒ `[]` (no beats yet — every declared job folds to
+    MISSING, the silent-death catch). An unparseable line is skipped (a half-written
+    final record is "didn't happen", the safe ledger reading) — the same tolerance
+    `lane_journal.read_all` gives its WAL."""
+    import json as _json
+
+    path = cfg.paths.beat_ledger
+    if path is None or not path.exists():
+        return []
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:  # pragma: no cover - unreadable ledger ⇒ treat as empty
+        return []
+    out: list = []
+    for ln in text.splitlines():
+        ln = ln.strip()
+        if not ln:
+            continue
+        try:
+            out.append(_json.loads(ln))
+        except ValueError:
+            continue
+    return out
+
+
+def cmd_beat(args: argparse.Namespace) -> int:
+    """`dos beat <job>` — record a beat; `dos beat --check` — fold freshness.
+
+    The cron dead-man's switch (the `freshness` seam). Two modes:
+
+      RECORD (a JOB-ID given): append a proof-of-fire beat to the ledger. The verb
+        every always-on cron calls at the end of a run — `dos beat pulse`,
+        `dos beat supervise`, etc. A beat proves the job FIRED, not that it did
+        useful work (that is `liveness`/`verify`); the boundary stamps the time, so
+        a missed window cannot be forged on-time.
+
+      --check (no JOB-ID): fold the ledger against the declared `[heartbeats]`
+        cadences and print each job's FRESH/LATE/MISSING verdict. Exits non-zero
+        when any declared job is LATE or MISSING — so a meta-cron (or CI) trips on a
+        silently-dead steward, the whole point of the module. With no declared
+        `[heartbeats]` it prints the opt-in hint and exits 0 (nothing to watch yet).
+    """
+    _apply_workspace(args)
+    import time
+
+    from dos import config as _config
+    from dos import freshness as _freshness
+
+    cfg = _config.active()
+    now_ms = args.now_ms if getattr(args, "now_ms", None) is not None else int(time.time() * 1000)
+
+    # --- --check: fold the ledger vs the declared cadences -----------------------
+    if getattr(args, "check", False):
+        records = _read_beats(cfg)
+        newest = _freshness.latest_beats(records)
+        verdicts = _freshness.fold(
+            now_ms=now_ms,
+            cadences=cfg.heartbeats.jobs,
+            newest_beat_ms=newest,
+            policy=cfg.heartbeats.policy,
+        )
+        if args.json:
+            print(json.dumps(
+                {"now_ms": now_ms, "verdicts": [v.to_dict() for v in verdicts]},
+                indent=2, default=str))
+        elif not verdicts:
+            print("no declared heartbeats — add a [heartbeats] table to dos.toml "
+                  "to watch an always-on job's freshness (e.g. pulse, supervise)")
+        else:
+            glyph = {"FRESH": "·", "LATE": "▲", "MISSING": "■"}
+            for v in verdicts:
+                print(f"{glyph.get(v.verdict.value, '·')} [{v.verdict.value}] {v.reason}")
+        # Exit non-zero on ANY problem (LATE/MISSING) so a meta-cron/CI alerts on a
+        # silently-dead steward. A clean fold (all FRESH, or nothing declared) is 0.
+        return 1 if any(v.is_problem for v in verdicts) else 0
+
+    # --- record a beat -----------------------------------------------------------
+    job = getattr(args, "job_id", None)
+    if not job:
+        print("error: provide a JOB-ID to record a beat (e.g. `dos beat pulse`), "
+              "or pass --check to fold freshness", file=sys.stderr)
+        return 2
+    ok = not getattr(args, "fail", False)
+    detail = getattr(args, "detail", "") or ""
+    try:
+        _append_beat(cfg, job_id=job, ts_ms=now_ms, ok=ok, detail=detail)
+    except (OSError, RuntimeError) as e:
+        print(f"error: could not record beat: {e}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps({"job": job, "ts_ms": now_ms, "ok": ok, "detail": detail}))
+    else:
+        print(f"beat recorded: {job} @ {now_ms} ({'ok' if ok else 'FAIL'})")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # pulse  (the standing self-watch — DOS's cron heartbeat; docs/121 §4.1, the
 # always-on reader for the queue nobody reads unattended). Folds per-run liveness
 # + the HUMAN decisions queue + the breaker into ONE digest and pushes it; SILENT
@@ -13324,6 +13465,44 @@ def build_parser() -> argparse.ArgumentParser:
         "top", help="push the live fleet status (lanes/leases/verdicts), edit-in-place")
     _add_notify_common(pnt)
     pnt.set_defaults(func=cmd_notify)
+
+    # beat — the cron dead-man's switch (the freshness seam). `dos beat <job>`
+    # records an always-on job's proof-of-fire; `dos beat --check` folds the ledger
+    # against the declared [heartbeats] cadences into per-job FRESH/LATE/MISSING and
+    # exits non-zero on a silently-dead steward. The complement to `pulse`: pulse
+    # watches the RUNS, beat watches the WATCHERS.
+    pbeat = sub.add_parser(
+        "beat",
+        help="record an always-on job's heartbeat, or --check freshness of every "
+             "declared job (the cron dead-man's switch)",
+        description=(
+            "Make always-on cron jobs observable. `pulse` watches every live RUN, but "
+            "nothing watched whether the crons/stewards THEMSELVES still fire — and by "
+            "the silence rule a dead pulse emits exactly what a healthy one does on a "
+            "quiet cycle: nothing. `dos beat <job>` records a proof-of-fire beat (the "
+            "verb each cron calls at the end of a run; the boundary stamps the time, so "
+            "a missed window cannot be forged on-time). `dos beat --check` folds the "
+            "ledger against the declared `dos.toml [heartbeats]` cadences and prints "
+            "each job's FRESH / LATE / MISSING, exiting non-zero on any LATE/MISSING so "
+            "a meta-cron or CI trips on a silently-dead steward. A beat proves the job "
+            "FIRED, not that it did useful work — pair with `liveness`/`verify` for "
+            "that. The primitive docs/374's meta-steward needs (each steward's fire-rate)."),
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    _add_workspace_flags(pbeat)
+    pbeat.add_argument("job_id", nargs="?", default=None, metavar="JOB-ID",
+                       help="the always-on job that just fired (e.g. pulse, supervise); "
+                            "omit when using --check")
+    pbeat.add_argument("--check", action="store_true",
+                       help="fold the ledger vs the declared [heartbeats] cadences; "
+                            "print per-job FRESH/LATE/MISSING; exit 1 on any LATE/MISSING")
+    pbeat.add_argument("--fail", action="store_true",
+                       help="record this beat as a FAILED run (the job fired but errored)")
+    pbeat.add_argument("--detail", default="", metavar="TEXT",
+                       help="optional free-text note stored with the beat")
+    pbeat.add_argument("--now-ms", type=int, default=None,
+                       help="inject the wall clock (epoch-ms) for deterministic runs")
+    pbeat.add_argument("--json", action="store_true", help="machine-readable output")
+    pbeat.set_defaults(func=cmd_beat)
 
     # pulse — DOS's standing self-watch heartbeat (docs/121 §4.1): the verb a
     # cron/Actions job runs on a cadence to fold every live run's liveness + the
