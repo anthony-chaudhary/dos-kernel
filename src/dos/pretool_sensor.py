@@ -451,6 +451,96 @@ def _command_has_no_write_footprint(cmd: str) -> bool:
     return True
 
 
+# ---------------------------------------------------------------------------
+# The POSITIVE-safety predicate (docs/370 Phase B — the `assist` verified allowlist).
+# The deny rungs above prove a call UNSAFE (a self-modify, a collision, a minted id);
+# this proves one SAFE, so the `assist` posture can auto-ALLOW it and stop prompting
+# the human for the routine. It is the refuse-NARROW dual of those rungs: only an
+# EXPLICIT proof of no-effect yields True — never the mere ABSENCE of an objection.
+# ---------------------------------------------------------------------------
+# The local read tools DOS can prove carry NO effect on shared state — no file write,
+# no network egress, no fleet spawn/coordination. A strict SUBSET of `_READ_ONLY_TOOLS`
+# (which ALSO holds the network-egressing WebFetch/WebSearch — a read that reaches out)
+# and DISJOINT from `_NO_FOOTPRINT_TOOLS` (Agent/Task*/ToolSearch carry a non-file
+# SPAWN/COORDINATION/CAPABILITY effect, #202). Host-shaped, like the tool sets above:
+# a host with other read tools declares its own mapping in a driver.
+_PROVABLY_SAFE_READ_TOOLS = frozenset({"Read", "Grep", "Glob", "LS", "NotebookRead"})
+
+# Program tokens that reach the NETWORK — an effect DOS cannot certify away (`gh`
+# mutates GitHub, `curl`/`wget` egress, `git ls-remote` queries a remote). They stay
+# in the no-WRITE set (they write no LOCAL file) but are NOT effect-free, so an
+# `assist` auto-allow must still ask for them. Excluded from the effect-free set below.
+_NETWORK_PROGRAMS: frozenset[str] = frozenset(
+    {"gh", "curl", "wget", "ssh", "scp", "rsync", "nc", "ncat", "telnet", "ftp"}
+)
+
+# Programs that read LOCAL state and produce NO file write AND NO network egress — the
+# effect-free subset of `_NO_WRITE_FOOTPRINT_PREFIXES` (drop every network verb, and
+# `git ls-remote`, which queries a remote). A Bash command whose every segment invokes
+# one of these, with no shell write metacharacter, is provably free of any effect — the
+# only Bash an `assist` posture auto-allows. Refuse-narrow by construction: an
+# unrecognized program is absent here, so it keeps the human in the loop.
+_EFFECT_FREE_PREFIXES: frozenset[tuple[str, ...]] = frozenset(
+    p for p in _NO_WRITE_FOOTPRINT_PREFIXES
+    if p and p[0] not in _NETWORK_PROGRAMS and p != ("git", "ls-remote")
+)
+
+
+def _command_is_effect_free(cmd: str) -> bool:
+    """True iff EVERY segment of `cmd` invokes a known effect-free local read program
+    and no shell metacharacter can write/egress around them. PURE.
+
+    The same conjunctive shape as `_command_has_no_write_footprint` (a metacharacter
+    anywhere, or one segment whose invocation prefix is not in the effect-free set,
+    fails the whole command), but checked against the narrower `_EFFECT_FREE_PREFIXES`
+    — so a `gh issue create` (no local write, but a network mutation) is NOT effect-free
+    even though it has no write footprint. The auto-allow floor for the `assist` posture.
+    """
+    for meta in _SHELL_WRITE_METACHARS:
+        if meta in cmd:
+            return False
+    work = cmd
+    for sep in _SEGMENT_SEPARATORS:
+        work = work.replace(sep, "\x00")
+    segments = [s for s in (seg.strip() for seg in work.split("\x00")) if s]
+    if not segments:
+        return False
+    for segment in segments:
+        toks = _segment_lead_tokens(segment)
+        if not toks:
+            return False
+        if not any(tuple(toks[:depth]) in _EFFECT_FREE_PREFIXES
+                   for depth in range(1, len(toks) + 1)):
+            return False
+    return True
+
+
+def verified_safe(event: dict) -> bool:
+    """True iff DOS can POSITIVELY prove this call is free of any effect on shared
+    state — no file write, no network egress, no fleet spawn/coordination. PURE.
+
+    The auto-allow floor for the docs/370 `assist` posture (the verified allowlist).
+    Refuse-NARROW: returns True ONLY for a call DOS can certify safe — a local read
+    tool, or a Bash command whose every segment is an effect-free local read; EVERY
+    other call (a write, an unknown tool, a network/egress command, an Agent spawn)
+    returns False, so the human is still asked. The asymmetry is the whole point: an
+    auto-allow requires an EXPLICIT proof of no-effect, never the mere absence of a
+    deny — so a tool DOS simply has no opinion on is NOT auto-approved.
+    """
+    tool_name = event.get("tool_name") if isinstance(event, dict) else None
+    if not isinstance(tool_name, str) or not tool_name:
+        return False
+    if tool_name in _PROVABLY_SAFE_READ_TOOLS:
+        return True
+    if tool_name == "Bash":
+        tool_input = event.get("tool_input")
+        if isinstance(tool_input, dict):
+            cmd = tool_input.get("command")
+            if isinstance(cmd, str) and cmd.strip():
+                return _command_is_effect_free(cmd)
+    return False
+
+
 def _paths_from_command(cmd: str) -> tuple[str, ...]:
     """Best-effort path-shaped tokens from a Bash command string. PURE.
 

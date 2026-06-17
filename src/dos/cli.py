@@ -520,6 +520,10 @@ def _render_enforcement_block(posture: str) -> str:
         '#               "ask") so YOU decide — the human-in-the-loop posture.\n'
         "#               Complementary to your host's OWN allowlist: the allowlist\n"
         "#               handles the routine, DOS escalates the adjudicated exceptions.\n"
+        '#   "assist"  — "gate" PLUS an auto-"allow" of the calls DOS can POSITIVELY\n'
+        "#               prove carry no effect (a read, an effect-free command), so you\n"
+        "#               are prompted only for the genuinely uncertain ones — a verified\n"
+        "#               allowlist. For the permission-on operator drowning in prompts.\n"
         '#   "observe" — a refusal degrades to an advisory note; records, never blocks.\n'
         "# Override per run with the DOS_HOOK_POSTURE env (read on every hook event).\n"
         "[enforcement]\n"
@@ -1193,6 +1197,12 @@ def cmd_init(args: argparse.Namespace) -> int:
                       "complements your host's OWN allowlist (allowlist handles the "
                       "routine; DOS escalates the adjudicated exceptions). Override "
                       "per run with DOS_HOOK_POSTURE.")
+            elif posture == "assist":
+                print("  assist: a DOS refusal ESCALATES to your host's permission "
+                      "prompt (an ask), AND a call DOS can POSITIVELY prove carries no "
+                      "effect (a read, an effect-free command) is auto-ALLOWED — so you "
+                      "are prompted only for the genuinely uncertain ones (a verified "
+                      "allowlist). Override per run with DOS_HOOK_POSTURE.")
         else:
             print(f"enforcement posture already \"{posture}\" in {cfg_path} (no change)")
 
@@ -5958,6 +5968,34 @@ def cmd_hook_pretool(args: argparse.Namespace) -> int:
             host_dialect = None
         if host_dialect is not None:
             print(json.dumps(host_dialect, sort_keys=True))
+    elif decision == "passthrough":
+        # docs/370 Phase B — the verified allowlist. `decide()` found no objection
+        # (a passthrough); under the `assist` posture, if DOS can POSITIVELY prove the
+        # call carries no effect on shared state, auto-ALLOW it so the human is not
+        # prompted for the routine. Strictly opt-in (ONLY `assist`) and refuse-narrow
+        # (ONLY a proven-safe call) — an uncertain passthrough stays silent and the
+        # host's own permission flow asks the human. Fail-safe: any fault → emit
+        # nothing (the passthrough the verdict already was).
+        try:
+            from dos import hook_dialect as _hd
+            if posture is _hd.Posture.ASSIST and _prt.verified_safe(event):
+                allow = _hd.HookVerdict(
+                    moment=_hd.HookMoment.PRE, action=_hd.HookAction.ALLOW,
+                    reason="DOS verified this call carries no effect on shared state "
+                           "(no file write, no egress, no spawn) — auto-allowed under "
+                           "the assist posture.")
+                # Run the same posture transform (an ALLOW survives ASSIST unchanged;
+                # a dialect that has not verified its host's allow grammar declines).
+                allow = _hd.under_posture(allow, posture)
+                host_dialect = _hd.resolve_dialect(
+                    getattr(args, "dialect", None)).render(allow)
+                if host_dialect is not None:
+                    print(json.dumps(host_dialect, sort_keys=True))
+                    surface = allow.action.value  # "allow" (docs/370 Phase C surface)
+        except ValueError as exc:  # unknown dialect name — surface, do not guess a host
+            _dbg(f"dialect error ({exc}) — emitting nothing (passthrough)")
+        except Exception as exc:  # noqa: BLE001 — advisory fail-safe: any error → passthrough
+            _dbg(f"assist auto-allow fold error ({exc!r}) — emitting nothing (passthrough)")
 
     # 7. docs/297 P3: one observation per decided call — THE denominator record
     #    (one pretool record = one tool call adjudicated). On the native fast path
@@ -8700,6 +8738,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     _posture_desc = {
         "block": "a refusal hard-DENYs — DOS is the gate (the headless default)",
         "gate": "a refusal ESCALATEs to your permission prompt (an ask) — human in the loop",
+        "assist": "gate PLUS an auto-allow of the calls DOS proves safe — a verified allowlist",
         "observe": "a refusal degrades to an advisory note — records only",
     }.get(_posture.value, _posture.value)
     print(f"enforcement posture {_posture.value}  ({_posture_desc}; from {_posture_source})")
@@ -10995,8 +11034,9 @@ def build_parser() -> argparse.ArgumentParser:
                          "config, no --force needed): 'block' hard-denies (DOS is "
                          "the gate — the headless default), 'gate' escalates a "
                          "refusal to your host's permission prompt (an ask — the "
-                         "human-in-the-loop posture), 'observe' records only. "
-                         "Override per run with the DOS_HOOK_POSTURE env.")
+                         "human-in-the-loop posture), 'assist' adds an auto-allow of "
+                         "the calls DOS proves safe (a verified allowlist), 'observe' "
+                         "records only. Override per run with the DOS_HOOK_POSTURE env.")
     pi.add_argument("--dry-run", action="store_true", dest="dry_run",
                     help="with --hooks: PREVIEW the config merge (print what would "
                          "be written, write nothing) — the dress rehearsal before "

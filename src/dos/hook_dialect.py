@@ -79,6 +79,7 @@ class HookAction(enum.Enum):
 
     DENY = "deny"  # withhold the call / refuse the stop
     ASK = "ask"    # escalate to the human's permission prompt (do NOT decide for them)
+    ALLOW = "allow"  # auto-approve a POSITIVELY-verified-safe call (do NOT prompt the human)
     WARN = "warn"  # add context, do NOT block (turn-preserving)
     PASS = "pass"  # emit nothing
 
@@ -102,10 +103,13 @@ class HookVerdict:
 # ---------------------------------------------------------------------------
 # The enforcement POSTURE — how a refusal is SURFACED (docs/370). The kernel
 # computes ONE verdict; the operator picks whether a refusal hard-blocks, asks
-# the human, or merely records. PURE: a posture only ever RE-SHAPES a refusal
-# (DENY) into a softer surface; it never hardens a PASS/WARN into a block, and
-# never turns an admit into a deny. So a posture is monotone-softening — the
-# refuse-equal-or-softer dual of the overlap policy's refuse-MORE-only floor.
+# the human, merely records, or — under `assist` — whether a POSITIVELY-proven-safe
+# call is auto-allowed so the human is not prompted for it. PURE: a posture only ever
+# RE-SHAPES a refusal (DENY) into a softer surface, or gates an auto-allow (ALLOW) to
+# its opt-in posture; it never hardens a PASS/WARN into a block, and never manufactures
+# a refusal an admit did not contain. So a posture is monotone-softening — the
+# refuse-equal-or-softer dual of the overlap policy's refuse-MORE-only floor — and the
+# auto-allow is strictly opt-in to `assist` (no other posture can make DOS an approver).
 #
 # DOS shipped assuming the headless / bypass-permissions deployment, where DOS
 # is the ONLY gate, so a refusal must BLOCK. The control-oriented deployment
@@ -126,11 +130,20 @@ class Posture(enum.Enum):
                 PRE moment). DOS does not decide for the human; it hands them an
                 adjudicated reason the agent could not have authored. The
                 control-oriented / human-in-the-loop posture.
+      ASSIST  — GATE plus an auto-ALLOW of the calls DOS has POSITIVELY verified
+                safe (docs/370 Phase B, the verified allowlist). A refusal still
+                ESCALATES (an ASK, exactly like GATE), but a call DOS can prove
+                carries no effect on shared state is auto-approved so the human is
+                prompted only for the genuinely uncertain ones. The auto-allow is
+                strictly opt-in to THIS posture and refuse-NARROW: only a proven-safe
+                call is allowed; everything else still asks. For the permission-on /
+                least-privilege operator drowning in routine prompts.
     """
 
     OBSERVE = "observe"
     BLOCK = "block"
     GATE = "gate"
+    ASSIST = "assist"
 
 
 #: The default — BLOCK, so an operator who declares no posture gets exactly the
@@ -158,28 +171,47 @@ def parse_posture(name: Optional[str]) -> Posture:
 def under_posture(verdict: HookVerdict, posture: Posture) -> HookVerdict:
     """Re-shape a verdict's SURFACE for the operator's posture. PURE, total.
 
-    Only a DENY is ever re-shaped (a PASS/WARN/ASK passes through untouched — a
-    posture never hardens). The mapping:
+    A DENY is softened (never hardened); an ALLOW is gated to its opt-in posture; a
+    PASS/WARN/ASK passes through untouched. The mapping:
 
-      * BLOCK   → unchanged (a DENY stays a DENY — today's behavior).
-      * OBSERVE → a DENY becomes a WARN; the refusal's `reason` is folded into the
-                  `context` so the human still reads WHY, but nothing blocks.
+      * BLOCK   → a DENY stays a DENY (today's behavior); an ALLOW degrades to PASS.
+      * OBSERVE → a DENY becomes a WARN (its `reason` folded into the `context` so the
+                  human still reads WHY, but nothing blocks); an ALLOW degrades to PASS.
       * GATE    → a PRE-moment DENY becomes an ASK (route to the human's permission
                   prompt). A non-PRE DENY (a Stop refusal, a Post context) stays a
                   DENY: "ask the human" is meaningful only BEFORE a tool runs — a
                   stop has no permission-prompt seam to escalate into, so GATE leaves
                   it a block (the honest-coverage direction, never a fabricated ask).
+                  An ALLOW degrades to PASS (auto-allow is not part of GATE).
+      * ASSIST  → GATE for a DENY (a PRE deny ESCALATES to an ASK, identically), PLUS
+                  an ALLOW passes through unchanged — the auto-approve of a call the
+                  boundary has POSITIVELY proven safe (docs/370 Phase B).
+
+    The ALLOW handling is the strictly-opt-in / refuse-narrow floor: an auto-allow is
+    honored ONLY under `assist`. Under every other posture DOS does NOT auto-approve —
+    it degrades the ALLOW to PASS (emit nothing) and lets the host's own permission
+    flow ask the human. So no posture but `assist` can ever turn DOS into an
+    approver, the dual of the refuse-equal-or-softer floor the DENY side holds.
 
     The transform is the keystone that lets DOS PARTICIPATE in a host's permission
     flow rather than replace it: the same adjudicated verdict, surfaced as the
     operator chose.
     """
+    if verdict.action is HookAction.ALLOW:
+        # Auto-approve is STRICTLY opt-in to `assist`. Anywhere else, decline to
+        # speak (PASS) so the host's own flow keeps the human in the loop.
+        if posture is Posture.ASSIST:
+            return verdict
+        return HookVerdict(moment=verdict.moment, action=HookAction.PASS)
     if verdict.action is not HookAction.DENY:
         return verdict
     if posture is Posture.OBSERVE:
         merged = " ".join(p for p in (verdict.reason, verdict.context) if p).strip()
         return HookVerdict(moment=verdict.moment, action=HookAction.WARN, context=merged)
-    if posture is Posture.GATE and verdict.moment is HookMoment.PRE:
+    # GATE and ASSIST escalate a PRE deny identically — ASSIST is GATE for the
+    # uncertain calls; it differs only in ALSO auto-allowing the proven-safe ones,
+    # which arrive already shaped as an ALLOW (handled above), never as a DENY.
+    if posture in (Posture.GATE, Posture.ASSIST) and verdict.moment is HookMoment.PRE:
         return HookVerdict(
             moment=verdict.moment, action=HookAction.ASK,
             reason=verdict.reason, context=verdict.context,
@@ -207,10 +239,11 @@ def parse_cc(cc_dict: Optional[dict], *, moment: HookMoment) -> HookVerdict:
     decision = hso.get("permissionDecision")
     context = hso.get("additionalContext")
     context = context if isinstance(context, str) else ""
-    if decision in ("deny", "ask"):
+    if decision in ("deny", "ask", "allow"):
         reason = hso.get("permissionDecisionReason")
         reason = reason if isinstance(reason, str) else ""
-        act = HookAction.DENY if decision == "deny" else HookAction.ASK
+        act = {"deny": HookAction.DENY, "ask": HookAction.ASK,
+               "allow": HookAction.ALLOW}[decision]
         return HookVerdict(moment=moment, action=act, reason=reason, context=context)
     if context:
         # additionalContext present, no deny → a WARN (turn-preserving re-surface).
@@ -254,15 +287,18 @@ class ClaudeCodeDialect:
         if verdict.action is HookAction.PASS:
             return None
         event = _CC_EVENT[verdict.moment]
-        if verdict.action in (HookAction.DENY, HookAction.ASK):
+        if verdict.action in (HookAction.DENY, HookAction.ASK, HookAction.ALLOW):
             # `deny` withholds the call; `ask` routes it to the human's permission
-            # prompt — both are the `permissionDecision` gate CC honors
-            # (`z.enum(['allow','deny','ask'])`, verified against the CC source). The
-            # only field that differs is the verb; the why + corrective ride the same
-            # `permissionDecisionReason` / `additionalContext` channels.
+            # prompt; `allow` auto-approves a proven-safe call — all three are the
+            # `permissionDecision` gate CC honors (`z.enum(['allow','deny','ask'])`,
+            # verified against the CC source). The only field that differs is the verb;
+            # the why + corrective ride the same `permissionDecisionReason` /
+            # `additionalContext` channels.
+            _verb = {HookAction.DENY: "deny", HookAction.ASK: "ask",
+                     HookAction.ALLOW: "allow"}[verdict.action]
             hso = {
                 "hookEventName": event,
-                "permissionDecision": "deny" if verdict.action is HookAction.DENY else "ask",
+                "permissionDecision": _verb,
                 "permissionDecisionReason": verdict.reason,
             }
             if verdict.context:

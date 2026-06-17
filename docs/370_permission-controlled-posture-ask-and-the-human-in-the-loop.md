@@ -1,16 +1,22 @@
 # 370 — The permission-controlled posture: ASK and the human in the loop
 
-> **Status:** Phase 1 + Phase C + Phase E SHIPPED. Phase 1 — the `ASK` action +
-> the `Posture` seam + Claude-Code-family native rendering. Phase C — posture-aware
-> observation: the PRE hook records the SURFACE the posture produced and `dos doctor`
-> splits the kernel's refusals into escalated-to-human vs hard-blocked vs observed.
-> Phase E — `dos init --posture <observe|block|gate>` wires the posture at install.
-> The remaining roadmap phases (§6) are numbered, each a litmus-checkable unit.
-> Implementation: `hook_dialect.HookAction.ASK`, `hook_dialect.Posture` /
-> `parse_posture` / `under_posture`, `cli._hook_posture` / `_effective_posture`,
+> **Status:** Phase 1 + Phase B + Phase C + Phase E SHIPPED. Phase 1 — the `ASK`
+> action + the `Posture` seam + Claude-Code-family native rendering. Phase B — the
+> `ALLOW` action + the `assist` posture (the verified allowlist): a call DOS can
+> POSITIVELY prove free of effect is auto-allowed so the human is prompted only for
+> the genuinely uncertain ones; strictly opt-in to `assist`, refuse-narrow.
+> Phase C — posture-aware observation: the PRE hook records the SURFACE the posture
+> produced and `dos doctor` splits the kernel's refusals into escalated-to-human vs
+> hard-blocked vs observed. Phase E — `dos init --posture <observe|block|gate|assist>`
+> wires the posture at install. The remaining roadmap phases (§6) are numbered, each a
+> litmus-checkable unit. Implementation: `hook_dialect.HookAction.ASK` / `ALLOW`,
+> `hook_dialect.Posture` / `parse_posture` / `under_posture`,
+> `pretool_sensor.verified_safe`, the `assist` auto-allow branch in
+> `cli.cmd_hook_pretool`, `cli._hook_posture` / `_effective_posture`,
 > `hook_observation.posture_split` (+ the `posture`/`surface` record fields),
 > `cli._upsert_enforcement_posture`; `tests/test_hook_ask_posture.py`,
-> `tests/test_posture_observation.py`, `tests/test_init_posture.py`.
+> `tests/test_hook_assist_posture.py`, `tests/test_posture_observation.py`,
+> `tests/test_init_posture.py`.
 
 ## The wound, stated once
 
@@ -174,13 +180,31 @@ change.
   degrading to WARN. Same web-grounded discipline as docs/268/278. → a GitHub
   issue per host, gated on a verified probe.
 - **Phase B — `HookAction.ALLOW` + the `assist` posture (the verified
-  allowlist).** In a permission-on deployment the human is prompted constantly.
-  DOS holds facts they do not (this read is in-lane, this write is contained,
-  this is a no-footprint tool). `assist` = GATE + auto-`allow` of the calls DOS
-  has *positively verified* safe, so the human is prompted only for the genuinely
-  uncertain ones — a verified allowlist, not a static one. ALLOW must be strictly
-  opt-in and refuse-narrow (auto-allow only what is provably safe; everything
-  else still asks).
+  allowlist). ✅ SHIPPED.** In a permission-on deployment the human is prompted
+  constantly. DOS holds facts they do not (this read touches nothing, this command
+  only reads). `assist` = GATE + auto-`allow` of the calls DOS has *positively
+  verified* safe, so the human is prompted only for the genuinely uncertain ones —
+  a verified allowlist, not a static one. `HookAction.ALLOW` renders to the host's
+  `allow` verb (CC's `permissionDecision: "allow"`, verified
+  `z.enum(['allow','deny','ask'])`); `under_posture` honors an auto-allow ONLY under
+  `assist` (under any other posture it degrades to PASS — no posture but `assist` can
+  make DOS an approver). `pretool_sensor.verified_safe` is the refuse-NARROW positive
+  predicate: True ONLY for a call DOS can certify free of effect — a local read tool
+  (`Read`/`Grep`/`Glob`/`LS`/`NotebookRead`, NOT the network-egressing
+  `WebFetch`/`WebSearch`, NOT the `Agent`/`Task*` spawn/coordination tools) or a Bash
+  command whose every segment is an effect-free local read (the `_NO_WRITE_FOOTPRINT`
+  set minus the network verbs). Every other call — a write, an egressing command, an
+  unknown tool — returns False, so the human is still asked: an auto-allow requires an
+  EXPLICIT proof of no-effect, never the mere absence of a deny. The `assist` auto-allow
+  fires at the CLI boundary (`cli.cmd_hook_pretool`) on a clean passthrough only, so a
+  refusal still escalates (an `ask`, identically to `gate`) and an uncertain passthrough
+  stays silent (the host's own flow asks). The auto-allow's SURFACE (`allow`) is recorded
+  on the Phase-C observation even though the kernel verdict is a passthrough. NOT-yet:
+  native per-host ALLOW grammar (a non-CC host degrades to a non-blocking surface, never
+  a fabricated allow — the Phase-A discipline, mirrored), and the contained-WRITE
+  auto-allow (a held-lease in-lane write is provably contained but needs the lease
+  evidence at the boundary — a safe widening of the predicate, deferred). Tests:
+  `tests/test_hook_assist_posture.py`.
 - **Phase C — posture-aware observation. ✅ SHIPPED.** The PRE hook now records,
   off the `block` default, the POSTURE in effect and the SURFACE action it
   produced (a deny is `surface=ask` under `gate`, `surface=warn` under `observe`)
@@ -208,9 +232,10 @@ change.
   exceptions). A bare `dos init` is byte-for-byte the pre-Phase-E scaffold (no
   `[enforcement]` table unless asked). Tests: `tests/test_init_posture.py`.
 - **Phase F — Go fast-path parity.** The native `dos-hook` binary serves the
-  default BLOCK path; the posture transform is Python-side today. Carry the
-  posture into the Go decider so a gated fleet keeps the fast path. (Default
-  BLOCK already has Go parity — only `gate`/`observe` need the Python path now.)
+  default BLOCK path; the posture transform (and the `assist` auto-allow) are
+  Python-side today. Carry the posture into the Go decider so a gated/assist fleet
+  keeps the fast path. (Default BLOCK already has Go parity — only
+  `gate`/`observe`/`assist` need the Python path now.)
 
 ## 7. The one-line frame
 
@@ -218,4 +243,15 @@ DOS was the referee for the room with no human in it. The posture seam makes it
 the referee for the room *with* one — not by deciding for the human, but by
 handing them the one fact the agent could not forge, at the moment they decide.
 
-## Fixes (none yet — opens the Phase A–F issues above)
+## Fixes
+
+- **Phase B — `HookAction.ALLOW` + the `assist` posture (the verified allowlist).**
+  `assist` = GATE for refusals (a PRE deny escalates to an `ask`) plus an auto-`allow`
+  of the calls `pretool_sensor.verified_safe` can POSITIVELY prove free of effect (a
+  local read tool, an effect-free Bash command). The auto-allow is strictly opt-in to
+  `assist` (`under_posture` degrades an `ALLOW` to PASS under every other posture) and
+  refuse-narrow (a write / an egressing command / an `Agent` spawn / an unknown tool
+  still asks). `ALLOW` renders to the host's `allow` verb on the CC family and degrades
+  to a non-blocking surface elsewhere (the fail-open floor: an auto-allow never blocks).
+  The remaining widenings — native per-host `allow` grammar and the contained-write
+  auto-allow — are noted in §6 Phase B. Tests: `tests/test_hook_assist_posture.py`.
