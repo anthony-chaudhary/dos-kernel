@@ -1,4 +1,4 @@
-"""dos.drivers.http_probe — the live-endpoint read-back witness (docs/383).
+"""dos.drivers.http_probe — the live-endpoint read-back witness (docs/384).
 
 `evidence.py` names "a deploy shipped" as a witness the git rung is blind to; the
 accountable witness is the server that answers the request. These tests pin the

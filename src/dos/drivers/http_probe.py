@@ -1,4 +1,4 @@
-"""dos.drivers.http_probe — the live-endpoint read-back witness (docs/381).
+"""dos.drivers.http_probe — the live-endpoint read-back witness (docs/384).
 
 `evidence.py`'s own docstring names the witnesses `verify()`'s git rung is blind to:
 "an email sent, a webhook delivered, a payment made, a migration run, **a deploy
