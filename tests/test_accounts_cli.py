@@ -102,3 +102,35 @@ def test_dos_toml_agent_kind_sets_default(tmp_path):
     cp = _cli("accounts", "agent", "--workspace", str(tmp_path), "--json")
     assert cp.returncode == 0, cp.stderr
     assert json.loads(cp.stdout)["agent_kind"] == "codex"  # workspace default, no override
+
+
+def test_accounts_default_falls_back_to_first(tmp_path):
+    f = _roster(tmp_path, "acctA", "acctB")
+    cp = _cli("accounts", "default", "--accounts-file", str(f),
+              "--workspace", str(tmp_path), "--json")
+    assert cp.returncode == 0, cp.stderr
+    data = json.loads(cp.stdout)
+    assert data["default"] == "acctA"        # roster order = the preference
+    assert data["explicit"] is False
+
+
+def test_accounts_default_honors_marker(tmp_path):
+    # acctB is explicitly the default, out of roster order
+    d = tmp_path / "acctB"
+    d.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "acctA").mkdir(parents=True, exist_ok=True)
+    f = tmp_path / "roster.yaml"
+    f.write_text(
+        "accounts:\n"
+        f"  - name: acctA\n    config_dir: '{tmp_path / 'acctA'}'\n"
+        f"  - name: acctB\n    config_dir: '{d}'\n    default: true\n",
+        encoding="utf-8")
+    cp = _cli("accounts", "default", "--accounts-file", str(f),
+              "--workspace", str(tmp_path), "--json")
+    data = json.loads(cp.stdout)
+    assert data["default"] == "acctB"
+    assert data["explicit"] is True
+    # plain output is the bare name (scriptable: `dos accounts env --name $(…)`)
+    plain = _cli("accounts", "default", "--accounts-file", str(f),
+                 "--workspace", str(tmp_path))
+    assert plain.stdout.strip() == "acctB"

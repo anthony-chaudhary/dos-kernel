@@ -2435,6 +2435,30 @@ def _aa_available() -> list:
     return _aa.available_account_auths()
 
 
+def _roster_default_name(args, accounts) -> "tuple[str | None, bool]":
+    """The roster's DEFAULT account name + whether it was explicitly marked (docs/386).
+
+    The default is the seat a plain, single session prefers as its IDENTITY — distinct
+    from the fleet's serving pool (which `dos accounts pool`/`seats` answer). An account
+    marked `default: true` in the roster wins (returns `(name, True)`); else the FIRST
+    roster account, since roster order is the operator's stated preference (returns
+    `(name, False)`); `(None, False)` for an empty roster. Read CLI-side — `load_roster`
+    drops the marker — so the vendored core stays untouched (the docs/386 §6 / docs/385
+    don't-deepen-the-Python-core posture)."""
+    _sw = _load_account_switcher()
+    try:
+        import yaml
+        path = _sw.accounts_file_path(getattr(args, "accounts_file", None))
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        for spec in (data.get("accounts") or []):
+            if (isinstance(spec, dict) and spec.get("default")
+                    and str(spec.get("name") or "").strip()):
+                return str(spec["name"]).strip(), True
+    except Exception:  # noqa: BLE001 — fail-open to the first-account default
+        pass
+    return (accounts[0].name if accounts else None), False
+
+
 def _account_to_dict(acct) -> dict:
     return {"name": acct.name, "config_dir": acct.config_dir,
             "email": acct.email, "enabled": acct.enabled}
@@ -2709,8 +2733,23 @@ def cmd_accounts(args: argparse.Namespace) -> int:
               f"(keys: {', '.join(sorted(defaults.settings))})")
         return 0
 
+    if verb == "default":
+        # The roster's DEFAULT seat — the preferred identity for a plain single
+        # session (distinct from the fleet's serving pool). A `default: true` roster
+        # marker wins; else the first account. Compose: `dos accounts env --name
+        # $(dos accounts default)`.
+        name, explicit = _roster_default_name(args, accounts)
+        if not name:
+            return _fail("no default account (empty roster)",
+                         hint=_accounts_no_roster_hint(args))
+        if as_json:
+            print(json.dumps({"default": name, "explicit": explicit}, indent=2))
+            return 0
+        print(name)
+        return 0
+
     return _fail(f"unknown accounts subcommand: {verb!r}",
-                 hint="one of: list, pool, seats, env, scaffold, enroll, sync, agent")
+                 hint="one of: list, pool, seats, env, scaffold, enroll, sync, agent, default")
 
 
 # ---------------------------------------------------------------------------
@@ -13056,6 +13095,13 @@ def build_parser() -> argparse.ArgumentParser:
     aag.add_argument("--agent-kind", dest="agent_kind", default=None,
                      help="inspect a specific agent instead of the active one")
     aag.set_defaults(func=cmd_accounts)
+
+    adf = accsub.add_parser(
+        "default",
+        help="the roster's DEFAULT seat (a `default: true` marker, else the first "
+             "account) — the preferred single-session identity")
+    _acc_common(adf)
+    adf.set_defaults(func=cmd_accounts)
 
     asc = accsub.add_parser(
         "scaffold",
