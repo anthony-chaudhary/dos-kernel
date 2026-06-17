@@ -507,3 +507,10 @@ def test_fmt_age_renders_days_for_old_iterations():
     """_fmt_age over a day reads in whole days — the STALLED end of the liveness scale."""
     assert lt._fmt_age(3 * 86400 * 1000) == "3d"
     assert lt._fmt_age(None) == "—"
+
+
+def test_sparkline_single_point_is_one_mid_glyph():
+    """A one-iteration loop has a single metric point — one glyph, never a manufactured ramp."""
+    s = lt._sparkline([5])
+    assert len(s) == 1
+    assert s == lt._SPARK_GLYPHS[len(lt._SPARK_GLYPHS) // 2]
