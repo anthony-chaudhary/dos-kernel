@@ -141,6 +141,13 @@ class RunId:
     ``parent_id`` — the run_id that launched this one (None for a root).
     ``root_id``   — top of the tree (== run_id for a root; inherited otherwise).
     ``ts_ms``     — the epoch-ms encoded in run_id, kept for cheap reads.
+    ``account_name`` — OPTIONAL, caller-supplied label for the seat/identity this
+                     run launched under (a roster account name). The kernel never
+                     DERIVES it (that would name a vendor's account mechanism); a
+                     host stamps it so per-account attribution — which runs used a
+                     seat, what they spent, which ones walled — becomes a query
+                     without the kernel knowing what an "account" is. None when the
+                     host does not track seats (the byte-identical legacy shape).
     """
 
     run_id: str
@@ -148,16 +155,26 @@ class RunId:
     parent_id: str | None
     root_id: str
     ts_ms: int
+    account_name: str | None = None
 
     def to_dict(self) -> dict:
-        """The exact shape written to a run-dir's ``run.json`` (CID1)."""
-        return {
+        """The exact shape written to a run-dir's ``run.json`` (CID1).
+
+        ``account_name`` is emitted only when set, so a run with no seat label
+        produces the byte-identical legacy ``run.json`` (additive schema — an old
+        reader ignores an absent key, and ``read_run_json`` reads a missing key as
+        None).
+        """
+        d = {
             "run_id": self.run_id,
             "process_id": self.process_id,
             "parent_id": self.parent_id,
             "root_id": self.root_id,
             "ts_ms": self.ts_ms,
         }
+        if self.account_name:
+            d["account_name"] = self.account_name
+        return d
 
 
 def mint(
@@ -165,6 +182,7 @@ def mint(
     *,
     parent: "RunId | str | None" = None,
     root_id: str | None = None,
+    account_name: str | None = None,
     clock_ms: Callable[[], int] = _default_clock_ms,
     entropy: Callable[[], int] = _default_entropy,
 ) -> RunId:
@@ -176,6 +194,12 @@ def mint(
     its own root. ``root_id`` may be passed explicitly when only the string is
     known (e.g. inherited from an env var across a `claude -p` boundary).
 
+    ``account_name`` is an OPTIONAL caller-supplied seat label (the roster account
+    this run launched under) — stamped, never derived (the kernel names no account
+    mechanism). When omitted, a RunId inheriting from a ``RunId`` ``parent`` adopts
+    the parent's ``account_name`` (a child runs on the same seat unless told
+    otherwise); pass an explicit value to override.
+
     ``clock_ms`` / ``entropy`` are injected in tests for determinism.
     """
     if not process_id:
@@ -186,11 +210,13 @@ def mint(
     token = PREFIX + _b32(ts_ms, width=_TS_WIDTH) + _b32(entropy() & ((1 << _ENTROPY_BITS) - 1), width=_ENTROPY_WIDTH)
 
     parent_id: str | None
+    inherited_account: str | None = None
     if parent is None:
         parent_id = None
     elif isinstance(parent, RunId):
         parent_id = parent.run_id
         root_id = root_id or parent.root_id
+        inherited_account = parent.account_name
     else:
         parent_id = str(parent)
 
@@ -201,6 +227,7 @@ def mint(
         parent_id=parent_id,
         root_id=resolved_root,
         ts_ms=ts_ms,
+        account_name=account_name or inherited_account,
     )
 
 
@@ -233,13 +260,22 @@ ENV_RUN_ID = "CID_RUN_ID"
 ENV_PARENT_ID = "CID_PARENT_ID"
 ENV_ROOT_ID = "CID_ROOT_ID"
 ENV_PROCESS_ID = "CID_PROCESS_ID"
+ENV_ACCOUNT = "CID_ACCOUNT"  # the seat label a child inherits (run_id.account_name)
 
 
 def lineage_env(run: RunId) -> dict[str, str]:
-    """The env block a parent sets so a child subprocess can inherit lineage."""
+    """The env block a parent sets so a child subprocess can inherit lineage.
+
+    Carries the optional ``account_name`` as ``CID_ACCOUNT`` so a child run knows
+    which seat it is on (``mint_child_from_env`` reads it back) — the lineage of the
+    *seat*, alongside the lineage of the run. Omitted when the parent has no seat
+    label, keeping the env block byte-identical to the legacy shape.
+    """
     env = {ENV_RUN_ID: run.run_id, ENV_ROOT_ID: run.root_id, ENV_PROCESS_ID: run.process_id}
     if run.parent_id:
         env[ENV_PARENT_ID] = run.parent_id
+    if run.account_name:
+        env[ENV_ACCOUNT] = run.account_name
     return env
 
 
@@ -293,10 +329,12 @@ def mint_child_from_env(
     e = env if env is not None else dict(os.environ)
     parent = e.get(ENV_RUN_ID)
     root = e.get(ENV_ROOT_ID) or parent
+    account = (e.get(ENV_ACCOUNT) or "").strip() or None
     return mint(
         process_id,
         parent=parent,
         root_id=root,
+        account_name=account,
         clock_ms=clock_ms,
         entropy=entropy,
     )
