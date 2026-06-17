@@ -7626,9 +7626,26 @@ def cmd_pulse(args: argparse.Namespace) -> int:
     except Exception:  # noqa: BLE001 — advisory fail-safe; absent ⇒ the fold's silent default
         saturation = None
 
+    # 3d. CRON freshness (the dead-man's switch for the WATCHERS): fold the beat
+    #     ledger against the declared [heartbeats] cadences so a declared always-on
+    #     job that has stopped beating surfaces here. pulse watches the RUNS; this
+    #     leg watches whether the crons/stewards themselves still fire. Fail-soft:
+    #     no declared jobs (or an unreadable ledger) ⇒ () ⇒ the fold's silent default.
+    freshness_verdicts: list = []
+    try:
+        from dos import freshness as _freshness
+        if cfg.heartbeats.jobs:
+            _newest = _freshness.latest_beats(_read_beats(cfg))
+            freshness_verdicts = list(_freshness.fold(
+                now_ms=now_ms, cadences=cfg.heartbeats.jobs,
+                newest_beat_ms=_newest, policy=cfg.heartbeats.policy))
+    except Exception:  # noqa: BLE001 — advisory fail-safe; absent ⇒ the fold's silent default
+        freshness_verdicts = []
+
     digest = _pulse.fold_pulse(
         liveness=verdicts, decisions=human_rows, breaker_verdict=breaker_verdict,
-        enforce_metric=enforce_metric, saturation=saturation)
+        enforce_metric=enforce_metric, saturation=saturation,
+        freshness=freshness_verdicts)
 
     # 4. SILENCE RULE: an all-clear pulse pushes nothing and exits 0 (unless --json,
     #    which always emits the machine surface for a scripted cron).

@@ -127,3 +127,44 @@ def test_ledger_is_append_only_and_torn_tail_tolerant(tmp_path, capsys):
     records = cli._read_beats(cfg)
     assert len(records) == 2  # the torn tail is skipped
     assert cli.cmd_beat(_args(ws, check=True, now_ms=300)) in (0, 1)  # no crash
+
+
+# ---------------------------------------------------------------------------
+# The cmd_pulse BOUNDARY freshness gather — a declared-but-silent cron surfaces
+# in the standing self-watch digest (the dead-man's switch reaches the operator).
+# ---------------------------------------------------------------------------
+
+
+def _pulse_args(workspace, **over):
+    base = dict(
+        workspace=workspace, json=True, notifier="null", channel="", url="",
+        token="", dry_run=False, start_sha="", no_proc=True, now_ms=None,
+    )
+    base.update(over)
+    return argparse.Namespace(**base)
+
+
+def test_pulse_surfaces_silent_cron(tmp_path, capsys):
+    (tmp_path / "dos.toml").write_text(
+        'workspace = "."\n[heartbeats.jobs]\npulse = "6h"\n', encoding="utf-8")
+    ws = str(tmp_path)
+    # Declared but never beaten → pulse digest carries an URGENT cron_missing.
+    rc = cli.cmd_pulse(_pulse_args(ws))
+    assert rc == 0  # null notifier → success exit even when the digest is non-empty
+    digest = json.loads(capsys.readouterr().out)["digest"]
+    assert digest["cron_missing"] == 1
+    assert digest["severity"] == "URGENT"
+    assert any("CRON SILENT" in ln for ln in digest["lines"])
+
+
+def test_pulse_quiet_after_beat(tmp_path, capsys):
+    (tmp_path / "dos.toml").write_text(
+        'workspace = "."\n[heartbeats.jobs]\npulse = "6h"\n', encoding="utf-8")
+    ws = str(tmp_path)
+    cli.cmd_beat(_args(ws, job_id="pulse"))
+    capsys.readouterr()
+    rc = cli.cmd_pulse(_pulse_args(ws))
+    assert rc == 0
+    digest = json.loads(capsys.readouterr().out)["digest"]
+    assert digest["cron_missing"] == 0
+    assert digest["empty"] is True
