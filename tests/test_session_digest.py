@@ -28,6 +28,7 @@ from dos import cli, session_digest as sd
 from dos import config as _config
 from dos import hook_dialect as hd
 from dos import lane_lease
+from dos import rotation_handoff as rh
 
 
 # ---------------------------------------------------------------------------
@@ -201,6 +202,41 @@ def test_held_lease_produces_a_digest_json(repo, monkeypatch, capsys):
     obj = json.loads(out)
     assert "lane lease" in obj["digest"]
     assert obj["restored"] is False
+
+
+# ---------------------------------------------------------------------------
+# The rotate-on-wall APPLY half (docs/386 §4): SessionStart consumes a pending
+# handoff and writes the seat's env to CLAUDE_ENV_FILE, exactly once.
+# ---------------------------------------------------------------------------
+def test_rotation_handoff_applied_to_env_file(repo, monkeypatch, capsys, tmp_path):
+    cfg = _config.default_config(str(repo))
+    rh.write_handoff(cfg, "sr", rh.RotationHandoff(
+        to_account="acctB", from_account="acctA",
+        env={"CLAUDE_CONFIG_DIR": str(tmp_path / "seatB")}), now_ms=1)
+    env_file = tmp_path / "claude.env"
+    monkeypatch.setenv("CLAUDE_ENV_FILE", str(env_file))
+    rc, out = _run(monkeypatch, capsys, {"session_id": "sr", "cwd": str(repo)},
+                   "--workspace", str(repo))
+    assert rc == 0
+    # the seat's env was written to CLAUDE_ENV_FILE for the relaunch
+    assert f"CLAUDE_CONFIG_DIR={tmp_path / 'seatB'}" in env_file.read_text(encoding="utf-8")
+    # the digest surfaces the rotation, and the handoff is consumed (apply-once)
+    assert "rotated to serving seat 'acctB'" in json.loads(out)["digest"]
+    assert rh.read_handoff(cfg, "sr") is None
+
+
+def test_rotation_handoff_stays_pending_without_env_channel(repo, monkeypatch, capsys, tmp_path):
+    """No CLAUDE_ENV_FILE (the harness exposes no env channel at this boundary) → the
+    handoff is NOT consumed; it waits for the next env-capable start rather than being
+    silently dropped (docs/386 §4 honesty)."""
+    cfg = _config.default_config(str(repo))
+    rh.write_handoff(cfg, "sp", rh.RotationHandoff(
+        to_account="acctB", env={"CLAUDE_CONFIG_DIR": str(tmp_path / "seatB")}), now_ms=1)
+    monkeypatch.delenv("CLAUDE_ENV_FILE", raising=False)
+    rc, _ = _run(monkeypatch, capsys, {"session_id": "sp", "cwd": str(repo)},
+                 "--workspace", str(repo))
+    assert rc == 0
+    assert rh.read_handoff(cfg, "sp") is not None  # still pending
 
 
 def test_held_lease_renders_the_cc_sessionstart_shape(repo, monkeypatch, capsys):

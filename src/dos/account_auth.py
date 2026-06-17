@@ -138,6 +138,36 @@ class AccountAuthSpec:
             out[self.token_env] = token
         return out
 
+    def launch_env(
+        self,
+        account: object | None = None,
+        *,
+        config_dir: str | None = None,
+        token: Optional[str] = None,
+    ) -> dict[str, str]:
+        """The env-override to (re)launch a worker as one seat of this agent.
+
+        The SINGLE builder every consumer uses — the launcher and the rotate-on-wall
+        handoff (docs/386 §4) — so neither branches on the agent NAME. It prefers this
+        spec's disk-aware ``launch_env_fn`` (a CAPABILITY, not a name: Claude's docs/380
+        ``env_for``, which defers to a fresh ``.credentials.json`` rather than freezing a
+        static token into a live session) when it is set AND an ``account`` object is
+        supplied; otherwise it falls to the pure ``env_overrides`` floor built from
+        ``config_dir`` (+ optional ``token``). A consumer reads ``spec.launch_env_fn``
+        ONLY through this method, never ``if kind == "claude"`` (the vendor-blindness
+        litmus).
+
+        Fail-LOUD by design: a ``launch_env_fn`` that raises (Claude's ``OriginError`` on
+        a missing/logged-out config dir) propagates — launching under the WRONG or empty
+        identity is the hazard this contract exists to prevent, so it must fail, never
+        emit a logged-out env. ``account`` is opaque (the callable's own type); the
+        kernel does not import it.
+        """
+        if self.launch_env_fn is not None and account is not None:
+            env = self.launch_env_fn(account)
+            return dict(env) if isinstance(env, dict) else {}
+        return self.env_overrides(config_dir or "", token=token)
+
 
 # --------------------------------------------------------------------------- #
 # By-name resolution — in-tree driver first, then the dos.account_auth group.

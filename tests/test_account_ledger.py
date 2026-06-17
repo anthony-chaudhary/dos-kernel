@@ -195,6 +195,41 @@ def test_seat_advice_records_failure_and_suggests_alternate(tmp_path, monkeypatc
     assert fails[0]["session_id"] == "s1"
 
 
+def test_seat_advice_writes_the_rotation_handoff(tmp_path, monkeypatch):
+    """docs/386 §4: the WRITE half of the two-phase env-override contract. When an
+    alternate serving seat exists, the StopFailure path persists a rotation handoff
+    keyed by session — the seat to relaunch under + its env-override (built via the
+    resolved AccountAuthSpec) — so the SessionStart applier can rotate to it."""
+    from dos.cli import _stop_failure_seat_advice
+    from dos import breaker as brk
+    from dos import rotation_handoff as rh
+    cfg = _cfg(tmp_path, monkeypatch)
+    roster = _two_seat_roster(tmp_path, "acctA", "acctB")
+    monkeypatch.setenv("CLAUDE_ACCOUNTS_FILE", str(roster))
+    monkeypatch.delenv(rid.ENV_ACCOUNT, raising=False)
+    _stop_failure_seat_advice({"account": "acctA"}, cfg, session_id="s1",
+                              counts=brk.BreakerCounts(consecutive=1, total=1))
+    h = rh.read_handoff(cfg, "s1")
+    assert h is not None
+    assert h.to_account == "acctB" and h.from_account == "acctA"
+    # the env-override selects acctB's isolated config dir (Claude's launch contract)
+    assert h.env["CLAUDE_CONFIG_DIR"] == str(tmp_path / "acctB")
+
+
+def test_seat_advice_no_handoff_without_alternate(tmp_path, monkeypatch):
+    """A single-seat roster has nowhere to rotate — no handoff is written (the wall is
+    still attributed; the advice just says 'backing off this one')."""
+    from dos.cli import _stop_failure_seat_advice
+    from dos import breaker as brk
+    from dos import rotation_handoff as rh
+    cfg = _cfg(tmp_path, monkeypatch)
+    roster = _two_seat_roster(tmp_path, "acctA")
+    monkeypatch.setenv("CLAUDE_ACCOUNTS_FILE", str(roster))
+    _stop_failure_seat_advice({"account": "acctA"}, cfg, session_id="s9",
+                              counts=brk.BreakerCounts(consecutive=1, total=1))
+    assert rh.read_handoff(cfg, "s9") is None
+
+
 def test_seat_advice_reads_account_from_cid_env(tmp_path, monkeypatch):
     from dos.cli import _stop_failure_seat_advice
     from dos import breaker as brk

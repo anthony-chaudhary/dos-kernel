@@ -115,6 +115,42 @@ def test_launch_env_fn_is_a_capability_not_a_name():
 
 
 # --------------------------------------------------------------------------- #
+# launch_env — the rotate-on-wall env-override contract (docs/386 §4)
+# --------------------------------------------------------------------------- #
+def test_launch_env_prefers_the_disk_aware_capability_for_claude(tmp_path):
+    """`spec.launch_env(account)` routes through the spec's launch_env_fn when set —
+    for Claude that IS the switcher's docs/380 `env_for`, so the rotate-on-wall env is
+    byte-identical to what the launcher would emit for the same seat. The consumer
+    never branches on the agent name; it reads the CAPABILITY through one method."""
+    cfg = tmp_path / "acctB"
+    cfg.mkdir()
+    (cfg / ".oauth-token").write_text("sk-ant-oat01-faketoken\n", encoding="utf-8")
+    acct = sw.Account(name="acctB", config_dir=str(cfg))
+    spec = aa.resolve_account_auth("claude")
+    assert spec.launch_env(acct, config_dir=str(cfg)) == sw.env_for(acct)
+
+
+def test_launch_env_falls_to_the_pure_floor_without_a_capability():
+    """An agent with no launch_env_fn (Codex) uses the pure env_overrides floor from
+    config_dir (+ token) — the same shared shape every agent has."""
+    spec = aa.resolve_account_auth("codex")
+    assert spec.launch_env(config_dir="/cfg", token="k") == {
+        "CODEX_HOME": "/cfg", "OPENAI_API_KEY": "k"}
+    # an account object without a capability is ignored; the floor still applies
+    assert spec.launch_env(object(), config_dir="/cfg") == {"CODEX_HOME": "/cfg"}
+
+
+def test_launch_env_is_fail_loud_on_a_missing_identity(tmp_path):
+    """The capability path propagates the switcher's OriginError when the seat's
+    config dir does not exist — relaunching under a logged-out identity is the exact
+    hazard the contract prevents, so it must fail rather than emit an empty env."""
+    acct = sw.Account(name="gone", config_dir=str(tmp_path / "does-not-exist"))
+    spec = aa.resolve_account_auth("claude")
+    with pytest.raises(sw.OriginError):
+        spec.launch_env(acct, config_dir=acct.config_dir)
+
+
+# --------------------------------------------------------------------------- #
 # PARITY — the Claude spec must mirror the vendored switcher's real behavior
 # --------------------------------------------------------------------------- #
 def test_claude_spec_matches_switcher_token_only_env(tmp_path):

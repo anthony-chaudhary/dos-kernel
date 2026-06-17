@@ -5845,6 +5845,28 @@ def cmd_hook_session_start(args: argparse.Namespace) -> int:
     source = str(event.get("source") or "").strip().lower()
     restored = False
 
+    # 2b. Apply a pending rotate-on-wall handoff (docs/386 §4) — the APPLY half of the
+    #     env-override contract. The StopFailure hook persisted the serving seat to
+    #     relaunch under; THIS boundary is the first the harness gives an env channel
+    #     (CLAUDE_ENV_FILE), so consume the handoff and write the seat's env there. It
+    #     applies exactly once — the handoff is consumed ONLY on a successful env-file
+    #     write, so if no channel is present (CLAUDE_ENV_FILE unset) it stays pending for
+    #     the next env-capable start rather than being silently dropped. Fail-soft.
+    rotated_note = ""
+    if session_id:
+        try:
+            from dos import rotation_handoff as _rh
+            env_file = os.environ.get("CLAUDE_ENV_FILE", "").strip()
+            pending = _rh.read_handoff(cfg, session_id)
+            if pending is not None and env_file and _rh.apply_to_env_file(pending, env_file):
+                _rh.clear_handoff(cfg, session_id)
+                rotated_note = (
+                    f"rotated to serving seat {pending.to_account!r} after a rate-limit "
+                    f"wall on {pending.from_account or 'the prior seat'!r} (docs/386 §4)")
+                _dbg(rotated_note)
+        except Exception as exc:  # noqa: BLE001 — advisory: a fault leaves the handoff pending
+            _dbg(f"rotation apply error ({exc!r}) — leaving handoff for the next start")
+
     # 3. The compaction re-inject path (Part C): a SessionStart fired by a compact
     #    prefers the digest persisted BEFORE the compaction (the pre-compact truth),
     #    so orientation survives the context loss. A missing stamp falls through to a
@@ -5895,6 +5917,11 @@ def cmd_hook_session_start(args: argparse.Namespace) -> int:
         context = _sd.build_digest(
             leases=leases, summary=summary, is_kernel_repo=is_kernel, restored=restored,
             recent_refusals=recent_refusals)
+
+    # Surface an applied rotation (docs/386 §4) ahead of the digest — it is worth saying
+    # even when the digest is otherwise empty (a fresh session with no leases caught).
+    if rotated_note:
+        context = f"{rotated_note} · {context}" if context else rotated_note
 
     if not context:
         _dbg("nothing worth saying — emitting nothing")
@@ -6366,6 +6393,33 @@ def _journal_pretool_outcome(event: dict, outcome: dict, cfg) -> None:
 _STOP_FAILURE_BACKOFF_S: tuple = (30, 60, 120, 240, 300)  # cap at 5 min
 
 
+def _write_rotation_handoff(cfg, session_id: str, from_account: str, alt_acct) -> bool:
+    """Persist the rotate-on-wall handoff (docs/386 §4) — the WRITE half of the contract.
+
+    Builds the env-override that selects ``alt_acct`` through the resolved ``AccountAuthSpec``
+    (``spec.launch_env`` — the vendor-blind capability path, byte-identical to what the
+    launcher emits for that seat) and writes it to the per-session rotation handoff so the
+    SessionStart applier can relaunch under it. Fail-soft: an unknown agent kind, a missing
+    config dir (``OriginError``), or any write fault returns False — a handoff fault must
+    never break the StopFailure hook. Requires a session id (the handoff is keyed by it)."""
+    if not (session_id and getattr(alt_acct, "config_dir", "")):
+        return False
+    try:
+        from dos import account_auth as _aa
+        from dos import rotation_handoff as _rh
+        spec = _aa.resolve_account_auth(getattr(cfg, "agent_kind", None))
+        env = spec.launch_env(alt_acct, config_dir=str(alt_acct.config_dir))
+        if not env:
+            return False
+        return _rh.write_handoff(
+            cfg, session_id,
+            _rh.RotationHandoff(
+                to_account=alt_acct.name, env=env, from_account=from_account,
+                reason="rotate-on-wall: transient_overload"))
+    except Exception:  # noqa: BLE001 — advisory: a handoff fault never breaks the hook
+        return False
+
+
 def _stop_failure_seat_advice(event: dict, cfg, *, session_id: str, counts) -> "str | None":
     """Attribute a StopFailure to its seat + compute a rotation suggestion. Fail-soft.
 
@@ -6389,20 +6443,24 @@ def _stop_failure_seat_advice(event: dict, cfg, *, session_id: str, counts) -> "
             session_id=session_id,
             extra={"consecutive": counts.consecutive, "total": counts.total})
         # A serving seat that is NOT the walled one (fail-open: no probe → enrolled
-        # accounts count as serving). The pick is COMPUTED + surfaced, not applied —
-        # the relaunch-under-it is gated on the harness contract (docs/386 §4).
-        alt = None
+        # accounts count as serving). The pick is COMPUTED here and the env-override
+        # that selects it is PERSISTED to the per-session rotation handoff (docs/386 §4)
+        # — the WRITE half of the two-phase contract. The APPLY half (the SessionStart
+        # applier reading CLAUDE_ENV_FILE) relaunches under it; the rewake event itself
+        # carries no env channel, so the StopFailure side can only compute + record.
+        alt_acct = None
         try:
             _sw = _load_account_switcher()
             accounts, policy = _sw.load_roster(None)
             pool = _sw.serving_pool(accounts, policy=policy)
-            alt = next((a.name for a in pool if a.name != current), None)
+            alt_acct = next((a for a in pool if a.name != current), None)
         except Exception:  # noqa: BLE001 — a roster fault must not break the advice
-            alt = None
-        if alt:
+            alt_acct = None
+        if alt_acct is not None:
+            _write_rotation_handoff(cfg, session_id, current, alt_acct)
             return (f"Seat {current!r} hit an API wall (recorded to its ledger). "
-                    f"A serving seat is free — rotate to {alt!r} on relaunch "
-                    f"(`dos accounts env --name {alt}`).")
+                    f"A serving seat is free — rotate to {alt_acct.name!r} on relaunch "
+                    f"(`dos accounts env --name {alt_acct.name}`).")
         return (f"Seat {current!r} hit an API wall (recorded); no alternate serving "
                 "seat found — backing off this one.")
     except Exception:  # noqa: BLE001 — advisory only; never break the hook
