@@ -395,6 +395,150 @@ def parse_cadence(value) -> int:
     return ms
 
 
+# ---------------------------------------------------------------------------
+# The `[heartbeats]` config seam — modelled on `dos.supervise` / `dos.stamp`.
+# ---------------------------------------------------------------------------
+# Freshness judges only the jobs a workspace DECLARES it expects to beat — the
+# closed-config-as-data pattern (`[lanes]` / `[supervise]`). The mechanism (the
+# FRESH/LATE/MISSING verdict) is the kernel's; the policy (which jobs, how often,
+# how much slack) is the workspace's. A workspace that declares no `[heartbeats]`
+# table folds to zero verdicts and zero noise — byte-identical to before the seam.
+
+
+@dataclass(frozen=True)
+class HeartbeatPolicy:
+    """The declared always-on jobs + the slack policy that grades their freshness.
+
+    The unit `SubstrateConfig.heartbeats` carries. `jobs` is the closed set of
+    recurring jobs the workspace expects to beat (each a `JobCadence`); `policy` is
+    the `CadencePolicy` (grace/dead factors) applied to all of them. Defaults to
+    empty + the generic policy, so a workspace that declares nothing produces no
+    freshness verdicts (the no-config-no-noise rule).
+    """
+
+    jobs: tuple[JobCadence, ...] = ()
+    policy: CadencePolicy = DEFAULT_POLICY
+
+    def to_dict(self) -> dict:
+        """The JSON shape `dos doctor --json` publishes (the `supervise`/`stamp`
+        seam-report convention) — the declared jobs + the active slack factors, so
+        an operator/skill reads the freshness posture without re-parsing `dos.toml`."""
+        return {
+            "jobs": [
+                {"job_id": j.job_id, "cadence_ms": j.cadence_ms, "critical": j.critical}
+                for j in self.jobs
+            ],
+            "grace_factor": self.policy.grace_factor,
+            "dead_factor": self.policy.dead_factor,
+        }
+
+
+EMPTY_HEARTBEAT_POLICY = HeartbeatPolicy()
+
+
+def policy_from_table(
+    table: dict, *, base: HeartbeatPolicy = EMPTY_HEARTBEAT_POLICY
+) -> HeartbeatPolicy:
+    """Build a `HeartbeatPolicy` from a parsed `[heartbeats]` TOML table. PURE.
+
+    The table shape (top-level slack factors + a `jobs` sub-table)::
+
+        [heartbeats]
+        grace_factor = 1.5          # optional — FRESH bound = cadence x this
+        dead_factor  = 3.0          # optional — MISSING bound = cadence x this
+        [heartbeats.jobs]
+        pulse        = "6h"                              # cadence, critical defaults true
+        supervise    = "30m"
+        enforce-tune = { cadence = "12h", critical = false }
+
+    Each job value is either a duration (string like "6h" or a bare number of
+    seconds) or an inline table `{ cadence = "...", critical = <bool> }`. An unknown
+    top-level key, a malformed job entry, or an unparseable cadence raises (the
+    `supervise.policy_from_table` posture — a typo is a loud config error, not a
+    silent no-op that would make a dead cron read healthy forever)."""
+    if not isinstance(table, dict):
+        raise ValueError(f"[heartbeats] must be a table, got {type(table).__name__}")
+    known = {"grace_factor", "dead_factor", "jobs"}
+    unknown = set(table) - known
+    if unknown:
+        raise ValueError(
+            f"[heartbeats] has unknown key(s) {sorted(unknown)}; known keys are {sorted(known)}"
+        )
+
+    def _factor(key: str, current: float) -> float:
+        if key not in table:
+            return current
+        v = table[key]
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            raise ValueError(f"[heartbeats].{key} must be a number, got {type(v).__name__}")
+        return float(v)
+
+    policy = CadencePolicy(
+        grace_factor=_factor("grace_factor", base.policy.grace_factor),
+        dead_factor=_factor("dead_factor", base.policy.dead_factor),
+    )  # CadencePolicy.__post_init__ validates the factor ordering (loud on a bad pair)
+
+    jobs: list[JobCadence] = []
+    jobs_table = table.get("jobs", {})
+    if jobs_table and not isinstance(jobs_table, dict):
+        raise ValueError(
+            f"[heartbeats.jobs] must be a table, got {type(jobs_table).__name__}"
+        )
+    for job_id, spec in (jobs_table or {}).items():
+        critical = True
+        if isinstance(spec, dict):
+            unknown_job = set(spec) - {"cadence", "critical"}
+            if unknown_job:
+                raise ValueError(
+                    f"[heartbeats.jobs.{job_id}] has unknown key(s) {sorted(unknown_job)}; "
+                    f"known keys are ['cadence', 'critical']"
+                )
+            if "cadence" not in spec:
+                raise ValueError(f"[heartbeats.jobs.{job_id}] is missing 'cadence'")
+            cad = spec["cadence"]
+            crit = spec.get("critical", True)
+            if not isinstance(crit, bool):
+                raise ValueError(
+                    f"[heartbeats.jobs.{job_id}].critical must be a boolean, "
+                    f"got {type(crit).__name__}"
+                )
+            critical = crit
+        else:
+            cad = spec
+        jobs.append(
+            JobCadence(job_id=str(job_id), cadence_ms=parse_cadence(cad), critical=critical)
+        )
+
+    return HeartbeatPolicy(jobs=tuple(jobs), policy=policy)
+
+
+def load_from_toml(
+    path, *, base: HeartbeatPolicy = EMPTY_HEARTBEAT_POLICY
+) -> HeartbeatPolicy:
+    """Build a `HeartbeatPolicy` from a `dos.toml`'s `[heartbeats]` table.
+
+    Returns ``base`` unchanged when the file is absent, has no `[heartbeats]`
+    table, or `tomllib` is unavailable. A present-but-malformed table raises.
+    Mirrors `supervise.load_from_toml` (incl. the `utf-8-sig` BOM strip)."""
+    from pathlib import Path
+
+    p = Path(path)
+    if not p.exists():
+        return base
+    try:
+        import tomllib
+    except ModuleNotFoundError:  # pragma: no cover - py<3.11 fallback
+        try:
+            import tomli as tomllib  # type: ignore
+        except ModuleNotFoundError:
+            return base
+    data = tomllib.loads(p.read_text(encoding="utf-8-sig"))
+    table = data.get("heartbeats")
+    if not isinstance(table, dict) or not table:
+        return base
+    return policy_from_table(table, base=base)
+
+
 def _human_ms(ms: int) -> str:
     """A compact human duration for a verdict reason ('6h', '14h', '45m', '90s').
 

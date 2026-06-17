@@ -51,6 +51,7 @@ from dos.improve import ImprovePolicy, DEFAULT_POLICY as DEFAULT_IMPROVE_POLICY
 from dos.productivity import ProductivityPolicy, DEFAULT_POLICY as DEFAULT_PRODUCTIVITY_POLICY
 from dos.efficiency_trend import TrendPolicy, DEFAULT_POLICY as DEFAULT_TREND_POLICY
 from dos.supervise import SupervisePolicy, DEFAULT_POLICY as DEFAULT_SUPERVISE_POLICY
+from dos.freshness import HeartbeatPolicy, EMPTY_HEARTBEAT_POLICY
 from dos.queue_saturation import (
     SaturationPolicy,
     DEFAULT_POLICY as DEFAULT_SATURATION_POLICY,
@@ -283,6 +284,14 @@ class PathLayout:
     project_card: Path | None = None
     style: str = "repo"
     verdict_journal: Path | None = None
+    #   beat_ledger — the cron beat-ledger (the freshness seam's durable store): an
+    #                 append-only JSONL of `{job, ts_ms, ok, detail}` records, one per
+    #                 `dos beat <job>` call. `freshness.fold` reads the newest beat per
+    #                 declared job to grade FRESH/LATE/MISSING (the cron dead-man's
+    #                 switch). The lane journal's lateral sibling — same defaulted
+    #                 keyword-only widening, defaults to a sibling of `lane_journal`
+    #                 under each layout (set in `for_root`/`for_dos_dir`).
+    beat_ledger: Path | None = None
 
     @property
     def dot_dos(self) -> Path:
@@ -325,6 +334,7 @@ class PathLayout:
             project_card=None,
             style="repo",
             verdict_journal=plans / "verdict-journal.jsonl",
+            beat_ledger=plans / "beat-ledger.jsonl",
         )
 
     # The fields a `[paths]` table may override, and how each is coerced.
@@ -348,7 +358,7 @@ class PathLayout:
         "execution_state", "findings_queue", "fanout_runs", "dispatch_loops",
         "chained_runs", "next_packets", "replan_dir", "soaks_index",
         "picker_audits", "archive_lock", "lane_journal", "leases_dir",
-        "project_card", "verdict_journal",
+        "project_card", "verdict_journal", "beat_ledger",
     })
 
     def with_overrides(self, table: dict) -> "PathLayout":
@@ -440,6 +450,7 @@ class PathLayout:
             project_card=d / "project.json",
             style="dos",
             verdict_journal=d / "verdict-journal.jsonl",
+            beat_ledger=d / "beat-ledger.jsonl",
         )
 
 
@@ -682,6 +693,21 @@ class SubstrateConfig:
     efficiency_trend: "TrendPolicy" = DEFAULT_TREND_POLICY
     lifecycle: "LifecyclePolicy" = GENERIC_LIFECYCLE
     supervise: "SupervisePolicy" = DEFAULT_SUPERVISE_POLICY
+    # ``heartbeats`` is the **freshness seam** (the cron dead-man's switch): WHICH
+    # always-on jobs a workspace expects to beat, how often, and how much jitter
+    # slack to allow before a missed beat reads LATE/MISSING. `pulse` watches every
+    # live RUN; nothing watched whether the crons/stewards THEMSELVES still fire —
+    # and by the silence rule a dead pulse emits exactly what a healthy one does on a
+    # quiet cycle: nothing. This seam closes that gap: each cron records a beat (`dos
+    # beat <job>`), `freshness.classify` grades the newest-beat age against the
+    # declared cadence, and the `pulse` fold surfaces a silently-dead cron. Defaults
+    # to ``EMPTY_HEARTBEAT_POLICY`` (no declared jobs → zero verdicts, zero noise),
+    # so a workspace that declares no `[heartbeats]` table is byte-identical to before
+    # the seam — you opt in by naming what SHOULD be beating. Read from `dos.toml
+    # [heartbeats]` (`dos.freshness.load_from_toml`); same mechanism/policy split as
+    # ``supervise``: the kernel owns the FRESH/LATE/MISSING verdict, the workspace
+    # owns the job list + cadences. The primitive docs/374's meta-steward needs.
+    heartbeats: "HeartbeatPolicy" = EMPTY_HEARTBEAT_POLICY
     queue_saturation: "SaturationPolicy" = DEFAULT_SATURATION_POLICY
     marker: MarkerPolicy = DEFAULT_MARKER_POLICY
     non_git_oracle: str = ""
@@ -1294,6 +1320,17 @@ def load_workspace_config(
         "supervise",
         lambda: _supervise.load_from_toml(toml_path, base=cfg.supervise),
         cfg.supervise))
+    # [heartbeats] — DECLARE the always-on jobs whose freshness DOS watches (the
+    # cron dead-man's switch): each job's expected cadence + the jitter-slack
+    # factors. A present table adds the declared jobs; absent inherits the empty
+    # default (no declared jobs → zero freshness verdicts, zero noise). Malformed
+    # warns + keeps base — a broken table can never manufacture a MISSING accusation
+    # (it just declares nothing), the safe direction (the `supervise` posture).
+    from dos import freshness as _freshness
+    cfg = dataclasses.replace(cfg, heartbeats=_layer(
+        "heartbeats",
+        lambda: _freshness.load_from_toml(toml_path, base=cfg.heartbeats),
+        cfg.heartbeats))
     # [lifecycle] — OVERRIDE the plan-class taxonomy + transition triggers (docs/207
     # §5c). A present table replaces the class set / transitions / failsafes; absent
     # inherits the generic active/done. A transition naming an unknown class raises
