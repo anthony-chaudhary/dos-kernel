@@ -21,7 +21,13 @@ The verdict shape (stdout JSON):
     "n_commits":    int,                  # commits since last_tag
     "reason":       "<one line>",         # WHY release/hold — the typed cause
     "themes":       ["scope", ...],       # conventional-commit scopes, for notes
-    "blockers":     ["<typed gate>", ...] # the gates that vetoed a release (hold)
+    "blockers":     ["<typed gate>", ...],# the gates that vetoed a release (hold)
+    "recover":      bool,                 # true = tag-behind-source drift: the
+                                          # source version is already ahead of the
+                                          # last tag (a prior cut bumped but never
+                                          # tagged). next_version is then the SOURCE
+                                          # version and the cut is a no-bump re-tag
+                                          # of the existing commit, not a fresh bump.
   }
 
 Exit code: 0 = release, 2 = hold, 1 = usage/internal error. (2-not-1 so a hold
@@ -221,6 +227,34 @@ def next_version(last_tag: "str | None", level: str) -> str:
     return f"{major}.{minor}.{patch + 1}"
 
 
+def _semver_tuple(v: "str | None") -> "tuple[int, int, int] | None":
+    """Parse a `vX.Y.Z` / `X.Y.Z` string to a (major, minor, patch) tuple, else None."""
+    m = SEMVER_RE.match((v or "").strip())
+    if not m:
+        return None
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+
+
+def _blocker_reason(head: str, last_tag: "str | None", sig: dict,
+                    min_substantive: int) -> str:
+    """The one-line WHY for a held release, keyed by the first (most actionable)
+    blocker. Shared by the normal-path and the recovery-path holds so the two can
+    never word the same gate differently."""
+    return {
+        "NOTHING_TO_SHIP": f"no commits since {last_tag or '(no tag)'} — nothing to release",
+        "BELOW_SIGNIFICANCE": (
+            f"{sig['substantive']} substantive commit(s) of {sig['total']} since "
+            f"{last_tag or '(no tag)'} (floor {min_substantive}) — only churn to ship; "
+            f"holding for a meaningful release (--force to override)"
+        ),
+        "CI_BASE_RED": "trunk CI base is red — fix forward before releasing (docs/295 P1)",
+        "CI_BASE_NONE": "no decisive trunk CI run — cannot confirm a green base",
+        "CI_STATE_UNKNOWN": "CI state unknown (gh offline) and --require-ci-green set",
+        "WORKFLOW_UNPARSEABLE": "a workflow file does not parse — CI would run zero jobs",
+        "VERSION_DRIFT": "version markers already disagree — reconcile before bumping",
+    }.get(head, head)
+
+
 def _context_payload(root: Path, limit_commits: int) -> dict:
     """The release_context digest, via subprocess (so its CLI contract is the
     boundary — robust to it being run from any cwd). `--no-previews` keeps the
@@ -312,27 +346,51 @@ def decide(
 
     level, themes = decide_level(commits)
 
+    # Gate 5 — tag-behind-source drift (RECOVERY, not a fresh cut). A prior cut
+    # bumped the version markers and COMMITTED them, but the tag was never minted
+    # (the tag-after-green step failed, a concurrent push raced the cut, or the run
+    # was interrupted). The source version is then AHEAD of the last tag, and a
+    # normal re-bump is impossible: release_cut would find nothing to bump and abort
+    # on the empty commit — wedging the cadence on every tick (the exact failure
+    # this branch was born from: source at 0.28.0, last tag v0.27.0, every hourly
+    # tick failing). The fix is NOT to bump again but to TAG the version already in
+    # the tree. We target the source version with `recover: True`; the
+    # nothing-to-ship + significance gates do not apply (the version was already
+    # judged worth cutting when it was bumped), but the CI/parse/marker-drift gates
+    # still bind — we never recover-tag a red base or a markers-disagree tree.
+    source_version = (payload.get("version_files") or {}).get("pyproject")
+    src_t = _semver_tuple(source_version)
+    tag_t = _semver_tuple(last_tag)
+    if src_t and tag_t and src_t > tag_t:
+        recover_blockers = [b for b in blockers
+                            if b not in ("NOTHING_TO_SHIP", "BELOW_SIGNIFICANCE")]
+        if recover_blockers:
+            return {
+                "decision": "hold", "level": None, "next_version": None,
+                "last_tag": last_tag, "n_commits": n,
+                "reason": _blocker_reason(recover_blockers[0], last_tag, sig,
+                                          min_substantive),
+                "themes": themes, "blockers": recover_blockers,
+                "substantive": sig["substantive"], "recover": True,
+            }
+        return {
+            "decision": "release", "level": level, "next_version": source_version,
+            "last_tag": last_tag, "n_commits": n,
+            "reason": (f"tag-behind-source drift: source v{source_version} is ahead of "
+                       f"last tag {last_tag} — recovering the un-tagged release (tag "
+                       f"the existing commit, no re-bump)"),
+            "themes": themes, "blockers": [],
+            "substantive": sig["substantive"], "recover": True,
+        }
+
     if blockers:
         # Surface the most actionable blocker first in the reason line.
-        head = blockers[0]
-        reason = {
-            "NOTHING_TO_SHIP": f"no commits since {last_tag or '(no tag)'} — nothing to release",
-            "BELOW_SIGNIFICANCE": (
-                f"{sig['substantive']} substantive commit(s) of {sig['total']} since "
-                f"{last_tag or '(no tag)'} (floor {min_substantive}) — only churn to ship; "
-                f"holding for a meaningful release (--force to override)"
-            ),
-            "CI_BASE_RED": "trunk CI base is red — fix forward before releasing (docs/295 P1)",
-            "CI_BASE_NONE": "no decisive trunk CI run — cannot confirm a green base",
-            "CI_STATE_UNKNOWN": "CI state unknown (gh offline) and --require-ci-green set",
-            "WORKFLOW_UNPARSEABLE": "a workflow file does not parse — CI would run zero jobs",
-            "VERSION_DRIFT": "version markers already disagree — reconcile before bumping",
-        }.get(head, head)
         return {
             "decision": "hold", "level": None, "next_version": None,
-            "last_tag": last_tag, "n_commits": n, "reason": reason,
+            "last_tag": last_tag, "n_commits": n,
+            "reason": _blocker_reason(blockers[0], last_tag, sig, min_substantive),
             "themes": themes, "blockers": blockers,
-            "substantive": sig["substantive"],
+            "substantive": sig["substantive"], "recover": False,
         }
 
     nv = next_version(last_tag, level)
@@ -346,7 +404,7 @@ def decide(
                    f"({sig['substantive']} substantive), gates green; "
                    f"highest signal = {level} → {nv}{forced}"),
         "themes": themes, "blockers": [],
-        "substantive": sig["substantive"],
+        "substantive": sig["substantive"], "recover": False,
     }
 
 

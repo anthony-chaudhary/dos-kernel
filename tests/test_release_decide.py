@@ -241,6 +241,72 @@ def test_empty_range_reports_nothing_to_ship_not_below_significance():
     assert "BELOW_SIGNIFICANCE" not in v["blockers"]
 
 
+# ---- tag-behind-source drift recovery (the cadence-wedge fix) ---------------
+# A prior cut bumped + committed the version but never tagged it, so the source
+# version runs AHEAD of the last tag. A normal re-bump is then impossible
+# (release_cut finds nothing to bump and aborts), wedging the hourly cadence
+# forever. decide must detect this and RECOVER — target the source version with
+# `recover: True` — rather than emit an un-cuttable fresh bump.
+
+def test_decide_recovers_when_source_is_ahead_of_the_last_tag():
+    rd = _load()
+    # source markers at 0.28.0 but the last tag is only v0.27.0 — an un-tagged cut.
+    v = rd.decide(
+        _payload(last_tag="v0.27.0", version_files={"drift": False, "pyproject": "0.28.0"}),
+        require_ci_green=True,
+    )
+    assert v["decision"] == "release"
+    assert v["recover"] is True
+    assert v["next_version"] == "0.28.0"      # the SOURCE version, not a re-bump
+    assert v["blockers"] == []
+    assert "tag-behind-source drift" in v["reason"]
+
+
+def test_recovery_bypasses_the_significance_floor_but_not_a_red_base():
+    rd = _load()
+    # churn-only since the tag would normally HOLD (BELOW_SIGNIFICANCE), but the
+    # version was already judged worth cutting when it was bumped — recover anyway.
+    v = rd.decide(
+        _payload(last_tag="v0.27.0", commits_since_tag=[{"subject": "docs: tidy"}],
+                 version_files={"drift": False, "pyproject": "0.28.0"}),
+        require_ci_green=True,
+    )
+    assert v["decision"] == "release" and v["recover"] is True
+    # …but a red CI base still binds — never recover-tag onto red. The recover
+    # flag is still surfaced so the workflow knows the case.
+    v = rd.decide(
+        _payload(last_tag="v0.27.0", ci_on_head={"status": "red"},
+                 version_files={"drift": False, "pyproject": "0.28.0"}),
+        require_ci_green=True,
+    )
+    assert v["decision"] == "hold" and "CI_BASE_RED" in v["blockers"]
+    assert v["recover"] is True
+
+
+def test_recovery_still_refuses_a_markers_disagree_tree():
+    rd = _load()
+    # a pre-existing marker drift must be reconciled before any tag — even a recover.
+    v = rd.decide(
+        _payload(last_tag="v0.27.0", version_files={"drift": True, "pyproject": "0.28.0"}),
+        require_ci_green=True,
+    )
+    assert v["decision"] == "hold" and "VERSION_DRIFT" in v["blockers"]
+
+
+def test_no_drift_is_a_normal_fresh_bump_not_a_recovery():
+    rd = _load()
+    # source == last tag (the healthy steady state): a fresh minor bump, recover False.
+    v = rd.decide(
+        _payload(last_tag="v0.27.0", version_files={"drift": False, "pyproject": "0.27.0"}),
+        require_ci_green=True,
+    )
+    assert v["decision"] == "release" and v["recover"] is False
+    assert v["next_version"] == "0.28.0"      # last_tag + minor (the feat)
+    # and a legacy payload with no source-version field is unaffected
+    v = rd.decide(_payload(), require_ci_green=True)
+    assert v["recover"] is False
+
+
 # ---- the CLI contract (subprocess) -----------------------------------------
 
 def test_cli_emits_valid_json_and_a_decision_exit_code():

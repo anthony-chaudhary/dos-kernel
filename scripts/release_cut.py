@@ -40,8 +40,16 @@ What it does, in order (`--execute`; default is a dry-run plan):
      the tree are not swept in). Subject: `v<version>: <headline>`.
 
 Output: a JSON manifest `{version, tag, commit_sha, headline, paths, dry_run,
-dry_run_verdict}` on stdout. Exit 0 = cut (or dry-run plan ok); non-zero = the
-cut aborted (a gate failed) — the workflow then tags nothing.
+dry_run_verdict, recovered}` on stdout. Exit 0 = cut (or dry-run plan ok);
+non-zero = the cut aborted (a gate failed) — the workflow then tags nothing.
+
+RECOVERY (`recovered: True`): a prior cut already bumped + committed this version
+but never tagged it (a push race / a failed tag-after-green / an interrupted run),
+so the source already equals the target and there is nothing to re-bump. Rather
+than abort on the empty commit — which WEDGED the cadence, every tick re-deciding
+the same already-cut version and re-failing — the cut reports the existing HEAD as
+the commit to tag. The cut is idempotent: re-running it on an already-bumped tree
+recovers. release_decide marks the same case `recover: True`.
 
 This is **dev / release tooling, not kernel** — it operates ON the package, is
 never imported BY it, and reuses the existing release scripts rather than
@@ -229,7 +237,7 @@ def cut(root: Path, version: str, *, execute: bool, skip_dry_run: bool,
         "version": version, "tag": f"v{version}", "level": level,
         "headline": headline, "dry_run": not execute, "commit_sha": None,
         "paths": [], "notes_file": None, "notes_written": False,
-        "dry_run_verdict": None, "ok": False, "aborted": None,
+        "dry_run_verdict": None, "ok": False, "aborted": None, "recovered": False,
     }
 
     # 1. Bump (the report is the file-set source of truth).
@@ -290,6 +298,26 @@ def cut(root: Path, version: str, *, execute: bool, skip_dry_run: bool,
     if scode != 0:
         manifest["aborted"] = f"git add failed: {sout.strip()[:300]}"
         return manifest
+
+    # RECOVERY — tag-behind-source drift. A prior cut already bumped + committed
+    # this version but never tagged it (the tag-after-green step failed, a push
+    # raced the cut, the run was interrupted). The bump above is then a no-op AND
+    # the notes file already exists, so there is NOTHING to stage — the version is
+    # already in HEAD's tree. A plain `git commit` would fail ("nothing to commit")
+    # and the old code aborted, which WEDGED the cadence: every tick re-decided the
+    # same already-cut version and re-failed forever. Instead, detect the empty
+    # stage (the cached-diff probe) and, when the source is already AT the target
+    # (`old_version == version`), report the existing HEAD as the commit to tag.
+    # The cut is then idempotent: re-running it on an already-bumped tree recovers
+    # rather than aborts. release_decide marks this same case `recover: True`.
+    dcode, _dout = _run(["git", "diff", "--cached", "--quiet", "--", *paths], cwd=root)
+    if dcode == 0 and report.get("old_version") == version:
+        code, sha = _run(["git", "rev-parse", "HEAD"], cwd=root)
+        manifest["commit_sha"] = sha.strip()
+        manifest["recovered"] = True
+        manifest["ok"] = True
+        return manifest
+
     subject = f"v{version}: {headline}"
     ccode, cout = _run(["git", "commit", "-m", subject, "--", *paths], cwd=root)
     if ccode != 0:

@@ -159,3 +159,106 @@ def test_cli_rejects_a_bad_version():
     )
     assert proc.returncode == 2
     assert "not a valid semver" in (proc.stderr + proc.stdout)
+
+
+# ---- tag-behind-source-drift RECOVERY (the cadence-wedge fix) ---------------
+# When a prior cut bumped + committed the version but never tagged it, the bump
+# is a no-op on the next tick and the notes file already exists, so there is
+# NOTHING to commit. The old code aborted on the empty `git commit`, which wedged
+# the cadence forever. The cut must instead report the existing HEAD as the commit
+# to tag (idempotent recovery). We drive `cut()` against a throwaway git repo and
+# stub only the two NON-git helper scripts (release_bump / build_plugin) so the
+# real git interaction — the empty-stage probe + rev-parse — is exercised.
+
+def _init_repo(tmp_path, version: str):
+    """A minimal git repo whose source is ALREADY at `version` with notes drafted —
+    the tag-behind-source state. Returns the root path."""
+    root = tmp_path
+    (root / "pyproject.toml").write_text(f'version = "{version}"\n', encoding="utf-8")
+    rel = root / "docs" / "releases"
+    rel.mkdir(parents=True)
+    (rel / f"v{version}.md").write_text("notes already drafted by the prior cut\n",
+                                        encoding="utf-8")
+    skills = root / "claude-plugin" / "skills"
+    skills.mkdir(parents=True)
+    (skills / ".gitkeep").write_text("", encoding="utf-8")
+    env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+    import os
+    e = {**os.environ, **env}
+    for cmd in (["git", "init", "-q"], ["git", "add", "-A"],
+                ["git", "commit", "-q", "-m", "base"]):
+        subprocess.run(cmd, cwd=root, check=True, env=e,
+                       capture_output=True, text=True)
+    return root
+
+
+def _stub_helpers(rc, version: str, *, bump_changed: bool):
+    """Patch rc._run so the bump/plugin scripts are canned but git runs for real.
+
+    bump_changed=False → the no-op (recovery) report (old == new == version);
+    True → a report whose old != version (a genuine fresh bump)."""
+    orig = rc._run
+
+    def fake_run(cmd, *, cwd, timeout=600):
+        arg1 = str(cmd[1]) if len(cmd) > 1 else ""
+        if arg1.endswith("release_bump.py"):
+            old = version if not bump_changed else "0.0.1"
+            return 0, json.dumps({
+                "new_version": version, "old_version": old, "dry_run": False,
+                "targets": {"pyproject": {"path": "pyproject.toml", "old": old,
+                                          "new": version, "changed": bump_changed,
+                                          "ok": True}},
+            })
+        if arg1.endswith("build_plugin.py"):
+            return 0, ""
+        return orig(cmd, cwd=cwd, timeout=timeout)
+
+    rc._run = fake_run
+
+
+def _head(root) -> str:
+    return subprocess.run(["git", "rev-parse", "HEAD"], cwd=root,
+                          capture_output=True, text=True).stdout.strip()
+
+
+def _count(root) -> int:
+    return int(subprocess.run(["git", "rev-list", "--count", "HEAD"], cwd=root,
+                              capture_output=True, text=True).stdout.strip())
+
+
+def test_cut_recovers_when_version_already_bumped_but_untagged(tmp_path):
+    rc = _load()  # a fresh module instance per test — stubbing rc._run is isolated
+    version = "0.28.0"
+    root = _init_repo(tmp_path, version)
+    head_before, count_before = _head(root), _count(root)
+    _stub_helpers(rc, version, bump_changed=False)
+
+    manifest = rc.cut(root, version, execute=True, skip_dry_run=True,
+                      level="minor", themes=["x"], headline="h", today="2026-06-17")
+
+    # Recovery: NO new commit, HEAD reported as the commit to tag, ok=True.
+    assert manifest["recovered"] is True, manifest
+    assert manifest["ok"] is True
+    assert manifest["aborted"] is None
+    assert manifest["commit_sha"] == head_before
+    assert _count(root) == count_before, "recovery must not create a commit"
+    assert _head(root) == head_before
+
+
+def test_cut_commits_normally_when_the_bump_actually_changes_the_tree(tmp_path):
+    rc = _load()
+    version = "0.28.0"
+    root = _init_repo(tmp_path, version)
+    count_before = _count(root)
+    _stub_helpers(rc, version, bump_changed=True)
+    # A real change to stage (the bump "moved" pyproject), so the cut commits.
+    (root / "pyproject.toml").write_text(f'version = "{version}"  # bumped\n',
+                                         encoding="utf-8")
+
+    manifest = rc.cut(root, version, execute=True, skip_dry_run=True,
+                      level="minor", themes=["x"], headline="h", today="2026-06-17")
+
+    assert manifest["recovered"] is False, manifest
+    assert manifest["ok"] is True
+    assert _count(root) == count_before + 1, "a real bump must create exactly one commit"

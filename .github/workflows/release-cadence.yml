@@ -37,6 +37,13 @@ name: Release cadence
 #   * Pathspec commits — release_cut stages an explicit file set (the bump
 #     report + the notes), never `git add -A`, so a concurrent loop's in-flight
 #     edits are not swept into a release commit (the hot-tree discipline).
+#   * Self-heal from tag-behind-source drift — if a prior tick bumped + committed
+#     a version but never tagged it (a push race / a red tag-after-green / an
+#     interrupted run), the source runs AHEAD of the last tag and a re-bump is
+#     impossible. release_decide detects this (`recover: True`, targeting the
+#     SOURCE version) and release_cut recovers (no empty re-bump; report the
+#     existing commit) instead of aborting forever. This step then skips the push
+#     (the version is already on master) and tags the existing commit once green.
 
 on:
   # HOURLY, but only meaningful ticks cut (operator directive 2026-06-16: "every
@@ -129,11 +136,13 @@ jobs:
           next="$(python -c 'import json;print(json.load(open("decision.json")).get("next_version") or "")')"
           reason="$(python -c 'import json;print(json.load(open("decision.json")).get("reason") or "")')"
           themes="$(python -c 'import json;print(",".join(json.load(open("decision.json")).get("themes") or []))')"
+          recover="$(python -c 'import json;print(json.load(open("decision.json")).get("recover") or False)')"
           {
             echo "decision=$decision"
             echo "level=$level"
             echo "next=$next"
             echo "themes=$themes"
+            echo "recover=$recover"
           } >> "$GITHUB_OUTPUT"
           {
             echo "## Release cadence — $decision"
@@ -216,11 +225,23 @@ jobs:
           # 1. Push the release commit to master (fast-forward only — if a sibling
           #    pushed since checkout, abort cleanly; the next tick re-decides on
           #    the new base rather than force-pushing over them).
-          if ! git push origin "HEAD:${{ github.ref_name }}"; then
-            echo "::warning::push rejected (master advanced since checkout) — a concurrent commit landed. No tag cut; the next cadence tick re-decides on the new base."
-            exit 0
+          #
+          #    RECOVERY exception (release_decide `recover: True`, release_cut
+          #    `recovered`): the source version is ALREADY on master — a prior cut
+          #    bumped + committed it but never tagged. There is no new commit to
+          #    push (the cut returned the existing HEAD), and on a hot trunk HEAD is
+          #    often a few commits behind the moving master tip, so a ff push would
+          #    be needlessly rejected. Skip the push entirely and tag the existing
+          #    HEAD — it already carries v$ver — once CI is green on it.
+          if [ "${{ steps.decide.outputs.recover }}" = "True" ]; then
+            echo "recovery: source v$ver is already on master (a prior cut bumped it but never tagged) — skipping the commit push; tagging the existing commit $sha once CI is green."
+          else
+            if ! git push origin "HEAD:${{ github.ref_name }}"; then
+              echo "::warning::push rejected (master advanced since checkout) — a concurrent commit landed. No tag cut; the next cadence tick re-decides on the new base."
+              exit 0
+            fi
+            echo "pushed release commit $sha to master"
           fi
-          echo "pushed release commit $sha to master"
 
           # 2. Tag-after-green: poll ci.yml for a success on THIS sha before
           #    tagging (the docs/295 rule). Bounded by the job timeout.
