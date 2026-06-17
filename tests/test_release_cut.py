@@ -182,14 +182,16 @@ def _init_repo(tmp_path, version: str):
     skills = root / "claude-plugin" / "skills"
     skills.mkdir(parents=True)
     (skills / ".gitkeep").write_text("", encoding="utf-8")
-    env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
-           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
-    import os
-    e = {**os.environ, **env}
-    for cmd in (["git", "init", "-q"], ["git", "add", "-A"],
+    # Repo-LOCAL identity (not env): cut()'s own `git commit` runs via _run
+    # without inheriting any env, and CI runners have no global git identity —
+    # local config is what makes the in-cut commit succeed there (it passed on a
+    # dev box only because of a global identity).
+    for cmd in (["git", "init", "-q"],
+                ["git", "config", "user.email", "t@t"],
+                ["git", "config", "user.name", "t"],
+                ["git", "add", "-A"],
                 ["git", "commit", "-q", "-m", "base"]):
-        subprocess.run(cmd, cwd=root, check=True, env=e,
-                       capture_output=True, text=True)
+        subprocess.run(cmd, cwd=root, check=True, capture_output=True, text=True)
     return root
 
 

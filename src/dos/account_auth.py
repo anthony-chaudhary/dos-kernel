@@ -42,7 +42,7 @@ boundary I/O (an importlib lookup) exactly like the other by-name seams.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable, Optional
 
 #: The default agent NAME (resolved to the in-tree ``dos.drivers.agent_auth.claude``
