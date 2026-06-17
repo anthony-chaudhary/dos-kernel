@@ -35,6 +35,27 @@ import sys
 from pathlib import Path
 
 import dos
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _pin_shared_wal(tmp_path, monkeypatch):
+    """Pin the lane-journal WAL to a per-test path so the "one shared WAL" the two
+    hosts coordinate through is HERMETIC — exactly what every other lease-WAL test
+    does (`test_lane_lease`, `test_lane_adopt`, `test_apply_gate_fence`, …).
+
+    Both hosts are subprocesses that inherit `os.environ` (the `_cli` helper builds
+    `{**os.environ, …}`), so the single pinned `DISPATCH_LANE_JOURNAL_PATH` is the
+    SAME WAL for host A's `lease-lane acquire` and host B's `dos apply` — the
+    cross-host property under test, now immune to a concurrent dispatch loop on the
+    same box momentarily redirecting the journal. Without the pin the WAL resolves
+    workspace-relative (correct in isolation, but a leaked override or a sibling
+    loop's foreign lease leaking into the live set makes B's in-lane control write
+    spuriously collide → the gate refuses a write it should pass, and the test
+    flakes). `_journal_path` honors this override first, so `acquire`/`live`/`apply`
+    all fold the identical durable WAL the playbook asserts on."""
+    monkeypatch.setenv(
+        "DISPATCH_LANE_JOURNAL_PATH", str(tmp_path / ".dos" / "lane-journal.jsonl"))
 
 
 def _cli(repo: Path, *argv: str, host_id: str = "") -> subprocess.CompletedProcess:

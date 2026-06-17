@@ -42,7 +42,7 @@ _BUILD_PY = _REPO_ROOT / "scripts" / "build_hook_binary.py"
 
 # ─────────────────────────── the locator ───────────────────────────
 
-def test_clean_checkout_resolves_to_none():
+def test_clean_checkout_resolves_to_none(monkeypatch):
     """A dev tree ships no binary (gitignored), so the locator returns None.
 
     This is the load-bearing fallback guarantee: the kernel suite is green on a
@@ -50,6 +50,11 @@ def test_clean_checkout_resolves_to_none():
     ever returned a path on a clean tree, a stale/foreign binary would silently capture
     the hot path.
     """
+    # Clear the ambient opt-out so this asserts the absent-BINARY path, not the
+    # `DOS_HOOK_NATIVE=0` escape — a box that exports the opt-out (this one runs the
+    # suite against the Python decider via it) would otherwise make this pass for the
+    # wrong reason, masking a regression where a stale binary captures the hot path.
+    monkeypatch.delenv("DOS_HOOK_NATIVE", raising=False)
     # On the dev tree, src/dos/_bin/ holds only .gitignore — no dos-hook[.exe].
     assert hb.native_hook_binary() is None
 
@@ -232,7 +237,14 @@ def _install_fake_binary(monkeypatch, tmp_path: Path, *, exit_code: int) -> Path
     On Windows a `.cmd` is directly runnable by `subprocess.run([path, ...])`; on POSIX
     a `#!/bin/sh` script with the executable bit is. The locator's executable-bit check
     is meaningful on POSIX only (an .exe/.cmd runs by extension on Windows).
+
+    Clears the `DOS_HOOK_NATIVE` opt-out: these are the binary-PRESENT scenarios, so the
+    native path must be ENABLED for the stub to be found. A box that exports the opt-out
+    (to run the suite against the Python decider — `DOS_HOOK_NATIVE=0`) would otherwise
+    force every locator probe to None and turn each binary-found assertion into a false
+    failure. `raising=False` makes the clear a no-op where the var isn't set.
     """
+    monkeypatch.delenv("DOS_HOOK_NATIVE", raising=False)
     bin_dir = tmp_path / "_bin"
     bin_dir.mkdir()
     monkeypatch.setattr(hb, "_BIN_DIR", bin_dir)

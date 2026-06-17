@@ -224,7 +224,7 @@ def _cli_sub(repo: Path, verb: str, *argv: str) -> subprocess.CompletedProcess:
     )
 
 
-def test_arbitrate_default_loads_live_wal_no_double_book(tmp_path: Path):
+def test_arbitrate_default_loads_live_wal_no_double_book(tmp_path: Path, monkeypatch):
     """`dos arbitrate` with NO `--leases` loads the live lane-journal WAL, so a lease
     a sibling durably holds (`dos lease-lane acquire`) is SEEN — the headline verb
     refuses/redirects instead of double-booking against an empty world.
@@ -241,6 +241,20 @@ def test_arbitrate_default_loads_live_wal_no_double_book(tmp_path: Path):
       3. explicit `--leases '[]']`    → still ACQUIRE `alpha` (the override / pure
          path is preserved: the caller asserting an empty world gets one).
     """
+    # Pin the WAL to a per-test path so this is HERMETIC against any shared journal
+    # (every other lease-WAL test does this — `test_lane_lease`, `test_lane_adopt`,
+    # `test_lane_halt`, `test_apply_gate_fence`, …). Without it the WAL resolves
+    # workspace-relative, which is correct in isolation but exposes the test to a
+    # concurrent dispatch loop on the same box momentarily redirecting the journal
+    # (a leaked `DISPATCH_LANE_JOURNAL_PATH`/`JOB_LANE_JOURNAL_PATH`) — foreign
+    # leases then leak into the live set and the "fresh world acquires" assertion
+    # flakes. The override is honored identically by `arbitrate` and `lease-lane`
+    # (`_journal_path` checks it first), so the default-load behavior under test is
+    # exercised at the pinned path. The path matches the `_wal` poison-guard below,
+    # and `_isolated_env` forwards the env to every subprocess (it strips only
+    # `DISPATCH_WORKSPACE`), so all `dos` calls fold the same durable WAL.
+    monkeypatch.setenv(
+        "DISPATCH_LANE_JOURNAL_PATH", str(tmp_path / ".dos" / "lane-journal.jsonl"))
     _write_toml(tmp_path, _TWO_LANES)
     _git_init(tmp_path)
 
