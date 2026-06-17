@@ -537,3 +537,58 @@ def test_sparkline_single_point_is_one_mid_glyph():
     s = lt._sparkline([5])
     assert len(s) == 1
     assert s == lt._SPARK_GLYPHS[len(lt._SPARK_GLYPHS) // 2]
+
+
+def test_parse_iso_none_and_unparseable_fold_to_none():
+    """_parse_iso is tolerant: a missing or malformed stamp yields None, never a raise.
+
+    A verdict event whose `ts` is absent (the falsy guard) or not an ISO string
+    (the ValueError/TypeError catch) must not crash the read-only fold — it
+    becomes an unknown age the liveness band renders as '—'.
+    """
+    assert lt._parse_iso(None) is None        # falsy guard
+    assert lt._parse_iso("") is None          # empty string is falsy too
+    assert lt._parse_iso("not-a-timestamp") is None   # ValueError → None
+    # a well-formed stamp still parses (the happy path stays intact)
+    parsed = lt._parse_iso("2026-06-16T12:00:00Z")
+    assert parsed is not None and parsed.year == 2026
+
+
+def test_age_ms_unparseable_is_none_and_naive_stamp_is_read_as_utc():
+    """_age_ms returns None for an unreadable stamp and treats a naive stamp as UTC.
+
+    The None path (an unparseable `ts`) keeps the age unknown rather than
+    fabricating a number; a timezone-naive ISO stamp is assumed UTC so it ages
+    identically to its `Z`-suffixed twin (the docs/383 tolerant-parse contract).
+    """
+    assert lt._age_ms(None, now=NOW) is None
+    assert lt._age_ms("garbage", now=NOW) is None
+    naive = lt._age_ms("2026-06-16T12:00:00", now=NOW)   # no tz → assumed UTC
+    aware = lt._age_ms("2026-06-16T12:00:00Z", now=NOW)
+    assert naive == aware == 30 * 60 * 1000              # 30 minutes before NOW
+
+
+def test_fmt_age_renders_seconds_minutes_and_hours():
+    """_fmt_age picks the coarsest unit under a day — the ACTIVE end of the scale.
+
+    The days branch is covered elsewhere; this pins the sub-day rungs so the
+    seconds / minutes / hours boundaries don't silently regress.
+    """
+    assert lt._fmt_age(45_000) == "45s"            # < 60s
+    assert lt._fmt_age(18 * 60 * 1000) == "18m"    # < 1h
+    assert lt._fmt_age(2 * 3600 * 1000) == "2h"    # < 1d
+
+
+def test_int_or_none_rejects_bool_and_reads_numbers():
+    """_int_or_none never reads a bool as a metric count (a bool is an int subclass).
+
+    The work/baseline counts must be real magnitudes; a stray True/False in the
+    detail map folds to None, while ints and floats coerce to int and a
+    non-numeric or missing key is None.
+    """
+    assert lt._int_or_none({"k": True}, "k") is None    # bool guard
+    assert lt._int_or_none({"k": False}, "k") is None
+    assert lt._int_or_none({"k": 5}, "k") == 5
+    assert lt._int_or_none({"k": 3.9}, "k") == 3        # float coerces to int
+    assert lt._int_or_none({"k": "x"}, "k") is None     # non-numeric
+    assert lt._int_or_none({}, "missing") is None
