@@ -112,7 +112,23 @@ spin (deciding a busy-but-not-advancing worker should be stopped) is an open
 question the supervisor deliberately leaves to a human; its job is to make the
 spin visible, not to adjudicate it.
 
-## Step 3 — Sleep, re-tick, stop on interrupt or --max-ticks
+## Step 3 — Beat, sleep, re-tick, stop on interrupt or --max-ticks
+
+At the END of each tick — after the plan is enacted — record the supervisor's own
+proof-of-fire, so its liveness is itself observable (the cron dead-man's switch,
+docs/384):
+
+```bash
+dos beat supervise --workspace .
+```
+
+A supervisor is an always-on job, and its deadliest failure is silent death: it
+just stops ticking, and because a healthy supervisor on a quiet roster also does
+nothing visible, the silence reads as "all fine." Declare `[heartbeats] supervise
+= "<your --interval>"` in `dos.toml`; then `dos pulse` / `dos beat --check` fold
+the beat ledger into a FRESH/LATE/MISSING verdict, so a supervisor that has
+stopped ticking surfaces as MISSING instead of going quiet. (The beat proves the
+tick FIRED; the FLAG ratchet above is the did-it-progress half.)
 
 Sleep `--interval` seconds, then re-run from Step 0: re-read the taxonomy,
 recompute the plan, enact it. Each tick is independent and idempotent — it
