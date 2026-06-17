@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="96" viewBox="0 0 720 96" role="img" aria-label="The board at a glance" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <title>The board at a glance</title>
+  <desc>Headline figures across the published set.</desc>
+  <rect x="0" y="0" width="720" height="96" fill="#f6f8fa" rx="8" stroke="#d0d7de" stroke-width="1"/>
+  <text x="90.75" y="50" font-size="30" fill="#1f2328" text-anchor="middle" font-weight="bold">19</text>
+  <text x="90.75" y="74" font-size="13" fill="#59636e" text-anchor="middle">popular repos</text>
+  <text x="270.25" y="50" font-size="30" fill="#1f2328" text-anchor="middle" font-weight="bold">66,645</text>
+  <text x="270.25" y="74" font-size="13" fill="#59636e" text-anchor="middle">commits read</text>
+  <rect x="180.5" y="22" width="1" height="52" fill="#d0d7de"/>
+  <text x="449.75" y="50" font-size="30" fill="#1f2328" text-anchor="middle" font-weight="bold">4%</text>
+  <text x="449.75" y="74" font-size="13" fill="#59636e" text-anchor="middle">AI-built</text>
+  <rect x="360" y="22" width="1" height="52" fill="#d0d7de"/>
+  <text x="629.25" y="50" font-size="30" fill="#1f2328" text-anchor="middle" font-weight="bold">99.7%</text>
+  <text x="629.25" y="74" font-size="13" fill="#59636e" text-anchor="middle">claims backed by the diff</text>
+  <rect x="539.5" y="22" width="1" height="52" fill="#d0d7de"/>
+</svg>

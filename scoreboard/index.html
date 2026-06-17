@@ -75,6 +75,7 @@
 <h1>How AI built the software you already use</h1>
 <p>Agents now write a real share of the popular open-source projects you depend on — and they write their own commit messages too. This board looks at the recent history of well-known repos and asks three plain questions: <strong>how much of it did AI write, which agent did it, and what kind of work was it</strong> — fixes, tests, docs.</p>
 <p>The catch is that a commit <em>message</em> is just text the agent typed; the <strong>diff</strong> is what git actually recorded, and the two can disagree. So every number here is checked against the diff, never the message alone. That is the difference between this board and a star count: it reads the thing that can't be talked up.</p>
+<p><img alt="The board at a glance" src="assets/stat-band.svg" /></p>
 <h2>The picture</h2>
 <p>Three views of the same audited history. Every figure is generated from the committed per-repo data — no live calls, reproducible offline by anyone who clones the repo.</p>
 <p><img alt="AI-built share of each repo" src="assets/ai-share.svg" /></p>
@@ -83,13 +84,24 @@
 <blockquote>
 <p>Across these <strong>19 repos</strong>, <strong>claude</strong> is the most prolific agent — it wrote <strong>63%</strong> of all the AI-authored commits here, with <strong>7</strong> other toolchains sharing the rest, and <strong>75%</strong> of what they all claimed was shipping code, not tests or docs.</p>
 </blockquote>
+<h2>Who builds whose repo</h2>
+<p>One agent shows up far more than the rest: <strong>claude</strong> is the single biggest committer in <strong>12 of 18</strong> repos on this board. The exceptions are the tell — they are mostly a vendor's own tool building the vendor's own project:</p>
+<ul>
+<li><strong>OpenInterpreter/open-interpreter</strong> — led by <code>codex</code> (its makers' own agent)</li>
+<li><strong>charmbracelet/crush</strong> — led by <code>crush</code> (its makers' own agent)</li>
+<li><strong>microsoft/autogen</strong> — led by <code>copilot</code> (its makers' own agent)</li>
+<li><strong>openai/codex</strong> — led by <code>codex</code> (its makers' own agent)</li>
+</ul>
+<p>And <code>claude</code> does not stay in its lane: it turns up inside the histories of repos another agent leads —</p>
+<p><code>29</code> commits in <strong>crewAIInc/crewAI</strong>, <code>15</code> commits in <strong>langchain-ai/langchain</strong>, <code>10</code> commits in <strong>OpenInterpreter/open-interpreter</strong>, <code>10</code> commits in <strong>openai/codex</strong>, <code>2</code> commits in <strong>microsoft/autogen</strong>, and <code>1</code> commit in <strong>charmbracelet/crush</strong>.</p>
+<p>None of this is a quality or honesty judgment — it is just who pressed the keys, read straight from the commit attribution. It is the kind of picture a star count can't show.</p>
 <h2>Score your own repo in one command</h2>
 <pre><code class="language-bash">pip install dos-kernel
 dos commit-audit --sweep --workspace . BASE..HEAD
 </code></pre>
 <p>That is the exact same check the board runs, on your history — before you trust the next "done". No account, no upload, no one named.</p>
 <h2>Start here — the auditor grades itself</h2>
-<p>We ran the check on our own repo first and published whatever it said. It says <strong>non-zero</strong> — a few commits that claim a fix but touched nothing. They're a deliberate house convention, and the page shows exactly why. We left them in. A scoreboard that airbrushed its own page to zero wouldn't be worth reading.</p>
+<p>We ran the check on our own repo first and published whatever it said. It says <strong>non-zero</strong> — a few deliberate empty re-stamp commits, whose subject re-anchors a plan after a renumber, so the claim rests on the subject text alone by house convention. The page shows each one, and the methodology explains why the auditor is right to count them. We left them in. A scoreboard that airbrushed its own page to zero wouldn't be worth reading.</p>
 <ul>
 <li><strong><a href="https://anthony-chaudhary.github.io/dos-kernel/scoreboard/anthony-chaudhary/dos-kernel.html">anthony-chaudhary/dos-kernel</a></strong> — our own grade, every flag explained.</li>
 </ul>
