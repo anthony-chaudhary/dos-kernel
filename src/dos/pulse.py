@@ -85,6 +85,8 @@ class PulseDigest:
     breaker_open: bool = False
     enforce_false_denies: int = 0  # docs/365 — denies the operator later overrode
     queue_saturated: bool = False
+    cron_missing: int = 0  # declared always-on jobs gone silent (freshness MISSING)
+    cron_late: int = 0     # declared jobs past cadence but not yet dead (freshness LATE)
 
     def to_dict(self) -> dict:
         return {
@@ -96,6 +98,8 @@ class PulseDigest:
             "breaker_open": self.breaker_open,
             "enforce_false_denies": self.enforce_false_denies,
             "queue_saturated": self.queue_saturated,
+            "cron_missing": self.cron_missing,
+            "cron_late": self.cron_late,
         }
 
 
@@ -158,6 +162,17 @@ def _saturation_word(saturation: Any) -> str:
     return str(word or "").upper()
 
 
+def _freshness_word(v: Any) -> str:
+    """The uppercase verdict string from a `freshness.FreshnessVerdict` stand-in.
+
+    Reads `.verdict.value` (a `FreshnessVerdict` carries a `Freshness` enum), then
+    `.value`, then `str()` — duck-typed exactly like `_verdict_word`, so this module
+    needs no `freshness` import (the dependency-arrow rule)."""
+    inner = getattr(v, "verdict", v)
+    word = getattr(inner, "value", inner)
+    return str(word or "").upper()
+
+
 def _breaker_is_open(breaker_verdict: Any) -> bool:
     """True iff the folded breaker verdict is OPEN. Mirrors `session_digest`.
 
@@ -206,6 +221,7 @@ def fold_pulse(
     enforce_metric: Any = None,
     enforce_threshold: int = _ENFORCE_FALSE_DENY_THRESHOLD,
     saturation: Any = None,
+    freshness: Sequence[Any] = (),
 ) -> PulseDigest:
     """Fold the already-gathered fleet facts into one `PulseDigest`. PURE — no I/O.
 
@@ -237,6 +253,16 @@ def fold_pulse(
                         is silent. Surfaced ABOVE the raw pending count so an operator
                         (or an auto-degrade consumer) reads "the rung is saturated"
                         rather than just "N pending".
+    `freshness`       — per-declared-job `freshness.FreshnessVerdict`s the boundary
+                        folded from the beat ledger vs the `dos.toml [heartbeats]`
+                        cadences (the cron dead-man's switch). `pulse` watches the
+                        RUNS; this leg watches the WATCHERS — a declared always-on
+                        job that has stopped beating. MISSING on a CRITICAL job is
+                        URGENT (a steward the fleet relies on is silently dead);
+                        MISSING on a non-critical job, or LATE on any, is WARN;
+                        FRESH is healthy and silent. Only declared jobs produce a
+                        verdict (the no-config-no-noise rule), so a workspace that
+                        declares no `[heartbeats]` adds nothing here.
     """
     lines: list[str] = []
     severity = INFO
@@ -255,6 +281,39 @@ def fold_pulse(
         if severity == INFO:
             severity = WARN
         lines.append(f"SPINNING: run {_run_label(v)} alive but not progressing")
+
+    # 1b. CRON freshness — the dead-man's switch for the WATCHERS themselves. A
+    #     declared always-on job that has stopped beating (freshness MISSING) is the
+    #     silent death the silence rule would otherwise hide: a dead pulse emits
+    #     exactly what a healthy one does on a quiet cycle. A MISSING on a CRITICAL
+    #     job is as urgent as a hung run (a steward the fleet relies on is gone NOW);
+    #     a MISSING on a non-critical job, or a LATE on any job (missed a window,
+    #     probably slow), is a WARN. FRESH is healthy and never surfaced. Folded
+    #     ABOVE the human/breaker legs because a watcher that is itself dead is a
+    #     louder problem than the queue it was supposed to read.
+    cron_missing = 0
+    cron_late = 0
+    for v in freshness:
+        word = _freshness_word(v)
+        if word == "MISSING":
+            cron_missing += 1
+            critical = bool(getattr(v, "critical", True))
+            job = str(getattr(v, "job_id", "") or "?")
+            reason = str(getattr(v, "reason", "") or "").strip()
+            tail = f" — {reason}" if reason else ""
+            if critical:
+                severity = URGENT
+            elif severity == INFO:
+                severity = WARN
+            lines.append(f"CRON SILENT: '{job}' has stopped beating{tail}")
+        elif word == "LATE":
+            cron_late += 1
+            if severity == INFO:
+                severity = WARN
+            job = str(getattr(v, "job_id", "") or "?")
+            reason = str(getattr(v, "reason", "") or "").strip()
+            tail = f" — {reason}" if reason else ""
+            lines.append(f"CRON LATE: '{job}' missed an expected beat{tail}")
 
     # 2. The HUMAN escalation rung itself — is it still a meaningful target, or already
     #    drowned (docs/121 §4.1, the always-on regime)? This is folded BEFORE the raw
@@ -326,6 +385,8 @@ def fold_pulse(
         breaker_open=breaker_open,
         enforce_false_denies=false_denies,
         queue_saturated=queue_saturated,
+        cron_missing=cron_missing,
+        cron_late=cron_late,
     )
 
 

@@ -252,3 +252,74 @@ def test_pulse_enforcement_absent_is_silent():
     d = pulse.fold_pulse(liveness=[], decisions=[], breaker_verdict=None)
     assert d.empty
     assert d.enforce_false_denies == 0
+
+
+# ---------------------------------------------------------------------------
+# The CRON freshness leg (the dead-man's switch for the watchers themselves).
+# Uses real `freshness.classify` verdicts — they are duck-typed by the fold.
+# ---------------------------------------------------------------------------
+from dos import freshness as _freshness  # noqa: E402
+
+_HOUR = 60 * 60 * 1000
+
+
+def _fresh(job, age_ms, *, critical=True, cadence_ms=6 * _HOUR):
+    return _freshness.classify(
+        job_id=job, last_beat_age_ms=age_ms, cadence_ms=cadence_ms, critical=critical)
+
+
+def test_pulse_cron_missing_critical_is_urgent():
+    """A declared CRITICAL job gone silent (MISSING) is URGENT — the silent death."""
+    d = pulse.fold_pulse(freshness=[_fresh("pulse", None, critical=True)])
+    assert not d.empty
+    assert d.severity == pulse.URGENT
+    assert d.cron_missing == 1
+    assert "CRON SILENT" in "\n".join(d.lines)
+    assert "pulse" in "\n".join(d.lines)
+
+
+def test_pulse_cron_missing_noncritical_is_warn():
+    """A non-critical MISSING is WARN, not URGENT (informational silence)."""
+    d = pulse.fold_pulse(freshness=[_fresh("best-effort", None, critical=False)])
+    assert d.severity == pulse.WARN
+    assert d.cron_missing == 1
+
+
+def test_pulse_cron_late_is_warn():
+    """LATE (missed a window, not dead) is a WARN, never demotes a present URGENT."""
+    d = pulse.fold_pulse(freshness=[_fresh("supervise", 12 * _HOUR)])  # 6h cadence → LATE
+    assert d.severity == pulse.WARN
+    assert d.cron_late == 1
+    assert "CRON LATE" in "\n".join(d.lines)
+
+
+def test_pulse_cron_fresh_is_silent():
+    """A FRESH cron adds nothing (the silence rule) — empty digest, no lines."""
+    d = pulse.fold_pulse(freshness=[_fresh("pulse", 1 * _HOUR)])  # within 9h grace
+    assert d.empty
+    assert d.cron_missing == 0 and d.cron_late == 0
+
+
+def test_pulse_cron_missing_coexists_with_stalled_run():
+    """A hung run AND a dead cron both surface; severity stays URGENT; counts split."""
+    d = pulse.fold_pulse(
+        liveness=[_Liveness("STALLED", run_id="RID-7")],
+        freshness=[_fresh("pulse", None), _fresh("supervise", 12 * _HOUR)])
+    assert d.severity == pulse.URGENT
+    assert d.stalled == 1
+    assert d.cron_missing == 1 and d.cron_late == 1
+    body = "\n".join(d.lines)
+    assert "STALLED" in body and "CRON SILENT" in body and "CRON LATE" in body
+
+
+def test_pulse_cron_absent_is_byte_identical_silent():
+    """No freshness arg ⇒ the fold is unchanged (the back-compatible default)."""
+    d = pulse.fold_pulse(liveness=[], decisions=[])
+    assert d.empty
+    assert d.cron_missing == 0 and d.cron_late == 0
+
+
+def test_pulse_digest_to_dict_carries_cron_counts():
+    d = pulse.fold_pulse(freshness=[_fresh("pulse", None)])
+    assert d.to_dict()["cron_missing"] == 1
+    assert d.to_dict()["cron_late"] == 0
