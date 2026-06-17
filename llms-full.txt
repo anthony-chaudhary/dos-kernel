@@ -429,7 +429,7 @@ from the long README:
 
 ```bash
 pip install -e ".[dev,mcp]"       # editable + the test/lint toolchain (exactly what CI installs)
-python -m pytest -q               # the full kernel suite — must stay green (~5,600 tests, ~4–5 min)
+python -m pytest -q               # the full kernel suite — must stay green (~6,600 tests, ~4–5 min)
 python scripts/dev.py fast        # the inner loop: pytest -m "not slow" (skips the ~150s of heavies)
 python scripts/dev.py verify-self # doctor --check + a real SHIPPED/NOT_SHIPPED round-trip (the CI smoke)
 dos doctor --workspace .          # what IS this workspace? (the config seam, made visible)
@@ -3201,7 +3201,7 @@ non-distillable label; `breaker`, `exec_capability`, `hook_exit`);
 
 ```bash
 pip install -e ".[dev,mcp]" # editable + test toolchain (a bare `-e .` ships no pytest)
-python -m pytest -q         # full suite — must stay green (~5,600 tests, ~4–5 min; run foreground)
+python -m pytest -q         # full suite — must stay green (~6,600 tests, ~4–5 min; run foreground)
 dos doctor --workspace .    # the active workspace + lane taxonomy
 dos verify --workspace . PLAN PHASE   # the truth syscall (no plan needed)
 ```
@@ -4513,6 +4513,7 @@ leaves.
   | `dos.memory_stores` | `MemoryStore` Protocol | `dos.memory_stores` |
   | `dos.vcs` | `VcsBackend(root)` backend | `dos.vcs` |
   | `dos.mcp_tools` | `register(mcp)` registrar or a bare tool callable | `dos_mcp.server` |
+  | `dos.chat_bridges` | `serve(cfg, *, host, port, verify_token) -> int` callable | `dos.chat_control` |
 
 - **The `dos.toml` schema.** A declared key keeps its meaning; new keys are
   additive; an unknown key keeps failing loud where it does today.
