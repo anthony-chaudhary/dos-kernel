@@ -95,6 +95,8 @@ WITNESS_SHAPES = {
     "third_party_api_status":   ["ci_status", "citation_resolve"],
     "human_approval_envelope":  ["slack_approval"],        # "a human approved this" — docs/93 §3
     "os_acceptance_exit_code":  ["os_acceptance"],
+    "os_liveness":              ["os_process"],            # process/port liveness read straight from the OS (OS_RECORDED, docs/384)
+    "visual_render":            ["visual_witness"],        # kernel-captured pixels perceptual-hashed vs a reference (OS_RECORDED, docs/384)
     "git_presence":             [GIT_ORACLE_SENTINEL],
     "agent_authored_floor":     ["paste_log", "null"],     # the floor — witnessable=False
 }
@@ -155,6 +157,23 @@ SOURCES = [
     ("docker / podman build exit code",          "os_acceptance_exit_code", "COVERED"),
     ("gh / glab API-call exit code",             "os_acceptance_exit_code", "COVERED"),
     ("test-runner / linter exit code",           "os_acceptance_exit_code", "COVERED"),
+    # --- os_liveness: process/port liveness read straight from the OS (OS_RECORDED) -
+    # The "OS stuff" the agent claims it started: a running process, a listening port.
+    # The OS authors the process-table entry + the TCP handshake; a dead process cannot
+    # keep a socket listening. Built as `os_process` (docs/384), distinct from an
+    # exit-code-through-`os_acceptance` — the kernel reads the OS state DIRECTLY.
+    ("Process-table liveness (the service is running)",   "os_liveness", "COVERED"),
+    ("TCP port accepting connections (the listener is up)","os_liveness", "COVERED"),
+    ("Claimed PID still alive (not exited/reused)",       "os_liveness", "COVERED"),
+    # --- visual_render: kernel-captured pixels vs a reference (OS_RECORDED) ---------
+    # The rendered-screen effect the census did not previously enumerate. The kernel
+    # reads a captured image and perceptual-hashes it vs a baseline/gold within a
+    # Hamming tolerance — the DETERMINISTIC (oracle) rung of visual evidence. Built as
+    # `visual_witness` (docs/384), which REFUSES an agent-pasted screenshot (actor==
+    # witness routes to a JUDGE); the fuzzy "does it SHOW the dialog?" rung is advisory.
+    ("Rendered web page / screenshot vs a baseline",      "visual_render", "COVERED"),
+    ("Generated chart / image vs a gold perceptual hash", "visual_render", "COVERED"),
+    ("UI-regression: screen unchanged vs a reference",    "visual_render", "COVERED"),
     # --- git_presence: the VCS fossil (OS_RECORDED) --------------------------------
     ("git commit existence + ancestry",          "git_presence", "COVERED"),
     ("git blob CONTENT (content-addressed)",     "git_presence", "COVERED"),

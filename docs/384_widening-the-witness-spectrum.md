@@ -107,7 +107,7 @@ wires the command" contract `os_acceptance` already lives under.
 | Human approval envelope | THIRD_PARTY | `slack_approval` | `dos witness slack_approval` × |
 | **Live HTTP endpoint** | **THIRD_PARTY** | **`http_probe`** | **`dos witness http_probe`** × |
 | **Process / port liveness** | **OS_RECORDED** | **`os_process`** | **`dos witness os_process`** × |
-| Filesystem artifact | floor → OS (w/ gold) | `fs_artifact` | `dos witness fs_artifact` ○ |
+| **Filesystem artifact** | **floor → OS (w/ gold)** | **`fs_artifact`** | **`dos witness fs_artifact`** × |
 | **Rendered screen / screenshot** | **OS_RECORDED** (kernel-captured) | **`visual_witness`** | **`dos witness visual_witness`** × |
 
 ## Roadmap — designed here, built next (each must ship its backend, or it stays SPEC)
@@ -127,17 +127,25 @@ REFUTED iff confidently gone, NO_SIGNAL iff it cannot tell (the `proc_delta`
 never-fabricate-True discipline). This is the "OS stuff" with a clean first-class
 witness instead of a `pgrep`/`ss` exit code through `os_acceptance`.
 
-### `fs_artifact` — the filesystem read-back (honest floor; OS_RECORDED with a gold)
+### `fs_artifact` — the filesystem read-back (honest floor; OS_RECORDED with a gold) — ✅ SHIPPED
 "The build produced `dist/app.tar.gz`." A turn-time on-disk read is `actor==witness`
 for content the agent could have written, so **existence alone is the forgeable
 floor** (the agent can `touch` a file) — recorded, never believed. Soundness comes
 from the **gold**: comparing the on-disk bytes to a `sha256:<hex>` an independent
-source supplied is preimage-sound, so the comparison is expressed via
-`evidence.derived_witness` and the rung is capped at `min(file-read, gold)` — exactly
-the `content_diff` discipline. Subject grammar: `<path>` (existence, floor) ·
-`<path>#sha256:<hex>` · `<path>#size:<n>`. The REFUTE direction is the value even at
-the floor: "you claimed you built X — it is absent." (It is the awkward-but-covered
-`persisted_state_diff` shape's *direct-on-disk* ergonomic form.)
+source supplied is preimage-sound — the agent cannot make the file's digest equal a
+value it did not choose without producing the exact intended artifact — so a MATCH
+climbs to `OS_RECORDED` and grants belief. The comparison is expressed via
+`evidence.derived_witness` (op `sha256-eq`, declared), the same mechanism as
+`content_diff` — but the non-forgeable route differs: `content_diff` reads a
+content-addressed git blob; `fs_artifact` rests on the gold digest's
+preimage-resistance. Subject grammar: `<path>` (existence, floor) ·
+`<path>#sha256:<hex>` (preimage-sound, OS_RECORDED) · `<path>#size:<n>` (forgeable
+floor — the agent can pad). The asymmetry that makes it useful even with no gold:
+**presence ATTESTS on the floor (forgeable, not believed) but ABSENCE REFUTES at
+`OS_RECORDED`** — "you claimed you built X — it is absent" is a sound disconfirmation
+the agent cannot dodge, while a cannot-read (a directory, a permission fault)
+degrades to NO_SIGNAL. (It is the awkward-but-covered `persisted_state_diff` shape's
+*direct-on-disk* ergonomic form.) Pinned by `tests/test_fs_artifact.py`.
 
 ### `visual_witness` — the rendered-screen / screenshot witness (the new shape) — ✅ SHIPPED
 The headline new TYPE the census does not yet enumerate. An agent's claim "the page
@@ -179,13 +187,19 @@ judge level — never silently promoted from one to the other.
 
 ## Status
 
-- **Shipped (this arc):** the `dos witness` verb; **four** registered backends with
+- **Shipped (this arc):** the `dos witness` verb; **five** registered backends with
   tests — `http_probe` (THIRD_PARTY, live endpoint), `os_process` (OS_RECORDED, process/
-  port liveness — the "OS stuff"), and `visual_witness` (OS_RECORDED, the
-  rendered-screen/screenshot shape — the headline new TYPE). The wired witness
-  population grew from 8 to 11 sources across all three trust rungs.
-- **Next:** `fs_artifact` (filesystem artifact — honest floor + sha256-gold); the
-  perceptual/semantic visual JUDGE rung; and folding the new shapes into the coverage
-  census (`scripts/source_census.py`) as their own source rows so the measured number
-  reflects the broadened universe — each as driver/row + tests, in
-  that-each-keeps-the-census-green order.
+  port liveness — the "OS stuff"), `visual_witness` (OS_RECORDED, the
+  rendered-screen/screenshot shape — the headline new TYPE), and `fs_artifact`
+  (OS_RECORDED-with-gold, the on-disk artifact read-back). The wired witness
+  population grew from 8 to 12 sources across all three trust rungs.
+- **Census folded:** the two genuinely new SURFACES are now their own shapes/source
+  rows in `scripts/source_census.py` — `os_liveness` (via `os_process`) and
+  `visual_render` (via `visual_witness`), both COVERED at OS_RECORDED (read off the
+  live source, not hardcoded). The measured universe grew to 51/51 COVERED and stays
+  100%; the rot pin (`--check`) still binds. (The live-HTTP and filesystem surfaces
+  were already COVERED rows under `persisted_state_diff`, so `http_probe`/`fs_artifact`
+  added backends, not new census surfaces.)
+- **Next:** the perceptual/semantic visual JUDGE rung (the advisory `dos.judges`
+  half of `visual_witness`, for "does this screenshot SHOW the error dialog?" — the
+  fuzzy comparison no perceptual hash can settle).

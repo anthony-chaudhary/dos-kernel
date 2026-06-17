@@ -153,6 +153,25 @@ def test_every_source_shape_is_a_known_shape():
         assert shape in known, f"unknown shape {shape!r}"
 
 
+# ── the widened witness spectrum: the new shapes are built + OS_RECORDED ─────
+
+def test_new_spectrum_shapes_are_covered_at_os_recorded():
+    # docs/384 folded the rendered-screen + process/port-liveness surfaces into the
+    # census as their OWN shapes. They are COVERED (the os_process / visual_witness
+    # backends are registered) and read OS_RECORDED off the live source — not a
+    # hardcoded yes. If a backend is renamed/removed, the rot pin flips them, exactly
+    # as for any other shape.
+    inv = sc.gather()
+    for shape, backend in (("os_liveness", "os_process"), ("visual_render", "visual_witness")):
+        assert shape in sc.WITNESS_SHAPES, f"{shape} missing from the shape set"
+        assert inv["shapes"][shape]["built"] is True, f"{shape} backend not built"
+        assert inv["shapes"][shape]["rung"] == "OS_RECORDED"
+        assert sc.WITNESS_SHAPES[shape] == [backend]
+        rows = [s for s in inv["sources"] if s["shape"] == shape]
+        assert rows, f"{shape} has no source rows"
+        assert all(s["effective_status"] == "COVERED" and s["witnessable"] for s in rows)
+
+
 # ── the operator target ─────────────────────────────────────────────────────
 
 def test_coverage_target_met():
