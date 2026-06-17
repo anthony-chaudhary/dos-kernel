@@ -298,6 +298,7 @@ citation_resolve = "dos.drivers.citation_resolve:CitationResolveSource"  # legal
 content_diff = "dos.drivers.content_diff:ContentDiffEvidenceSource"  # blob CONTENT vs a gold — the W2→W3 climb (rung capped at min(blob,gold), docs/192)
 provider_ledger = "dos.drivers.provider_ledger:ProviderLedgerEvidenceSource"  # external-effect vs a different-principal ledger — the THIRD_PARTY band (docs/261)
 slack_approval = "dos.drivers.slack_approval:SlackApprovalSource"  # "an accountable human approved this" via the Slack envelope (THIRD_PARTY, docs/93 §3)
+http_probe = "dos.drivers.http_probe:HttpProbeEvidenceSource"  # the kernel GETs a URL; the server authored the response — the live-endpoint "deploy shipped" rung (THIRD_PARTY, docs/383)
 
 # The cross-vendor hook INSTALL specs (docs/221) — the install-side sibling of the
 # dialect renderers above: where/how `dos init --hooks <host>` wires the DOS hooks
