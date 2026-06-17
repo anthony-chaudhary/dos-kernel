@@ -47,6 +47,14 @@ _spec = importlib.util.spec_from_file_location(
 _inc = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_inc)
 
+# The verify-the-effect gate (scripts/ is not a package; load by path). The build
+# self-checks its OWN output before it can be copied onto gh-pages — so a render
+# that embeds an asset it forgot to ship fails here, not silently in a browser.
+_chk_spec = importlib.util.spec_from_file_location(
+    "check_published_site", REPO / "scripts" / "check_published_site.py")
+_chk = importlib.util.module_from_spec(_chk_spec)
+_chk_spec.loader.exec_module(_chk)
+
 import html  # noqa: E402
 import re  # noqa: E402  (re is also imported at module top; explicit for the rewriter)
 import markdown  # noqa: E402  (dev-only dep, imported after the path shim)
@@ -157,7 +165,11 @@ def render(root: Path, out_dir: Path, date: str) -> list[str]:
             source_url=source_url, source_rel=_html.escape(source_rel))
         dest = out_dir / out_rel
         dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(page, encoding="utf-8")
+        # newline="\n" — the published site is LF (the gh-pages tree is LF); on a
+        # Windows build the platform default would emit CRLF and flip every line
+        # of every page on the next publish. Pin LF so the render is byte-stable
+        # across OSes, the same rule scoreboard_index._write follows.
+        dest.write_text(page, encoding="utf-8", newline="\n")
         written.append(out_rel)
         print(f"  wrote {out_rel}")
     _copy_assets(root, out_dir)
@@ -208,6 +220,18 @@ def main(argv: list[str]) -> int:
     out_dir = Path(args.out)
     written = render(REPO, out_dir, date)
     print(f"rendered {len(written)} scoreboard page(s) into {out_dir}/")
+
+    # Verify the effect before it can be published: every local ref the rendered
+    # pages make must resolve inside the output tree. A dead resource here is the
+    # exact bug that 404'd the charts on the live site — fail the build loud.
+    dangling = _chk.dangling_local_refs(_chk.load_dir(out_dir))
+    if dangling:
+        print("REFUSE: the rendered site embeds references it did not ship:",
+              file=sys.stderr)
+        for page, ref, resolved in dangling:
+            print(f"  {page} → {ref!r} (missing {resolved!r})", file=sys.stderr)
+        return 1
+    print(f"verified: {out_dir}/ — every local reference resolves.")
     return 0
 
 

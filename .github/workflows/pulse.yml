@@ -84,3 +84,16 @@ jobs:
           else
             dos pulse --json --workspace . --notifier "$notifier" --url "$PULSE_WEBHOOK"
           fi
+
+      - name: Verify the published site — every local reference resolves (deploy integrity)
+        shell: bash
+        run: |
+          # DOS's own "verify the effect" gate, turned on our own publish. The
+          # scoreboard build is unit-tested, yet the live site once shipped three
+          # 404'ing charts because a republish predated the asset-copy fix and
+          # nothing checked the DEPLOYED tree. This reads the gh-pages tree (the
+          # ground truth a static host serves) and fails the heartbeat if any page
+          # links an asset/page the deploy did not ship. Tree-only + stdlib-only —
+          # no extra install, no Pages-build-lag false positives.
+          git fetch --no-tags --depth=1 origin gh-pages
+          python scripts/check_published_site.py --ref FETCH_HEAD
