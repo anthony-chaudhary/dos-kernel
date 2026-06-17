@@ -195,6 +195,20 @@ belongs to above for context.
 | [186_live-journal-and-decision-surface-audit-2026-06-04](186_live-journal-and-decision-surface-audit-2026-06-04.md) | A live audit of the lane journal + decision surface (2026-06-04). | 139 |
 | [187_benchmark-telemetry-as-self-report](187_benchmark-telemetry-as-self-report.md) | Benchmark telemetry is self-report — the L3-token verification problem. *(Also in Evaluation positioning above.)* | 156 |
 
+### The agent-kernel reframe — the tool call as a system call (2026-06-16)
+
+A design arc dispatched from an operator brainstorm: if an agent's primary job is
+tool-calling, the tool call is its *privilege boundary* — so adjudicate it like a
+syscall, in-process, before it fires. Notes only (📋 planned); the strategy framing
+lives in the `dos-private` repo (`dispatch-os-tool-call-is-a-syscall.md`,
+`dispatch-os-the-fused-agent-kernel.md`).
+
+| Doc | The idea |
+|---|---|
+| [372_the-tool-call-as-syscall-the-adjudicated-call-layer](372_the-tool-call-as-syscall-the-adjudicated-call-layer.md) | The altitude argument: promote the tool call to the agent OS's system call, and DOS's existing verdicts (`verify`/`arbitrate`/`refuse`) become the kernel's reference monitor on the call path — LSM/seccomp/eBPF for agents. Maps each borrowed OS primitive (syscall table → tool ABI, vDSO → cheap-call fast-path, MMU → context-as-protected-memory, error codes → the refusal vocabulary returned *before* the call) to a DOS piece. Names the honest limit (the model isn't hostile; the tool table isn't closed). Commits no code; motivates 373 + 374. |
+| [373_preflight-mechanistic-verification-the-cheapest-rung-that-refutes](373_preflight-mechanistic-verification-the-cheapest-rung-that-refutes.md) | The buildable core: before a tool call executes, run the cheapest mechanistic check that could *refute* it (rung 0 static → rung 1 dry-run → rung 2 probe → rung 3 fire), short-circuit on a refute. The operator's `pytest`→`--collect-only` example generalized; a refuted call never polluted context. Proposes a pure `preflight()` core + `dos preflight` verb + a `dos.toml [preflight]` registry, fail-to-abstain (refuse-more-only). Generates its own RSI signal (every "passed rung k, failed k+1" tightens the ladder). |
+| [374_ten-x-stewards-one-invariant-per-steward](374_ten-x-stewards-one-invariant-per-steward.md) | "10× more cron tasks like stewards": a *population* of small, single-invariant, fail-to-abstain stewards that both validate and steer, gardened by a meta-steward that prunes non-firing ones. No new kernel mechanism — reuses the supervisor seam ([210](210_the-supervise-config-seam.md)), the `dos-class-cycle` judge, and the self-tuning loop ([365](365_self-tuning-enforcement-policy-the-pep-feedback-loop.md)), run wider and cheaper. Ships a starter catalog as `dos.toml [stewards]` rows + a `dos steward` runner. |
+
 ### Companion / process docs
 
 - [next-stage-plan](next-stage-plan.md) — the directional foundation and index the committed plans above spawned.
