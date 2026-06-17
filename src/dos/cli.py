@@ -3853,6 +3853,103 @@ def cmd_test_witness(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# witness  (gather ANY registered evidence source by name → the belief fold — docs/381)
+#   The unified, by-name witness verb. `dos verify` reads exactly ONE witness (git);
+#   `dos attest` joins a claim over a FIXED set of four surfaces via hard-coded
+#   branches. This verb resolves WHICHEVER `dos.evidence_sources` backend the operator
+#   names — built-in or third-party plugin — gathers it against a subject, and folds
+#   through the floor discipline. It turns "add a witness KIND" from "edit a kernel CLI
+#   branch" into "register an entry point": every current and future source
+#   (fs_artifact, http_probe, os_acceptance, ci_status, a host plugin) is invocable
+#   here with no kernel edit. The population-wide companion to the git-only `verify`.
+# ---------------------------------------------------------------------------
+
+
+def cmd_witness(args: argparse.Namespace) -> int:
+    """Gather one registered evidence source against a subject and fold the belief verdict.
+
+    Detail: docs/CLI.md § cmd_witness.
+    """
+    _apply_workspace(args)
+    import io as _io
+
+    from dos import evidence
+
+    # --list: enumerate the active witness population (built-ins THEN discovered
+    # plugins), each with its declared accountability rung — the operator's "which
+    # witnesses are wired, and how much may I trust each?" view. Discovery I/O at the
+    # boundary (`active_evidence_sources`), never inside a verdict.
+    if getattr(args, "list", False):
+        sources = evidence.active_evidence_sources(_stderr=_io.StringIO())
+        rows = [
+            {
+                "name": n,
+                "accountability": getattr(
+                    s, "accountability", evidence.Accountability.AGENT_AUTHORED
+                ).value,
+            }
+            for n, s in sources
+        ]
+        if getattr(args, "json", False):
+            print(json.dumps({"sources": rows}, indent=2))
+        else:
+            print("WITNESS SOURCES (dos.evidence_sources — built-ins, then discovered):")
+            for r in rows:
+                floor = (
+                    "  ← forgeable floor; cannot grant belief by itself"
+                    if r["accountability"] == "AGENT_AUTHORED" else ""
+                )
+                print(f"  {r['name']:<22} {r['accountability']}{floor}")
+        return 0
+
+    name = (getattr(args, "source", None) or "").strip()
+    subject = getattr(args, "subject", None) or ""
+    if not name:
+        print(
+            "error: name a SOURCE (see `dos witness --list`) or pass --list",
+            file=sys.stderr,
+        )
+        return 2
+
+    # Resolve the source BY NAME — built-ins first, then the `dos.evidence_sources`
+    # entry-point group. An unknown name fails LOUD with the known list (never a silent
+    # degrade to `null`, which would hide a typo'd source name). The kernel imports no
+    # driver: the resolver discovers it at the boundary (the `active_predicates` rule).
+    try:
+        source = evidence.resolve_evidence_source(name)
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+
+    cfg = _config.active()
+    # The fail-safe wrapper — a source that raises or returns the wrong type degrades to
+    # NO_SIGNAL, never a fabricated attestation (the kernel never trusts a backend to be
+    # safe on its own — the `gather_log` / `run_judge` discipline).
+    facts = evidence.gather_evidence(source, subject, cfg)
+    belief = evidence.believe_under_floor((facts,))
+
+    if getattr(args, "json", False):
+        print(json.dumps({"facts": facts.to_dict(), "belief": belief.to_dict()}, indent=2))
+    else:
+        print(f"SOURCE    {facts.source_name} ({facts.accountability.value})")
+        print(f"SUBJECT   {subject or '(none)'}")
+        print(f"STANCE    {facts.stance.value}   (reachable={facts.reachable})")
+        print(f"WHY       {facts.detail}")
+        print(f"BELIEVE   {belief.believe}   (refuted={belief.refuted})")
+        print(f"VERDICT   {belief.reason}")
+
+    # Exit map mirrors `dos verify` / os_acceptance / content_diff: a believed
+    # attestation is 0; an accountable REFUTE is 1 (the effect did not happen);
+    # everything else — NO_SIGNAL, or an ATTESTED only on the forgeable floor — is 3
+    # (abstain, a human's call), never a silent pass.
+    if belief.refuted:
+        return 1
+    if belief.believe:
+        return 0
+    return 3
+
+
+# ---------------------------------------------------------------------------
 # resume  (the third ARIES phase: replay → re-verify → PROPOSE — docs/107)
 #   (full prose: docs/CLI.md § "resume  (the third ARIES phase: replay → re-verify → PROPOSE")
 _RESUME_EXITS = ExitMap(
@@ -9219,6 +9316,7 @@ _START_HERE_ROWS: tuple[tuple[str, str, str], ...] = (
     ("see this workspace's setup", "doctor", "the active workspace, lane taxonomy, stamp grammar"),
     ("check a claim actually landed", "verify", "did (plan,phase) ship? — git ancestry, not self-report"),
     ("check a commit matches its diff", "commit-audit", "subject vs its own diff (subjects are forgeable)"),
+    ("witness a non-git effect", "witness", "gather any wired witness by name → the belief fold (`--list`)"),
     ("stop two agents colliding", "arbitrate", "may a loop start on this lane? (auto-picks a free one)"),
     ("see if a unit is workable now", "pickable", "is it offerable, and if not, the typed hold + unblock action"),
     ("see what's running", "top", "the live fleet watchdog"),
@@ -11333,6 +11431,39 @@ def build_parser() -> argparse.ArgumentParser:
                      help="emit the full verdict object {state, dead, class, "
                           "api_status, reason, envelope} instead of the text line")
     pvr.set_defaults(func=cmd_verify_result)
+
+    pwit = sub.add_parser(
+        "witness",
+        help="gather ANY registered evidence source by name → the belief fold "
+             "(`--list` shows the wired witnesses + their trust rungs)",
+        description=(
+            "The unified, by-name witness verb. Resolve a `dos.evidence_sources` "
+            "backend by NAME, gather it against a SUBJECT (the source's opaque "
+            "correlation handle — a command, a URL, a path#assertion, an effect-key), "
+            "and fold through `believe_under_floor`: BELIEVE only when a NON-FORGEABLE "
+            "source (OS_RECORDED / THIRD_PARTY) attested. Where `dos verify` reads "
+            "exactly one witness (git) and `dos attest` joins a claim over a fixed set "
+            "of surfaces, THIS verb reaches the whole witness population — built-in or "
+            "third-party plugin — with no kernel edit; registering an entry point is all "
+            "a new witness KIND needs to become `dos witness <source> <subject>`. "
+            "`dos witness --list` shows the wired sources and each one's accountability "
+            "rung (an AGENT_AUTHORED source is the forgeable floor — recorded, but "
+            "structurally unable to grant belief). EXIT: 0 = believed (a non-forgeable "
+            "witness attested), 1 = REFUTED (an accountable witness disconfirmed the "
+            "effect — the silent-fail made visible), 3 = NO_SIGNAL or a forgeable-floor "
+            "attest (abstain, a human's call), 2 = usage error. ADVISORY: it reports a "
+            "witness; it takes no lease and mutates nothing."),
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    _add_workspace_flags(pwit)
+    pwit.add_argument("source", nargs="?", default=None,
+                      help="the evidence source name (see `dos witness --list`)")
+    pwit.add_argument("subject", nargs="?", default="",
+                      help="the opaque subject the source witnesses (a command / URL / "
+                           "path#assertion / effect-key — the source defines its grammar)")
+    pwit.add_argument("--list", action="store_true",
+                      help="list the wired evidence sources + their accountability rungs, then exit")
+    pwit.add_argument("--json", action="store_true", help="machine-readable verdict")
+    pwit.set_defaults(func=cmd_witness)
 
     pcov = sub.add_parser(
         "coverage",
