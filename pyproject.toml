@@ -319,6 +319,7 @@ provider_ledger = "dos.drivers.provider_ledger:ProviderLedgerEvidenceSource"  # 
 slack_approval = "dos.drivers.slack_approval:SlackApprovalSource"  # "an accountable human approved this" via the Slack envelope (THIRD_PARTY, docs/93 §3)
 http_probe = "dos.drivers.http_probe:HttpProbeEvidenceSource"  # the kernel GETs a URL; the server authored the response — the live-endpoint "deploy shipped" rung (THIRD_PARTY, docs/384)
 os_process = "dos.drivers.os_process:OsProcessEvidenceSource"  # the kernel reads the OS process table / TCP stack — process+port liveness as a witnessed effect (OS_RECORDED, docs/384)
+visual_witness = "dos.drivers.visual_witness:VisualWitnessEvidenceSource"  # the kernel reads captured pixels + perceptual-hashes them vs a reference — the rendered-screen/screenshot rung (OS_RECORDED, docs/384)
 
 # The cross-vendor hook INSTALL specs (docs/221) — the install-side sibling of the
 # dialect renderers above: where/how `dos init --hooks <host>` wires the DOS hooks
