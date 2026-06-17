@@ -30,6 +30,13 @@ internal `npm` registry), the `strictKnownMarketplaces` lockdown, the
 air-gapped seed-dir path, and the private-repo auth gotcha — is the dedicated
 playbook: [Adding DOS to a private company plugin marketplace](../PRIVATE-MARKETPLACE.md).
 
+**Already run a company marketplace?** Then you create nothing — append the
+`dos-kernel` plugin object to the existing catalog's `plugins` array, ship the
+pip package, and your team runs `/plugin install dos-kernel@<your-marketplace>`.
+The playbook's [_Already run a company marketplace? Add DOS as one more
+entry_](../PRIVATE-MARKETPLACE.md#already-run-a-company-marketplace-add-dos-as-one-more-entry)
+section is that exact diff.
+
 ## The minimal catalog
 
 ```json
@@ -39,7 +46,7 @@ playbook: [Adding DOS to a private company plugin marketplace](../PRIVATE-MARKET
   "plugins": [
     {
       "name": "dos-kernel",
-      "source": { "source": "github", "repo": "anthony-chaudhary/dos-kernel", "ref": "v0.26.0" },
+      "source": { "source": "github", "repo": "anthony-chaudhary/dos-kernel", "ref": "v0.27.0" },
       "description": "DOS — trust substrate for agent fleets. Requires 'pip install dos-kernel[mcp]'."
     }
   ]

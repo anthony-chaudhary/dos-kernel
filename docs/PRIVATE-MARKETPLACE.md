@@ -30,6 +30,73 @@ This page is only the private-registry path.
 
 ---
 
+## Already run a company marketplace? Add DOS as one more entry
+
+The common case is **not** a fresh marketplace — it's a company that *already*
+runs one. There is already a git repo with a `.claude-plugin/marketplace.json`,
+the team already ran `/plugin marketplace add <your-repo>` once, and it already
+lists one or more in-house plugins. You are not creating anything. You add DOS
+as **one more entry in the existing catalog**, then ship the pip package. Three
+moves.
+
+**1. Append one plugin object** to the existing `plugins` array — next to the
+plugins you already ship (here `acme-internal`):
+
+```json
+{
+  "name": "acme-tools",
+  "owner": { "name": "Acme DevTools" },
+  "plugins": [
+    { "name": "acme-internal", "source": "./acme-internal" },
+    {
+      "name": "dos-kernel",
+      "source": { "source": "github", "repo": "anthony-chaudhary/dos-kernel", "ref": "v0.27.0" },
+      "description": "DOS — the trust substrate for agent fleets (hooks + MCP + skills). Requires 'pip install dos-kernel[mcp]'."
+    }
+  ]
+}
+```
+
+Keep the plugin `name` as `dos-kernel` so the skills stay `/dos-kernel:<skill>`.
+Pick the `source` per your supply-chain policy — pin this repo by a `ref`/`sha`,
+vendor the bytes, sparse-clone a monorepo subdir, or an internal npm registry.
+The four shapes are **Step 2** below. Validate before you push — don't trust the
+JSON, check it:
+
+```bash
+claude plugin validate .       # must print 0 errors (warnings about extra fields are fine)
+git commit -am "Add the DOS plugin to the Acme marketplace"
+git push                       # to your internal git host
+```
+
+**2. Ship the `dos-kernel` pip package to the fleet.** This is the one step a
+generic plugin playbook skips, and the one that bites (full detail in **Step 3**).
+The plugin install copies *files*; the *brains* — the `verify` / `arbitrate` /
+`refuse` syscalls — are the **package**, which a plugin install does not fetch.
+Add it to your image / onboarding / CI:
+
+```bash
+pip install "dos-kernel[mcp]"   # into the interpreter Claude Code launches
+```
+
+**3. Each engineer installs the plugin.** They already added the marketplace, so
+there is no re-subscribe — it's one verb, then a read-only confirm:
+
+```text
+/plugin install dos-kernel@acme-tools    # inside Claude Code (acme-tools = your marketplace name)
+/plugin list                             # confirm dos-kernel shows enabled
+/dos-kernel:dos-setup                    # read-only: confirms the package imports + what the plugin wired
+```
+
+That is the whole add. To **auto-enable** it for everyone (no one types `/plugin
+install`) commit `enabledPlugins` to the repo or mandate it in managed settings —
+**Step 4**. Everything below is the depth behind these three moves: the source
+shapes (Step 2), the pip-rollout channels (Step 3), fleet-wide auto-enable
+(Step 4), air-gapped seeding (Step 5), and verifying with DOS itself (Step 6). If
+you are standing up the marketplace from scratch, start at Step 1.
+
+---
+
 ## What you're actually distributing
 
 The DOS plugin is the directory [`claude-plugin/`](../claude-plugin/) in this
@@ -92,7 +159,7 @@ stable internal name (kebab-case, no spaces). Below, `acme-tools`:
       "source": {
         "source": "github",
         "repo": "anthony-chaudhary/dos-kernel",
-        "ref": "v0.26.0"
+        "ref": "v0.27.0"
       },
       "description": "DOS — the trust substrate for agent fleets (hooks + MCP + skills). Requires 'pip install dos-kernel[mcp]'.",
       "homepage": "https://github.com/anthony-chaudhary/dos-kernel"
@@ -140,7 +207,7 @@ audit-friendly install (a `ref` alone tracks a moving branch/tag):
   "source": {
     "source": "github",
     "repo": "anthony-chaudhary/dos-kernel",
-    "ref": "v0.26.0",
+    "ref": "v0.27.0",
     "sha": "0000000000000000000000000000000000000000"
   }
 }
@@ -167,7 +234,7 @@ relative path. The bytes are now frozen in a repo you own and review:
 # from your marketplace repo, with a clone of dos-kernel beside it:
 cp -r ../dos-kernel/claude-plugin ./dos-kernel
 git add dos-kernel .claude-plugin/marketplace.json
-git commit -m "Vendor the DOS plugin at v0.26.0"
+git commit -m "Vendor the DOS plugin at v0.27.0"
 ```
 
 ```json
@@ -218,7 +285,7 @@ publish the plugin as a package and point at your registry:
   "source": {
     "source": "npm",
     "package": "@acme/dos-kernel-plugin",
-    "version": "^0.26.0",
+    "version": "^0.27.0",
     "registry": "https://npm.acme.example"
   }
 }
