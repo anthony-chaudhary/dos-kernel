@@ -103,6 +103,17 @@ def test_env_overrides_omits_token_when_absent():
         "CLAUDE_CONFIG_DIR": "/cfg", "CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-x"}
 
 
+def test_launch_env_fn_is_a_capability_not_a_name():
+    """The rich, disk-aware launch-env builder is a spec CAPABILITY a consumer reads
+    (`spec.launch_env_fn`) — so it never has to branch `if kind == "claude"` (the
+    vendor-blindness litmus). Claude ships one (the docs/380 env_for); others don't."""
+    claude = aa.resolve_account_auth("claude")
+    assert claude.launch_env_fn is not None
+    assert callable(claude.launch_env_fn)
+    assert aa.resolve_account_auth("codex").launch_env_fn is None
+    assert aa.resolve_account_auth("gemini").launch_env_fn is None
+
+
 # --------------------------------------------------------------------------- #
 # PARITY — the Claude spec must mirror the vendored switcher's real behavior
 # --------------------------------------------------------------------------- #

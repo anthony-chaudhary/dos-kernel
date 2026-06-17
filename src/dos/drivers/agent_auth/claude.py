@@ -16,6 +16,7 @@ Enrollment: ``setup-token`` mints a ~1-year token (printed, no creds file) store
 from __future__ import annotations
 
 from dos.account_auth import AccountAuthSpec
+from dos.drivers import account_switcher as _sw
 
 SPEC = AccountAuthSpec(
     agent_kind="claude",
@@ -29,4 +30,10 @@ SPEC = AccountAuthSpec(
         'CLAUDE_CONFIG_DIR=<dir> claude setup-token  '
         "# mints + prints a ~1yr token; store it to <dir>/.oauth-token"
     ),
+    # The rich, disk-aware launch-env builder: the switcher's own `env_for`, which
+    # defers to a fresh `.credentials.json` rather than freezing a static token into a
+    # live session (docs/380). A consumer reads `spec.launch_env_fn` (a capability),
+    # never `if kind == "claude"` (the vendor-blindness litmus). Raises OriginError on
+    # a missing config dir — a loud failure the CLI surfaces.
+    launch_env_fn=_sw.env_for,
 )

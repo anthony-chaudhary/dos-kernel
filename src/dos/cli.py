@@ -2584,12 +2584,12 @@ def cmd_accounts(args: argparse.Namespace) -> int:
             return _fail(f"no account named {name!r} in roster",
                          hint="run `dos accounts list` to see roster names")
         spec = _resolve_agent_auth(args)
-        if spec.agent_kind == "claude":
-            # The verified baseline keeps the switcher's own (docs/380-aware) env
-            # builder — it defers to a fresh `.credentials.json` rather than freezing
-            # a static token into a live session. Other agents use the generic spec.
+        if spec.launch_env_fn is not None:
+            # The agent ships a disk-aware launch-env builder (Claude's docs/380
+            # fresh-creds deferral). Branch on the CAPABILITY, never the agent NAME
+            # (the vendor-blindness litmus). It may raise OriginError (missing dir).
             try:
-                env = _sw.env_for(match)
+                env = spec.launch_env_fn(match)
             except _sw.OriginError as e:
                 return _fail(str(e))
         else:

@@ -43,7 +43,7 @@ boundary I/O (an importlib lookup) exactly like the other by-name seams.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Callable, Optional
 
 #: The default agent NAME (resolved to the in-tree ``dos.drivers.agent_auth.claude``
 #: spec). A string default, the ``vcs_backend="git"`` / ``DEFAULT_DIALECT`` analogue —
@@ -88,6 +88,15 @@ class AccountAuthSpec:
     token_prefix: str = ""
     enroll_methods: tuple[str, ...] = ()
     enroll_hint: str = ""
+    #: An OPTIONAL agent-specific, disk-aware launch-env builder ``(account) -> dict``
+    #: that SUPERSEDES the generic ``env_overrides`` when present — the seam by which
+    #: an agent whose launch identity needs more than the data fields (Claude's
+    #: docs/380 deferral to a fresh ``.credentials.json``, so a static token never
+    #: shadows a live session) plugs its own builder WITHOUT the consumer branching on
+    #: the agent's NAME (the vendor-blindness litmus: a host reads this CAPABILITY, not
+    #: ``if kind == "…"``). Set by the agent's driver (it may reference the switcher);
+    #: None for an agent that uses the pure generic builder. Carries no vendor name.
+    launch_env_fn: Optional[Callable[[object], dict]] = None
 
     @property
     def supports_config_dir_isolation(self) -> bool:
