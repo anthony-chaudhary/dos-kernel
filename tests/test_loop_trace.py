@@ -501,3 +501,9 @@ def test_downsample_nonpositive_width_returns_input_unchanged():
     """_downsample width<=0 is a no-op guard — the series passes through untouched."""
     assert lt._downsample([3, 1, 4, 1, 5], 0) == [3, 1, 4, 1, 5]
     assert lt._downsample([3, 1, 4], -2) == [3, 1, 4]
+
+
+def test_fmt_age_renders_days_for_old_iterations():
+    """_fmt_age over a day reads in whole days — the STALLED end of the liveness scale."""
+    assert lt._fmt_age(3 * 86400 * 1000) == "3d"
+    assert lt._fmt_age(None) == "—"
