@@ -1345,9 +1345,13 @@ class ExitMap:
             print(f"{token}  {verdict.reason}")
         # docs/262 P2 — record the verdict to the observability journal when armed.
         # No-op unless `--observe`/`DISPATCH_OBSERVE=1`; fail-soft (never changes the
-        # exit code). Only verbs that set `self.syscall` auto-record here.
+        # exit code). Only verbs that set `self.syscall` auto-record here. The
+        # `subject` rides from `--subject` when the verb has one (docs/383 — the
+        # RSI-loop iteration tag), so the trajectory projection can label each cycle;
+        # a verb with no such arg records the empty subject, exactly as before.
         if self.syscall:
-            _maybe_observe(args, self.syscall, token, verdict)
+            _maybe_observe(args, self.syscall, token, verdict,
+                           subject=str(getattr(args, "subject", "") or ""))
         return self.code_for(token)
 
     def contract(self) -> dict[str, int]:
@@ -7980,6 +7984,13 @@ def cmd_observe(args: argparse.Namespace) -> int:
     by = (getattr(args, "by", "") or "syscall").strip()
     tail_n = int(getattr(args, "tail", 0) or 0)
 
+    # docs/383 — `--loops`: fold the improve-syscall stream into per-run RSI
+    # trajectories (the long-running self-improve / enforce-tune loops) instead of
+    # the flat per-syscall rollup. The trajectory is the shape an operator watching a
+    # live RSI run needs (metric curve, breaker distance-to-escalate, liveness).
+    if getattr(args, "loops", False):
+        return _cmd_observe_loops(args, run=run)
+
     frame = _observe.build_frame(run=run, syscall=syscall, by=by)
 
     if args.json:
@@ -7996,6 +8007,48 @@ def cmd_observe(args: argparse.Namespace) -> int:
     else:
         print(_observe.render_rollup_text(frame))
     return 1 if frame.corrupt else 0
+
+
+def _cmd_observe_loops(args: argparse.Namespace, *, run: str) -> int:
+    """`dos observe --loops` — the RSI-loop trajectory projection (docs/383).
+
+    Reads the verdict journal once, folds the `improve`-syscall events into one
+    trajectory per loop (`loop_trace`), and renders either the all-loops summary or —
+    with `--run <RID>` — one loop's full per-iteration curve. Read-only, the `dos
+    observe` discipline: the one `read_all` is the boundary I/O, the fold is pure.
+    The breaker bound comes from the workspace's `[improve] max_consecutive_reverts`
+    so the distance-to-escalate is honest to the policy the loop ran under.
+    """
+    import datetime as _dt
+    from dos import loop_trace as _lt
+    from dos import verdict_journal as _vj
+
+    cfg = _config.active()
+    max_reverts = getattr(getattr(cfg, "improve", None), "max_consecutive_reverts",
+                          _lt.DEFAULT_MAX_REVERTS) or _lt.DEFAULT_MAX_REVERTS
+    now = _dt.datetime.now(_dt.timezone.utc)
+    raw = _vj.read_all()
+    corrupt = _vj.count_corrupt(raw)
+    events = [
+        _vj.VerdictEvent.from_record(rec) for rec in raw if rec.get("op") != "_CORRUPT"
+    ]
+    trajectories = _lt.trajectories_from_events(events, now=now, max_reverts=max_reverts)
+    if run:
+        trajectories = [t for t in trajectories if t.run_id == run]
+
+    if args.json:
+        out = {"loops": [t.to_dict() for t in trajectories], "corrupt": corrupt}
+        print(json.dumps(out, indent=2, default=str))
+        return 1 if corrupt else 0
+
+    if run:
+        if not trajectories:
+            print(f"# loop {run}\n  (no improve verdicts recorded for this run-id)")
+            return 0
+        print(_lt.render_trajectory_text(trajectories[0]))
+    else:
+        print(_lt.render_loops_text(trajectories))
+    return 1 if corrupt else 0
 
 
 # ---------------------------------------------------------------------------
@@ -12067,6 +12120,22 @@ def build_parser() -> argparse.ArgumentParser:
     pimp.add_argument("--json", action="store_true",
                       help="machine-readable verdict {verdict, revert_cause, escalation, "
                            "next_consecutive_reverts, reason, evidence}")
+    # docs/383 — observability correlation: arm the verdict journal and tag each
+    # cycle so `dos observe --loops` can fold THIS loop's trajectory (metric curve,
+    # breaker distance-to-escalate, liveness) apart from any other. Additive; the
+    # KEEP/REVERT/ESCALATE logic is untouched.
+    pimp.add_argument("--observe", action="store_true",
+                      help="record this verdict to the observability journal so "
+                           "`dos observe --loops` can fold the loop's trajectory "
+                           "(docs/383; same as DISPATCH_OBSERVE=1)")
+    pimp.add_argument("--run-id", dest="run_id", default="", metavar="RID",
+                      help="the loop's correlation run-id — groups this cycle with the "
+                           "rest of THIS self-improving loop in `dos observe --loops`")
+    pimp.add_argument("--lane", default="", metavar="LANE",
+                      help="the lane the loop holds (recorded for the trajectory)")
+    pimp.add_argument("--subject", default="", metavar="TAG",
+                      help="an iteration tag for this cycle (e.g. cycle index), recorded "
+                           "for the loop trajectory")
     _add_output_flag(pimp)
     pimp.set_defaults(func=cmd_improve)
 
@@ -12114,6 +12183,20 @@ def build_parser() -> argparse.ArgumentParser:
                       help="the candidate's own description — carried, parsed for NOTHING")
     petu.add_argument("--json", action="store_true",
                       help="machine-readable verdict + measured_work + runtime_logic_hits")
+    # docs/383 — observability correlation (same as `improve`): arm the journal and
+    # tag the cycle so `dos observe --loops` folds this enforce-tune loop's trajectory.
+    petu.add_argument("--observe", action="store_true",
+                      help="record this verdict to the observability journal so "
+                           "`dos observe --loops` can fold the loop's trajectory "
+                           "(docs/383; same as DISPATCH_OBSERVE=1)")
+    petu.add_argument("--run-id", dest="run_id", default="", metavar="RID",
+                      help="the loop's correlation run-id — groups this cycle with the "
+                           "rest of THIS enforce-tune loop in `dos observe --loops`")
+    petu.add_argument("--lane", default="", metavar="LANE",
+                      help="the lane the loop holds (recorded for the trajectory)")
+    petu.add_argument("--subject", default="", metavar="TAG",
+                      help="an iteration tag for this cycle (e.g. cycle index), recorded "
+                           "for the loop trajectory")
     _add_output_flag(petu)
     petu.set_defaults(func=cmd_enforce_tune)
 
@@ -13673,6 +13756,11 @@ def build_parser() -> argparse.ArgumentParser:
                       help="fold the rollup on this dimension (default: syscall)")
     pobs.add_argument("--tail", metavar="N", type=int, default=0,
                       help="show the last N raw events instead of the rollup")
+    pobs.add_argument("--loops", action="store_true",
+                      help="fold the improve-syscall stream into per-run RSI-loop "
+                           "TRAJECTORIES (metric curve, breaker distance-to-escalate, "
+                           "liveness) — the long-running self-improve/enforce-tune view "
+                           "(docs/383); add --run <RID> for one loop's full curve")
     pobs.add_argument("--json", action="store_true",
                       help="machine-readable {rollup, events} (the trajectory-audit's source)")
     pobs.set_defaults(func=cmd_observe)

@@ -159,3 +159,24 @@ audits_keep_last = 30          # keep the newest 30 trajectory-audit reports (th
 # `dos plan --source NAME` still overrides it at the call boundary.
 [plan]
 source = "design-docs"
+
+# The cron dead-man's switch (docs/384): WHICH always-on jobs DOS watches for
+# freshness, and how often each is expected to beat. `pulse` watches every live RUN;
+# `[heartbeats]` makes the WATCHERS themselves observable — each cron records a beat
+# (`dos beat <job>`), and `dos beat --check` / `dos pulse` fold the beat ledger into
+# per-job FRESH/LATE/MISSING so a silently-dead steward surfaces instead of going
+# quiet. Declared as DATA (the [supervise]/[lanes] closed-config pattern); a workspace
+# that declares nothing produces zero freshness verdicts (no-config-no-noise).
+#
+# Left COMMENTED here on purpose: the beat ledger is HOST-LOCAL (docs/366), and this
+# repo's only durable cron is the `pulse.yml` GitHub Action on an EPHEMERAL runner —
+# its beats don't persist to a local checker, so a live `pulse = "6h"` declaration
+# would read MISSING forever (noise, not signal). Freshness is meaningful where the
+# cron and the checker share a filesystem: an operator's machine running local
+# always-on loops. Uncomment + tune for YOUR persistent always-on jobs.
+# [heartbeats]
+# grace_factor = 1.5             # FRESH bound = cadence × this (absorbs jitter)
+# dead_factor  = 3.0             # MISSING bound = cadence × this (presumed dead)
+# [heartbeats.jobs]
+# supervise    = "30m"                              # cadence; critical defaults true
+# enforce-tune = { cadence = "12h", critical = false }
