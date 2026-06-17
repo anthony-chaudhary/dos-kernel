@@ -1,5 +1,7 @@
 # 345 — Skill → DOS: convert any skill to be trust-grounded, and the free on-ramp
 
+**Files:** `claude-plugin/skills/dos-skillify/SKILL.md`, `src/dos/skills/dos-skillify/SKILL.md`, `tests/test_init_skills.py`, `tests/test_skill_pack_litmus.py`
+
 > **The pitch in one line.** Bring any agent skill; DOS reads it, finds every
 > place it trusts a worker's word, and hands back a copy that asks a witness
 > instead. Same screenplay, same outputs — minus the silent over-claims.

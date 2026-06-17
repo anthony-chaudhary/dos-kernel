@@ -75,6 +75,8 @@ is byte-identical: `verify` still needs no plan
 
 ### P1 — slug-or-nothing when the number is shared (the oracle half)
 
+**Files:** `src/dos/phase_shipped.py`, `tests/test_duplicate_plan_numbers.py`
+
 - **Boundary:** derive a shared-number index `{number_head: [basenames]}`
   from the same glob walk `default_plan_doc_map` already performs; a head
   with ≥ 2 basenames is AMBIGUOUS. Thread it into `phase_shipped`'s

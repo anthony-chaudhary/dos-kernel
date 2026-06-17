@@ -76,6 +76,8 @@ tests/test_llms_txt.py` is green.
 
 ## Phase 2 — `docs/FAQ.md`: the question-shaped layer
 
+**Files:** `docs/FAQ.md`, `docs/readme/90_extending-and-docs.md`
+
 The AEO content artifact: one page of H2 questions phrased as the queries that
 should land here, each with an extractable answer.
 

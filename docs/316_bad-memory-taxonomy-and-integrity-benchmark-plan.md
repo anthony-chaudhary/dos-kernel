@@ -1,5 +1,7 @@
 # 316 — bad memories: a taxonomy, an integrity benchmark, and the win condition
 
+**Files:** `benchmark/memory_integrity/README.md`, `benchmark/memory_integrity/RESULTS.md`, `benchmark/memory_integrity/corpus.py`, `benchmark/memory_integrity/results.json`, `benchmark/memory_integrity/run.py`, `benchmark/registry.py`, `tests/test_memory_integrity_bench.py`
+
 > docs/103 named the founding insight ("memory is the agent we forgot to stop
 > believing") and shipped the recall gate; docs/314 shipped the write gate.
 > This plan does three things on top: (1) it names EVERY way a memory goes bad

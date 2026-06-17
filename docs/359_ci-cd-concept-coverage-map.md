@@ -1,5 +1,7 @@
 # 359 — The CI/CD concept coverage map: what a trust substrate covers at the pipeline boundary
 
+**Files:** `docs/answers/README.md`, `docs/answers/dos-for-ci-cd.md`
+
 > **Status:** 🟢 **Shipped** (the map; docs/359 P1). This doc is the deliverable:
 > a complete map of the industry CI/CD concept space onto DOS's primitives, an
 > honest denominator for "coverage," and the small set of kernel-free gaps it

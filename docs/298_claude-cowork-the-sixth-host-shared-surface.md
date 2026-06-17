@@ -1,5 +1,7 @@
 # 298 — Claude Cowork, the sixth host (the shared-surface host)
 
+**Files:** `claude-plugin/README.md`, `docs/217_the-cross-vendor-hook-dialect-seam.md`, `docs/221_the-cross-vendor-hook-installer.md`, `docs/CLI.md`, `docs/readme/50_agent-hosts.md`, `src/dos_mcp/README.md`, `go/internal/hook/dialect_transcode.go`, `go/internal/hook/parity_dialect_test.go`, `src/dos/drivers/hook_dialects.py`, `tests/test_hook_dialect.py`, `tests/test_init_hooks_crossvendor.py`
+
 > **A vendor is a data row — even when the row equals the default.** Claude Cowork
 > is Anthropic's agentic desktop app for general knowledge work. Under the UI it
 > runs the **Claude Code agent harness** inside a Linux VM. So unlike every prior

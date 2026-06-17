@@ -1,5 +1,7 @@
 # 342 — The equal-caliber goal: what DOS must ship to match TCP
 
+**Files:** `docs/343_the-exactly-once-envelope-and-the-re-drive-contract.md`, `src/dos/resume.py`, `tests/test_resume.py`, `src/dos/apply_gate.py`, `src/dos/lane_journal.py`, `src/dos/lane_lease.py`, `src/dos/pretool_sensor.py`, `tests/test_apply_gate_fence.py`, `examples/playbooks/10_two-hosts-one-gate.md`, `examples/playbooks/README.md`, `examples/playbooks/two_hosts_one_gate.sh`, `tests/test_two_hosts_one_gate_playbook.py`
+
 > **The goal, in one sentence.** Make DOS an *equal-caliber substrate* to TCP/IP:
 > a layer that does not merely *report* whether an unreliable actor's effect is
 > trustable, but **guarantees that the only effects which become part of the

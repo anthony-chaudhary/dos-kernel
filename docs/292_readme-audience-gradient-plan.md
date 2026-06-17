@@ -97,6 +97,8 @@ other sections can land independently (the disjoint-lanes property the part
 split exists to provide).
 
 - **P1 — `05_who-this-is-for.md` (router + the L0 narrative).** Two pieces in
+
+**Files:** `docs/readme/00_front-door.md`, `docs/readme/05_who-this-is-for.md`
   one short part, placed right after the front door:
   - *The router*: the six-row table from §2, compressed to "You're asking… →
     start at → then". One screen.
@@ -109,6 +111,8 @@ split exists to provide).
     `<details>` block in `00` then shrinks to a pointer (its prose moves here)
     rather than duplicating.
 - **P2 — `93_for-researchers.md` (the L5 on-ramp).** One screen, four blocks:
+
+**Files:** `docs/readme/05_who-this-is-for.md`, `docs/readme/93_for-researchers.md`
   - *Claims register*: the `40_evidence.md` results restated as a compact
     claim / status / where-it-reproduces table (each row → `benchmark/` write-up).
   - *The two invariants, stated precisely*: (1) the **non-forgeable witness** —
@@ -125,6 +129,8 @@ split exists to provide).
     reward-hacking / scalable-oversight line for `reward()` — one line each,
     then hand off to the paper and `95`'s BibTeX.
 - **P3 — `85_operating-a-fleet.md` (the L3 guide).** The day-2 loop as
+
+**Files:** `docs/readme/05_who-this-is-for.md`, `docs/readme/85_operating-a-fleet.md`
   narrative, keeping `80_cli.md` as pure reference (the guide/reference split):
   morning triage = `dos top` (what's running) → `dos decisions` (what needs
   me) → `dos plan` (claim vs truth); push it to where you are (`dos notify`),
@@ -132,6 +138,8 @@ split exists to provide).
   symptom→command table is the stuck-fleet playbook (link, don't duplicate).
   Ends handing up to L4.
 - **P4 — hand-off lines + router back-links.** One closing line each in `10`,
+
+**Files:** `docs/readme/00_front-door.md`, `docs/readme/10_try-it.md`, `docs/readme/20_fleet.md`, `docs/readme/50_agent-hosts.md`, `docs/readme/90_extending-and-docs.md`
   `20`, `50`, `90` pointing a level up; `00` gains one line pointing at the
   router. Smallest phase, done last so it links to parts that exist.
 
@@ -170,6 +178,8 @@ contains. Four more phases:
   stamp**, one clause each — so the vocabulary lands just before the router
   that uses it. No new section, no expander.
 - **P6 — one install default, one reproducible demo** (findings 4 + 5). The
+
+**Files:** `docs/readme/10_try-it.md`, `docs/readme/70_install.md`
   60-second demo says `pip install dos-kernel`; the install matrix then leads
   with `uv tool install` "(recommended)" — telling the reader the command they
   just ran was the wrong choice. Fix: the demo's `pip` line IS the default
@@ -189,6 +199,8 @@ contains. Four more phases:
   anchor links exist to the moved sections (checked 2026-06-10), so nothing
   breaks.
 - **P8 — the reference-weight moves** (findings 2 + 3) — **SHIPPED 2026-06-16
+
+**Files:** `docs/325_answer-corpus-distribution-plan.md`, `docs/CLI-REFERENCE.md`, `docs/QUICKSTART.md`, `docs/TROUBLESHOOTING.md`, `docs/guide/cli-reference.md`, `docs/guide/extending.md`, `docs/guide/for-researchers.md`, `docs/guide/operating-a-fleet.md`, `docs/guide/why-a-referee.md`, `docs/guide/wire-it-in.md`, `docs/readme/00_front-door.md`, `docs/readme/05_map.md`, `docs/readme/05_who-this-is-for.md`, `docs/readme/10_try-it.md`, `docs/readme/20_fleet.md`, `docs/readme/30_why-a-referee.md`, `docs/readme/40_evidence.md`, `docs/readme/50_agent-hosts.md`, `docs/readme/70_install.md`, `docs/readme/80_cli.md`, `examples/playbooks/07_verify-subagent-results.md`, `examples/playbooks/cookbook-exit-code-tier.md`
   on the program owner's `/goal` ("readme front door 10x smaller, move content
   to focused pages, keep the most important marketing content on the front
   page") — the green light this phase was gated on (let `dos verify` be the

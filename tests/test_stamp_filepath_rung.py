@@ -586,3 +586,151 @@ def test_pdt_coarse_parity_refuse_matches_write_side_shape(tmp_path: Path):
         series="CRS", matchers=m,
     )
     assert refuse is False and allow is True
+
+
+# ===========================================================================
+# The load-bearing-files convention (make the floor load-bearing):
+#   - a `## Phase N` heading is located for a `Pk` trailer-stamp token;
+#   - a `**Files:**` line is the canonical, dilution-free declaration;
+#   - a phase-LESS `docs/NN` unit declares files at the doc level.
+# These only LOCATE text the existing repo_path matcher harvests; the >=2
+# distinctive-file floor in `_check_phase_by_filepath` is unchanged.
+# ===========================================================================
+
+
+def test_extract_matches_phase_n_heading_for_pk_token(tmp_path: Path):
+    """A `Pk` trailer-stamp token finds a `## Phase k` plan-doc heading.
+
+    Commits stamp `(docs/NN P1)` but plan docs head the phase `## Phase 1`. The
+    section search expands `P1` <-> `Phase 1` (and H2..H4), so the section is
+    located and its prose paths harvested — the dominant refuted class root cause.
+    """
+    plan = tmp_path / "plan.md"
+    plan.write_text(
+        "# 314 Title\n\n## Phase 1 — the write gate\n\n"
+        "Built `src/dos/a.py` and `tests/test_a.py`.\n\n## Phase 2 — next\n",
+        encoding="utf-8",
+    )
+    m = PS._subject_matchers(_generic_cfg(tmp_path))
+    files = PS._extract_phase_files(str(plan), "P1", "docs/314", m)
+    assert set(files) == {"src/dos/a.py", "tests/test_a.py"}
+
+
+def test_extract_reads_in_section_files_marker(tmp_path: Path):
+    """An in-section `**Files:**` line is preferred over surrounding prose.
+
+    The declaration is dilution-free: a path the phase merely *references* in
+    prose does not pad the load-bearing set; only the declared line is read.
+    """
+    plan = tmp_path / "plan.md"
+    plan.write_text(
+        "## Phase 1\n"
+        "prose references `src/dos/zzz.py` and `src/dos/qqq.py`.\n"
+        "**Files:** `src/dos/a.py`, `tests/test_a.py`\n"
+        "more prose `src/dos/www.py`\n",
+        encoding="utf-8",
+    )
+    m = PS._subject_matchers(_generic_cfg(tmp_path))
+    files = PS._extract_phase_files(str(plan), "P1", "docs/314", m)
+    assert set(files) == {"src/dos/a.py", "tests/test_a.py"}
+
+
+def test_extract_reads_doc_level_files_marker_for_phaseless_unit(tmp_path: Path):
+    """A phase-LESS `docs/NN` unit declares files at the doc level.
+
+    The stamp carried no `Pk` token, so the unit's `phase` is the bare doc number
+    and no `### NN` section exists. The doc-level `**Files:**` line (the FIRST one)
+    is read — bounded to that line, never the body.
+    """
+    plan = tmp_path / "doc.md"
+    plan.write_text(
+        "# 360 — tool-call error handling\n\n"
+        "**Files:** `src/dos/vcs.py`, `tests/test_vcs.py`\n\n"
+        "Long prose discussion mentioning `src/dos/other.py` elsewhere.\n",
+        encoding="utf-8",
+    )
+    m = PS._subject_matchers(_generic_cfg(tmp_path))
+    files = PS._extract_phase_files(str(plan), "360", "docs/360", m)
+    assert set(files) == {"src/dos/vcs.py", "tests/test_vcs.py"}
+
+
+def test_extract_files_marker_is_bounded_to_the_line(tmp_path: Path):
+    """The doc-level fallback scans ONLY the declared line, never the body.
+
+    The anti-over-match guard: if the fallback harvested the whole doc, any commit
+    touching two of a dozen prose-mentioned paths would false-corroborate — the
+    exact Goodhart failure the floor exists to catch. Only the 2 declared paths
+    are returned despite 3 others in the body.
+    """
+    plan = tmp_path / "doc.md"
+    plan.write_text(
+        "# 360\n\n**Files:** `src/dos/a.py`, `src/dos/b.py`\n\n"
+        "prose `src/dos/c.py` `src/dos/d.py` `src/dos/e.py`\n",
+        encoding="utf-8",
+    )
+    m = PS._subject_matchers(_generic_cfg(tmp_path))
+    files = PS._extract_phase_files(str(plan), "360", "docs/360", m)
+    assert set(files) == {"src/dos/a.py", "src/dos/b.py"}
+
+
+def test_extract_does_not_borrow_another_phases_marker(tmp_path: Path):
+    """A doc WITH phase sections never lends one phase's marker to another.
+
+    A `P1` query against a doc that has only a `## Phase 10` section must return
+    `[]` — NOT harvest Phase 10's `**Files:**` line via the doc-level fallback.
+    The fallback fires only for a genuinely phase-LESS doc.
+    """
+    plan = tmp_path / "plan.md"
+    plan.write_text(
+        "# t\n## Phase 10 — later\n"
+        "**Files:** `src/dos/ten.py`, `tests/t10.py`\n",
+        encoding="utf-8",
+    )
+    m = PS._subject_matchers(_generic_cfg(tmp_path))
+    assert PS._extract_phase_files(str(plan), "P1", "docs/314", m) == []
+
+
+def test_extract_drops_non_source_in_marker(tmp_path: Path):
+    """A declared archive/binary/URL is dropped; only the source file survives."""
+    plan = tmp_path / "plan.md"
+    plan.write_text(
+        "## Phase 1\n**Files:** `dist/x.tar.gz`, `src/dos/a.py`\n",
+        encoding="utf-8",
+    )
+    m = PS._subject_matchers(_generic_cfg(tmp_path))
+    assert PS._extract_phase_files(str(plan), "P1", "docs/314", m) == ["src/dos/a.py"]
+
+
+def test_section_heading_variants_respects_phase_boundary():
+    """`P1` must not match a `Phase 10` heading (the strict-boundary regression)."""
+    import re as _re
+
+    alt = "|".join(PS._section_heading_variants("P1", "docs/314"))
+    pat = _re.compile(rf"(?m)^#{{2,4}}\s+(?:Phase\s+)?(?:{alt}){PS._BOUNDARY_NEG}")
+    assert pat.search("## Phase 1 — gate") is not None
+    assert pat.search("## Phase 10 — later") is None
+    # And the bare ordinal `1` is NOT a variant (plan docs number sections `## 1.`).
+    assert "1" not in PS._section_heading_variants("P1")
+
+
+def test_filepath_rung_corroborates_a_declared_phase_end_to_end(tmp_path: Path):
+    """End-to-end: a `## Phase 1` whose declared files a commit co-touched resolves
+    `via=file-path` — the non-forgeable rung the backtest re-check reads."""
+    _init_repo(tmp_path)
+    plan = tmp_path / "docs" / "314_plan.md"
+    plan.parent.mkdir(parents=True, exist_ok=True)
+    plan.write_text(
+        "# 314\n\n## Phase 1 — the gate\n\n"
+        "**Files:** `src/dos/a.py`, `tests/test_a.py`\n",
+        encoding="utf-8",
+    )
+    _git(tmp_path, "add", "docs/314_plan.md")
+    _git(tmp_path, "commit", "-m", "docs: add plan")
+    # A ship commit whose subject does NOT name the phase token, but whose diff
+    # touches both declared files — the file-path rung is the only witness.
+    _commit(tmp_path, "feat: the write gate", "src/dos/a.py", "tests/test_a.py")
+    C.set_active(_generic_cfg(tmp_path))
+    m = PS._subject_matchers(_generic_cfg(tmp_path))
+    res = PS._check_phase_by_filepath("docs/314", "P1", str(plan), m)
+    assert res["shipped"] is True
+    assert res["via"] == "file-path"

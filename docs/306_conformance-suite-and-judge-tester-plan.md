@@ -129,6 +129,8 @@ green.
 
 ### Phase 2 — the scratch-plugin trio + the out-of-tree proof
 
+**Files:** `src/dos/event_severity.py`, `tests/test_event_severity.py`
+
 `examples/conformance_plugins/` — three minimal, installable plugin packages
 (one per kind: an evidence-count judge, a basename-strictness overlap policy,
 a collecting notifier), each with its own `pyproject.toml` (depending on
@@ -146,6 +148,8 @@ own checkout. Evidence (the three green pytest runs) recorded on #61.
 test collected and green.
 
 ### Phase 3 — the docs pointer
+
+**Files:** none — a docs-pointer phase; its ship touched only `docs/HACKING.md` + the rebuilt `llms-full.txt` (both shared doc hubs, not distinctive deliverables), so the floor abstains here.
 
 A short section in `docs/HACKING.md` (the plugin-author surface) naming the
 suite, the subclass pattern, and `JudgeTester`, with the 60-second example;

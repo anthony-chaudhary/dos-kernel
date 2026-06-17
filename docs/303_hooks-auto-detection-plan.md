@@ -38,6 +38,8 @@ as data" move the kernel already makes everywhere else (docs/82, the
 
 ### P1 — the `auto` host (mechanism)
 
+**Files:** `src/dos/hook_install.py`, `tests/test_init_hooks_auto.py`
+
 `dos init --hooks auto` detects which runtimes this workspace already uses and
 wires every one it finds. Detection has two rungs, both read-only:
 

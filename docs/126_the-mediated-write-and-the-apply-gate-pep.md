@@ -1,5 +1,7 @@
 # 126 — The mediated write, and the apply-gate PEP
 
+**Files:** `src/dos/pretool_sensor.py`, `tests/test_hook_pretool.py`, `src/dos/apply_gate.py`, `tests/test_apply_cli.py`, `tests/test_apply_gate.py`
+
 > **Status:** Phase 1 SHIPPED — DOS now has its first **enforcement point**: the
 > `dos apply` diff turnstile (`cli.cmd_apply` + the pure `apply_gate.decide`,
 > `tests/test_apply_{gate,cli}.py`, the `dos-apply` pre-commit hook). A staged write

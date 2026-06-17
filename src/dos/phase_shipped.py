@@ -667,6 +667,47 @@ def _phase_variants(phase: str, series: str = "") -> list[str]:
     return sorted(re.escape(v) for v in variants)
 
 
+# A `Pk` phase token written as a `Phase k` plan-doc HEADING (and the reverse).
+# `P1` ↔ `Phase 1`: the `P` is literally "Phase", so the trailer-stamp `(docs/NN
+# P1)` and a `## Phase 1` heading name the same phase. Used ONLY for section-
+# heading location in `_extract_phase_files`.
+_PK_TOKEN_RE = re.compile(r"(?i)^P(\d+(?:\.\d+)?)$")
+
+
+def _section_heading_variants(phase: str, series: str = "") -> list[str]:
+    """Phase-id spellings to try when LOCATING a plan-doc section heading.
+
+    A superset of `_phase_variants` that adds the `Pk` ↔ `Phase k` synonym
+    unconditionally (independent of `series`): a `P1` query also matches a
+    `## Phase 1` / `### 1` heading, and a generic `Phase 1`/`1` query also matches
+    a `### P1` heading. This is deliberately NOT folded into `_phase_variants`,
+    because that list feeds the unanchored release/body SUBJECT scans where a bare
+    `Phase k` synonym is the OS-FQ136/FQ226 cross-series false-positive — there a
+    `vX.Y.Z:` bundle naming an unrelated `Phase 1` would false-ship. Here the
+    expansion is consumed only by the `^#{2,4}`/`- **` heading anchors inside a
+    plan doc, a far tighter context: locating a doc SECTION to harvest its declared
+    files is not recognizing a commit as a ship. Pure; regex-escaped output.
+    """
+    # `_phase_variants` already returns re.escape()'d forms; un-escape the base
+    # forms, add the RAW synonyms, then escape exactly once (a second escape would
+    # double-backslash the dot in `P1.5`).
+    variants = {re.sub(r"\\(.)", r"\1", v) for v in _phase_variants(phase, series)}
+    pm = _PK_TOKEN_RE.match(phase.strip())
+    if pm:
+        num = pm.group(1)
+        # `P1` heading written as `Phase 1` / `Phase1`. NOT a bare ordinal `1`:
+        # plan docs number ordinary sections `## 1.`/`### 1a.` (86 such headings
+        # here), so a bare `1` would harvest the wrong section. The `Phase`/`P`
+        # prefix is the disambiguator — keep it required.
+        variants.update({f"Phase {num}", f"Phase{num}"})
+    else:
+        gm = _GENERIC_PHASE_RE.match(phase.strip())
+        if gm:
+            # `Phase 1` query → also match a `### P1` heading.
+            variants.add(f"P{gm.group(1)}")
+    return sorted(re.escape(v) for v in variants)
+
+
 def _series_variants(
     series: str, ambiguous_heads: "frozenset[str] | set[str]" = frozenset()
 ) -> list[str]:
@@ -1222,6 +1263,24 @@ _NON_SOURCE_SUFFIXES = (
     ".dylib", ".exe", ".o", ".a", ".jar", ".class",
 )
 
+# The canonical load-bearing-files declaration: a `**Files:**` line (bold optional,
+# case-insensitive) whose tail names the phase's deliverable paths. `_extract_phase_
+# files` prefers this line over surrounding prose when a section has one, and is the
+# ONLY thing scanned in the doc-level fallback for a phase-less unit — bounded to the
+# line so a doc's prose path-mentions cannot pad the declared set (the over-match
+# guard). The payload is fed to the same `repo_path` matcher + `_NON_SOURCE_SUFFIXES`
+# drop as any other harvested text, so a declared archive/URL is still excluded.
+_FILES_DECL_RE = re.compile(r"(?im)^\s*\*{0,2}files\*{0,2}\s*:\s*(.+)$")
+
+# Does this doc carry ANY phase section? — a `## Phase k` / `### Pk` heading or a
+# `- **Pk` bullet. Gates the doc-level `**Files:**` fallback: that fallback is for a
+# genuinely phase-LESS unit only. A doc WITH phase sections but missing the queried
+# phase's section must NOT borrow another phase's doc-level marker — the queried
+# phase just declares nothing, so it stays NOT_SHIPPED.
+_DOC_HAS_PHASE_SECTIONS_RE = re.compile(
+    r"(?im)^(?:#{2,4}\s+(?:Phase\s+\d|P\d)|[\s]*-\s+\*\*(?:Phase\s+\d|P\d))"
+)
+
 
 def _is_shared_infra(path: str, matchers: "_Matchers | None" = None) -> bool:
     """True if `path` is a hub file excluded from the overlap count.
@@ -1252,8 +1311,33 @@ def _extract_phase_files(
     the ones the phase adds or edits. They are the artefact the file-path
     verdict path matches ship commits against (AAR-FQ230, finding #230).
 
-    Returns `[]` when the doc is unreadable, the phase has no section, or the
-    section names no repo-path-shaped tokens — in every such case the caller's
+    The phase section is located three ways, in order — each strictly LOCATES
+    text the existing matcher then scans; none widens what counts as a ship:
+
+      1. a heading section — `^#{2,4} <PHASE>` (H2..H4, so a `## Phase 1` plan-doc
+         heading is found, not only `###`), bounded by the next sibling heading;
+      2. a `- **<PHASE> — ...` bullet sub-phase, bounded by the next bullet/heading;
+      3. **the doc-level Files fallback** (the convention): when neither
+         section matches — a phase-less `docs/NN` unit whose only mention of its
+         number is the H1 title — the FIRST ``**Files:** path1, path2`` line
+         in the doc is read. This is bounded to the declared LINE, never the whole
+         body: a design doc names many paths in prose, and scanning the body would
+         let any commit touching two of them false-corroborate — the exact Goodhart
+         failure the floor exists to catch. The declared line is the phase's own
+         claim about its load-bearing files; the artefact rung still demands a real
+         commit that touched ≥ 2 of them (`_check_phase_by_filepath`), so the
+         declaration only POINTS at diff-witnessed evidence, it cannot fake it.
+
+    A `Pk` phase token (the trailer-stamp grammar, `(docs/NN Pk)`) also matches a
+    `Phase k` heading and vice-versa — the `P` IS "Phase", a self-qualifying synonym.
+    This expansion is LOCAL to the section-heading search (a tight `^#{2,4}` /
+    `- **` anchor inside a plan doc); it deliberately does NOT go through
+    `_phase_variants`, because that feeds the unanchored release/body SUBJECT scans
+    where a bare `Phase k` synonym is a known cross-series false-positive
+    (OS-FQ136/FQ226). Locating a doc section is not recognizing a ship.
+
+    Returns `[]` when the doc is unreadable, no section/declaration matches, or the
+    located text names no repo-path-shaped tokens — in every such case the caller's
     file-path fallback yields no verdict and the phase stays NOT_SHIPPED.
     """
     try:
@@ -1261,13 +1345,14 @@ def _extract_phase_files(
             text = f.read()
     except (OSError, UnicodeDecodeError):
         return []
-    phase_re = "|".join(_phase_variants(phase, series))
+    phase_re = "|".join(_section_heading_variants(phase, series))
     section = ""
-    h3_pat = re.compile(rf"(?m)^###\s+(?:Phase\s+)?(?:{phase_re}){_BOUNDARY_NEG}")
-    m = h3_pat.search(text)
+    # H2..H4: plan docs head phases as `## Phase 1`, sub-phases as `### P1.5`.
+    h_pat = re.compile(rf"(?m)^#{{2,4}}\s+(?:Phase\s+)?(?:{phase_re}){_BOUNDARY_NEG}")
+    m = h_pat.search(text)
     if m:
         rest = text[m.end():]
-        nm = re.search(r"(?m)^##+\s+", rest)
+        nm = re.search(r"(?m)^#{2,4}\s+", rest)
         section = text[m.start() : m.end() + (nm.start() if nm else len(rest))]
     else:
         bullet_pat = re.compile(
@@ -1276,8 +1361,28 @@ def _extract_phase_files(
         m = bullet_pat.search(text)
         if m:
             rest = text[m.end():]
-            nm = re.search(r"(?m)^[\s]*-\s+\*\*|^##+\s+", rest)
+            nm = re.search(r"(?m)^[\s]*-\s+\*\*|^#{2,4}\s+", rest)
             section = text[m.start() : m.end() + (nm.start() if nm else len(rest))]
+    # An explicit in-section `**Files:**` line is the canonical, dilution-free
+    # declaration: when a section names one, harvest ONLY that line (prose paths the
+    # phase merely references no longer pad the set). Falls back to the whole section
+    # when no marker is present (back-compat: docs/322-shape prose declarations).
+    if section:
+        fm = _FILES_DECL_RE.search(section)
+        if fm:
+            section = fm.group(1)
+    elif not _DOC_HAS_PHASE_SECTIONS_RE.search(text):
+        # The doc-level fallback fires ONLY for a genuinely phase-LESS unit — a
+        # `docs/NN` doc whose only mention of its number is the H1 title and which
+        # has NO `## Phase k` / `### Pk` / `- **Pk` sections at all. If the doc DOES
+        # have phase sections but not the queried one, the queried phase simply
+        # declares no files here → `[]` (NOT the wrong phase's doc-level marker —
+        # that would harvest `Phase 10`'s files for a `P1` query). The marker read
+        # is bounded to the FIRST `**Files:**` LINE, never the body (over-match
+        # guard): a `docs/NN` unit has one ship, so one declaration.
+        fm = _FILES_DECL_RE.search(text)
+        if fm:
+            section = fm.group(1)
     if not section:
         return []
     # Harvest file-path tokens with the ACTIVE workspace's repo-path matcher (the

@@ -79,6 +79,8 @@ fixture classes; pinned in `tests/test_memory_admit.py`.
 
 ## Phase 2 — the store seam (`dos.memory_stores`)
 
+**Files:** `docs/CLI.md`, `docs/STABILITY.md`, `src/dos/drivers/memory_recall.py`, `src/dos/memory_stores.py`, `tests/test_memory_stores.py`
+
 `recall_one`/`sweep` hardcode a directory-of-markdown layout. Lift the store
 behind the fifth by-name-resolved protocol (the judges/notifiers/dialects/
 overlap pattern): a `MemoryStore` protocol (`list() -> ids`, `read(id) ->
@@ -94,6 +96,8 @@ recall suite green and unchanged; a toy in-memory store in tests proves a
 second store resolves by name.
 
 ## Phase 3 — provider drivers (Mem0 first) — issue #99
+
+**Files:** `src/dos/drivers/memory_mem0.py`, `tests/test_memory_mem0.py`
 
 A `dos.memory_stores` driver per provider, extras-gated like
 `notify_slack`: `[memory-mem0]` first (largest mindshare; its OpenMemory MCP
@@ -112,6 +116,8 @@ seam does not.
 
 ## Phase 4 — verification-memory fossils — issue #100
 
+**Files:** `docs/CLI.md`, `src/dos/drivers/memory_recall.py`, `tests/test_memory_fossils.py`, `tests/test_memory_stores.py`
+
 The kernel's own memory of its adjudications. Today a `RECALL_STALE` verdict
 is computed, printed, and forgotten; next session re-probes from scratch (or
 worse, never asks). Two lifts:
@@ -129,6 +135,8 @@ worse, never asks). Two lifts:
 carries the rows; flap-detection has a fixture.
 
 ## Phase 5 — the write-time verification annex (design only)
+
+**Files:** none — design-only phase; ships no deliverable (its commit touched only this plan doc), so the floor abstains here.
 
 At write time the claims are known and the probes just ran — so STAMP the
 memory with its own re-verification recipe: a frontmatter annex listing each

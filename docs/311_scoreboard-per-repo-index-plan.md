@@ -231,6 +231,8 @@ sign-off included. Until then the index is tiers 0–2a by construction.
 
 ## P6 — the seeded index: report #2 at corpus scale (tier 2a)
 
+**Files:** `docs/scoreboard/README.md`, `scripts/discoverability_inventory.py`, `scripts/seed_scoreboard_index.py`, `tests/test_discoverability_inventory.py`, `tests/test_seed_scoreboard_index.py`
+
 One run, two outputs — the index seed and the second aggregate report are
 the same sweep:
 

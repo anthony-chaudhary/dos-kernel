@@ -100,6 +100,8 @@ A new pure-stdlib kernel leaf, `src/dos/spend.py`:
 
 ### P2 — the evidence widening: efficiency AND improve carry the breakdown
 
+**Files:** `src/dos/efficiency.py`, `src/dos/improve.py`, `tests/test_spend_evidence.py`
+
 `EfficiencyEvidence` and `CandidateEvidence` (docs/280) each gain an optional
 `breakdown: SpendBreakdown | None` — the pure layer only, no CLI yet:
 
@@ -121,6 +123,8 @@ A new pure-stdlib kernel leaf, `src/dos/spend.py`:
 
 ### P3 — `dos.efficiency_trend`: is the ratio fading across runs?
 
+**Files:** `src/dos/efficiency_trend.py`, `tests/test_efficiency_trend.py`
+
 The trend completion of the family — `productivity` re-aimed from per-step work
 deltas onto cross-run work-per-token ratios:
 
@@ -139,6 +143,8 @@ deltas onto cross-run work-per-token ratios:
   mechanism, declarable later alongside `[efficiency]` (§7).
 
 ### P4 — the CLI boundary: usage records in, fossils out, the trend verb
+
+**Files:** `tests/test_efficiency_trend_cli.py`, `tests/test_spend_cli.py`
 
 All the I/O, in one place (row-3 helper edits only):
 

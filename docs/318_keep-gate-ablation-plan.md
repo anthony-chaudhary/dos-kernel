@@ -100,6 +100,8 @@ direction); nothing under `src/dos/` knows it exists.
 
 ### P1 — the refereed recipe loop + the committed evidence file
 
+**Files:** `benchmark/improve_ablation/RESULTS.md`, `benchmark/improve_ablation/results.json`, `benchmark/improve_ablation/run_ablation.py`, `benchmark/improve_ablation/task.py`, `benchmark/improve_ablation/test_improve_ablation.py`
+
 `benchmark/improve_ablation/`: the task (`task.py`), the three-arm runner
 (`run_ablation.py`), its tests (`test_improve_ablation.py`, run by path —
 `benchmark/` is outside the suite's `testpaths`), and the committed
@@ -111,6 +113,8 @@ re-running `python -m benchmark.improve_ablation.run_ablation --seed 0`
 reproduces `results.json`. This phase is the issue's loose done-condition.
 
 ### P2 — the bait taxonomy (the #35 surface)
+
+**Files:** `benchmark/improve_ablation/RESULTS.md`, `benchmark/improve_ablation/run_ablation.py`, `benchmark/improve_ablation/test_improve_ablation.py`
 
 Seed the workspace with reachable instances of the field-observed hack
 classes (a readable val split, a cache that persists across candidates, an
