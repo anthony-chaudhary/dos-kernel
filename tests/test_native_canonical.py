@@ -23,31 +23,46 @@ from dos import native_canonical as nc
 REPO = Path(__file__).resolve().parents[1]
 
 # The hook-decider cluster docs/385 §4.0 names as flipped at TP1 (the deciders +
-# the ports they already needed to be byte-exact). The registry must cover exactly
-# this set — a closed, named flip, not an open default.
-_EXPECTED_FLIPPED = {
+# the ports they already needed to be byte-exact).
+_HOOK_CLUSTER = {
     "pretool", "posttool", "marker", "stop",
     "admission", "overlap", "tree", "claim_extract", "dialect", "proc_liveness",
 }
+# The account-switcher ranking core, ported + flipped on the same ratchet (docs/386 §6,
+# phase "386"). A driver-tier decider, not the hook cluster — its own phase label.
+_ACCOUNT_DECIDERS = {"account_pick", "serving_pool", "allocate_seats"}
+# The registry must cover exactly the union — a closed, named flip, not an open default.
+_EXPECTED_FLIPPED = _HOOK_CLUSTER | _ACCOUNT_DECIDERS
 
 
-def test_flipped_set_is_the_named_hook_cluster():
-    """The Go-canonical set is exactly the docs/385 §4.0 hook cluster — no more
-    (a stray flip would be an unreviewed truth-pointer move), no less."""
+def test_flipped_set_is_the_named_closed_set():
+    """The Go-canonical set is exactly the named flips — the TP1 hook cluster plus the
+    docs/386 account ranking core — no more (a stray flip would be an unreviewed
+    truth-pointer move), no less."""
     got = {p.decider for p in nc.go_canonical_deciders()}
     assert got == _EXPECTED_FLIPPED
 
 
 def test_every_flipped_decider_is_go_with_soak_and_phase():
-    """Each flip carries its evidence: canonical engine 'go', the phase that
-    flipped it (TP1), a non-empty soak reference, and a recorded shadow side."""
+    """Each flip carries its evidence: canonical engine 'go', a non-empty phase label
+    and soak reference, and a recorded shadow side (the surviving Python copy)."""
     for p in nc.go_canonical_deciders():
         assert p.canonical == "go", p
-        assert p.phase == "TP1", p
+        assert p.phase, f"{p.decider} flipped with no phase"
         assert p.soak, f"{p.decider} flipped with no soak evidence"
-        # The Python copy survives as the docs/100 fallback (docs/385 §6): nothing
-        # is deleted at TP1, so the shadow is the fallback, never 'none' yet.
+        # The Python copy survives as the docs/100 fallback (docs/385 §6): nothing is
+        # deleted yet, so the shadow is the fallback, never 'none' yet.
         assert p.shadow == "python-fallback", p
+
+
+def test_phase_labels_match_their_cluster():
+    """The hook cluster flipped at TP1; the account ranking core at its own phase
+    (`386`) — the phase label is honest about WHICH flip each decider rode."""
+    by_name = {p.decider: p for p in nc.go_canonical_deciders()}
+    for name in _HOOK_CLUSTER:
+        assert by_name[name].phase == "TP1", name
+    for name in _ACCOUNT_DECIDERS:
+        assert by_name[name].phase == "386", name
 
 
 def test_go_canonical_deciders_is_name_sorted():
@@ -96,3 +111,7 @@ def test_doctor_json_reports_the_truth_pointer():
     assert tp["pretool"]["phase"] == "TP1"
     assert tp["pretool"]["shadow"] == "python-fallback"
     assert tp["pretool"]["soak"]  # non-empty evidence list
+    # the docs/386 account ranking core is surfaced too, with its own phase label
+    assert tp["account_pick"]["canonical"] == "go"
+    assert tp["account_pick"]["phase"] == "386"
+    assert "docs/386" in tp["account_pick"]["soak"]

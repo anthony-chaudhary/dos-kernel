@@ -1,12 +1,14 @@
 # 386 — The agent-pluggable account switcher (and the seat-tracking + rotate-on-wall arc)
 
-> **Status: PLAN + landed substrate (2026-06-17).** The seam, the per-agent specs,
-> the per-account ledger, the seat stamp, and the rate-limit auto-restart wiring are
-> shipped (the git ancestry of the commits that land them is the `dos verify`
-> horizon, not this sentence). The two pieces gated on something outside this repo —
-> the relaunch-under-a-different-account *apply* (a harness contract) and the Go port
-> of the pure ranking core (the docs/385 ratchet) — are named here as queued, not
-> done.
+> **Status: landed (2026-06-17).** The seam, the per-agent specs, the per-account
+> ledger, the seat stamp, and the rate-limit auto-restart wiring shipped first; the
+> two follow-ups this doc once queued are now landed too (the git ancestry of the
+> commits is the `dos verify` horizon, not this sentence): (1) the rotate-on-wall
+> **apply** — DOS's side of the asyncRewake env-override contract, a two-phase
+> rotation handoff (§4); and (2) the **Go port + FLIP** of the pure ranking core (§6,
+> the docs/385 ratchet). The one residual is genuinely the harness's, named in §4: the
+> rewake event itself still carries no env channel, so the apply fires at the next
+> env-capable session boundary (`CLAUDE_ENV_FILE`), not on the rewake instant.
 
 The operator's ask: a **10× better account switcher** — (1) support arbitrary
 agents (Codex, Claude, Gemini, …), (2) land the in-progress Claude items (safe
@@ -105,21 +107,41 @@ and this repo's `.claude/settings.json`:
 - **Stop → `dos hook stop-failure --success`**: heal the breaker after a clean
   session.
 
-### The rotate-on-wall gap (named, not waved off)
+### The rotate-on-wall apply — a two-phase env-override handoff (landed)
 
 The "10×" step is: on a wall, **rotate to a serving account and relaunch**, not just
 back off the same one. The kernel side is cheap (`serving_pool` already answers "a
 different serving seat"), and the per-account failure attribution is landed (the
-ledger). The blocker is **external**: the asyncRewake contract carries an exit code
-+ a `rewakeMessage` string, with **no channel to hand the harness a different
-`CLAUDE_CONFIG_DIR` / token** to relaunch under. So the honest shape is:
+ledger). The one thing the harness does **not** expose is the obvious channel: the
+asyncRewake event carries an exit code + a `rewakeMessage` string and **no way to hand
+the relaunch a different `CLAUDE_CONFIG_DIR` / token**. The only relaunch-time env
+channel the harness gives a hook is `CLAUDE_ENV_FILE`, and only on a SessionStart-class
+event — not on the StopFailure/rewake itself.
 
-- **Computed + recorded now:** the failure is attributed to the current seat
-  (`account_ledger.record_failure`), and the rewake message *names* the serving seat
-  to rotate to. A human or a supervisor loop can act on it.
-- **Apply gated:** the automatic relaunch-under-a-different-account waits on a
-  harness env-override channel for asyncRewake. Until then DOS surfaces the decision
-  rather than silently failing to apply it (the kernel's own honesty rule).
+So the apply is a **two-phase handoff**, and DOS's side of the env-override contract is
+now landed (`src/dos/rotation_handoff.py`, the `stop_failure_sensor` / `account_ledger`
+fail-soft discipline):
+
+- **WRITE half — the StopFailure hook (on a wall).** It attributes the wall to the
+  current seat (`account_ledger.record_failure`), picks a serving seat, builds that
+  seat's env-override through the resolved `AccountAuthSpec` (`spec.launch_env` — the
+  vendor-blind capability path, byte-identical to what the launcher emits), and
+  **persists a typed `RotationHandoff`** keyed by session (`_write_rotation_handoff` in
+  `cli.py`). This is all the rewake event itself can reach: it cannot change the
+  relaunch's env, so it records the decision durably.
+- **APPLY half — the SessionStart applier (at the relaunch boundary).** `dos hook
+  session-start` reads the pending handoff and, when `CLAUDE_ENV_FILE` is present,
+  appends the seat's env there and clears the handoff (apply-once). It surfaces the
+  rotation in the orientation digest. The applier consumes the handoff **only** on a
+  successful env-file write, so with no channel present it stays pending for the next
+  env-capable start rather than being silently dropped.
+- **The residual is the harness's, named not waved off.** Whether an asyncRewake fires
+  a fresh SessionStart is a harness detail DOS does not assume. If it does, the rotation
+  applies on the rewake; if it does not, it applies at the next genuine session start
+  that exposes `CLAUDE_ENV_FILE`. Either way the rotation is **computed + recorded the
+  instant the wall is seen, and applied at the first env-capable boundary** — never lost.
+  A direct env channel on the rewake event proper would collapse the two phases into one;
+  that is the only piece still outside this repo.
 
 ## 5. The in-progress Claude items (status)
 
@@ -145,23 +167,40 @@ this work was **"Python now, queue the Go port"**: ship the four threads as smal
 green Python increments in the driver tier, and queue the port of the switcher's
 **pure ranking core** (`pick_account` / `allocate_seats` / `serving_pool` — the
 Hamilton apportionment + headroom weighting + the serving/walled classification) to
-Go behind the parity harness, on the same PORT → SOAK → FLIP ratchet, when the TP
-tiers reach it. The auth glue (env/token/enroll), the ledger I/O, and the hook wiring
-are genuine interconnects and stay Python (docs/385 §5 seam #4). This doc is the
-recorded reason the seam list (docs/385 §8) asks for.
+Go behind the parity harness, on the same PORT → SOAK → FLIP ratchet. The auth glue
+(env/token/enroll), the ledger I/O, and the hook wiring are genuine interconnects and
+stay Python (docs/385 §5 seam #4). This doc is the recorded reason the seam list
+(docs/385 §8) asks for.
 
-## 7. What's queued (so nothing is stranded)
+**Landed (2026-06-17): the pure ranking core is now Go.** `go/internal/account` ports
+`account_state` (the classification), `pick_account`, `serving_pool`, `allocate_seats`,
+and `pick_account_spread` — pure, stdlib-only, every fact injected. The port is pinned
+by a value-exact differential corpus (`go/internal/account/parity`) generated from the
+**real** Python switcher (temp config dirs + an injected probe, so the vendored copy is
+untouched — no re-vendor): the Go `TestParityCorpus` asserts `go == corpus`, the Python
+`tests/test_go_account_parity.py` asserts `python == corpus`. Because the core is PURE
+and fully corpus-covered (no live-shadow drift a soak window guards against), the FLIP
+followed the PORT directly: `native_canonical` now records `account_pick` /
+`serving_pool` / `allocate_seats` as Go-canonical (phase `386`), surfaced on `dos doctor`.
+Python survives as the runtime + corpus-pinned shadow; moving the runtime to call Go is
+the later I/O-orchestration step (docs/385 §4.3), not this flip.
 
-1. **Default account** — a roster `default: true` marker, surfaced in `dos accounts
-   list` and resolvable via a `dos accounts default` read; a small, additive,
-   non-invasive increment (does not change the serving-pool ranking).
-2. **`dos accounts env --agent-kind` / per-account `agent_kind`** — thread the
-   resolved spec through the CLI so `dos accounts env` emits the right per-agent env.
-3. **Rotate-on-wall apply** — gated on the harness asyncRewake env-override channel
-   (§4); computed + recorded until then.
-4. **Go port of the pure ranking core** — queued behind the docs/385 TP ratchet (§6).
+## 7. The threads (status — one still queued)
+
+All but the last are now landed (the git ancestry is the `dos verify` horizon):
+
+1. **Default account** — LANDED: a roster `default: true` marker, surfaced in `dos
+   accounts list` and resolvable via `dos accounts default` (does not change the
+   serving-pool ranking).
+2. **`dos accounts env --agent-kind` / per-account `agent_kind`** — LANDED: the resolved
+   spec is threaded through `dos accounts env` so it emits the right per-agent env.
+3. **Rotate-on-wall apply** — LANDED (§4): the two-phase env-override handoff
+   (`rotation_handoff` WRITE on StopFailure, the SessionStart applier on relaunch). The
+   only residual is the harness's — an env channel on the rewake event itself (§4).
+4. **Go port of the pure ranking core** — LANDED + FLIPPED (§6): `go/internal/account`
+   + the value-exact parity corpus; `native_canonical` records it Go-canonical.
 5. **The one batched re-vendor** of the public-led settings block into the canonical
-   copy (docs/380 note).
+   copy (docs/380 note) — still queued (the only remaining thread).
 
 ## References
 

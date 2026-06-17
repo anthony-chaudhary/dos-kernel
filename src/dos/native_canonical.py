@@ -80,6 +80,18 @@ _FLIPPED: tuple[TruthPointer, ...] = (
     TruthPointer("claim_extract", "go", "TP1", ("docs/125",), "python-fallback"),
     TruthPointer("dialect", "go", "TP1", ("docs/271",), "python-fallback"),
     TruthPointer("proc_liveness", "go", "TP1", ("docs/125",), "python-fallback"),
+    # docs/386 §6 — the account-switcher's PURE ranking core (the pick / serving-pool
+    # / allocate-seats decider) ported to Go (``go/internal/account``) on the SAME
+    # ratchet, pinned by ``go/internal/account/parity`` (a value-exact corpus driven
+    # from the real Python switcher). It is a DRIVER-tier decider (CLAUDE.md layer 4),
+    # not one of the §4 kernel cores, so it carries its own phase label (``386``), not
+    # the hook cluster's ``TP1``. Its Python copy survives as the runtime + the
+    # corpus-pinned shadow (no Go runtime delegation yet — that is the later
+    # I/O-orchestration step, docs/385 §4.3); the flip here is the SPEC pointer + the
+    # parity pin, the same shape every TP1 flip took.
+    TruthPointer("account_pick", "go", "386", ("docs/386",), "python-fallback"),
+    TruthPointer("serving_pool", "go", "386", ("docs/386",), "python-fallback"),
+    TruthPointer("allocate_seats", "go", "386", ("docs/386",), "python-fallback"),
 )
 
 
