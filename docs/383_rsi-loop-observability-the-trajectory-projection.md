@@ -1,12 +1,15 @@
 # docs/383 — RSI loop observability: the trajectory projection
 
-> **Status:** 🚧 in progress — Phase 1 (the trajectory projection + the `dos observe
-> --loops` surface) ships here; Phases 2–3 (the correlation wiring on `dos improve` /
-> `enforce-tune`, and arming the loops to emit by default) follow. Built entirely on
-> shipped machinery — the verdict journal ([docs/262](262_the-verdict-journal-observability-as-a-first-class-surface.md)),
-> the `improve` keep-gate ([docs/280](280_the-self-improving-work-loop-the-kernel-adjudicates-its-own-improvement.md)), and the
-> read-only-projection discipline `observe` / `dispatch_top` already prove. **No new
-> kernel mechanism.**
+> **Status:** ✅ Phases 1–3 shipped — the trajectory projection + `dos observe
+> --loops`, the correlation wiring on `dos improve` / `enforce-tune`, and the loop
+> skills arming `--observe` per cycle. **Phase 4 (the live screen + the shape) ships
+> here:** a `--watch` live refresh and a metric **sparkline** so an operator can leave
+> `dos observe --loops` open in a side terminal and read whether the loop is still
+> *climbing* at a glance, not just its endpoints. Built entirely on shipped machinery —
+> the verdict journal ([docs/262](262_the-verdict-journal-observability-as-a-first-class-surface.md)),
+> the `improve` keep-gate ([docs/280](280_the-self-improving-work-loop-the-kernel-adjudicates-its-own-improvement.md)), the
+> read-only-projection discipline `observe` / `dispatch_top`, and the `--watch`/`--max-ticks`
+> cadence `dos loop` / `dos watch` already prove. **No new kernel mechanism.**
 >
 > Origin: operator goal 2026-06-16 — *"make long-running, always-on RSI (recursive
 > self-improvement) and similar 10× more observable to DOS and human operators."*
@@ -80,6 +83,31 @@ verb-census's anti-sprawl direction (issue #20). Plain-text floor always availab
   skills to arm `--observe` and pass `--run-id`/`--subject` per cycle, and to end with
   a `dos observe --loops` "watch it" line. The loop becomes observable *while it runs*,
   not only in its post-mortem.
+
+## What ships — Phase 4 (the live screen + the shape)
+
+Phases 1–3 make the trajectory *exist* and be *correlated*; Phase 4 makes it
+*watchable*. Two additions, both pure-or-read-only, no new kernel mechanism:
+
+- **`dos observe --loops --watch`** — re-read the journal and re-render on a cadence
+  (`--interval SECS`, default 5; `--max-ticks N` bounds it for a script or the suite),
+  clearing the screen each tick on a TTY so the trajectory updates in place. This is the
+  `dos loop` / `dos watch` `--watch`/`--max-ticks` cadence restated for the loop axis —
+  it makes the goal's own instruction literal ("leave `dos observe --loops` open in a
+  side terminal") on a host with no `watch(1)`. Read-only every tick: it folds the
+  verdict stream, takes no lease, mutates nothing. `--watch --json` streams one JSON
+  frame per tick so a dashboard can tail it.
+- **The metric sparkline.** A steady climb, a KEEP/REVERT sawtooth, and a long plateau
+  all read *identically* in a `38→58 (hi 58, +20)` endpoint string — yet "is it still
+  climbing, or flat?" is the plan's headline question, and it is a question about the
+  curve's *shape*. `loop_trace._sparkline(metric_curve(t))` renders the per-iteration
+  `work` series as block glyphs (e.g. `▁▂▂▅▅█` — the two plateaus are the REVERTed
+  cycles), on the summary context line and as a `curve …` line in the per-loop view.
+  A flat run renders one mid-height glyph per point (never a manufactured slope); a run
+  longer than the width cap is bucket-averaged so the whole shape survives. The series
+  is also exposed as `work_curve` on the `--json` surface for a dashboard's own render.
+  Built from the env-measured `work` counts only — the `narrated` boast never enters it
+  (docs/138).
 
 ## Litmus
 

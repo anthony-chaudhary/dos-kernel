@@ -8083,29 +8083,59 @@ def _cmd_observe_loops(args: argparse.Namespace, *, run: str) -> int:
     cfg = _config.active()
     max_reverts = getattr(getattr(cfg, "improve", None), "max_consecutive_reverts",
                           _lt.DEFAULT_MAX_REVERTS) or _lt.DEFAULT_MAX_REVERTS
-    now = _dt.datetime.now(_dt.timezone.utc)
-    raw = _vj.read_all()
-    corrupt = _vj.count_corrupt(raw)
-    events = [
-        _vj.VerdictEvent.from_record(rec) for rec in raw if rec.get("op") != "_CORRUPT"
-    ]
-    trajectories = _lt.trajectories_from_events(events, now=now, max_reverts=max_reverts)
-    if run:
-        trajectories = [t for t in trajectories if t.run_id == run]
 
-    if args.json:
-        out = {"loops": [t.to_dict() for t in trajectories], "corrupt": corrupt}
-        print(json.dumps(out, indent=2, default=str))
+    def _render_once() -> int:
+        # The clock is re-read each render so a --watch frame's liveness band is
+        # honest to the moment it drew; the fold stays pure (now injected, docs/383).
+        now = _dt.datetime.now(_dt.timezone.utc)
+        raw = _vj.read_all()
+        corrupt = _vj.count_corrupt(raw)
+        events = [
+            _vj.VerdictEvent.from_record(rec) for rec in raw if rec.get("op") != "_CORRUPT"
+        ]
+        trajectories = _lt.trajectories_from_events(events, now=now, max_reverts=max_reverts)
+        if run:
+            trajectories = [t for t in trajectories if t.run_id == run]
+        if args.json:
+            out = {"loops": [t.to_dict() for t in trajectories], "corrupt": corrupt}
+            print(json.dumps(out, indent=2, default=str))
+            return 1 if corrupt else 0
+        if run:
+            if not trajectories:
+                print(f"# loop {run}\n  (no improve verdicts recorded for this run-id)")
+                return 0
+            print(_lt.render_trajectory_text(trajectories[0]))
+        else:
+            print(_lt.render_loops_text(trajectories))
         return 1 if corrupt else 0
 
-    if run:
-        if not trajectories:
-            print(f"# loop {run}\n  (no improve verdicts recorded for this run-id)")
-            return 0
-        print(_lt.render_trajectory_text(trajectories[0]))
-    else:
-        print(_lt.render_loops_text(trajectories))
-    return 1 if corrupt else 0
+    # The default: one render. --watch (unbounded) / --max-ticks N (bounded) re-read
+    # the journal + re-render on a cadence — the `cmd_loop`/`watch` discipline — so an
+    # operator can "leave dos observe --loops open in a side terminal" (the goal) and
+    # watch the trajectory update in place, on a host with no watch(1). Read-only every
+    # tick: it folds the verdict stream, takes no lease, mutates nothing.
+    watch = bool(getattr(args, "watch", False))
+    max_ticks = getattr(args, "max_ticks", None)
+    if not watch and max_ticks is None:
+        return _render_once()
+
+    interval = float(getattr(args, "interval", 5.0) or 0.0)
+    ticks = 0
+    rc = 0
+    try:
+        while True:
+            # Clear + home the cursor on a TTY so the screen redraws in place; on a
+            # pipe (a test, a tee) we emit plain successive frames — byte-stable.
+            if watch and sys.stdout.isatty():
+                sys.stdout.write("\x1b[2J\x1b[H")
+            rc = _render_once()
+            ticks += 1
+            if max_ticks is not None and ticks >= max_ticks:
+                break
+            time.sleep(interval)
+    except KeyboardInterrupt:
+        return 0
+    return rc
 
 
 # ---------------------------------------------------------------------------
@@ -13862,6 +13892,14 @@ def build_parser() -> argparse.ArgumentParser:
                            "TRAJECTORIES (metric curve, breaker distance-to-escalate, "
                            "liveness) — the long-running self-improve/enforce-tune view "
                            "(docs/383); add --run <RID> for one loop's full curve")
+    pobs.add_argument("--watch", action="store_true",
+                      help="with --loops: re-render the trajectory screen on a cadence "
+                           "(clears the screen each tick on a TTY) — the live "
+                           "side-terminal view; Ctrl-C to stop (docs/383)")
+    pobs.add_argument("--interval", type=float, default=5.0, metavar="SECS",
+                      help="seconds between --watch refreshes (default 5)")
+    pobs.add_argument("--max-ticks", dest="max_ticks", type=int, default=None, metavar="N",
+                      help="with --watch/--loops: stop after N refreshes (default: unbounded)")
     pobs.add_argument("--json", action="store_true",
                       help="machine-readable {rollup, events} (the trajectory-audit's source)")
     pobs.set_defaults(func=cmd_observe)

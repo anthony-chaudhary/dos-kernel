@@ -362,3 +362,136 @@ def test_improve_without_observe_records_nothing(journal):
         "--baseline-work", "3", "--run-id", "RID-quiet",
     ])
     assert [e for e in vj.read_events() if e.syscall == "improve"] == []
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — the metric sparkline (the trajectory's SHAPE, not just endpoints).
+# ---------------------------------------------------------------------------
+
+
+def test_sparkline_climbing_series_ascends():
+    """A monotonic rise renders low→high glyphs: first is the floor, last the peak."""
+    s = lt._sparkline([0, 1, 2, 3, 4, 5, 6, 7])
+    assert len(s) == 8
+    assert s[0] == lt._SPARK_GLYPHS[0]    # the min maps to the lowest block
+    assert s[-1] == lt._SPARK_GLYPHS[-1]  # the max maps to the tallest block
+    # strictly non-decreasing glyph heights across a strictly rising series
+    idx = [lt._SPARK_GLYPHS.index(c) for c in s]
+    assert idx == sorted(idx)
+
+
+def test_sparkline_flat_series_is_one_height_not_a_ramp():
+    """All-equal values must NOT manufacture a slope — every glyph the same mid block."""
+    s = lt._sparkline([42, 42, 42, 42])
+    assert s == lt._SPARK_GLYPHS[len(lt._SPARK_GLYPHS) // 2] * 4
+
+
+def test_sparkline_empty_is_blank():
+    assert lt._sparkline([]) == ""
+
+
+def test_sparkline_downsamples_a_long_run_to_the_width_cap():
+    """A run longer than the cap is bucket-averaged so the whole shape still fits."""
+    s = lt._sparkline(list(range(200)), width=20)
+    assert len(s) == 20
+    # still a rising shape after compression
+    assert s[0] == lt._SPARK_GLYPHS[0]
+    assert s[-1] == lt._SPARK_GLYPHS[-1]
+
+
+def test_metric_curve_is_the_per_iteration_work_skipping_none():
+    evs = [
+        _ev("KEEP", work=40, baseline=38, ts="2026-06-16T12:00:00Z", seq=1),
+        VerdictEvent(syscall="improve", verdict="REVERT", run_id="RID-aaa",
+                     ts="2026-06-16T12:05:00Z", seq=2, detail={}),  # no metric → skipped
+        _ev("KEEP", work=44, baseline=40, ts="2026-06-16T12:10:00Z", seq=3),
+    ]
+    [t] = _fold(evs)
+    assert lt.metric_curve(t) == [40, 44]
+
+
+def test_render_summary_shows_a_sparkline_on_the_context_line():
+    evs = [
+        _ev("KEEP", work=41, baseline=40, ts="2026-06-16T12:00:00Z", seq=1, lane="src"),
+        _ev("KEEP", work=48, baseline=41, ts="2026-06-16T12:20:00Z", seq=2, lane="src"),
+    ]
+    out = lt.render_loops_text(_fold(evs))
+    assert any(g in out for g in lt._SPARK_GLYPHS)  # the shape is on the screen
+
+
+def test_render_trajectory_has_a_curve_line():
+    evs = [
+        _ev("KEEP", work=41, baseline=40, ts="2026-06-16T12:00:00Z", seq=1),
+        _ev("KEEP", work=48, baseline=41, ts="2026-06-16T12:20:00Z", seq=2),
+    ]
+    [t] = _fold(evs)
+    out = lt.render_trajectory_text(t)
+    assert "curve " in out
+    assert "(2 pt)" in out
+
+
+def test_to_dict_carries_work_curve():
+    evs = [
+        _ev("KEEP", work=40, baseline=38, ts="2026-06-16T12:00:00Z", seq=1),
+        _ev("KEEP", work=44, baseline=40, ts="2026-06-16T12:10:00Z", seq=2),
+    ]
+    [t] = _fold(evs)
+    assert t.to_dict()["work_curve"] == [40, 44]
+
+
+def test_sparkline_carries_no_narration():
+    """The shape is built from env-measured `work` only — never the boast string."""
+    evs = [
+        _ev("KEEP", work=1, baseline=0, narrated="BEST EVER, ship it", seq=1),
+        _ev("KEEP", work=9, baseline=1, narrated="BEST EVER, ship it", seq=2,
+            ts="2026-06-16T12:10:00Z"),
+    ]
+    [t] = _fold(evs)
+    assert "BEST EVER" not in lt.render_loops_text([t])
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — the live --watch screen (bounded by --max-ticks for the suite).
+# ---------------------------------------------------------------------------
+
+
+def test_cli_observe_loops_watch_renders_each_tick(journal, capsys):
+    """--watch --max-ticks N re-reads + re-renders N times (the cmd_loop cadence)."""
+    from dos import cli
+    record(_ev("KEEP", run_id="RID-watch", work=50, baseline=40,
+               ts="2026-06-16T12:00:00Z", lane="src"))
+    rc = cli.main(["observe", "--loops", "--watch", "--max-ticks", "3", "--interval", "0"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert out.count("RID-watch") == 3  # one frame per tick
+
+
+def test_cli_observe_loops_watch_json_streams_frames(journal, capsys):
+    """--watch --json emits one JSON object per tick — a dashboard can tail it."""
+    import json
+    from dos import cli
+    record(_ev("KEEP", run_id="RID-stream", work=50, baseline=40,
+               ts="2026-06-16T12:00:00Z"))
+    rc = cli.main(["observe", "--loops", "--watch", "--json",
+                   "--max-ticks", "2", "--interval", "0"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    frames = [json.loads(line) for line in _split_json_objects(out)]
+    assert len(frames) == 2
+    assert all(f["loops"][0]["run_id"] == "RID-stream" for f in frames)
+
+
+def _split_json_objects(text: str) -> list[str]:
+    """Split a stream of concatenated indented JSON objects (one per --watch frame)."""
+    objs, depth, start = [], 0, None
+    for i, ch in enumerate(text):
+        if ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0 and start is not None:
+                objs.append(text[start:i + 1])
+                start = None
+    return objs

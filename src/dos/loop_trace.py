@@ -288,6 +288,9 @@ class LoopTrajectory:
             "latest_work": self.latest_work,
             "high_water": self.high_water,
             "net_gain": self.net_gain,
+            # the per-iteration metric series — the shape a dashboard renders its own
+            # sparkline from (the text screen renders `_sparkline(metric_curve)`).
+            "work_curve": [it.work for it in self.iterations if it.work is not None],
             "current_reverts": self.current_reverts,
             "max_reverts": self.max_reverts,
             "distance_to_escalate": self.distance_to_escalate,
@@ -438,6 +441,60 @@ def _with_lane(traj: LoopTrajectory, lane: str) -> LoopTrajectory:
 
 _WIDTH = 78
 
+# The eight block glyphs for the inline metric sparkline — the trajectory's SHAPE at
+# a glance. A steady climb, a sawtooth (KEEP/REVERT churn), and a long plateau all
+# read identically in a "40→58 (hi 58, +18)" endpoint string; the sparkline is what
+# tells them apart. The plan's headline question — "is it still climbing, or flat?" —
+# is a question about the curve's shape, not its endpoints (docs/383). Pure ASCII-art
+# over the env-measured `work` values; carries no narration.
+_SPARK_GLYPHS = "▁▂▃▄▅▆▇█"
+_SPARK_WIDTH = 32  # cap the inline sparkline; a longer run is bucket-averaged to fit
+
+
+def metric_curve(t: LoopTrajectory) -> list[int]:
+    """The per-iteration measured `work` values in order — the trajectory's shape.
+
+    The bytes the sparkline renders and the `--json` `work_curve` exposes: each
+    iteration's env-measured metric, skipping the None-metric fossils (pre-#381 events
+    with no `evidence.work`). PURE — the kernel's own counts, never the narration."""
+    return [it.work for it in t.iterations if it.work is not None]
+
+
+def _downsample(values: list[int], width: int) -> list[int]:
+    """Compress a series to at most ``width`` points by averaging contiguous buckets.
+
+    Preserves the WHOLE shape (a 200-cycle sawtooth still reads as a sawtooth), unlike
+    a tail crop that would hide the early run. PURE; integer-averages each bucket."""
+    n = len(values)
+    if n <= width or width <= 0:
+        return values
+    out: list[int] = []
+    for i in range(width):
+        lo = i * n // width
+        hi = (i + 1) * n // width
+        chunk = values[lo:hi] or [values[min(lo, n - 1)]]
+        out.append(sum(chunk) // len(chunk))
+    return out
+
+
+def _sparkline(values: list[int], *, width: int = _SPARK_WIDTH) -> str:
+    """Render an int series as block glyphs normalized across its own min..max.
+
+    A flat series (all equal, or a single point) renders as one mid-height glyph per
+    point — never a fake ramp. An empty series → "" (no curve to show). A series longer
+    than ``width`` is bucket-averaged first, so the shape survives the width cap. PURE —
+    no I/O, no clock; the `observe`/`dispatch_top` pure-render discipline."""
+    nums = [v for v in values if v is not None]
+    if not nums:
+        return ""
+    nums = _downsample(nums, width)
+    lo, hi = min(nums), max(nums)
+    if hi == lo:  # a flat run: every point the same height, never a manufactured slope
+        return _SPARK_GLYPHS[len(_SPARK_GLYPHS) // 2] * len(nums)
+    span = hi - lo
+    last = len(_SPARK_GLYPHS) - 1
+    return "".join(_SPARK_GLYPHS[(v - lo) * last // span] for v in nums)
+
 
 def _metric_str(t: LoopTrajectory) -> str:
     """`40→58 (hi 58, +18)` — the metric curve, or "" when no metric was recorded."""
@@ -498,6 +555,9 @@ def render_loops_text(
         ctx_bits: list[str] = []
         if t.lane:
             ctx_bits.append(f"lane={t.lane}")
+        spark = _sparkline(metric_curve(t))
+        if spark:
+            ctx_bits.append(spark)
         last = t.iterations[-1] if t.iterations else None
         if last is not None:
             ctx_bits.append(_iteration_note(last))
@@ -549,6 +609,10 @@ def render_trajectory_text(t: LoopTrajectory) -> str:
     )
     if t.lane:
         out.append(f"  lane={t.lane}")
+    curve = metric_curve(t)
+    spark = _sparkline(curve)
+    if spark:
+        out.append(f"  curve {spark}  ({len(curve)} pt)")
     out.append("")
     if not t.iterations:
         out.append("  (no iterations)")
