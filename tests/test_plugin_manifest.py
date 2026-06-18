@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -211,6 +212,58 @@ def test_stopfailure_rewake_and_heal_are_wired():
     stop_cmds = _hook_commands(hooks, "Stop")
     assert any("hook stop-failure" in c and "--success" in c for c in stop_cmds), \
         "Stop must also run `hook stop-failure --success` to heal the breaker"
+
+
+def test_hook_commands_are_cold_safe_for_codex_plugin_shell(tmp_path):
+    """The plugin may be loaded by Codex, where `CLAUDE_PLUGIN_ROOT` is absent and
+    the hook shell can be WSL bash with no `python` on PATH. In that shape the
+    SessionStart hook used to exit non-zero before the agent saw the first turn.
+
+    Pin both halves: the command carries the Codex/Windows fallbacks, and on a
+    POSIX bash with an empty PATH every bundled hook command exits 0 and emits
+    nothing instead of failing the session.
+    """
+    import os
+    import pytest
+
+    hooks = _load(PLUGIN_HOOKS)
+    all_cmds = [
+        h["command"]
+        for groups in hooks["hooks"].values()
+        for group in groups
+        for h in group.get("hooks", [])
+        if isinstance(h.get("command"), str)
+    ]
+    assert all_cmds
+    session_cmd = _hook_commands(hooks, "SessionStart")[0]
+    assert "CODEX_PLUGIN_ROOT" in session_cmd
+    assert "powershell.exe" in session_cmd
+    assert session_cmd.endswith("|| true")
+
+    if os.name == "nt":
+        pytest.skip("the executable empty-PATH check is POSIX-bash only")
+    bash = shutil.which("bash")
+    if not bash:
+        pytest.skip("bash not available")
+
+    env = {
+        "PATH": str(tmp_path),
+        "HOME": str(tmp_path),
+        "CLAUDE_PLUGIN_ROOT": "",
+        "CODEX_PLUGIN_ROOT": "",
+    }
+    for cmd in all_cmds:
+        proc = subprocess.run(
+            [bash, "-lc", cmd],
+            cwd=tmp_path,
+            input="{}",
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        assert proc.returncode == 0, f"hook command is not fail-safe: {cmd}\n{proc.stderr}"
+        assert proc.stdout == ""
+        assert proc.stderr == ""
 
 
 def test_hook_verbs_are_real_cli_subcommands():

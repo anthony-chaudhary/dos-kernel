@@ -8899,6 +8899,30 @@ def cmd_memory(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 # doctor  (report the active workspace + taxonomy)
 # ---------------------------------------------------------------------------
+def _plugin_managed_hook_status(spec: "object") -> tuple[bool, list[str]]:
+    """Read a host's optional global plugin-manager hook state. READ-ONLY.
+
+    Workspace config is still the primary signal. This is the fallback for runtimes
+    whose plugin manager installs hooks globally, so `doctor` does not report a
+    false NOT_WIRED when the plugin is already enabled outside the repo.
+    """
+    from dos import hook_install as _hi
+
+    parts = tuple(getattr(spec, "plugin_config_home", ()) or ())
+    if not parts:
+        return False, []
+    path = Path.home().joinpath(*parts)
+    if not path.exists():
+        return False, []
+    try:
+        if path.suffix.lower() == ".toml":
+            return True, _hi.wired_events_plugin_toml(
+                path.read_text(encoding="utf-8"), spec)
+    except Exception:
+        return True, []
+    return True, []
+
+
 def _runtime_hook_status(root: Path) -> list[tuple[str, list[str]]]:
     """For each known runtime, which DOS hook events are wired in `root`. READ-ONLY.
 
@@ -8912,7 +8936,8 @@ def _runtime_hook_status(root: Path) -> list[tuple[str, list[str]]]:
             spec = _hi.host_spec(name)
             path = root.joinpath(*spec.config_path)
             if not path.exists():
-                out.append((name, []))
+                _exists, evs = _plugin_managed_hook_status(spec)
+                out.append((name, evs))
                 continue
             if spec.fmt is _hi.ConfigFormat.TOML:
                 evs = _hi.wired_events_toml(path.read_text(encoding="utf-8"), spec)
@@ -8922,6 +8947,8 @@ def _runtime_hook_status(root: Path) -> list[tuple[str, list[str]]]:
                     yaml.safe_load(path.read_text(encoding="utf-8-sig")) or {}, spec)
             else:
                 evs = _hi.wired_events_json(json.loads(path.read_text(encoding="utf-8")), spec)
+            if not evs:
+                _exists, evs = _plugin_managed_hook_status(spec)
             out.append((name, evs))
         except Exception:
             out.append((name, []))
@@ -8947,6 +8974,7 @@ def _wiring_drift_rows(root: Path) -> list[dict]:
             expected = [ev for ev, _ in spec.events_and_commands()]
             exists = path.exists()
             wired: list[str] = []
+            source = "workspace"
             if exists:
                 try:
                     if spec.fmt is _hi.ConfigFormat.TOML:
@@ -8962,6 +8990,12 @@ def _wiring_drift_rows(root: Path) -> list[dict]:
                     # A present-but-unreadable config: no events resolved → the
                     # classifier reports it relative to `expected` (fail toward flag).
                     wired = []
+            if not wired:
+                plugin_exists, plugin_wired = _plugin_managed_hook_status(spec)
+                if plugin_exists:
+                    exists = True
+                    wired = plugin_wired
+                    source = "plugin"
             verdict = _hi.classify_wiring_drift(expected, wired, config_exists=exists)
             rows.append({
                 "host": name,
@@ -8970,6 +9004,7 @@ def _wiring_drift_rows(root: Path) -> list[dict]:
                 "exists": exists,
                 "expected": expected,
                 "wired": list(wired),
+                "source": source,
                 "regression": _hi.wiring_drift_is_regression(verdict),
             })
         except Exception:
@@ -9612,6 +9647,8 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             mark = "DRIFTED" if r["regression"] else r["verdict"]
             detail = (f"{len(r['wired'])}/{len(r['expected'])} events"
                       if r["exists"] else "no config")
+            if r.get("source") == "plugin":
+                detail = f"plugin-managed, {detail}"
             print(f"  {r['host']:<16} {mark:<10} {r['config_path']}  ({detail})")
         if wiring_regressed:
             drifted = [r["host"] for r in wiring_rows if r["regression"]]

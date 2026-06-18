@@ -22,6 +22,7 @@ import json
 import os
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -135,6 +136,25 @@ def test_auto_env_marker_detects_the_host_around_it(tmp_path: Path):
     assert "claude-code" in proc.stdout
     cfg = _config(dest, "claude-code")
     assert _commands(cfg, "Stop") == ["dos hook stop --workspace ."]
+
+
+def test_auto_env_marker_detects_codex_before_config_dir_exists(tmp_path: Path):
+    """A fresh repo launched from Codex has no `.codex/` directory yet. The Codex
+    process env is still enough for `--hooks auto` to select the Codex host and
+    create the workspace config."""
+    dest = tmp_path / "svc"
+    dest.mkdir()
+    proc = _cli("init", "--hooks", "auto", str(dest),
+                env_extra={"CODEX_THREAD_ID": "thread-for-test"})
+    assert proc.returncode == 0, proc.stderr
+    assert "codex" in proc.stdout
+    cfg_path = dest / ".codex" / "config.toml"
+    parsed = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
+    assert [
+        h["command"]
+        for group in parsed["hooks"]["Stop"]
+        for h in group["hooks"]
+    ] == ["dos hook stop --workspace . --dialect codex"]
 
 
 # ---------------------------------------------------------------------------

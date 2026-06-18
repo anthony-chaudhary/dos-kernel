@@ -6,7 +6,7 @@
           {
             "type": "command",
             "shell": "bash",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/dos-hook\" pretool --workspace . || python -m dos.cli hook pretool --workspace ."
+            "command": "root=\"${CLAUDE_PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT:-}}\"; if [ -n \"$root\" ]; then \"$root/bin/dos-hook\" pretool --workspace . 2>/dev/null; rc=$?; [ \"$rc\" -eq 0 ] && exit 0; fi; python -m dos.cli hook pretool --workspace . 2>/dev/null || python3 -m dos.cli hook pretool --workspace . 2>/dev/null || powershell.exe -NoProfile -ExecutionPolicy Bypass -Command 'python -m dos.cli hook pretool --workspace .' 2>/dev/null || true"
           }
         ]
       }
@@ -18,7 +18,7 @@
           {
             "type": "command",
             "shell": "bash",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/dos-hook\" posttool --workspace . || python -m dos.cli hook posttool --workspace ."
+            "command": "root=\"${CLAUDE_PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT:-}}\"; if [ -n \"$root\" ]; then \"$root/bin/dos-hook\" posttool --workspace . 2>/dev/null; rc=$?; [ \"$rc\" -eq 0 ] && exit 0; fi; python -m dos.cli hook posttool --workspace . 2>/dev/null || python3 -m dos.cli hook posttool --workspace . 2>/dev/null || powershell.exe -NoProfile -ExecutionPolicy Bypass -Command 'python -m dos.cli hook posttool --workspace .' 2>/dev/null || true"
           }
         ]
       }
@@ -29,12 +29,12 @@
           {
             "type": "command",
             "shell": "bash",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/dos-hook\" stop --workspace . || python -m dos.cli hook stop --workspace ."
+            "command": "root=\"${CLAUDE_PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT:-}}\"; if [ -n \"$root\" ]; then \"$root/bin/dos-hook\" stop --workspace . 2>/dev/null; rc=$?; [ \"$rc\" -eq 0 ] && exit 0; fi; python -m dos.cli hook stop --workspace . 2>/dev/null || python3 -m dos.cli hook stop --workspace . 2>/dev/null || powershell.exe -NoProfile -ExecutionPolicy Bypass -Command 'python -m dos.cli hook stop --workspace .' 2>/dev/null || true"
           },
           {
             "type": "command",
             "shell": "bash",
-            "command": "python -m dos.cli hook stop-failure --success --workspace . 2>/dev/null || true"
+            "command": "python -m dos.cli hook stop-failure --success --workspace . 2>/dev/null || python3 -m dos.cli hook stop-failure --success --workspace . 2>/dev/null || powershell.exe -NoProfile -ExecutionPolicy Bypass -Command 'python -m dos.cli hook stop-failure --success --workspace .' 2>/dev/null || true"
           }
         ]
       }
@@ -49,7 +49,7 @@
             "rewakeMessage": "Session resumed after an API failure (rate limit / overload). DOS breaker state:",
             "rewakeSummary": "API-failure backoff retry",
             "timeout": 320,
-            "command": "python -m dos.cli hook stop-failure --workspace ."
+            "command": "python -m dos.cli hook stop-failure --workspace . 2>/dev/null || python3 -m dos.cli hook stop-failure --workspace . 2>/dev/null || powershell.exe -NoProfile -ExecutionPolicy Bypass -Command 'python -m dos.cli hook stop-failure --workspace .' 2>/dev/null || true"
           }
         ]
       }
@@ -60,7 +60,7 @@
           {
             "type": "command",
             "shell": "bash",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/dos-hook\" stop --workspace . || python -m dos.cli hook stop --workspace ."
+            "command": "root=\"${CLAUDE_PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT:-}}\"; if [ -n \"$root\" ]; then \"$root/bin/dos-hook\" stop --workspace . 2>/dev/null; rc=$?; [ \"$rc\" -eq 0 ] && exit 0; fi; python -m dos.cli hook stop --workspace . 2>/dev/null || python3 -m dos.cli hook stop --workspace . 2>/dev/null || powershell.exe -NoProfile -ExecutionPolicy Bypass -Command 'python -m dos.cli hook stop --workspace .' 2>/dev/null || true"
           }
         ]
       }
@@ -71,7 +71,7 @@
           {
             "type": "command",
             "shell": "bash",
-            "command": "python -m dos.cli hook marker --reset --workspace ."
+            "command": "python -m dos.cli hook marker --reset --workspace . 2>/dev/null || python3 -m dos.cli hook marker --reset --workspace . 2>/dev/null || powershell.exe -NoProfile -ExecutionPolicy Bypass -Command 'python -m dos.cli hook marker --reset --workspace .' 2>/dev/null || true"
           }
         ]
       }
@@ -82,7 +82,7 @@
           {
             "type": "command",
             "shell": "bash",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/dos-hook\" session-start --workspace . || python -m dos.cli hook session-start --workspace ."
+            "command": "root=\"${CLAUDE_PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT:-}}\"; if [ -n \"$root\" ]; then \"$root/bin/dos-hook\" session-start --workspace . 2>/dev/null; rc=$?; [ \"$rc\" -eq 0 ] && exit 0; fi; python -m dos.cli hook session-start --workspace . 2>/dev/null || python3 -m dos.cli hook session-start --workspace . 2>/dev/null || powershell.exe -NoProfile -ExecutionPolicy Bypass -Command 'python -m dos.cli hook session-start --workspace .' 2>/dev/null || true"
           }
         ]
       }

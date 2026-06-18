@@ -139,6 +139,12 @@ class HostHookSpec:
                      dir yet). Carried as DATA so the detection machinery never
                      compares against a vendor literal; `()` for a host with no
                      verified marker (the config-dir rung covers it).
+    `plugin_id` / `plugin_config_home` / `plugin_event_map` — optional read-only
+                     facts for a host whose plugin manager wires hooks OUTSIDE the
+                     workspace config file. `dos doctor` uses these to avoid a false
+                     "not wired" when a global plugin install already bound DOS.
+                     `plugin_config_home` is a path under `Path.home()`; the map is
+                     `(plugin_event, host_event)` pairs.
     """
 
     host: str
@@ -153,6 +159,9 @@ class HostHookSpec:
     json_version: Optional[int] = None
     note: str = ""
     env_markers: tuple[str, ...] = ()
+    plugin_id: str = ""
+    plugin_config_home: tuple[str, ...] = ()
+    plugin_event_map: tuple[tuple[str, str], ...] = ()
     #: TOML hosts only: the field NAME that carries the event on a FLAT `[[hooks]]`
     #: array-of-tables entry (`"event"` for Kimi CLI, `"type"` for Mistral Vibe), as
     #: opposed to Codex's CC-shaped `[[hooks.EVENT]]` nesting. "" (the default) selects
@@ -661,6 +670,46 @@ def wired_events_yaml(existing: dict, spec: HostHookSpec) -> list[str]:
         entries = hooks.get(event)
         if isinstance(entries, list) and any(_entry_is_dos_command(e) for e in entries):
             found.append(event)
+    return found
+
+
+def wired_events_plugin_toml(existing_text: str, spec: HostHookSpec) -> list[str]:
+    """Which host events a global plugin-manager TOML config proves are wired.
+
+    Some runtimes can install a DOS plugin globally instead of writing this
+    workspace's hook config file. The install facts ride the host `spec` as data:
+    the plugin's id and how the plugin manager names hook events. This parser is
+    deliberately narrow and fail-soft: malformed TOML, a disabled plugin, or a
+    missing hook-state table all return `[]` rather than fabricating wiring.
+    """
+    if not (spec.plugin_id and spec.plugin_event_map and isinstance(existing_text, str)):
+        return []
+    try:
+        import tomllib
+
+        data = tomllib.loads(existing_text)
+    except Exception:
+        return []
+    if not isinstance(data, dict):
+        return []
+    plugins = data.get("plugins")
+    if not isinstance(plugins, dict):
+        return []
+    plugin_cfg = plugins.get(spec.plugin_id)
+    if not isinstance(plugin_cfg, dict) or plugin_cfg.get("enabled") is not True:
+        return []
+    hooks = data.get("hooks")
+    if not isinstance(hooks, dict):
+        return []
+    state = hooks.get("state")
+    if not isinstance(state, dict):
+        return []
+    keys = [k for k in state if isinstance(k, str)]
+    found: list[str] = []
+    for plugin_event, host_event in spec.plugin_event_map:
+        prefix = f"{spec.plugin_id}:hooks/hooks.json:{plugin_event}:"
+        if any(k.startswith(prefix) for k in keys) and host_event not in found:
+            found.append(host_event)
     return found
 
 

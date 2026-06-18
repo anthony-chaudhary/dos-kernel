@@ -364,6 +364,19 @@ def codex_install_spec() -> HostHookSpec:
         note="Codex fires PreToolUse only on its Bash / apply_patch / unified_exec / "
              "mcp handlers (a host coverage limit, tracked upstream) — DOS wires the "
              "right bytes; Codex simply won't call the hook on every tool.",
+        # Codex sets these in the agent process. This lets `dos init --hooks auto .`
+        # select Codex even in a fresh repo before `.codex/` exists.
+        env_markers=("CODEX_THREAD_ID", "CODEX_MANAGED_PACKAGE_ROOT", "CODEX_MANAGED_BY_NPM"),
+        # Codex plugin installs can wire hooks globally in ~/.codex/config.toml,
+        # without a workspace .codex/config.toml. `dos doctor` reads these facts so
+        # a plugin-managed install does not look unwired.
+        plugin_id="dos-kernel@dos",
+        plugin_config_home=(".codex", "config.toml"),
+        plugin_event_map=(
+            ("pre_tool_use", "PreToolUse"),
+            ("post_tool_use", "PostToolUse"),
+            ("stop", "Stop"),
+        ),
     )
 
 

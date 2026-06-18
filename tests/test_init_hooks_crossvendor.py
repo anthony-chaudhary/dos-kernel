@@ -31,8 +31,9 @@ import dos
 from dos import hook_install as hi
 
 
-def _cli(*argv: str) -> subprocess.CompletedProcess:
+def _cli(*argv: str, env_extra: dict | None = None) -> subprocess.CompletedProcess:
     env = {**os.environ, "PYTHONPATH": str(Path(dos.__file__).parents[1])}
+    env.update(env_extra or {})
     return subprocess.run(
         [sys.executable, "-m", "dos.cli", *argv],
         capture_output=True, text=True, env=env,
@@ -762,23 +763,58 @@ def test_doctor_reports_runtime_hook_binding(tmp_path: Path):
     no-op otherwise)."""
     import json as _json
     dest = tmp_path / "svc"
+    home = tmp_path / "empty-home"
+    home.mkdir()
+    env = {"HOME": str(home), "USERPROFILE": str(home)}
     assert _cli("init", str(dest)).returncode == 0
     # Before wiring: text says none wired (with the actionable hint); JSON is all-empty.
-    before = _cli("doctor", "--workspace", str(dest))
+    before = _cli("doctor", "--workspace", str(dest), env_extra=env)
     assert "runtime hooks" in before.stdout
     assert "none wired" in before.stdout and "dos init --hooks" in before.stdout
     # Wire two hosts.
     assert _cli("init", "--hooks", "cursor", str(dest)).returncode == 0
     assert _cli("init", "--hooks", "gemini", str(dest)).returncode == 0
-    after = _cli("doctor", "--workspace", str(dest))
+    after = _cli("doctor", "--workspace", str(dest), env_extra=env)
     assert "cursor (4)" in after.stdout      # 2 PRE + post + stop
     assert "gemini (3)" in after.stdout
     # JSON parity: the wired events are listed per host; un-wired hosts are [].
-    js = _cli("doctor", "--workspace", str(dest), "--json")
+    js = _cli("doctor", "--workspace", str(dest), "--json", env_extra=env)
     rh = _json.loads(js.stdout)["runtime_hooks"]
     assert set(rh["cursor"]) == {"beforeShellExecution", "beforeMCPExecution", "afterFileEdit", "stop"}
     assert set(rh["gemini"]) == {"BeforeTool", "AfterTool", "AfterAgent"}
     assert rh["codex"] == [] and rh["claude-code"] == []
+
+
+def test_doctor_reports_plugin_managed_codex_hooks(tmp_path: Path):
+    """Codex can wire DOS through the global plugin config instead of a workspace
+    `.codex/config.toml`. `doctor` should report that as wired, not as an absent
+    workspace hook block."""
+    import json as _json
+
+    dest = tmp_path / "svc"
+    home = tmp_path / "home"
+    codex_home = home / ".codex"
+    codex_home.mkdir(parents=True)
+    assert _cli("init", str(dest)).returncode == 0
+    (codex_home / "config.toml").write_text(
+        '[plugins."dos-kernel@dos"]\n'
+        'enabled = true\n\n'
+        '[hooks.state]\n'
+        '"dos-kernel@dos:hooks/hooks.json:pre_tool_use:0:0" = { trusted_hash = "sha256:a" }\n'
+        '"dos-kernel@dos:hooks/hooks.json:post_tool_use:0:0" = { trusted_hash = "sha256:b" }\n'
+        '"dos-kernel@dos:hooks/hooks.json:stop:0:0" = { trusted_hash = "sha256:c" }\n',
+        encoding="utf-8",
+    )
+    env = {"HOME": str(home), "USERPROFILE": str(home)}
+    text = _cli("doctor", "--workspace", str(dest), env_extra=env)
+    assert text.returncode == 0, text.stderr
+    assert "codex (3)" in text.stdout
+    wiring = _cli("doctor", "--workspace", str(dest), "--wiring", env_extra=env)
+    assert wiring.returncode == 0, wiring.stderr
+    assert "codex" in wiring.stdout and "plugin-managed, 3/3 events" in wiring.stdout
+    js = _cli("doctor", "--workspace", str(dest), "--json", env_extra=env)
+    rh = _json.loads(js.stdout)["runtime_hooks"]
+    assert set(rh["codex"]) == {"PreToolUse", "PostToolUse", "Stop"}
 
 
 def test_doctor_runtime_hooks_is_read_only(tmp_path: Path):

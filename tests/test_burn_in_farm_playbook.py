@@ -133,9 +133,12 @@ def _attest(claim: str, accept_cmd: str):
 
 def test_honest_soak_claim_confirmed(in_workspace):
     # unit-3 genuinely passed: the acceptance command over the campaign log
-    # succeeds → CONFIRMED, exit 0.
-    rc, receipt = _attest(
-        "soak:unit-3", "grep -q 'PASS unit-3' benches/bench-a/campaign.log")
+    # succeeds → CONFIRMED, exit 0. Use Python here instead of the playbook's
+    # `grep` transcript so the OS-exit witness is portable on Windows.
+    cmd = ("python -c \"from pathlib import Path; import sys; "
+           "sys.exit(0 if 'PASS unit-3' in "
+           "Path('benches/bench-a/campaign.log').read_text(encoding='utf-8') else 1)\"")
+    rc, receipt = _attest("soak:unit-3", cmd)
     assert rc == 0
     assert receipt["verdict"] == "CONFIRMED"
 
