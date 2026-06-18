@@ -127,7 +127,7 @@ boundaries we will not pretend past:
   isn't installed — the witness steps become advisory and the original job still
   runs, so the converted skill never hard-depends on the kernel.
 
-This was dogfooded on this repo's own 18 skills first: the 14 already-grounded
+This was dogfooded on this repo's own skill set first: the already-grounded
 skills came out **all-LEAVE** (the converter doesn't churn a skill that already
 asks a witness), and the sweep surfaced one missing taxonomy row (`CI_GREEN`),
 which was added — the honesty-check loop working as designed.

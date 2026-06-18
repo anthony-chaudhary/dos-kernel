@@ -9580,8 +9580,8 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             _n_skills = len(list(_host_skills.rglob("SKILL.md"))) if _host_skills.is_dir() else 0
             if _n_skills:
                 print(f"workspace skills    {_n_skills}  "
-                      f"(`dos skillify --grade --all` scores how well each grounds "
-                      f"its own claims)")
+                      f"(`dos doctor --check --skill-strict` gates these; "
+                      f"`dos skillify --grade --all` also reports the shipped pack)")
         except Exception:  # noqa: BLE001 — never let the hint break the report
             pass
     # The env-override hazard (docs/75 §6.4): under the `.dos/` layout, a stray

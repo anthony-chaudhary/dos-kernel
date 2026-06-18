@@ -83,7 +83,7 @@ for this tour.
 > ```bash
 > dos init --skills .            # dos.toml + the core skills (next-up/dispatch/loop/replan)
 > dos init --skill dos-promote . # dos.toml + just a named skill (repeatable)
-> dos init --all .               # the full pack (the SKP five + the operator tier)
+> dos init --all .               # dos.toml + the full generic skill pack
 > ```
 >
 > The copies are ordinary files you edit and run (`/dos-dispatch`, `/dos-promote`,

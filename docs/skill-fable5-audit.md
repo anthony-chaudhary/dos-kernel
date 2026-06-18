@@ -70,8 +70,8 @@ internal reasoning as response text.**
 | dos-unstick | clean | No reasoning-emission ask. |
 | dos-promote | clean | No reasoning-emission ask. |
 | dos-class-cycle | clean | No reasoning-emission ask. |
-| dos-goal-fleet (plugin-only) | clean | L118 "the condition is **echoed** into the child's log" echoes *input* text, not reasoning. Step 5 reads a child's *result envelope*, not its reasoning. |
-| dos-skillify (plugin-only) | clean | "the converted skill narrates" + "never *claim* 'I made this skill DOS-aware'" — anti-self-cert doctrine. |
+| dos-goal-fleet | clean | L118 "the condition is **echoed** into the child's log" echoes *input* text, not reasoning. Step 5 reads a child's *result envelope*, not its reasoning. |
+| dos-skillify | clean | "the converted skill narrates" + "never *claim* 'I made this skill DOS-aware'" — anti-self-cert doctrine. |
 
 **One thing to watch (not a trigger today).** Several skills end with a "Report"
 or "Rollup" step (`dos-self-improve` Step 5, `dos-goal-fleet` Step 6,
@@ -104,7 +104,7 @@ prior-model compensation worth measuring a thin-down on).
 | dos-promote | 85 | lean | the `pickable` exit-code table + hold→action map | little. |
 | dos-replan-loop | 88 | lean | the trunk-resolution + release guard (the one host fact) | Step 1/3 entry/re-entry bookkeeping could compress. |
 | dos-replan | 133 | moderate | closure detection via `dos verify` + the 0-2 operator filter | the long Step 5/5b filing discipline duplicates `dos-dispatch`'s issue prose — could cross-link instead of restate. |
-| dos-skillify (plugin-only) | 143 | moderate | the claim-kind taxonomy table + ADD/REPLACE/GUARD/LEAVE | the worked self-test and anti-pattern list are long; the taxonomy is the contract. |
+| dos-skillify | 143 | moderate | the claim-kind taxonomy table + ADD/REPLACE/GUARD/LEAVE | the worked self-test and anti-pattern list are long; the taxonomy is the contract. |
 | dos-supervise-loop | 149 | moderate | the SPAWN/REAP/HOLD/FLAG verdict from `dos loop` | the `--max-concurrency`/docs/283 explanation (L34-42) is dense host-tuning prose; the worked transcript repeats the SELF_MODIFY redirect shown in 4 other skills. |
 | dos-dispatch | 166 | prescriptive | the doctor→arbitrate→gate→ship→archive contract + exit codes | Step 6 lease-release, the long "Out-of-scope findings" 4-step issue ritual, and the worked transcript are scaffolding; the issue ritual is restated near-verbatim in `dos-next-up`/`dos-replan`/`dos-dispatch-loop`. |
 | dos-self-improve | 168 | prescriptive | the propose→verify→measure→keep table + `dos improve` exit codes | "Why this is the honest version of RSI", the RSI-literature aside (L26-30), and the anti-pattern list are explanatory prose around a 4-step contract. |
@@ -112,7 +112,7 @@ prior-model compensation worth measuring a thin-down on).
 | dos-witness-claim | 200 | prescriptive | the terminal-gate → classify → witness → fold contract + the CONFIRMED/REFUTED/UNWITNESSED/NO_CLAIM table | the Python read-back block (L147-175) is duplicated almost verbatim in `dos-goal-gate` Step 2b; one could own it and the other cross-link. |
 | dos-dispatch-loop | 203 | prescriptive | the 7 stop conditions + the kernel loop-decision contract + reconcile exit codes | Step 4's git-hygiene close-out (L141-181) is a long generic-git tutorial; the DOS-repo note (L176-181) is host-specific; the worked transcript repeats shared examples. |
 | dos-goal-gate | 219 | prescriptive | the effect-decomposition + `dos hook stop` + verify exit codes | Step 1a/the two-hooks asides and the Python Step 2b (shared with witness-claim) are long; the contract is ~5 steps under a lot of explanation. |
-| dos-goal-fleet (plugin-only) | 260 | prescriptive | the decompose→arbitrate→wave-launch→witness→rollup contract + the seat-pool gate | the seat-rotation/host-seam prose, the per-instance launch hygiene, and the 6-item anti-pattern list are heavy; longest skill in the pack. |
+| dos-goal-fleet | 260 | prescriptive | the decompose→arbitrate→wave-launch→witness→rollup contract + the seat-pool gate | the seat-rotation/host-seam prose, the per-instance launch hygiene, and the 6-item anti-pattern list are heavy; longest skill in the pack. |
 
 **The cross-cutting over-prescription finding.** The single biggest thinnable
 mass is **repetition across skills**, not any one skill's internal steps:
@@ -158,8 +158,10 @@ ordered safest-first, for whoever runs the `dos-self-improve`-shaped measurement
 
 ## Scope statement
 
-- **Audited:** 14 bundled skills (the 11 named in #172 plus the two plugin-only
-  skills `dos-goal-fleet` and `dos-skillify`, which share the same surface). The
+- **Audited in this report:** 14 shared skills (the 11 named in #172 plus
+  `dos-goal-fleet` and `dos-skillify`, which now live in the generic source
+  pack). The current bundle has grown since this audit; this count is the
+  audited subset. The
   `claude-plugin/skills/<name>/SKILL.md` and `src/dos/skills/<name>/SKILL.md`
   copies of the 14 shared skills are byte-identical, so each finding applies to
   both copies; `dos-stats` and `dos-setup` exist only under `claude-plugin/` and
