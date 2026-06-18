@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "dos": {
-      "command": "python",
-      "args": ["-m", "dos_mcp.server"],
+      "command": "dos-mcp",
+      "args": [],
       "cwd": ".",
       "env": {
         "PYTHONIOENCODING": "utf-8"
