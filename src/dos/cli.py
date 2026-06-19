@@ -4779,6 +4779,8 @@ def cmd_loop(args: argparse.Namespace) -> int:
         overrides["target"] = args.target
     if getattr(args, "max_concurrency", None) is not None:
         overrides["max_concurrency"] = args.max_concurrency
+    if getattr(args, "worker_launch_template", None):
+        overrides["worker_launch_template"] = args.worker_launch_template
     policy = dataclasses.replace(base_policy, **overrides) if overrides else base_policy
     target = policy.target
 
@@ -4808,6 +4810,19 @@ def cmd_loop(args: argparse.Namespace) -> int:
         for p in v.proposed_halt:
             print(f"propose-halt {p.lane}  ({p.reason}) — enact with: "
                   f"dos halt --handle <run> --lane {p.lane}")
+
+    if getattr(args, "enact", False):
+        import importlib
+        _supervisor = importlib.import_module("dos.drivers.supervisor")
+        enact_cfg = dataclasses.replace(cfg, supervise=policy)
+        clock_ms = (lambda: args.now_ms) if args.now_ms is not None else None
+        return _supervisor.run(
+            config=enact_cfg,
+            target=target,
+            interval=args.interval,
+            max_ticks=getattr(args, "max_ticks", None),
+            clock_ms=clock_ms,
+        )
 
     # --now-ms pins the clock; absent ⇒ wall clock, read here at the boundary.
     if args.now_ms is not None:
@@ -13146,11 +13161,22 @@ def build_parser() -> argparse.ArgumentParser:
                           "this run. With this set on a dynamic-claim workspace "
                           "(concurrent=[]), a bare auto-pick handle is synthesised so "
                           "--target above the static disjoint-lane count is reachable")
+    plp.add_argument("--worker-launch-template", default=None, metavar="CMD",
+                     help="one-off override for [supervise].worker_launch_template; "
+                          "must contain {lane}. Used by text emission and by --enact")
     plp.add_argument("--watch", action="store_true",
                      help="re-emit the plan every --interval seconds (Ctrl-C to stop)")
+    plp.add_argument("--enact", action="store_true",
+                     help="run the supervisor driver instead of only emitting the "
+                          "plan: Popen each SPAWN via [supervise].worker_launch_template "
+                          "and scavenge each REAP. Use --max-ticks for a bounded run")
+    plp.add_argument("--max-ticks", type=int, default=None, metavar="N",
+                     help="with --enact, stop after N supervisor ticks (default: run "
+                          "until Ctrl-C)")
     plp.add_argument("--interval", type=float, default=30.0, metavar="SECONDS",
-                     help="--watch re-emit cadence in seconds (default 30; the "
-                          "long-lived supervisor DRIVER uses a much longer one)")
+                     help="--watch re-emit cadence, or --enact driver tick cadence, "
+                          "in seconds (default 30; long-lived supervisors usually "
+                          "use a larger value)")
     plp.add_argument("--now-ms", type=int, default=None, metavar="MS",
                      help="wall-clock epoch-ms (default: now). Injectable for "
                           "deterministic runs/tests, the `dos liveness` idiom")

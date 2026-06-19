@@ -1041,13 +1041,22 @@ sibling. The population policy (target + whether a spinner counts as up +
 whether to reap the dead) comes from `dos.toml [supervise]`; `--target`
 overrides just the target for a one-off run.
 
-EMIT-ONLY at this boundary — exactly like `dos liveness` reports without
-killing a process. `cmd_loop` gathers evidence (replay the lane journal,
-classify each held lease's liveness, read the clock — all HERE, never inside
-the pure `supervise.supervise` verdict), then PRINTS the plan: the worker
-launch command lines for each SPAWN (the emit-and-exit discipline). It NEVER
-`Popen`s a worker and NEVER writes the journal — that is the supervisor
-DRIVER's job (the only layer where subprocess + journal-write + policy live).
+EMIT-ONLY by default — exactly like `dos liveness` reports without killing a
+process. `cmd_loop` gathers evidence (replay the lane journal, classify each
+held lease's liveness, read the clock — all HERE, never inside the pure
+`supervise.supervise` verdict), then PRINTS the plan: the worker launch command
+lines for each SPAWN (the emit-and-exit discipline). It does not `Popen` a
+worker or write the journal unless the operator explicitly passes `--enact`.
+
+`--enact` is the opt-in effect path: it delegates to `dos.drivers.supervisor.run`,
+which Popens each SPAWN through `[supervise].worker_launch_template` and appends
+SCAVENGE for each REAP. `--worker-launch-template CMD` overrides that launcher for
+one run (it must contain `{lane}`), useful when testing a host wrapper without
+editing `dos.toml`. `--max-ticks N` bounds the driver run for a one-shot or
+testable supervisor tick; omitted, the driver runs until Ctrl-C. The same layered
+policy (`--target` / `--max-concurrency` / launcher over `dos.toml [supervise]`) is
+handed to the driver before it gathers evidence, so the emitted and enacted paths
+see the same roster budget.
 
 The clock is read ONCE at this boundary, injectable via `--now-ms` for
 deterministic runs/tests (the `cmd_liveness` idiom). `--watch` re-emits the
@@ -3805,9 +3814,10 @@ verdict IS the exit code (COMPLETE=0, INCOMPLETE=3, INDETERMINATE=4).
 
 SUP (docs/99) — `dos loop`: the supervisor. Count the held lane leases
 against --target and EMIT a per-tick spawn/reap/flag plan (init / PID-1 for a
-fleet of dispatch-loops). Emit-only — it prints the worker launch command
-lines, it never Popens a worker or writes the journal (the driver does). The
-pure verdict is `dos.supervise.supervise`; this boundary gathers its evidence.
+fleet of dispatch-loops). Emit-only by default — it prints the worker launch
+command lines. With explicit `--enact`, it delegates to the supervisor driver,
+which Popens SPAWN commands and scavenges REAPs. The pure verdict is
+`dos.supervise.supervise`; this boundary gathers its evidence.
 
 ### § scope-gate (docs/102 §5) — the BINDING pre-effect scope gate. Asks the same
 

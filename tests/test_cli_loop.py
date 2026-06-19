@@ -1,10 +1,11 @@
-"""`dos loop` — the supervisor verb: emit a per-tick spawn/reap/flag plan (SUP).
+"""`dos loop` — the supervisor verb: emit or enact a spawn/reap/flag plan (SUP).
 
 Subprocess-driven (the `test_doctor_json.py` idiom): invoke `python -m dos.cli`
 with `PYTHONPATH` pointing at the installed `dos`, capture stdout, parse. The
-clock is pinned with `--now-ms` so every assertion is deterministic. `dos loop`
-is EMIT-ONLY — it never spawns a process or writes the journal — so these tests
-need no real worker, only a workspace + (optionally) a `dos.toml` roster.
+clock is pinned with `--now-ms` so every assertion is deterministic. By default
+`dos loop` is EMIT-ONLY — it never spawns a process or writes the journal. The
+explicit `--enact` path delegates to `dos.drivers.supervisor.run`, tested
+in-process with that driver monkeypatched so no real worker is launched.
 
 The two load-bearing cases:
   * the generic `main`/`global` roster admits ONE worker (both lanes are
@@ -121,6 +122,18 @@ def test_loop_three_disjoint_lanes_text_emits_generic_command(tmp_path: Path):
         assert forbidden not in proc.stdout
 
 
+def test_loop_worker_launch_template_flag_overrides_text_emission(tmp_path: Path):
+    """A one-off host wrapper can be tested without editing dos.toml."""
+    proc = _cli(
+        tmp_path,
+        "--target", "1", "--now-ms", "1000",
+        "--worker-launch-template", 'codex exec "/dos-dispatch-loop --lane {lane}"',
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    assert 'run: codex exec "/dos-dispatch-loop --lane main"' in proc.stdout
+
+
 # ---------------------------------------------------------------------------
 # The [supervise] config seam (docs/99): the standing target comes from
 # dos.toml; --target overrides it for a one-off run. Before the seam --target
@@ -161,6 +174,67 @@ def test_loop_target_flag_overrides_config(tmp_path: Path):
     v = json.loads(proc.stdout)
     assert v["target"] == 1, "an explicit --target must override the config target"
     assert len(v["spawn"]) == 1
+
+
+def test_loop_without_enact_does_not_call_supervisor_driver(tmp_path, monkeypatch):
+    """The default CLI surface stays emit-only: it prints the plan and does not
+    call the effectful supervisor driver."""
+    from dos import cli
+    from dos.drivers import supervisor
+
+    def _boom(**kwargs):
+        raise AssertionError("plain `dos loop` must not enact the plan")
+
+    monkeypatch.setattr(supervisor, "run", _boom)
+
+    rc = cli.main(["loop", "--workspace", str(tmp_path), "--target", "1", "--now-ms", "1000"])
+
+    assert rc == 0
+
+
+def test_loop_enact_delegates_to_supervisor_driver(tmp_path, monkeypatch):
+    """`--enact` is the opt-in handoff from the plan emitter to the long-lived
+    driver: the effective policy is layered first, then handed to the driver."""
+    from dos import cli
+    from dos.drivers import supervisor
+
+    _write_toml(
+        tmp_path,
+        "[supervise]\n"
+        "target = 2\n"
+        "max_concurrency = 7\n"
+        "worker_launch_template = 'codex exec \"/dos-dispatch-loop --lane {lane}\"'\n",
+    )
+    captured = {}
+
+    def _fake_run(*, config, target, interval, max_ticks, clock_ms):
+        captured.update(
+            config=config,
+            target=target,
+            interval=interval,
+            max_ticks=max_ticks,
+            clock_ms=clock_ms,
+        )
+        return 0
+
+    monkeypatch.setattr(supervisor, "run", _fake_run)
+
+    rc = cli.main([
+        "loop", "--workspace", str(tmp_path), "--enact",
+        "--target", "3", "--max-concurrency", "5",
+        "--worker-launch-template", 'codex exec "/dos-dispatch-loop --lane {lane}"',
+        "--max-ticks", "1", "--interval", "0", "--now-ms", "123",
+    ])
+
+    assert rc == 0
+    assert captured["target"] == 3
+    assert captured["interval"] == 0
+    assert captured["max_ticks"] == 1
+    assert captured["clock_ms"]() == 123
+    policy = captured["config"].supervise
+    assert policy.target == 3
+    assert policy.max_concurrency == 5
+    assert policy.worker_launch_template == 'codex exec "/dos-dispatch-loop --lane {lane}"'
 
 
 
