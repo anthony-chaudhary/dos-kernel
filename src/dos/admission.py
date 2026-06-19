@@ -1,7 +1,7 @@
 """The admission-predicate seam — Axis 3 of hackability: pluggable safety hooks (ADM, docs/73).
 
-The arbiter's admission logic — `_lease_blocks` + the ≤30 % soft-overlap
-tree-disjointness rule (`lane_overlap.overlap_verdict`) — is the kernel's
+The arbiter's admission logic — known-tree intersection plus shared/exclusive
+lock compatibility, with the legacy ratio scorer still selectable by config — is the kernel's
 **safety element**: it is what stops two agents editing the same files
 concurrently. That logic used to be fixed. A workspace could not add its own
 admission rule ("refuse a new lease when over the monthly token budget,"
@@ -158,19 +158,18 @@ class AdmissionRequest:
     tree: tuple[str, ...]
     command: str = ""
     arg_values: tuple[str, ...] = ()
+    mode: str = ""
 
 
 class DisjointnessPredicate:
     """The built-in tree-disjointness predicate — today's fixed admission rule,
     now the FIRST registered predicate.
 
-    Delegates the both-known scoring to a resolved `overlap_policy.OverlapPolicy`
-    (default `PrefixOverlapPolicy`, AND-ed under the deterministic prefix floor),
-    while owning the empty-tree asymmetry itself. With the default policy the
-    floor-AND reproduces `lane_overlap.overlap_verdict` exactly, so routing the
-    arbiter's collision check through `run_predicates([DisjointnessPredicate()])`
-    stays byte-for-byte behavior-preserving (the load-bearing litmus: the entire
-    existing arbiter/overlap suite is green through this path).
+    Delegates the both-known scoring to a resolved `overlap_policy.OverlapPolicy`.
+    The default is `LockModeOverlapPolicy`: EXCLUSIVE/EXCLUSIVE intersections
+    refuse at zero tolerance while SHARED/SHARED intersections admit. The legacy
+    `PrefixOverlapPolicy` is still selectable explicitly, where it is AND-ed under
+    the deterministic prefix floor.
 
     The **empty-tree rules** (asymmetric on the lease side) are owned HERE, not in
     the policy — they are soundness invariants about *unknown blast radius*, not a
@@ -184,13 +183,13 @@ class DisjointnessPredicate:
       * both known → delegate to the policy via `admissible_under_floor`.
 
     ``policy`` is the scorer for the both-known case. It defaults to the built-in
-    `PrefixOverlapPolicy` (pure, no I/O — so a `DisjointnessPredicate()` with no
-    args is pure and byte-identical to the old inline rule). A boundary caller
+    `LockModeOverlapPolicy` (pure, no I/O). A boundary caller
     (`built_in_predicates`) resolves a workspace's declared `dos.overlap_policies`
     plugin and passes it in here — the resolve-at-the-boundary, I/O-free-hot-path
     discipline `SelfModifyPredicate`'s `runtime_files` already uses. Whatever the
-    policy is, `admissible_under_floor` AND-s it under the unforgeable prefix floor,
-    so a misbehaving policy can only refuse-more, never admit a collision.
+    non-lock policy is, `admissible_under_floor` AND-s it under the unforgeable
+    prefix floor, so a misbehaving scorer can only refuse-more, never admit a
+    legacy prefix collision.
     """
 
     name = "disjointness"
@@ -200,13 +199,13 @@ class DisjointnessPredicate:
         # same leaf `admission` already imports — no cycle, but keep it local so a
         # default-constructed predicate has zero extra import cost on the hot path).
         if policy is None:
-            from dos.overlap_policy import PrefixOverlapPolicy
-            policy = PrefixOverlapPolicy()
+            from dos.overlap_policy import LockModeOverlapPolicy
+            policy = LockModeOverlapPolicy()
         self._policy = policy
 
     def __call__(self, request: AdmissionRequest, live_lease: dict,
                  config: object) -> AdmissionVerdict:
-        from dos.overlap_policy import admissible_under_floor
+        from dos.overlap_policy import admissible_under_floor, lock_mode_decision
         requested_tree = list(request.tree)
         lease_tree = list(live_lease.get("tree") or [])
         if not lease_tree:
@@ -218,7 +217,15 @@ class DisjointnessPredicate:
                 f"{live_lease.get('lane')!r} — unknown blast radius is never "
                 f"safe to admit concurrently."
             )
-        ov = admissible_under_floor(self._policy, requested_tree, lease_tree, config)
+        if getattr(self._policy, "name", "") == "lock_modes":
+            ov = lock_mode_decision(
+                requested_tree,
+                lease_tree,
+                requested_mode=request.mode,
+                lease_mode=live_lease.get("mode", live_lease.get("lock_mode", "")),
+            )
+        else:
+            ov = admissible_under_floor(self._policy, requested_tree, lease_tree, config)
         if ov.admissible:
             return AdmissionVerdict.admit()
         return AdmissionVerdict.refuse(
@@ -390,10 +397,10 @@ def built_in_predicates(*, workspace=None, config=None) -> list[AdmissionPredica
 
     The **overlap policy** (the both-known disjointness scorer) is resolved HERE
     too, at the boundary, and threaded into `DisjointnessPredicate(policy=…)` — so
-    the pure `arbitrate` never does the discovery I/O that resolving a non-`prefix`
+    the pure `arbitrate` never does the discovery I/O that resolving a third-party
     policy needs. With no `config` (or a config naming no policy / the built-in
-    `prefix`), `active_overlap_policy` returns `PrefixOverlapPolicy` with NO
-    discovery, so the default predicate list is byte-identical to before the seam.
+    `lock_modes`), `active_overlap_policy` returns `LockModeOverlapPolicy` with NO
+    discovery, so the default predicate list uses the sound S/X lock-mode rule.
     A workspace that declares `dos.toml [overlap] policy = "import-graph"` (or sets
     `config.overlap_policy_name`) gets its plugin resolved and AND-ed under the
     deterministic prefix floor inside the predicate.

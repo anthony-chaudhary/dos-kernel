@@ -124,7 +124,11 @@ func loadCorpus(t *testing.T) []parityCase {
 func leasesFromCorpus(raw []map[string]any) []lease {
 	out := make([]lease, 0, len(raw))
 	for _, m := range raw {
-		out = append(out, lease{lane: asStr(m["lane"]), tree: asStrSlice(m["tree"])})
+		out = append(out, lease{
+			lane: asStr(m["lane"]),
+			tree: asStrSlice(m["tree"]),
+			mode: asStr(m["mode"]),
+		})
 	}
 	return out
 }

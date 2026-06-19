@@ -117,6 +117,57 @@ class TestDisjointConcurrency:
         assert d.lane == "discovery"
 
 
+class TestLockModeAdmission:
+    LOW_RATIO_WRITE = ["src/api/x.py", "private/a.py", "private/b.py", "private/c.py"]
+    HELD_API = ["src/api/**"]
+
+    def test_two_shared_readers_on_same_tree_acquire(self):
+        live = [
+            {
+                "lane": "reader-a",
+                "lane_kind": "keyword",
+                "tree": ["docs/**"],
+                "mode": "shared",
+                "loop_ts": "20260618T1200Z",
+            }
+        ]
+        d = _arb(
+            requested_lane="reader-b",
+            requested_kind="keyword",
+            requested_tree=["docs/**"],
+            requested_mode="shared",
+            live_leases=live,
+        )
+        assert d.outcome == "acquire"
+
+    def test_two_writers_sharing_less_than_one_third_refuse_by_default(self):
+        live = [_lease("api-writer", "keyword", self.HELD_API)]
+        d = _arb(
+            requested_lane="feature-writer",
+            requested_kind="keyword",
+            requested_tree=self.LOW_RATIO_WRITE,
+            live_leases=live,
+        )
+        assert d.outcome == "refuse"
+        assert "lock-mode conflict" in d.reason
+
+    def test_explicit_prefix_ratio_override_still_admits_low_ratio_pair(self):
+        cfg = dataclasses.replace(
+            CFG,
+            overlap_policy_name="prefix",
+            overlap_ratio_max=1 / 3,
+        )
+        live = [_lease("api-writer", "keyword", self.HELD_API)]
+        d = _arb(
+            requested_lane="feature-writer",
+            requested_kind="keyword",
+            requested_tree=self.LOW_RATIO_WRITE,
+            live_leases=live,
+            config=cfg,
+        )
+        assert d.outcome == "acquire"
+
+
 class TestSameLaneRefused:
     def test_cluster_request_for_held_lane_auto_picks_a_free_one(self):
         # Mechanism test: the same-lane cluster reroute walks `autopick`; uses the

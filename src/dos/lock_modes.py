@@ -64,8 +64,8 @@ from __future__ import annotations
 
 from enum import Enum
 
-from dos._tree import norm_tree_prefix as _norm_tree_prefix
 from dos._tree import prefixes_collide as _prefixes_collide
+from dos.named_lock import normalize_entry as _norm_tree_prefix
 
 
 class LockMode(str, Enum):

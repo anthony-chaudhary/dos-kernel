@@ -64,14 +64,11 @@ from dos.retention import RetentionPolicy, GENERIC_RETENTION
 from dos.data_class import DataClassPolicy, GENERIC_DATA_CLASS
 from dos.call_shape import CallShapeRuleset, EMPTY_CALL_SHAPE, load_call_shape_from_toml
 
-# The default soft-overlap tolerance — mirrored from `dos.lane_overlap.
-# OVERLAP_RATIO_MAX` (⅓) by VALUE, not import: `config` (layer 2a) must not import
-# a kernel module (layer 1), or it would couple the config seam to the
-# `admission`→`lane_overlap`→`_tree` chain (see the import-cycle note below).
-# `overlap_policy._ratio_max_from_config` reads the field; `lane_overlap` is the
-# canonical home of the constant. The two are pinned equal by
-# `tests/test_overlap_policy.py` so they cannot drift.
-_DEFAULT_OVERLAP_RATIO_MAX = 1 / 3
+# The default overlap policy is now the lock-mode predicate, not the legacy 1/3
+# ratio scorer. `None` means "no active ratio knob"; an explicit `[overlap]
+# ratio_max = ...` flips the policy back to the legacy `prefix` scorer so existing
+# configured ratio users keep working.
+_DEFAULT_OVERLAP_RATIO_MAX = None
 
 # The env var a host sets to point the installed package at a workspace that is
 # NOT the cwd (e.g. the reference userland app pointing `dos` at its own tree, or
@@ -571,19 +568,16 @@ class SubstrateConfig:
     ``NoPickCause`` set and every cross-check downstream of it.
 
     ``overlap_ratio_max`` / ``overlap_policy_name`` are the **overlap seam** (Axis
-    7, ``docs/113``) — the pluggable disjointness scorer that decides whether two
-    known trees may run concurrently. ``overlap_ratio_max`` (default ⅓) is the
-    *data* knob: the soft-overlap tolerance the built-in ``prefix`` scorer admits
-    under, declarable in ``dos.toml`` ``[overlap] ratio_max`` — the calibrated
-    elbow `docs/90 §2` named a research stand-in, now a value not a hardcode.
-    ``overlap_policy_name`` (default ``"prefix"``) names the *scorer* itself: the
-    built-in deterministic prefix-ratio, or a workspace's ``dos.overlap_policies``
-    entry-point plugin (an import-graph / semantic / model-backed scorer). Whatever
-    the scorer, ``overlap_policy.admissible_under_floor`` AND-s it under the
-    unforgeable prefix floor, so a swappable scorer can only refuse-MORE, never
-    admit a collision (the structural soundness floor — `docs/113 §3`). Both are
-    resolved at the call boundary and threaded into the arbiter's
-    ``DisjointnessPredicate``; the pure ``arbitrate`` default path is unchanged.
+    7, ``docs/113``) — the disjointness scorer that decides whether two known
+    trees may run concurrently. The default scorer is ``"lock_modes"``: prefix
+    intersection plus classic shared/exclusive compatibility. Missing modes are
+    exclusive, so write/write intersections refuse at zero tolerance; shared/shared
+    intersections admit. ``overlap_ratio_max`` is ``None`` under that default
+    because no ratio participates. A workspace that explicitly declares
+    ``dos.toml`` ``[overlap] ratio_max`` keeps the legacy ``"prefix"`` scorer and
+    its soft-overlap tolerance; declaring ``policy = "prefix"`` does the same.
+    Third-party overlap policies remain resolved at the call boundary and AND-ed
+    under their deterministic floor inside ``overlap_policy``.
 
     ``env`` is the **environment print** (Axis "under-what", ``docs/115``): a
     content-addressed `EnvPrint` of the runtime the config was built in — kernel
@@ -665,8 +659,8 @@ class SubstrateConfig:
     reason_morphology: MorphologyRuleset = GENERIC_REASON_MORPHOLOGY
     workspace: "WorkspaceFacts | None" = None
     env: "EnvPrint | None" = None
-    overlap_ratio_max: float = _DEFAULT_OVERLAP_RATIO_MAX
-    overlap_policy_name: str = "prefix"
+    overlap_ratio_max: float | None = _DEFAULT_OVERLAP_RATIO_MAX
+    overlap_policy_name: str = "lock_modes"
     # docs/364 — the declared-call-shape policy (OWASP ASI02). A per-lane set of
     # forbidden command-prefixes / arg-substrings / path-globs the
     # `call_shape.DeclaredCallShapePredicate` refuses a PreToolUse call against.
@@ -1143,16 +1137,17 @@ def load_paths_from_toml(
 
 
 def load_overlap_from_toml(
-    path: Path | str, *, base_ratio_max: float, base_policy_name: str,
-) -> tuple[float, str]:
+    path: Path | str, *, base_ratio_max: float | None, base_policy_name: str,
+) -> tuple[float | None, str]:
     """Read the `[overlap]` table (Axis 7, `docs/113`) → ``(ratio_max, policy_name)``.
 
     The overlap seam's *data* attachment — the soft-overlap tolerance and the
     named scorer. A present `[overlap]` table OVERRIDES the two fields it names;
     an absent/empty table inherits ``base_*``. Keys (both optional):
 
-      * ``ratio_max`` — a float in (0, 1], the soft-overlap fraction the built-in
-        ``prefix`` scorer admits under. The kernel default is ⅓.
+      * ``ratio_max`` — a float in (0, 1], the soft-overlap fraction the legacy
+        ``prefix`` scorer admits under. Supplying this without ``policy`` selects
+        ``prefix`` so existing ratio-configured callers keep working.
       * ``policy`` — the scorer name: ``"prefix"`` (built-in) or a
         ``dos.overlap_policies`` plugin name.
 
@@ -1177,7 +1172,9 @@ def load_overlap_from_toml(
             f"(allowed: {', '.join(sorted(allowed))})"
         )
     ratio_max = base_ratio_max
+    ratio_declared = False
     if "ratio_max" in table:
+        ratio_declared = True
         raw = table["ratio_max"]
         try:
             ratio_max = float(raw)
@@ -1190,6 +1187,8 @@ def load_overlap_from_toml(
     policy_name = base_policy_name
     if "policy" in table:
         policy_name = str(table["policy"])
+    elif ratio_declared and base_policy_name == "lock_modes":
+        policy_name = "prefix"
     return ratio_max, policy_name
 
 

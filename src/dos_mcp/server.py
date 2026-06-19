@@ -423,6 +423,7 @@ def build_server() -> FastMCP:
     def dos_arbitrate(
         lane: str = "",
         kind: str = "",
+        mode: str = "",
         tree: list[str] | None = None,
         live_leases: list[dict[str, Any]] | None = None,
         force: bool = False,
@@ -439,13 +440,16 @@ def build_server() -> FastMCP:
 
         State in, decision out, no I/O. Decides whether a new worker may acquire
         `lane` given the `live_leases` already held, using the workspace's lane
-        taxonomy and a tree-disjointness rule (two workers may run concurrently
-        iff their file trees don't overlap beyond a small threshold).
+        taxonomy and a lock-mode tree rule (shared/shared may overlap; anything
+        with an exclusive holder must be tree-disjoint).
 
         Args:
             lane: the requested lane ("" = a bare auto-pick request — the arbiter
                 walks the workspace's autopick ladder for a free, disjoint lane).
             kind: "cluster" | "keyword" | "global" | "" (bare → auto-pick).
+            mode: "exclusive" | "shared" | "" (bare → exclusive). Shared leases
+                may overlap other shared leases; anything involving an exclusive
+                holder conflicts on intersecting trees.
             tree: the requested file tree as repo-relative globs. If omitted and
                 a `lane` is named, the lane's canonical tree from `dos.toml` is
                 used.
@@ -511,6 +515,7 @@ def build_server() -> FastMCP:
             requested_lane=lane or "",
             requested_kind=kind or "",
             requested_tree=req_tree,
+            requested_mode=mode or "",
             live_leases=list(live_leases or []),
             config=cfg,
             force=force,

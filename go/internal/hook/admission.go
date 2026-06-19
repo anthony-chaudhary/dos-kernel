@@ -26,6 +26,7 @@ type lease struct {
 	lane  string
 	tree  []string
 	runID string
+	mode  string
 }
 
 // admissionRequest is the requested lease as the pure datum a predicate sees —
@@ -38,20 +39,21 @@ type admissionRequest struct {
 	lane      string
 	kind      string
 	tree      []string
+	mode      string
 	command   string
 	argValues []string
 }
 
 // disjointnessVerdict is the DisjointnessPredicate against ONE live lease — port
-// of `dos.admission.DisjointnessPredicate.__call__`, with the both-known case
-// delegated through the deterministic floor (`admissible_under_floor` with the
-// built-in prefix policy, which reproduces `overlap_verdict` exactly).
+// of `dos.admission.DisjointnessPredicate.__call__`, with the both-known default
+// case delegated through the sound lock-mode path (S/S compatible, anything with
+// X conflicts on intersection).
 //
 // The empty-tree asymmetry (owned by the predicate, never the scorer):
 //   - empty LEASE tree -> admit (a lease naming no blast radius cannot conflict).
 //   - empty REQUESTED tree vs a KNOWN lease tree -> refuse (unknown blast radius
 //     is never safe to admit concurrently).
-//   - both known -> the overlap scorer under the floor.
+//   - both known -> lock-mode compatibility over the intersecting region.
 func disjointnessVerdict(req admissionRequest, lz lease) admissionVerdict {
 	leaseTree := lz.tree
 	if len(leaseTree) == 0 {
@@ -62,9 +64,7 @@ func disjointnessVerdict(req admissionRequest, lz lease) admissionVerdict {
 			"lane %s has an EMPTY tree (unknown blast radius) and cannot share live lane %s — unknown blast radius is never safe to admit concurrently.",
 			pyRepr(req.lane), pyRepr(lz.lane)), "")
 	}
-	// admissible_under_floor with the built-in prefix policy == the floor itself ==
-	// computeOverlap (the default-policy path is byte-identical to the floor).
-	ov := computeOverlap(req.tree, leaseTree)
+	ov := lockModeDecision(req.tree, leaseTree, req.mode, lz.mode)
 	if ov.admissible() {
 		return admitVerdict()
 	}

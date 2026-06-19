@@ -67,7 +67,7 @@ from __future__ import annotations
 import sys
 from typing import Protocol, runtime_checkable
 
-from dos.lane_overlap import OVERLAP_RATIO_MAX, OverlapDecision, overlap_verdict
+from dos.lane_overlap import OVERLAP_RATIO_MAX, OverlapDecision, Verdict, overlap_verdict
 
 
 @runtime_checkable
@@ -102,10 +102,9 @@ class PrefixOverlapPolicy:
 
     A verbatim wrap of `lane_overlap.overlap_verdict`, threading the workspace's
     declared ``ratio_max`` (``config.overlap_ratio_max`` — `dos.toml [overlap]`,
-    defaulting to ⅓). With no `[overlap]` table and no plugin, the resolver
-    returns THIS policy and behavior is **byte-for-byte identical to before the
-    seam** — the load-bearing litmus (the entire existing arbiter/overlap suite
-    stays green through `DisjointnessPredicate` → this policy).
+    defaulting to ⅓). Workspaces that explicitly name ``policy = "prefix"`` or
+    set a bare ``ratio_max`` still get THIS policy, preserving the legacy
+    soft-overlap scorer for callers that deliberately opt into it.
 
     It is also the **deterministic prefix floor** every other policy is ANDed
     against (`admissible_under_floor`): it is pure path algebra, forgery-proof,
@@ -125,6 +124,98 @@ class PrefixOverlapPolicy:
     ) -> OverlapDecision:
         ratio_max = _ratio_max_from_config(config)
         return overlap_verdict(requested_tree, lease_tree, ratio_max=ratio_max)
+
+
+class LockModeOverlapPolicy:
+    """The built-in sound default: prefix intersection plus S/X lock modes.
+
+    This policy exists so the active overlap policy can be reported and resolved by
+    name, but the live arbiter's `DisjointnessPredicate` calls
+    `lock_mode_decision` directly so it can pass the request and live-lease modes.
+    A bare `overlaps()` call has no mode operands, so it uses the conservative
+    historical default: EXCLUSIVE on both sides.
+    """
+
+    name = "lock_modes"
+
+    def overlaps(
+        self, requested_tree: list[str], lease_tree: list[str], config: object,
+    ) -> OverlapDecision:
+        from dos.lock_modes import DEFAULT_MODE
+        return lock_mode_decision(
+            requested_tree,
+            lease_tree,
+            requested_mode=DEFAULT_MODE,
+            lease_mode=DEFAULT_MODE,
+        )
+
+
+def _coerce_lock_mode(raw: object):
+    """Return a `LockMode`, defaulting invalid/missing values to EXCLUSIVE.
+
+    Invalid data must fail toward less concurrency, not more. That means a typo in
+    a WAL row or caller argument becomes the exclusive default instead of being
+    interpreted as shared.
+    """
+    from dos.lock_modes import DEFAULT_MODE, LockMode
+
+    if isinstance(raw, LockMode):
+        return raw
+    if raw is None or raw == "":
+        return DEFAULT_MODE
+    try:
+        return LockMode(str(raw).strip().lower())
+    except ValueError:
+        return DEFAULT_MODE
+
+
+def lock_mode_decision(
+    requested_tree: list[str],
+    lease_tree: list[str],
+    *,
+    requested_mode: object,
+    lease_mode: object,
+) -> OverlapDecision:
+    """Known-tree admission under the live S/X lock-mode path.
+
+    Two known trees may run together iff their regions are disjoint, or their
+    regions intersect but both holders are SHARED. Any intersecting pair involving
+    EXCLUSIVE refuses at zero tolerance; no ratio can dilute the write surface.
+    """
+    from dos.lock_modes import LockMode, region_conflict
+
+    req_mode = _coerce_lock_mode(requested_mode)
+    held_mode = _coerce_lock_mode(lease_mode)
+    requested = len(requested_tree)
+    if not region_conflict(
+        requested_tree, LockMode.EXCLUSIVE,
+        lease_tree, LockMode.EXCLUSIVE,
+    ):
+        return OverlapDecision(
+            Verdict.ADMIT_DISJOINT,
+            0,
+            requested,
+            "no shared prefixes — fully disjoint",
+        )
+    if not region_conflict(requested_tree, req_mode, lease_tree, held_mode):
+        return OverlapDecision(
+            Verdict.ADMIT_SHARED,
+            1,
+            requested,
+            (f"shared lock-compatible region — {req_mode.value}/"
+             f"{held_mode.value} modes may coexist"),
+        )
+    if req_mode is LockMode.SHARED or held_mode is LockMode.SHARED:
+        mode_note = f"{req_mode.value}/{held_mode.value}"
+    else:
+        mode_note = "exclusive/exclusive"
+    return OverlapDecision(
+        Verdict.REFUSE_LOCK_CONFLICT,
+        1,
+        requested,
+        (f"lock-mode conflict: intersecting region with {mode_note} modes "
+         "requires zero-tolerance refusal"),
+    )
 
 
 def _ratio_max_from_config(config: object) -> float:
@@ -254,6 +345,7 @@ OVERLAP_POLICY_ENTRY_POINT_GROUP = "dos.overlap_policies"
 # import-graph policy lives in a driver/plugin.
 _BUILT_IN_POLICIES: dict[str, type] = {
     PrefixOverlapPolicy.name: PrefixOverlapPolicy,
+    LockModeOverlapPolicy.name: LockModeOverlapPolicy,
 }
 
 
@@ -325,11 +417,15 @@ def active_overlap_policy(*, config: object = None, _stderr=None) -> OverlapPoli
     path stays I/O-free, exactly as `built_in_predicates` does.
 
     Like the predicate seam, the kernel's pure `arbitrate` never calls this; the
-    boundary resolves the policy and passes it in (or the built-in `prefix` floor
-    is used). So `arbitrate`'s default path is byte-identical to before the seam."""
+    boundary resolves the policy and passes it in. The default is `lock_modes`;
+    `prefix` is the legacy ratio scorer kept for explicit compatibility."""
     name = getattr(config, "overlap_policy_name", None) if config is not None else None
-    if not name or name == PrefixOverlapPolicy.name:
+    if not name:
+        return LockModeOverlapPolicy()
+    if name == PrefixOverlapPolicy.name:
         return PrefixOverlapPolicy()
+    if name == LockModeOverlapPolicy.name:
+        return LockModeOverlapPolicy()
     return resolve_overlap_policy(str(name), _stderr=_stderr)
 
 

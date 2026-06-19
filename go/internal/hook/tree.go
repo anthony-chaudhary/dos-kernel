@@ -43,6 +43,46 @@ func normTreePrefix(p string) string {
 	return p
 }
 
+const lockScheme = "lock://"
+const lockPrefixNS = "\x00lock\x00/"
+
+func isLockEntry(entry string) bool {
+	entry = strings.ReplaceAll(entry, "\\", "/")
+	entry = strings.TrimSpace(entry)
+	entry = strings.ToLower(entry)
+	return strings.HasPrefix(entry, lockScheme)
+}
+
+func lockName(entry string) string {
+	entry = strings.ReplaceAll(entry, "\\", "/")
+	entry = strings.TrimSpace(entry)
+	entry = strings.ToLower(entry)
+	if !strings.HasPrefix(entry, lockScheme) {
+		return ""
+	}
+	name := entry[len(lockScheme):]
+	name = strings.Trim(name, "/")
+	return strings.TrimSpace(name)
+}
+
+func lockNameHasGlob(name string) bool {
+	return strings.ContainsAny(name, "*?[")
+}
+
+// normalizeEntry is the lock-aware front door for lane-region entries. File
+// entries stay byte-identical to normTreePrefix; lock://NAME entries move into a
+// reserved namespace; bare/wildcarded lock names become the universal prefix.
+func normalizeEntry(entry string) string {
+	if !isLockEntry(entry) {
+		return normTreePrefix(entry)
+	}
+	name := lockName(entry)
+	if name == "" || lockNameHasGlob(name) {
+		return ""
+	}
+	return lockPrefixNS + name
+}
+
 // prefixesCollide reports whether two normalized prefixes can name the same file.
 //
 // Port of `dos._tree.prefixes_collide`: two prefixes collide when one is a prefix
@@ -70,12 +110,12 @@ func laneTreesDisjoint(treeA, treeB []string) bool {
 	var normA, normB []string
 	for _, p := range treeA {
 		if p != "" {
-			normA = append(normA, normTreePrefix(p))
+			normA = append(normA, normalizeEntry(p))
 		}
 	}
 	for _, p := range treeB {
 		if p != "" {
-			normB = append(normB, normTreePrefix(p))
+			normB = append(normB, normalizeEntry(p))
 		}
 	}
 	if len(normA) == 0 || len(normB) == 0 {

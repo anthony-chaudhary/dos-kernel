@@ -10,8 +10,8 @@ unforgeable prefix-disjointness floor — so a buggy/hostile/raising policy can 
 refuse-MORE, never admit a collision.
 
 Organised as:
-  * `TestDefaultEquivalence`   — the prefix policy under the floor == today's
-    `overlap_verdict`, byte-for-byte (the load-bearing behavior-preserving litmus).
+  * `TestDefaultEquivalence`   — explicit prefix policy under the floor ==
+    `overlap_verdict`, byte-for-byte, while the constructed default is lock_modes.
   * `TestSoundnessFloor`       — the security core: no policy can admit past the
     prefix floor (lying-admit, over-ratio, raise, garbage-return all fail-closed).
   * `TestSafeDirection`        — a stricter policy CAN refuse what the floor admits.
@@ -21,8 +21,8 @@ Organised as:
     `arbiter.arbitrate` cannot double-book a held lane.
   * `TestOverlapEval`          — the instrument's confusion grid + the false-admit
     cell + the exit-code-on-leak boolean.
-  * `TestConstantPinned`       — the config default mirrors `lane_overlap`'s ⅓
-    constant by value (they must not drift).
+  * `TestConstantPinned`       — the legacy prefix ratio remains pinned while the
+    active config default is the lock-mode policy.
 """
 from __future__ import annotations
 
@@ -88,17 +88,32 @@ class TestDefaultEquivalence:
             assert direct.verdict == floored.verdict, (a, b, direct.verdict, floored.verdict)
             assert direct.admissible == floored.admissible, (a, b)
 
-    def test_default_constructed_predicate_is_pure_prefix(self):
-        # A DisjointnessPredicate() with no policy arg uses PrefixOverlapPolicy,
-        # so it must reproduce the inline overlap_verdict exactly.
+    def test_explicit_prefix_predicate_is_pure_prefix(self):
+        # A DisjointnessPredicate(policy=PrefixOverlapPolicy()) keeps the legacy
+        # ratio scorer available for explicit ratio users.
         from dos.admission import AdmissionRequest, DisjointnessPredicate
-        pred = DisjointnessPredicate()
+        pred = DisjointnessPredicate(policy=op.PrefixOverlapPolicy())
         cfg = _cfg()
         for a, b in self.PAIRS:
             req = AdmissionRequest(lane="x", kind="cluster", tree=tuple(a))
             v = pred(req, {"lane": "y", "tree": b}, cfg)
             expected_admit = overlap_verdict(a, b).admissible
             assert v.admitted == expected_admit, (a, b)
+
+    def test_default_constructed_predicate_uses_lock_modes(self):
+        # The current default is the sound lock-mode predicate: a low-ratio
+        # write/write prefix collision refuses even though the legacy 1/3 ratio
+        # would have admitted it.
+        from dos.admission import AdmissionRequest, DisjointnessPredicate
+
+        pred = DisjointnessPredicate()
+        req_tree = ["src/api/x.py", "private/a.py", "private/b.py", "private/c.py"]
+        lease_tree = ["src/api/**"]
+        assert overlap_verdict(req_tree, lease_tree).admissible is True
+        req = AdmissionRequest(lane="x", kind="cluster", tree=tuple(req_tree))
+        v = pred(req, {"lane": "y", "tree": lease_tree}, _cfg())
+        assert v.admitted is False
+        assert "lock-mode conflict" in v.reason
 
 
 # ── 2. the structural soundness floor (the security core) ───────────────────
@@ -203,13 +218,22 @@ class TestResolver:
         with pytest.raises(ValueError, match="unknown overlap policy"):
             op.resolve_overlap_policy("nonesuch-xyz")
 
-    def test_active_policy_defaults_to_prefix_with_no_config(self):
-        assert op.active_overlap_policy().name == "prefix"
+    def test_active_policy_defaults_to_lock_modes_with_no_config(self):
+        assert op.active_overlap_policy().name == "lock_modes"
 
     def test_active_policy_reads_config_name(self):
         # A config naming `prefix` resolves the built-in without discovery.
         cfg = _cfg(overlap_policy_name="prefix")
         assert op.active_overlap_policy(config=cfg).name == "prefix"
+
+    def test_ratio_max_from_toml_selects_legacy_prefix_policy(self, tmp_path):
+        (tmp_path / "dos.toml").write_text(
+            "[overlap]\nratio_max = 0.1\n",
+            encoding="utf-8",
+        )
+        cfg = config.load_workspace_config(tmp_path)
+        assert cfg.overlap_policy_name == "prefix"
+        assert cfg.overlap_ratio_max == 0.1
 
     def test_ratio_max_from_config_used_by_prefix_policy(self):
         # A stricter ratio makes the prefix policy refuse a pair the default admits.
@@ -327,12 +351,13 @@ class TestOverlapEval:
 
 # ── 7. the constant must not drift ──────────────────────────────────────────
 class TestConstantPinned:
-    def test_config_default_ratio_mirrors_lane_overlap(self):
-        # config._DEFAULT_OVERLAP_RATIO_MAX is mirrored BY VALUE (config must not
-        # import a kernel module), so pin them equal here so they cannot drift.
-        assert config._DEFAULT_OVERLAP_RATIO_MAX == lane_overlap.OVERLAP_RATIO_MAX
+    def test_config_default_has_no_active_ratio(self):
+        assert config._DEFAULT_OVERLAP_RATIO_MAX is None
 
-    def test_substrate_config_default_is_the_ratio(self):
+    def test_substrate_config_default_is_lock_modes(self):
         cfg = config.default_config(".")
-        assert cfg.overlap_ratio_max == lane_overlap.OVERLAP_RATIO_MAX
-        assert cfg.overlap_policy_name == "prefix"
+        assert cfg.overlap_ratio_max is None
+        assert cfg.overlap_policy_name == "lock_modes"
+
+    def test_legacy_prefix_fallback_ratio_mirrors_lane_overlap(self):
+        assert op._ratio_max_from_config(object()) == lane_overlap.OVERLAP_RATIO_MAX

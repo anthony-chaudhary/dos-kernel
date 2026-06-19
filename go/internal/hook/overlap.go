@@ -1,6 +1,9 @@
 package hook
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // overlapRatioMax is the kernel default soft-overlap tolerance (⅓) —
 // `dos.lane_overlap.OVERLAP_RATIO_MAX`. The pretool decider uses the kernel
@@ -12,10 +15,12 @@ const overlapRatioMax = 1.0 / 3.0
 type overlapVerdict string
 
 const (
-	admitDisjoint   overlapVerdict = "admit_disjoint"
-	admitSoft       overlapVerdict = "admit_soft"
-	refuseOverlap   overlapVerdict = "refuse_overlap"
-	refuseExactGlob overlapVerdict = "refuse_exact_glob"
+	admitDisjoint      overlapVerdict = "admit_disjoint"
+	admitSoft          overlapVerdict = "admit_soft"
+	admitShared        overlapVerdict = "admit_shared"
+	refuseOverlap      overlapVerdict = "refuse_overlap"
+	refuseExactGlob    overlapVerdict = "refuse_exact_glob"
+	refuseLockConflict overlapVerdict = "refuse_lock_conflict"
 )
 
 // overlapDecision is the typed result of the disjointness scorer
@@ -28,7 +33,7 @@ type overlapDecision struct {
 }
 
 func (d overlapDecision) admissible() bool {
-	return d.verdict == admitDisjoint || d.verdict == admitSoft
+	return d.verdict == admitDisjoint || d.verdict == admitSoft || d.verdict == admitShared
 }
 
 // exactGlobCollisions returns the requested entries whose normalized prefix
@@ -45,7 +50,7 @@ func exactGlobCollisions(reqTree, leaseTree []string) []string {
 		if p == "" {
 			continue
 		}
-		n := normTreePrefix(p)
+		n := normalizeEntry(p)
 		if n != "" {
 			leaseExact[n] = struct{}{}
 		}
@@ -59,7 +64,7 @@ func exactGlobCollisions(reqTree, leaseTree []string) []string {
 		if r == "" {
 			continue
 		}
-		nr := normTreePrefix(r)
+		nr := normalizeEntry(r)
 		if nr == "" {
 			continue
 		}
@@ -87,7 +92,7 @@ func sharedCount(reqTree, leaseTree []string) int {
 	var leasePrefixes []string
 	for _, p := range leaseTree {
 		if p != "" {
-			leasePrefixes = append(leasePrefixes, normTreePrefix(p))
+			leasePrefixes = append(leasePrefixes, normalizeEntry(p))
 		}
 	}
 	if len(leasePrefixes) == 0 {
@@ -98,7 +103,7 @@ func sharedCount(reqTree, leaseTree []string) int {
 		if r == "" {
 			continue
 		}
-		nr := normTreePrefix(r)
+		nr := normalizeEntry(r)
 		for _, nl := range leasePrefixes {
 			if prefixesCollide(nr, nl) {
 				shared++
@@ -161,6 +166,88 @@ func computeOverlap(reqTree, leaseTree []string) overlapDecision {
 		reason: fmt.Sprintf(
 			"soft-overlap admit — %d/%d = %s of requested tree shared (≤%s)",
 			shared, len(reqTree), pct0(ratio), pct0(overlapRatioMax)),
+	}
+}
+
+const lockModeShared = "shared"
+const lockModeExclusive = "exclusive"
+
+func coerceLockMode(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case lockModeShared:
+		return lockModeShared
+	case lockModeExclusive:
+		return lockModeExclusive
+	default:
+		return lockModeExclusive
+	}
+}
+
+func modesCompatible(a, b string) bool {
+	return a == lockModeShared && b == lockModeShared
+}
+
+func treesIntersectKnown(reqTree, leaseTree []string) bool {
+	if len(reqTree) == 0 || len(leaseTree) == 0 {
+		return false
+	}
+	var reqPrefixes, leasePrefixes []string
+	for _, p := range reqTree {
+		if p != "" {
+			reqPrefixes = append(reqPrefixes, normalizeEntry(p))
+		}
+	}
+	for _, p := range leaseTree {
+		if p != "" {
+			leasePrefixes = append(leasePrefixes, normalizeEntry(p))
+		}
+	}
+	if len(reqPrefixes) == 0 || len(leasePrefixes) == 0 {
+		return false
+	}
+	for _, nr := range reqPrefixes {
+		for _, nl := range leasePrefixes {
+			if prefixesCollide(nr, nl) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func lockModeDecision(reqTree, leaseTree []string, reqModeRaw, leaseModeRaw string) overlapDecision {
+	reqMode := coerceLockMode(reqModeRaw)
+	leaseMode := coerceLockMode(leaseModeRaw)
+	requested := len(reqTree)
+	if !treesIntersectKnown(reqTree, leaseTree) {
+		return overlapDecision{
+			verdict:   admitDisjoint,
+			shared:    0,
+			requested: requested,
+			reason:    "no shared prefixes — fully disjoint",
+		}
+	}
+	if modesCompatible(reqMode, leaseMode) {
+		return overlapDecision{
+			verdict:   admitShared,
+			shared:    1,
+			requested: requested,
+			reason: fmt.Sprintf(
+				"shared lock-compatible region — %s/%s modes may coexist",
+				reqMode, leaseMode),
+		}
+	}
+	modeNote := "exclusive/exclusive"
+	if reqMode == lockModeShared || leaseMode == lockModeShared {
+		modeNote = reqMode + "/" + leaseMode
+	}
+	return overlapDecision{
+		verdict:   refuseLockConflict,
+		shared:    1,
+		requested: requested,
+		reason: fmt.Sprintf(
+			"lock-mode conflict: intersecting region with %s modes requires zero-tolerance refusal",
+			modeNote),
 	}
 }
 

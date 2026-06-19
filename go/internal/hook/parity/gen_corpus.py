@@ -296,12 +296,12 @@ def build_cases() -> list[dict]:
     cases.append(case("bash-non-runtime-file",
                       _ev("Bash", {"command": "echo hi > src/dos/cli.py"}), [], ALL_RUNTIME))
     # --- disjointness collisions (need a live lease) ---
-    cases.append(case("collision-src-lease-ratio-100",
+    cases.append(case("collision-src-lease-exclusive",
                       _ev("Edit", {"file_path": "src/dos/cli.py"}), SRC_LEASE, ALL_RUNTIME))
     cases.append(case("collision-exact-glob",
                       _ev("Edit", {"file_path": "src/dos/cli.py"}), EXACT_LEASE, ALL_RUNTIME))
-    # --- soft-overlap admit (ratio <= 1/3) ---
-    cases.append(case("soft-overlap-admit",
+    # --- old soft-overlap case now refuses under exclusive lock modes ---
+    cases.append(case("low-ratio-writer-refuse",
                       _ev("Bash", {"command": "cp src/a.py docs/b.md docs/c.md docs/d.md"}),
                       SRC_LEASE, ALL_RUNTIME))
     # --- WARN-and-pass (unknown tree, refused by a colliding lease) ---

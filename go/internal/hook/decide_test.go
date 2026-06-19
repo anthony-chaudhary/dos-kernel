@@ -81,7 +81,7 @@ func TestBashRuntimeFileDeny(t *testing.T) {
 
 func TestDisjointnessCollisionDeny(t *testing.T) {
 	// A held `src/**` lease + an Edit to src/dos/cli.py (a known tree) -> exact
-	// ratio 100% -> REFUSE_OVERLAP -> provable -> deny with the float-prose reason.
+	// region intersection under the default exclusive mode -> provable deny.
 	e := eventFor("Edit", "/work/workspace", map[string]any{"file_path": "src/dos/cli.py"})
 	in := Inputs{
 		LiveLeases:   []lease{{lane: "src", tree: []string{"src/**"}}},
@@ -91,8 +91,37 @@ func TestDisjointnessCollisionDeny(t *testing.T) {
 	if d.DecisionTag != "deny" {
 		t.Fatalf("want deny on collision, got %q (%s)", d.DecisionTag, d.Render())
 	}
-	if !strings.Contains(d.Render(), "100% of requested tree shared, threshold 33%") {
-		t.Fatalf("collision reason float-prose mismatch: %s", d.Render())
+	if !strings.Contains(d.Render(), "lock-mode conflict") {
+		t.Fatalf("collision reason mismatch: %s", d.Render())
+	}
+}
+
+func TestSharedReadersOnSameTreeAdmit(t *testing.T) {
+	req := admissionRequest{
+		lane: "reader-b",
+		kind: "keyword",
+		tree: []string{"docs/**"},
+		mode: lockModeShared,
+	}
+	lz := lease{lane: "reader-a", tree: []string{"docs/**"}, mode: lockModeShared}
+	if v := disjointnessVerdict(req, lz); !v.admitted {
+		t.Fatalf("shared readers on the same tree must admit, got %#v", v)
+	}
+}
+
+func TestLowRatioWritersRefuseByDefault(t *testing.T) {
+	req := admissionRequest{
+		lane: "feature-writer",
+		kind: "keyword",
+		tree: []string{"src/api/x.py", "private/a.py", "private/b.py", "private/c.py"},
+	}
+	lz := lease{lane: "api-writer", tree: []string{"src/api/**"}}
+	v := disjointnessVerdict(req, lz)
+	if v.admitted {
+		t.Fatalf("overlapping writers must refuse even below the old 1/3 ratio")
+	}
+	if !strings.Contains(v.reason, "lock-mode conflict") {
+		t.Fatalf("want lock-mode conflict reason, got %q", v.reason)
 	}
 }
 

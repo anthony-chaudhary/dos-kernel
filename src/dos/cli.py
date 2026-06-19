@@ -2308,6 +2308,7 @@ def cmd_arbitrate(args: argparse.Namespace) -> int:
         requested_lane=args.lane or "",
         requested_kind=args.kind or "",
         requested_tree=tree,
+        requested_mode=args.mode or "",
         live_leases=live,
         config=cfg,
         force=args.force,
@@ -2358,6 +2359,7 @@ def cmd_arbitrate(args: argparse.Namespace) -> int:
         unforced = arbiter.arbitrate(
             requested_lane=args.lane or "", requested_kind=args.kind or "",
             requested_tree=tree, live_leases=live, config=cfg, force=False,
+            requested_mode=args.mode or "",
             predicates=preds,  # same conjunction, so the unforced re-run is faithful
         )
         if unforced.outcome != "acquire":
@@ -5058,6 +5060,7 @@ def cmd_lease_lane(args: argparse.Namespace) -> int:
     try:
         result = lane_lease.acquire(
             cfg, lane=args.lane, kind=args.kind, tree=tree, owner=args.owner,
+            mode=args.mode or "",
             loop_ts=args.loop_ts or "", extra_leases=extra,
             retries=args.retries, retry_interval=args.retry_interval,
             run_id=run_id,
@@ -7557,6 +7560,61 @@ def cmd_decisions(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 # notify  (the notification spine — push a projection to a transport, docs/225)
 # ---------------------------------------------------------------------------
+
+
+def _hyperlinks_enabled(stream=None) -> bool:
+    """True when `stream` is an interactive terminal that can render OSC 8 links.
+
+    Clickable terminal links are an enhancement, never a requirement: a pipe, a CI
+    log, a `dumb` terminal, or an explicit `DOS_NO_HYPERLINKS=1` all fall back to a
+    plain copy-pasteable command (the `dispatch_top` `isatty` posture). Never
+    raises — a stream without `isatty` degrades to off.
+    """
+    if os.environ.get("DOS_NO_HYPERLINKS"):
+        return False
+    stream = stream if stream is not None else sys.stdout
+    try:
+        if not stream.isatty():
+            return False
+    except Exception:
+        return False
+    return os.environ.get("TERM", "") != "dumb"
+
+
+def _osc8(url: str, text: str) -> str:
+    """Wrap `text` in an OSC 8 terminal hyperlink to `url` (ECMA-48 / xterm OSC 8).
+
+    The widely-supported `ESC ] 8 ; ; URI ST  text  ESC ] 8 ; ; ST` sequence —
+    iTerm2 / WezTerm / kitty / Windows Terminal / the VS Code terminal all render
+    it as a click target; a terminal that does not understand it shows the bare
+    `text`. Pure string-in/string-out.
+    """
+    return f"\x1b]8;;{url}\x1b\\{text}\x1b]8;;\x1b\\"
+
+
+def _action_line(action, *, root: str = "", hyperlinks: bool = False) -> str:
+    """Render a `NotifyAction` as one operator line: a clickable, copy-pasteable open.
+
+    The visible text is the DOS verb that opens the relevant view (copy-paste runs
+    it); when the terminal supports links it is ALSO an OSC 8 hyperlink whose target
+    is the action's explicit `url` if set, else a `file://` of the workspace so the
+    click still lands somewhere relevant. Pure — the caller decides `hyperlinks`
+    from `_hyperlinks_enabled()`.
+    """
+    label = (getattr(action, "label", "") or "open").strip()
+    command = (getattr(action, "command", "") or "").strip()
+    text = command or label
+    url = getattr(action, "url", "") or ""
+    if not url and root:
+        try:
+            url = Path(root).resolve().as_uri()
+        except Exception:
+            url = ""
+    if hyperlinks and url:
+        text = _osc8(url, text)
+    return f"  → {label}: {text}"
+
+
 def cmd_notify(args: argparse.Namespace) -> int:
     """`dos notify {decisions,top}` — push a read-only projection to a transport.
 
@@ -7574,12 +7632,13 @@ def cmd_notify(args: argparse.Namespace) -> int:
         rows = _decisions.collect_decisions(cfg, resolver=resolver)
         summary = _decisions.render_list_plain(rows)
         note = _notify.notification_for_decisions(
-            rows, summary=summary, top=max(0, int(getattr(args, "top", 5))))
+            rows, summary=summary, top=max(0, int(getattr(args, "top", 5))),
+            root=str(cfg.root))
     elif surface == "top":
         from dos import dispatch_top as _dtop
         frame = _dtop.snapshot(cfg)
         summary = _dtop.render_frame_text(frame)
-        note = _notify.notification_for_top(frame, summary=summary)
+        note = _notify.notification_for_top(frame, summary=summary, root=str(cfg.root))
     else:  # pragma: no cover - argparse `required=True` prevents this
         print("error: `dos notify` needs a surface (decisions | top)", file=sys.stderr)
         return 2
@@ -7613,11 +7672,15 @@ def cmd_notify(args: argparse.Namespace) -> int:
             indent=2, default=str))
         return 0
 
-    # Plain: the Notification headline + fields, then the delivery line.
+    # Plain: the Notification headline + fields, then the clickable open + the
+    # delivery line.
     emoji = {"INFO": "·", "WARN": "▲", "URGENT": "■"}.get(note.severity.value, "·")
     print(f"{emoji} [{note.severity.value}] {note.title}")
     for label, value in note.fields:
         print(f"    {label}: {value}")
+    if note.action:
+        print(_action_line(note.action, root=str(cfg.root),
+                           hyperlinks=_hyperlinks_enabled()))
     if delivered_via_null:
         print("  → not sent (notifier=null; pass --notifier slack --channel NAME to deliver)")
     else:
@@ -7983,7 +8046,7 @@ def cmd_pulse(args: argparse.Namespace) -> int:
         return 0
 
     summary = _pulse.render_pulse_text(digest)
-    note = _notify.notification_for_pulse(digest, summary=summary)
+    note = _notify.notification_for_pulse(digest, summary=summary, root=str(cfg.root))
 
     notifier_name = getattr(args, "notifier", None) or "null"
     kwargs: dict = {}
@@ -8017,6 +8080,9 @@ def cmd_pulse(args: argparse.Namespace) -> int:
     print(f"{emoji} [{note.severity.value}] {note.title}")
     for line in digest.lines:
         print(f"    {line}")
+    if note.action:
+        print(_action_line(note.action, root=str(cfg.root),
+                           hyperlinks=_hyperlinks_enabled()))
     if delivered_via_null:
         print("  → not sent (notifier=null; pass --notifier slack --channel NAME to deliver)")
     else:
@@ -9378,10 +9444,15 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             # Axis 7 (docs/113) — the disjointness scorer the arbiter admits on:
             #   (full prose: docs/CLI.md § "Axis 7 (docs/113) — the disjointness scorer the arbiter admi")
             "overlap_policy": {
-                "active": cfg.overlap_policy_name or "prefix",
+                "active": cfg.overlap_policy_name or "lock_modes",
                 "available": _overlap_policy_names(),
                 "ratio_max": cfg.overlap_ratio_max,
-                "floor": "prefix",
+                "floor": (
+                    "lock_modes"
+                    if (cfg.overlap_policy_name or "lock_modes") == "lock_modes"
+                    else "prefix"
+                ),
+                "mode_default": "exclusive",
             },
             # docs/370 — the enforcement POSTURE (how a DOS refusal is SURFACED) +
             # the escalated-vs-blocked split over the observation log. `posture` is
@@ -9474,11 +9545,20 @@ def cmd_doctor(args: argparse.Namespace) -> int:
               f"{_posture_split.observed} observed-only")
     # Axis 7 — the disjointness SCORER the arbiter admits on (docs/113). Shows the
     #   (full prose: docs/CLI.md § "Axis 7 — the disjointness SCORER the arbiter admits on (docs")
-    _ov_active = cfg.overlap_policy_name or "prefix"
+    _ov_active = cfg.overlap_policy_name or "lock_modes"
     _ov_all = _overlap_policy_names()
     _ov_shown = ", ".join(f"{n}*" if n == _ov_active else n for n in _ov_all)
-    print(f"overlap policy      {_ov_shown}  (ratio_max={cfg.overlap_ratio_max:.3f}; "
-          f"prefix floor always on)")
+    _ratio = (
+        "inactive"
+        if cfg.overlap_ratio_max is None
+        else f"{cfg.overlap_ratio_max:.3f}"
+    )
+    _floor = (
+        "S/S compatible, X conflicts"
+        if _ov_active == "lock_modes"
+        else "prefix floor always on"
+    )
+    print(f"overlap policy      {_ov_shown}  (ratio_max={_ratio}; {_floor})")
     # docs/145 — the loop-economics stall reader's active windows (the `[tool_stream]`
     # seam). An operator sees the REPEATING/STALLED run-length thresholds + any
     # exempted pollers `dos tool-stream-eval` (and a consumer's reader) will use here,
@@ -13124,6 +13204,8 @@ def build_parser() -> argparse.ArgumentParser:
     _add_workspace_flags(pa)
     pa.add_argument("--lane", default="", help="requested lane ('' = bare auto-pick)")
     pa.add_argument("--kind", default="", help="cluster|keyword|global|''")
+    pa.add_argument("--mode", default="", choices=["", "shared", "exclusive"],
+                    help="lock mode for this request (default: exclusive)")
     pa.add_argument("--tree", nargs="*", help="requested file tree (globs)")
     pa.add_argument("--leases", default="",
                     help="JSON list of live lease dicts; OVERRIDES the default "
@@ -13316,6 +13398,8 @@ def build_parser() -> argparse.ArgumentParser:
         "acquire", help="arbitrate a lane and, on acquire, journal the grant")
     lla.add_argument("--lane", default="", help="requested lane ('' = auto-pick)")
     lla.add_argument("--kind", default="", help="cluster|keyword|global|''")
+    lla.add_argument("--mode", default="", choices=["", "shared", "exclusive"],
+                     help="lock mode to journal on acquire (default: exclusive)")
     lla.add_argument("--tree", nargs="*", help="requested file tree (globs)")
     lla.add_argument("--owner", required=True,
                      help="lease holder tag (e.g. the workflow branch id)")

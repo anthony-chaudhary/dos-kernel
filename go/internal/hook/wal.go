@@ -141,7 +141,7 @@ func replayJournalFull(entries []map[string]any) []map[string]any {
 				for _, fld := range []string{
 					"lane", "lane_kind", "tree", "loop_ts", "host_id",
 					"pid", "acquired_at", "heartbeat_at", "ttl_minutes",
-					"holder", "run_id", "proc_starttime",
+					"holder", "run_id", "proc_starttime", "mode",
 				} {
 					if v, ok := e[fld]; ok {
 						lz[fld] = v
@@ -222,6 +222,7 @@ func replayJournal(entries []map[string]any) []lease {
 			lane:  asStr(lz["lane"]),
 			tree:  asStrSlice(lz["tree"]),
 			runID: asStr(lz["run_id"]), // issue #188 — the lineage join key
+			mode:  asStr(lz["mode"]),
 		})
 	}
 	return out
@@ -367,6 +368,7 @@ func liveLeasesFromWALAt(journalPath string, now time.Time) []lease {
 			lane:  asStr(lz["lane"]),
 			tree:  asStrSlice(lz["tree"]),
 			runID: asStr(lz["run_id"]), // issue #188 — the lineage join key
+			mode:  asStr(lz["mode"]),
 		})
 	}
 	return out

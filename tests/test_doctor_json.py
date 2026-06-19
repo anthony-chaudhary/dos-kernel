@@ -68,6 +68,9 @@ def test_doctor_json_is_a_well_formed_report(tmp_path: Path):
     assert set(report["lanes"]) == {"concurrent", "exclusive", "autopick", "trees"}
     assert "subject_dirs" in report["stamp"]
     assert "home" in report
+    assert report["overlap_policy"]["active"] == "lock_modes"
+    assert report["overlap_policy"]["ratio_max"] is None
+    assert report["overlap_policy"]["mode_default"] == "exclusive"
     # The verdict-IS-exit-code contract is published per verb (item 1) so an agent
     # discovers it instead of reverse-engineering `$?`.
     assert set(report["exit_codes"]) >= {"verify", "arbitrate", "liveness", "gate"}
@@ -132,6 +135,8 @@ def test_doctor_text_unchanged_without_json(tmp_path: Path):
     assert "workspace root      " in proc.stdout
     assert "concurrent lanes    main" in proc.stdout
     assert "stamp convention    " in proc.stdout
+    assert "lock_modes*" in proc.stdout
+    assert "ratio_max=inactive" in proc.stdout
     # and the text path emits NO JSON
     assert not proc.stdout.lstrip().startswith("{")
 

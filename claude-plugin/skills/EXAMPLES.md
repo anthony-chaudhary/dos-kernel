@@ -44,7 +44,7 @@ the run.
     "style":        "dos"
   },
   "stamp": { "style": "grep" },
-  "overlap_policy": { "active": "prefix", "available": ["prefix", "semantic-groups"], "ratio_max": 0.3333333333333333 },
+  "overlap_policy": { "active": "lock_modes", "available": ["prefix", "lock_modes", "semantic-groups"], "ratio_max": null, "mode_default": "exclusive" },
   "exit_codes": {
     "verify":    { "shipped": 0, "not_shipped": 1, "contract_error": 2 },
     "gate":      { "LIVE": 0, "DRAIN": 3, "STALE-STAMP": 4, "BLOCKED": 5, "RACE": 6, "contract_error": 2, "unknown": 7 },

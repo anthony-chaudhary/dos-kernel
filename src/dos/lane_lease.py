@@ -393,6 +393,7 @@ def acquire(
     kind: str,
     tree: list[str],
     owner: str,
+    mode: str = "",
     loop_ts: str = "",
     extra_leases: list[dict] | None = None,
     retries: int = DEFAULT_RETRIES,
@@ -421,6 +422,11 @@ def acquire(
     loop_ts = loop_ts or _now_iso()
     extra = list(extra_leases or [])
     preds = _admission.active_predicates(config=config)
+    from dos.lock_modes import DEFAULT_MODE, LockMode
+    try:
+        mode_value = LockMode(str(mode).strip().lower()).value if mode else DEFAULT_MODE.value
+    except ValueError:
+        mode_value = DEFAULT_MODE.value
 
     with _Mutex(config, owner, retries=retries, retry_interval=retry_interval,
                 ttl_seconds=ttl_seconds):
@@ -449,6 +455,7 @@ def acquire(
             requested_lane=lane,
             requested_kind=kind,
             requested_tree=tree,
+            requested_mode=mode_value,
             live_leases=live,
             config=config,
             predicates=preds,
@@ -460,6 +467,7 @@ def acquire(
                 "lane": decision.lane or lane,
                 "lane_kind": kind,
                 "tree": list(decision.tree or tree),
+                "mode": mode_value,
                 "loop_ts": loop_ts,
                 "host_id": os.environ.get("DISPATCH_HOST_ID") or _hostname(),
                 "pid": _pid,

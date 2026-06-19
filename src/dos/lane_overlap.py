@@ -79,8 +79,10 @@ class Verdict(str, Enum):
     a free-text string."""
     ADMIT_DISJOINT    = "admit_disjoint"     # no shared prefixes at all
     ADMIT_SOFT        = "admit_soft"         # shared but under the ratio threshold
+    ADMIT_SHARED      = "admit_shared"       # shared region, compatible lock modes
     REFUSE_OVERLAP    = "refuse_overlap"     # shared above the ratio threshold
     REFUSE_EXACT_GLOB = "refuse_exact_glob"  # both lanes claim an identical glob
+    REFUSE_LOCK_CONFLICT = "refuse_lock_conflict"  # intersecting incompatible locks
 
 
 @dataclass(frozen=True)
@@ -92,7 +94,11 @@ class OverlapDecision:
 
     @property
     def admissible(self) -> bool:
-        return self.verdict in (Verdict.ADMIT_DISJOINT, Verdict.ADMIT_SOFT)
+        return self.verdict in (
+            Verdict.ADMIT_DISJOINT,
+            Verdict.ADMIT_SOFT,
+            Verdict.ADMIT_SHARED,
+        )
 
 
 def _exact_glob_collisions(req_tree: list[str], lease_tree: list[str]) -> list[str]:

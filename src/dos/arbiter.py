@@ -23,13 +23,14 @@ would later stand on.
 
 What this arbiter *is*, named after its mechanism rather than the "lane" metaphor:
 a **lock manager whose granularity is a glob-set** — a lane is a *leased
-predicate-lock over a region of the workspace*, admitted by predicate-disjointness
-(`_tree.prefixes_collide` is the predicate-intersection test; the soft-overlap
-ratio in `lane_overlap` is a *loosened lock-compatibility function*, not a
-swim-lane fudge). The capability-lattice above is then **the same primitive over a
-richer predicate algebra than path-prefixes** — a new `prefixes_collide`, not a new
-arbiter. See `docs/89_the-lane-is-a-region-lock.md` (which is also the forward
-litmus for what belongs in here: a region-lock property, never a swim-lane one).
+predicate-lock over a region of the workspace*, admitted by predicate-intersection
+plus lock compatibility (`lock_modes`: SHARED/SHARED may coexist; anything with
+EXCLUSIVE needs tree-disjointness). The legacy soft-overlap ratio remains a
+configurable scorer, but it is no longer the default admission floor. The
+capability-lattice above is then **the same primitive over a richer predicate
+algebra than path-prefixes** — a new `prefixes_collide`, not a new arbiter. See
+`docs/89_the-lane-is-a-region-lock.md` (which is also the forward litmus for what
+belongs in here: a region-lock property, never a swim-lane one).
 """
 
 from __future__ import annotations
@@ -98,9 +99,10 @@ def _lease_blocks(requested_tree: list[str], lease_tree: list[str]) -> bool:
         is never safe).
       * both empty → does NOT block (lone-loop safe).
 
-    Both-known delegates to `dos.lane_overlap.overlap_verdict` — a ratio-only
-    soft-overlap policy (admit when ≤30 % of the requested tree shares prefixes
-    with the lease). Pure; tested in isolation.
+    Legacy helper: both-known delegates to `dos.lane_overlap.overlap_verdict`, the
+    explicit prefix/ratio scorer. The default admission path now runs through
+    `DisjointnessPredicate` and `lock_modes`; this remains for old exact callers
+    that deliberately ask the ratio question.
     """
     if not lease_tree:
         return False
@@ -112,26 +114,26 @@ def _lease_blocks(requested_tree: list[str], lease_tree: list[str]) -> bool:
 def _admission_verdict(
     *, lane: str, kind: str, tree: list[str], live_leases: list[dict],
     predicates: list[AdmissionPredicate], config: SubstrateConfig,
+    mode: str = "",
 ) -> AdmissionVerdict:
     """Run the FULL admission conjunction for a candidate lane (ADM Phase 1).
 
     The single seam every collision check in `arbitrate` now routes through: the
-    built-in `DisjointnessPredicate` (a behavior-preserving wrap of the old inline
-    `_lease_blocks` / `overlap_verdict`) PLUS `SelfModifyPredicate` PLUS any
-    workspace-discovered predicate, composed conjunctively by
-    `admission.run_predicates` (first refusal wins; all-admit ⇒ admit; a predicate
-    that raises is a fail-closed refuse). The disjointness predicate alone
-    reproduces the legacy verdict exactly, so the existing suite stays green; the
-    extra predicates can only ADD refusals (the conjunctive-only invariant), never
-    loosen, so a disjoint job-lane pair still admits.
+    built-in `DisjointnessPredicate` (default S/X lock-mode compatibility) PLUS
+    `SelfModifyPredicate` PLUS any workspace-discovered predicate, composed
+    conjunctively by `admission.run_predicates` (first refusal wins; all-admit ⇒
+    admit; a predicate that raises is a fail-closed refuse). Extra predicates can
+    only ADD refusals (the conjunctive-only invariant), never loosen, so a
+    disjoint job-lane pair still admits.
     """
-    request = AdmissionRequest(lane=lane, kind=kind, tree=tuple(tree or ()))
+    request = AdmissionRequest(lane=lane, kind=kind, tree=tuple(tree or ()), mode=mode)
     return run_predicates(predicates, request, live_leases, config)
 
 
 def _lease_collision(
     *, lane: str, kind: str, tree: list[str], live_leases: list[dict],
     predicates: list[AdmissionPredicate], config: SubstrateConfig,
+    mode: str = "",
 ) -> bool:
     """True iff admitting this candidate lane is refused by ANY predicate against
     ANY live lease — the boolean the auto-pick loops want (they only need "is this
@@ -139,7 +141,7 @@ def _lease_collision(
     `_admission_verdict` so the loops read like the old `any(_lease_blocks(...))`."""
     return not _admission_verdict(
         lane=lane, kind=kind, tree=tree, live_leases=live_leases,
-        predicates=predicates, config=config,
+        predicates=predicates, config=config, mode=mode,
     ).admitted
 
 
@@ -160,6 +162,7 @@ def arbitrate(
     class_budgets: dict[str, int] | None = None,
     live_siblings: list[dict] | None = None,
     sibling_tree_lookup: Callable[[str], list[str] | None] | None = None,
+    requested_mode: str = "",
 ) -> LaneDecision:
     """PURE admission: decide whether a loop may start, and on which lane.
 
@@ -559,6 +562,7 @@ def arbitrate(
         verdict = _admission_verdict(
             lane=requested_lane or "global", kind=kind, tree=requested_tree,
             live_leases=live_leases, predicates=preds, config=cfg,
+            mode=requested_mode,
         )
         if not verdict.admitted:
             return LaneDecision(
@@ -600,6 +604,7 @@ def arbitrate(
         verdict = _admission_verdict(
             lane=requested_lane, kind="cluster", tree=tree,
             live_leases=live_leases, predicates=preds, config=cfg,
+            mode=requested_mode,
         )
         if verdict.admitted:
             return LaneDecision(
@@ -617,14 +622,15 @@ def arbitrate(
         _hint_refusal["reason"] = verdict.reason
 
     # Keyword request with a NON-EMPTY tree → run the admission conjunction
-    # (disjointness + self-modify + any workspace predicate). First refusal wins;
-    # the disjointness predicate reproduces the old soft-overlap verdict exactly,
-    # so a disjoint keyword lane still admits — while a self-modifying one now
-    # refuses with the typed SELF_MODIFY reason it could not carry before.
+    # (lock-mode disjointness + self-modify + any workspace predicate). First
+    # refusal wins; a disjoint or shared/shared-compatible keyword lane admits,
+    # while a self-modifying one refuses with the typed SELF_MODIFY reason it
+    # could not carry before.
     if requested_kind == "keyword" and requested_tree:
         verdict = _admission_verdict(
             lane=requested_lane, kind="keyword", tree=requested_tree,
             live_leases=live_leases, predicates=preds, config=cfg,
+            mode=requested_mode,
         )
         if not verdict.admitted:
             reason = f"{verdict.reason} Use a free cluster lane instead."
@@ -635,7 +641,7 @@ def arbitrate(
             "acquire", lane=requested_lane, lane_kind="keyword",
             tree=requested_tree, auto_picked=False,
             reason=(f"keyword lane {requested_lane!r} admitted (disjoint or "
-                    f"under the soft-overlap threshold vs all "
+                    f"lock-mode compatible vs all "
                     f"{len(live_leases)} live lease(s))."),
         )
 
@@ -735,7 +741,8 @@ def arbitrate(
             _saw_non_budget_candidate = True
             if not _lease_collision(
                     lane=name, kind=_cand_kind, tree=tree_list,
-                    live_leases=live_leases, predicates=preds, config=cfg):
+                    live_leases=live_leases, predicates=preds, config=cfg,
+                    mode=requested_mode):
                 # FQ-449 first pass: also require sibling-disjointness. A candidate
                 # that overlaps a live sibling is skipped here so a LATER ladder
                 # lane (disjoint from both leases AND siblings) can win; the second
@@ -779,7 +786,8 @@ def arbitrate(
                 cand_tree = _cluster_tree(cand)
                 if not _lease_collision(
                         lane=cand, kind="cluster", tree=cand_tree,
-                        live_leases=live_leases, predicates=preds, config=cfg):
+                        live_leases=live_leases, predicates=preds, config=cfg,
+                        mode=requested_mode):
                     if not _admit_lane(cand, "cluster", cand_tree):
                         continue
                     return LaneDecision(
@@ -848,7 +856,8 @@ def arbitrate(
         cand_tree = _cluster_tree(cand)
         if not _lease_collision(
                 lane=cand, kind="cluster", tree=cand_tree,
-                live_leases=live_leases, predicates=preds, config=cfg):
+                live_leases=live_leases, predicates=preds, config=cfg,
+                mode=requested_mode):
             if unresolved_keyword:
                 why = _unresolved_suffix.strip()
             elif requested_lane:
@@ -867,7 +876,8 @@ def arbitrate(
                 continue
             if not _lease_collision(
                     lane=name, kind="named", tree=tree_list,
-                    live_leases=live_leases, predicates=preds, config=cfg):
+                    live_leases=live_leases, predicates=preds, config=cfg,
+                    mode=requested_mode):
                 return LaneDecision(
                     "acquire", lane=name, lane_kind="named",
                     tree=tree_list, auto_picked=True,
@@ -879,7 +889,8 @@ def arbitrate(
                 continue
             if not _lease_collision(
                     lane=plan_id, kind="derived", tree=list(tree_list),
-                    live_leases=live_leases, predicates=preds, config=cfg):
+                    live_leases=live_leases, predicates=preds, config=cfg,
+                    mode=requested_mode):
                 return LaneDecision(
                     "acquire", lane=plan_id, lane_kind="derived",
                     tree=list(tree_list), auto_picked=True,
