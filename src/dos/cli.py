@@ -932,6 +932,77 @@ def _install_skills(
     return written, skipped, unknown
 
 
+# docs/303 default-on — the third runtime surface, wired by a bare `dos init`.
+#   (full prose: docs/CLI.md § "docs/303 default-on — the third runtime surface")
+_DOS_MCP_SERVER = "dos"
+_DOS_MCP_COMMAND = "dos-mcp"  # the console script the [mcp] extra installs
+
+
+def _dos_mcp_importable() -> bool:
+    """True if the `dos_mcp` server package is importable in THIS interpreter.
+
+    The MCP server ships behind the `[mcp]` extra; a bare `dos-kernel` install
+    does not carry it. Wiring a `.mcp.json` that launches a server the install
+    cannot resolve would register a broken entry, so the default-on MCP step
+    GATES on this (and falls back to printing the install hint).
+    """
+    import importlib.util as _ilu
+    return _ilu.find_spec("dos_mcp") is not None
+
+
+def _install_mcp(
+    dest_root: Path, *, force: bool, dry_run: bool = False,
+) -> tuple[str, Path, bool, bool]:
+    """Wire the DOS MCP server into `dest_root/.mcp.json` (the Claude-Code
+    project-scoped MCP config), merged idempotently — the advisory surface a
+    bare `dos init` turns on by default (docs/303). The other hosts read it
+    from their own config; this wires the portable repo-level file and the
+    caller prints the per-host registration line for the rest.
+
+    Returns `(status, path, wrote, importable)`:
+      * `importable=False` → never writes; caller prints the install hint.
+      * `importable=True, wrote=True` → the `dos` server was added/refreshed.
+      * `importable=True, wrote=False` → already wired (use --force to refresh).
+
+    Detail: docs/CLI.md § _install_mcp.
+    """
+    mcp_path = dest_root / ".mcp.json"
+    servers: dict = {}
+    if mcp_path.exists():
+        try:
+            loaded = json.loads(mcp_path.read_text(encoding="utf-8"))
+        except (ValueError, OSError) as e:
+            if not force:
+                raise ValueError(
+                    f"{mcp_path} is not valid JSON ({e}); fix it or pass "
+                    f"--force to overwrite the DOS server entry") from e
+            loaded = {}
+        servers = loaded.get("mcpServers", {}) if isinstance(loaded, dict) else {}
+        if not isinstance(servers, dict):
+            servers = {}
+
+    existing = servers.get(_DOS_MCP_SERVER)
+    canonical = {
+        "command": _DOS_MCP_COMMAND,
+        "args": [],
+        "cwd": ".",
+        "env": {"PYTHONIOENCODING": "utf-8"},
+    }
+    if existing == canonical and not force:
+        return ("already", mcp_path, False, True)
+    # Merge: write the canonical `dos` entry (refreshing it under --force),
+    # preserving every other server the user registered.
+    merged_servers = dict(servers)
+    merged_servers[_DOS_MCP_SERVER] = canonical
+    out = {"mcpServers": merged_servers}
+    new_text = json.dumps(out, indent=2, sort_keys=True) + "\n"
+    if not dry_run:
+        mcp_path.parent.mkdir(parents=True, exist_ok=True)
+        mcp_path.write_text(new_text, encoding="utf-8")
+    return ("wired" if existing != canonical else "already", mcp_path,
+            existing != canonical, True)
+
+
 # docs/134 §6 / docs/165 — the runtime-binding on-ramp. `dos init --with-hooks`
 #   (full prose: docs/CLI.md § "docs/134 §6 / docs/165 — the runtime-binding on-ramp. `dos i")
 _DOS_HOOK_COMMANDS = {
@@ -1102,6 +1173,94 @@ def _detect_auto_hosts(
     return _hi.choose_auto_hosts(detected), sorted(set(probed))
 
 
+def _detect_default_hosts(target: Path) -> list[tuple[str, tuple[str, ...]]]:
+    """The DEFAULT-on hook probe (docs/303): which runtimes are already
+    CONFIGURED in this workspace? Probes each host's actual hooks CONFIG FILE
+    (its `config_path`), never the config dir alone — so a `.claude/` created by
+    the skill copy is NOT mistaken for a Claude-Code install, and a Cursor user
+    does not get Claude-Code hooks wired on a later re-run. Returns
+    `(host, also_covered_names)` pairs (deduped shared config files), or `[]`
+    when no host is rooted here yet (the caller SOFT-skips with a hint).
+
+    Env-unaware and never fails: this is the conservative default, distinct from
+    the explicit `--hooks auto` (which also reads host env markers and FAILS
+    LOUD on nothing-detected — a guessed host would wire a no-op deny).
+    """
+    from dos import hook_install as _hi
+
+    detected: list[tuple[str, tuple[str, ...]]] = []
+    for name in _hi.host_names():
+        try:
+            spec = _hi.host_spec(name)
+        except ValueError:
+            continue  # a broken plugin spec never breaks detection
+        if target.joinpath(*spec.config_path).exists():
+            detected.append((name, spec.config_path))
+    return _hi.choose_auto_hosts(detected)
+
+
+def _wire_host_hooks_and_report(
+    target: Path, chosen: list[tuple[str, tuple[str, ...]]],
+    *, force: bool, dry_run: bool,
+) -> int | None:
+    """Wire + report the DOS hooks for each `(host, also_covers)` in `chosen`.
+
+    The shared per-host loop both the EXPLICIT `--hooks <host>` path and the
+    default-on soft path run. Returns None on success, or 1 on a per-host wiring
+    error (a malformed host config that is not --force-rescued). Under `dry_run`
+    each host's merge is PREVIEWED and nothing is written.
+
+    Detail: docs/CLI.md § _wire_host_hooks_and_report.
+    """
+    for one_host, also_covers in chosen:
+        try:
+            spec, config_path, wired, already, proposed = _install_host_hooks(
+                target, one_host, force=force, dry_run=dry_run)
+        except ValueError as e:
+            print(f"dos init --hooks {one_host}: {e}", file=sys.stderr)
+            return 1
+        if dry_run:
+            # Preview the merge before committing it — print what WOULD be
+            # written, write nothing. The "dress rehearsal" for hook wiring: an
+            # operator with a pre-existing config sees the exact result first.
+            verb = "would wire" if wired else "no new"
+            print(f"--dry-run: {verb} {len(wired)} DOS hook(s) "
+                  f"{'into' if wired else 'for'} {config_path}"
+                  + (f": {', '.join(wired)}" if wired else "")
+                  + " (nothing written)")
+            if already:
+                print(f"  {len(already)} existing DOS hook(s) would be left "
+                      f"untouched (use --force to repair): {', '.join(already)}")
+            print(f"\n----- proposed {config_path.name} -----")
+            print(proposed.rstrip("\n"))
+            print("----- end preview (re-run without --dry-run to apply) -----")
+            continue
+        if wired:
+            print(f"wired {len(wired)} DOS hook(s) into {config_path}: "
+                  f"{', '.join(wired)}")
+        if already:
+            print(f"left {len(already)} existing DOS hook(s) untouched "
+                  f"(use --force to repair): {', '.join(already)}")
+        # Describe only the moments THIS host actually wires — a host whose
+        # spec has no stop_events must not be told a stop is refused when none
+        # is wired (the honest-coverage discipline, the docs/294 rule).
+        clauses = []
+        if spec.pre_events:
+            clauses.append("a refused call is DENIED (pretool)")
+        if spec.post_events:
+            clauses.append("a stalled stream is re-surfaced (posttool)")
+        if spec.stop_events:
+            clauses.append("a stop on an unverified claim is refused (stop)")
+        if clauses:
+            print(f"  bound to {spec.host}: " + ", ".join(clauses) + ".")
+        if also_covers:
+            print(f"  also covers {', '.join(also_covers)} — the same config "
+                  "file, one set of hooks.")
+        if spec.note:
+            print(f"  note: {spec.note}")
+    return None
+
+
 def cmd_init(args: argparse.Namespace) -> int:
     # `init` is workspace-INSENSITIVE for config READBACK (it scaffolds the very
     #   (full prose: docs/CLI.md § "`init` is workspace-INSENSITIVE for config READBACK (it scaf")
@@ -1113,49 +1272,79 @@ def cmd_init(args: argparse.Namespace) -> int:
         target = dir_arg.resolve()
     target.mkdir(parents=True, exist_ok=True)
 
-    # docs/207 Phase 7 — `dos init --skills [names…]` / `--all`: copy the generic
-    #   (full prose: docs/CLI.md § "docs/207 Phase 7 — `dos init --skills [names…]` / `--all`: c")
+    # docs/207 Phase 7 / docs/303 default-on — the three runtime SURFACES a bare
+    #   (full prose: docs/CLI.md § "docs/207 Phase 7 / docs/303 default-on — the three runtime")
+    # `dos init .` turns ON: skills, hooks, and MCP. Every one is wired unless the
+    # operator opts out with --no-skills / --no-hooks / --no-mcp, so a single
+    # `dos init .` leaves a workspace with every surface active and `dos doctor`
+    # reporting them. Explicit flags (--skills, --hooks <host>, …) stay ADDITIVE
+    # on top of the defaults; --no-X is the escape hatch.
     want_skills = (
         getattr(args, "skills", False)
         or getattr(args, "skill", None)
         or getattr(args, "all", False)
+        or not getattr(args, "no_skills", False)   # default-on (docs/303)
     )
     # docs/221 — the runtime to wire hooks into. `--hooks <host>` selects it
     # explicitly (claude-code/cursor/codex/gemini/antigravity/claude-cowork);
     # `--with-hooks` is the backward-compatible alias for `--hooks claude-code`.
-    # None of either → no hooks wired.
+    # With NEITHER, the default-on flow runs a SOFT probe and wires whatever
+    # runtime is already CONFIGURED here (its hooks config FILE exists); --no-hooks
+    # skips hooks entirely. The explicit `--hooks auto` path KEEPS its env-aware,
+    # FAIL-LOUD-on-nothing behaviour (docs/303) — the default never guesses a host.
     hook_host = getattr(args, "hooks", None)
     if hook_host is None and getattr(args, "with_hooks", False):
         hook_host = "claude-code"
-    want_hooks = hook_host is not None
+    hooks_explicit = hook_host is not None
+    hooks_default = (not hooks_explicit) and not getattr(args, "no_hooks", False)
+
+    # docs/303 default-on — the MCP server (the advisory surface). Wired into the
+    # portable `.mcp.json`, gated on the `[mcp]` extra being importable so a bare
+    # install never registers a broken entry; --no-mcp skips it.
+    want_mcp = not getattr(args, "no_mcp", False)
 
     # docs/370 Phase E — `dos init --posture <observe|block|gate>`: wire the
     # enforcement POSTURE (how a DOS refusal is surfaced) at install time. Like
-    # --skills / --hooks it is a valid reason to touch an EXISTING workspace
+    # the surface flags it is a valid reason to touch an EXISTING workspace
     # (merge the posture into its dos.toml without --force clobbering the rest),
     # so an operator can turn `gate` on in a repo that already has a config.
     posture = getattr(args, "posture", None)
     want_posture = posture is not None
 
-    # `--dry-run` is a PREVIEW of the hook merge — it touches nothing. It is only
-    # meaningful with --hooks (there is nothing else to preview), and it skips the
-    # dos.toml scaffold + skills copy so "dry-run wrote nothing" is literally true.
+    # `--dry-run` is a PREVIEW of the WHOLE install — it touches nothing: no
+    # dos.toml scaffold, no skill copy, no hook wiring, no .mcp.json. (It once
+    # required --hooks; with every surface default-on, all of it is previewable.)
     dry_run = getattr(args, "dry_run", False)
-    if dry_run and not want_hooks:
-        print("dos init --dry-run previews the --hooks merge; pass --hooks <host> "
-              "(nothing to preview otherwise).", file=sys.stderr)
-        return 1
+
+    # Resolve EVERY hook probe BEFORE any file is written, so each reads the
+    # workspace as-is — the skill copy below would otherwise create a `.claude/`
+    # that masks the real hosts (and would let `--hooks auto` "detect"
+    # claude-code on a fresh repo just because the skill seed landed there).
+    #   * default-on  → `_detect_default_hosts`: each host's hooks CONFIG FILE
+    #     (a host is "rooted here" only once its own config exists).
+    #   * `--hooks auto` → `_detect_auto_hosts`: config dirs AND env markers,
+    #     FAIL-LOUD on nothing (the env-aware, never-guess path, docs/303).
+    from dos import hook_install as _hi
+    default_hosts: list[tuple[str, tuple[str, ...]]] = []
+    auto_chosen: list[tuple[str, tuple[str, ...]]] | None = None
+    auto_probed: list[str] = []
+    if hooks_default:
+        default_hosts = _detect_default_hosts(target)
+    elif hooks_explicit and hook_host == _hi.AUTO_HOST:
+        auto_chosen, auto_probed = _detect_auto_hosts(target)
 
     cfg_path = target / "dos.toml"
     config_existed = cfg_path.exists()
     if dry_run:
-        pass  # preview-only: do not scaffold dos.toml or copy skills
+        pass  # preview-only: write nothing
     elif config_existed and not args.force:
-        # When ONLY copying skills / wiring hooks / setting the posture into an
-        # existing workspace, the pre-existing dos.toml is not an error — skip the
-        # scaffold and proceed (the posture is merged in below, not clobbered).
-        if not (want_skills or want_hooks or want_posture):
-            print(f"{cfg_path} already exists (use --force to overwrite)", file=sys.stderr)
+        # Re-running `init` on an existing workspace REFRESHES the surfaces
+        # (skills/hooks/mcp are idempotent merges); only when every surface is
+        # opted out AND no posture is set does a bare re-run become a no-op error.
+        if not (want_skills or hooks_explicit or hooks_default
+                or want_mcp or want_posture):
+            print(f"{cfg_path} already exists (use --force to overwrite)",
+                  file=sys.stderr)
             return 1
     else:
         example = getattr(args, "example", None)
@@ -1206,39 +1395,36 @@ def cmd_init(args: argparse.Namespace) -> int:
         else:
             print(f"enforcement posture already \"{posture}\" in {cfg_path} (no change)")
 
-    if want_skills and not dry_run:
+    # SKILLS — default-on core set (--all / --skill narrow or extend it).
+    if want_skills:
         if getattr(args, "all", False):
             names = _available_skills()
         elif getattr(args, "skill", None):
             names = list(args.skill)        # explicit --skill NAME (repeatable)
         else:
-            names = list(_CORE_SKILLS)       # bare --skills → the core set
-        written, skipped, unknown = _install_skills(target, names, force=args.force)
-        if written:
-            print(f"installed {len(written)} skill(s) into "
-                  f"{target / '.claude' / 'skills'}: {', '.join(written)}")
-        if skipped:
-            print(f"skipped {len(skipped)} existing skill(s) (use --force to overwrite): "
-                  f"{', '.join(skipped)}")
-        if unknown:
-            print(f"warning: unknown skill(s) ignored: {', '.join(unknown)} "
-                  f"(available: {', '.join(_available_skills())})", file=sys.stderr)
-            return 1
+            names = list(_CORE_SKILLS)       # default / bare --skills → the core set
+        if dry_run:
+            print(f"--dry-run: would install {len(names)} skill(s) "
+                  f"({', '.join(names)}) into {target / '.claude' / 'skills'}")
+        else:
+            written, skipped, unknown = _install_skills(target, names, force=args.force)
+            if written:
+                print(f"installed {len(written)} skill(s) into "
+                      f"{target / '.claude' / 'skills'}: {', '.join(written)}")
+            if skipped:
+                print(f"skipped {len(skipped)} existing skill(s) "
+                      f"(use --force to overwrite): {', '.join(skipped)}")
+            if unknown:
+                print(f"warning: unknown skill(s) ignored: {', '.join(unknown)} "
+                      f"(available: {', '.join(_available_skills())})",
+                      file=sys.stderr)
+                return 1
 
-    if want_hooks:
-        # docs/134 §6 / docs/221 — bind the verdict to the chosen runtime by wiring
-        # the three DOS hooks into that host's own config file (merged, never
-        # clobbering the user's). claude-code → .claude/settings.json (today's path);
-        # cursor/codex/gemini/antigravity → their config files with the right --dialect;
-        # claude-cowork → the SAME .claude/settings.json (shared harness, docs/298).
-        # `--hooks auto` (docs/303) resolves HERE, at the I/O boundary: probe which
-        # runtimes this workspace already uses, then wire each one through the same
-        # per-host path an explicit name takes. Nothing detected fails LOUD with the
-        # probe list — a guessed host would wire a no-op deny against the real one.
-        dry_run = getattr(args, "dry_run", False)
-        from dos import hook_install as _hi
+    # HOOKS — bind the verdict to the chosen runtime(s). Explicit path first
+    # (docs/134 §6 / docs/221), then the default-on soft path (docs/303).
+    if hooks_explicit:
         if hook_host == _hi.AUTO_HOST:
-            chosen, probed = _detect_auto_hosts(target)
+            chosen, probed = auto_chosen, auto_probed   # detected pre-write
             if not chosen:
                 return _fail(
                     f"dos init --hooks auto: no agent runtime detected under "
@@ -1248,61 +1434,69 @@ def cmd_init(args: argparse.Namespace) -> int:
                          f"host: dos init --hooks <host> — one of: "
                          f"{', '.join(_hi.host_names())}",
                     code=1)
-            print("--hooks auto: detected " + ", ".join(
-                name for name, _ in chosen))
+            print("--hooks auto: detected " + ", ".join(name for name, _ in chosen))
         else:
             chosen = [(hook_host, ())]
-        for one_host, also_covers in chosen:
+        rc = _wire_host_hooks_and_report(
+            target, chosen, force=args.force, dry_run=dry_run)
+        if rc is not None:
+            return rc
+    elif hooks_default:
+        if default_hosts:
+            label = ", ".join(name for name, _ in default_hosts)
+            if dry_run:
+                print(f"--dry-run: default-on hooks would wire {label}")
+            else:
+                print(f"hooks: detected {label}")
+            rc = _wire_host_hooks_and_report(
+                target, default_hosts, force=args.force, dry_run=dry_run)
+            if rc is not None:
+                return rc
+        elif dry_run:
+            print("--dry-run: no agent runtime hooks config found here "
+                  "(.claude/settings.json, .cursor/hooks.json, …); hooks would "
+                  "be skipped. Run `dos init --hooks auto .` to also detect from "
+                  "the environment.")
+        else:
+            print("hooks: no agent runtime hooks config found here "
+                  "(.claude/settings.json, .cursor/hooks.json, …) — skipped. "
+                  "Run `dos init --hooks auto .` to also detect from the "
+                  "environment, or `dos init --hooks <host> .` to name one.")
+
+    # MCP — the advisory surface, default-on. Wired into the portable `.mcp.json`
+    # when the `[mcp]` extra is importable; otherwise the install hint prints and
+    # nothing is written (never register a server the install cannot launch).
+    if want_mcp:
+        if _dos_mcp_importable():
             try:
-                spec, config_path, wired, already, proposed = _install_host_hooks(
-                    target, one_host, force=args.force, dry_run=dry_run)
+                status, mcp_path, wrote, _ = _install_mcp(
+                    target, force=args.force, dry_run=dry_run)
             except ValueError as e:
-                print(f"dos init --hooks {one_host}: {e}", file=sys.stderr)
+                print(f"dos init: {e}", file=sys.stderr)
                 return 1
             if dry_run:
-                # Preview the merge before committing it — print what WOULD be
-                # written, write nothing. The "dress rehearsal" for hook wiring: an
-                # operator with a pre-existing config sees the exact result first.
-                verb = "would wire" if wired else "no new"
-                print(f"--dry-run: {verb} {len(wired)} DOS hook(s) "
-                      f"{'into' if wired else 'for'} {config_path}"
-                      + (f": {', '.join(wired)}" if wired else "")
-                      + " (nothing written)")
-                if already:
-                    print(f"  {len(already)} existing DOS hook(s) would be left "
-                          f"untouched (use --force to repair): {', '.join(already)}")
-                print(f"\n----- proposed {config_path.name} -----")
-                print(proposed.rstrip("\n"))
-                print("----- end preview (re-run without --dry-run to apply) -----")
-                continue
-            if wired:
-                print(f"wired {len(wired)} DOS hook(s) into {config_path}: "
-                      f"{', '.join(wired)}")
-            if already:
-                print(f"left {len(already)} existing DOS hook(s) untouched "
-                      f"(use --force to repair): {', '.join(already)}")
-            # Describe only the moments THIS host actually wires — a host whose
-            # spec has no stop_events (e.g. Hermes' shell hook) must not be told a
-            # stop is refused when none is wired (the honest-coverage discipline, the
-            # docs/294 rule applied to the operator message).
-            clauses = []
-            if spec.pre_events:
-                clauses.append("a refused call is DENIED (pretool)")
-            if spec.post_events:
-                clauses.append("a stalled stream is re-surfaced (posttool)")
-            if spec.stop_events:
-                clauses.append("a stop on an unverified claim is refused (stop)")
-            if clauses:
-                print(f"  bound to {spec.host}: " + ", ".join(clauses) + ".")
-            if also_covers:
-                print(f"  also covers {', '.join(also_covers)} — the same config "
-                      "file, one set of hooks.")
-            if spec.note:
-                print(f"  note: {spec.note}")
-        if dry_run:
-            return 0
+                print(f"--dry-run: would wire the DOS MCP server into {mcp_path} "
+                      "(nothing written)")
+            elif status == "wired":
+                print(f"wired the DOS MCP server into {mcp_path} (the `dos` tool "
+                      "set: dos_verify, dos_arbitrate, dos_commit_audit, …)")
+            else:
+                print(f"MCP server already wired in {mcp_path} "
+                      "(use --force to refresh)")
+        elif dry_run:
+            print("--dry-run: dos_mcp not importable — would print the install "
+                  "hint (`pip install \"dos-kernel[mcp]\"`). (nothing written)")
+        else:
+            print("MCP: the dos_mcp server package isn't importable in this "
+                  "interpreter — skipped the .mcp.json wire. Install the [mcp] "
+                  "extra and re-run, or register it by hand:\n"
+                  "  pip install \"dos-kernel[mcp]\"\n"
+                  "  claude mcp add dos -- dos-mcp")
 
-    print("DOS workspace initialised. Try:  dos doctor --workspace .")
+    if dry_run:
+        print("preview only (re-run without --dry-run to apply).")
+    else:
+        print("DOS workspace initialised. Try:  dos doctor --workspace .")
     return 0
 
 
@@ -10088,7 +10282,7 @@ def cmd_completion(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 _START_HERE_ROWS: tuple[tuple[str, str, str], ...] = (
     ("get started in 60 seconds", "quickstart", "the caught-lie + collision demo in a throwaway repo"),
-    ("adopt DOS in a repo", "init", "scaffold dos.toml (+ --skills / --hooks <runtime>)"),
+    ("adopt DOS in a repo", "init", "scaffold dos.toml + skills/hooks/MCP (all on by default)"),
     ("see this workspace's setup", "doctor", "the active workspace, lane taxonomy, stamp grammar"),
     ("check a claim actually landed", "verify", "did (plan,phase) ship? — git ancestry, not self-report"),
     ("check a commit matches its diff", "commit-audit", "subject vs its own diff (subjects are forgeable)"),
@@ -11788,21 +11982,34 @@ QUIET_INCOMPLETE=3 (claimed but the oracle says not — KEPT + flagged), HONEST_
 (not claimed + not shipped — honest open work). DETECT-and-KEEP, never a mutation —
 the host owns the correction."""
 
-_HELP_INIT = """scaffold a DOS workspace — the dos.toml, and optionally skills + hooks.
+_HELP_INIT = """adopt DOS in a repo — one command turns on every surface.
 
-USE THIS WHEN: a stranger adopts DOS in a repo. `dos init` writes a `dos.toml`
-(lanes auto-derived from the top-level dirs). Add `--skills` and it ALSO copies the
-generic SKILL.md screenplays into `.claude/skills/` as EDITABLE LOCAL FILES; add
-`--hooks <runtime>` and it ALSO wires the three DOS hooks into THAT runtime's own
-config file — so the adoption path is one command, not a manual copy out of the
-wheel or a hand-edited settings file:
+USE THIS WHEN: a stranger adopts DOS in a repo. A bare `dos init .` writes a
+`dos.toml` (lanes auto-derived from the top-level dirs) AND turns ON all three
+runtime surfaces by default (docs/303):
 
-  dos init --skills /tmp/svc            # dos.toml + the core skills (next-up/dispatch/loop/replan)
+  * SKILLS — the core generic SKILL.md screenplays copied into `.claude/skills/`
+    as EDITABLE LOCAL FILES;
+  * HOOKS — the three DOS hooks wired into any runtime ALREADY CONFIGURED here
+    (its hooks config file exists: .claude/settings.json, .cursor/hooks.json, …),
+    merged into the host's own config; if none is rooted here yet, hooks are
+    SKIPPED with a hint (never a guessed host);
+  * MCP — the DOS MCP server wired into `.mcp.json` (when the `[mcp]` extra is
+    importable), exposing dos_verify / dos_arbitrate / … as tools.
+
+So the adoption path is one command, not a manual copy out of the wheel or a
+hand-edited settings file:
+
+  dos init .                            # dos.toml + core skills + hooks (if a host
+                                        #    is configured here) + MCP — all on
+  dos init --no-hooks .                 # dos.toml + skills + MCP, skip hooks
+  dos init --no-skills --no-mcp .       # just dos.toml + hooks
+  dos init --skills /tmp/svc            # (skills are default-on; flag kept for scripts)
   dos init --skill dos-promote /tmp/svc # dos.toml + just the named skill(s) (repeatable)
   dos init --all .                      # the FULL pack into the current workspace
-  dos init --hooks auto .               # DETECT the runtime(s) this repo already uses
-                                        #    and wire them all — the zero-decision path
-  dos init --hooks claude-code .        # dos.toml + bind the verdict to a Claude Code launch
+  dos init --hooks auto .               # DETECT runtime(s) from config dirs AND the env,
+                                        #    wire them all, FAIL LOUD if none (zero-decision)
+  dos init --hooks claude-code .        # bind the verdict to a Claude Code launch
   dos init --hooks cursor .             # …or Cursor      (writes .cursor/hooks.json)
   dos init --hooks codex .              # …or Codex CLI   (writes .codex/config.toml)
   dos init --hooks gemini .             # …or Gemini CLI  (writes .gemini/settings.json)
@@ -11824,15 +12031,16 @@ The block is MERGED into any existing config — your other hooks/keys are prese
 already exist here (.claude/, .cursor/, .codex/, .gemini/, .agents/) plus the env
 of the shell it runs in, wires every runtime it finds (a shared config file is
 wired once), and FAILS LOUD with this list when nothing is detected — never a
-guessed default.
+guessed default. The DEFAULT hook step is the conservative sibling: it probes only
+each host's hooks CONFIG FILE (so a `.claude/` the skill copy makes is never
+mistaken for a Claude-Code install) and SOFT-SKIPS when none is found.
 
-The copied skills/hooks are ordinary files you edit; the package-data is the SEED,
-not a runtime binding. Re-running is idempotent — a diverged local skill copy or an
-already-wired DOS hook is NOT clobbered without `--force` (which REPAIRS it).
-`--skills` / `--hooks` work on an already-init'd workspace too (the dos.toml is left
-alone). The advisory MCP path (the agent CALLS `dos_verify`) is wired separately —
-`dos-mcp` in the host config; see src/dos_mcp/README.md. Hooks ENFORCE (deny); MCP
-ADVISES (the agent asks). Use both."""
+The copied skills/hooks/MCP are ordinary files you edit; the package-data is the
+SEED, not a runtime binding. Re-running is idempotent — a diverged local skill
+copy, an already-wired DOS hook, or an existing .mcp.json entry is NOT clobbered
+without `--force` (which REPAIRS it). `init` works on an already-init'd workspace
+too: it REFRESHES the surfaces (the dos.toml is left alone). Hooks ENFORCE (deny);
+MCP ADVISES (the agent asks). Use both."""
 
 _HELP_MAN = """the self-describing manual over this workspace's registries.
 
@@ -11857,32 +12065,34 @@ def build_parser() -> argparse.ArgumentParser:
     #   (full prose: docs/CLI.md § "`metavar` collapses argparse's auto-generated {init,verify,…")
     sub = p.add_subparsers(dest="cmd", required=True, metavar="<command>")
 
-    pi = sub.add_parser("init", help="scaffold a DOS workspace config (and, with "
-                                     "--skills / --hooks <runtime>, the skills + "
-                                     "cross-vendor hooks)",
+    pi = sub.add_parser("init", help="adopt DOS in a repo: scaffold dos.toml + the "
+                                     "core skills, hooks, and MCP, all on by default",
                         description=_HELP_INIT,
                         formatter_class=argparse.RawDescriptionHelpFormatter)
     pi.add_argument("dir", nargs="?", default=".")
     pi.add_argument("--force", action="store_true",
                     help="overwrite an existing dos.toml / a diverged local skill "
-                         "copy; repair an existing DOS hooks block")
+                         "copy; repair an existing DOS hooks block / .mcp.json entry")
     pi.add_argument("--example", metavar="NAME", default=None,
                     help="scaffold dos.toml from a named reference driver pack "
                          "(e.g. workshop) instead of auto-deriving lanes from your "
                          "top-level dirs — gives you a worked concurrent/exclusive "
                          "lane taxonomy to adapt. See `dos quickstart --driver NAME` "
                          "for a live demo of what it does.")
-    # docs/207 Phase 7 — copy the generic SKILL.md screenplays into the workspace's
-    #   (full prose: docs/CLI.md § "docs/207 Phase 7 — copy the generic SKILL.md screenplays int")
+    # docs/207 Phase 7 / docs/303 default-on — copy the generic SKILL.md screenplays
+    #   (full prose: docs/CLI.md § "docs/207 Phase 7 / docs/303 default-on — copy the generic")
     pi.add_argument("--skills", action="store_true",
                     help="copy the CORE generic skills into .claude/skills/ ("
-                         + ", ".join(_CORE_SKILLS) + ")")
+                         + ", ".join(_CORE_SKILLS) + "). ON by default; this flag "
+                           "is kept for back-compat and scripts")
     pi.add_argument("--skill", action="append", default=None, metavar="NAME",
                     help="copy a specific generic skill (repeatable); implies --skills")
     pi.add_argument("--all", action="store_true",
                     help="copy the FULL skill pack into .claude/skills/")
-    # docs/134 §6 / docs/165 / docs/221 — bind the verdict to an agent runtime by
-    #   (full prose: docs/CLI.md § "docs/134 §6 / docs/165 / docs/221 — bind the verdict to an a")
+    pi.add_argument("--no-skills", action="store_true", dest="no_skills",
+                    help="OPT OUT of copying the core skills (they are on by default)")
+    # docs/134 §6 / docs/165 / docs/221 / docs/303 — bind the verdict to an agent runtime
+    #   (full prose: docs/CLI.md § "docs/134 §6 / docs/165 / docs/221 / docs/303 — bind the verdict")
     from dos import hook_install as _hi_choices
     pi.add_argument("--hooks", metavar="HOST",
                     choices=[_hi_choices.AUTO_HOST, *_hi_choices.host_names()],
@@ -11898,6 +12108,15 @@ def build_parser() -> argparse.ArgumentParser:
     pi.add_argument("--with-hooks", action="store_true", dest="with_hooks",
                     help="alias for --hooks claude-code (wire the DOS hooks into "
                          ".claude/settings.json)")
+    pi.add_argument("--no-hooks", action="store_true", dest="no_hooks",
+                    help="OPT OUT of wiring hooks. By default init wires whatever "
+                         "runtime is already configured here (.claude/settings.json, "
+                         ".cursor/hooks.json, …); --no-hooks skips that. For env-aware "
+                         "detection that FAILS LOUD on nothing, use --hooks auto")
+    # docs/303 default-on — the MCP server (advisory surface), wired by a bare init.
+    pi.add_argument("--no-mcp", action="store_true", dest="no_mcp",
+                    help="OPT OUT of wiring the DOS MCP server into .mcp.json (it is "
+                         "on by default when the [mcp] extra is importable)")
     # docs/370 Phase E — wire the enforcement POSTURE at install time. Choices come
     # from the kernel's `Posture` enum so the flag never drifts from the seam.
     from dos import hook_dialect as _hd_choices
@@ -11912,9 +12131,9 @@ def build_parser() -> argparse.ArgumentParser:
                          "the calls DOS proves safe (a verified allowlist), 'observe' "
                          "records only. Override per run with the DOS_HOOK_POSTURE env.")
     pi.add_argument("--dry-run", action="store_true", dest="dry_run",
-                    help="with --hooks: PREVIEW the config merge (print what would "
-                         "be written, write nothing) — the dress rehearsal before "
-                         "wiring a runtime that already has its own config")
+                    help="PREVIEW the install (print what would be written for each "
+                         "surface — dos.toml, skills, hooks, .mcp.json — and write "
+                         "nothing). The dress rehearsal before running it for real")
     pi.set_defaults(func=cmd_init)
 
     pqs = sub.add_parser(

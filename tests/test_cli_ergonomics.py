@@ -655,13 +655,19 @@ def test_init_hooks_dry_run_preview_matches_a_real_write(tmp_path: Path):
     assert written_settings.strip() in prev.stdout
 
 
-def test_init_dry_run_without_hooks_is_an_error(tmp_path: Path):
-    """`--dry-run` only previews the hook merge; without --hooks there is nothing to
-    preview, so it's a usage error (and it still writes nothing)."""
+def test_init_dry_run_previews_the_default_flow_and_writes_nothing(tmp_path: Path):
+    """A bare `dos init --dry-run` PREVIEWS the whole default-on install (skills,
+    hooks, MCP) and writes nothing — every surface is default-on now, so there is
+    always something to preview (it is no longer the hooks-only usage error)."""
     cp = _cli("init", str(tmp_path), "--dry-run")
-    assert cp.returncode == 1
-    assert "previews the --hooks merge" in cp.stderr
+    assert cp.returncode == 0, cp.stderr
+    assert "--dry-run" in cp.stdout
+    assert "would install" in cp.stdout          # the skills preview
+    assert "preview only" in cp.stdout           # the closing preview line
+    # Preview means touch-nothing: no dos.toml, no .claude, no .mcp.json.
     assert not (tmp_path / "dos.toml").exists()
+    assert not (tmp_path / ".claude").exists()
+    assert not (tmp_path / ".mcp.json").exists()
 
 
 # ---------------------------------------------------------------------------

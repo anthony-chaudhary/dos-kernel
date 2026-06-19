@@ -194,7 +194,11 @@ def test_auto_dry_run_previews_each_host_and_writes_nothing(tmp_path: Path):
     (dest / ".gemini").mkdir()
     proc = _cli("init", "--hooks", "auto", "--dry-run", str(dest))
     assert proc.returncode == 0, proc.stderr
-    assert proc.stdout.count("nothing written") == 2
+    # Two detected hosts → two hook previews (each prints its own `----- proposed`
+    # banner). The default-on MCP preview is a one-liner with no banner, so the
+    # banner count isolates the per-host hook previews deterministically.
+    assert proc.stdout.count("----- proposed") == 2
+    assert "nothing written" in proc.stdout
     assert "proposed hooks.json" in proc.stdout       # cursor's file
     assert "proposed settings.json" in proc.stdout    # gemini's file
     assert not (dest / ".cursor" / "hooks.json").exists()
