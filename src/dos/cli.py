@@ -10798,10 +10798,15 @@ def _verifiability_headline(cfg: _config.SubstrateConfig) -> str:
         return "verifiability        no commits to read (not a git repo, or empty history)"
     ship_shaped = [s for s in subjects if _stamp.ship_shaped_under_generic(s)]
     recognized = [s for s in ship_shaped if cfg.stamp.recognizes_direct_ship(s)]
+    # Leaf-NAME trailers (`(fak gateway)`) that the digit-requiring heuristic can't
+    # see but `dos verify` binds — counted only for a repo that DECLARED
+    # trailer_stamp, and only when the <plan> token recurs (the prose-aside guard).
+    # Union (not sum) so a subject counted both ways never double-counts.
+    verifiable = set(recognized) | _stamp.named_trailer_ship_subjects(cfg.stamp, subjects)
     grammar = _describe_stamp(cfg.stamp).split("  ", 1)[0]
-    if recognized:
+    if verifiable:
         return (
-            f"verifiability        {len(recognized)} of your last {len(subjects)} commits "
+            f"verifiability        {len(verifiable)} of your last {len(subjects)} commits "
             f"name a unit of work `dos verify` can check (grammar: {grammar})"
         )
     if ship_shaped:
@@ -10845,10 +10850,14 @@ def _verifiability_facts(cfg: _config.SubstrateConfig) -> dict:
         subjects = []
     ship_shaped = [s for s in subjects if _stamp.ship_shaped_under_generic(s)]
     recognized = [s for s in ship_shaped if cfg.stamp.recognizes_direct_ship(s)]
+    named = _stamp.named_trailer_ship_subjects(cfg.stamp, subjects)
+    verifiable = set(recognized) | named
     return {
         "commits_read": len(subjects),
         "ship_shaped": len(ship_shaped),
         "recognized": len(recognized),
+        "named_trailer": len(named),
+        "verifiable": len(verifiable),
         "grammar": _describe_stamp(cfg.stamp).split("  ", 1)[0],
     }
 

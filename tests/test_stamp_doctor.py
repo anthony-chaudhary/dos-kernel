@@ -26,6 +26,7 @@ from dos.stamp import (
     convention_coverage_finding,
     is_conventional_commit,
     conventional_commits_unstamped_finding,
+    named_trailer_ship_subjects,
 )
 
 
@@ -364,3 +365,77 @@ def test_verifiability_recipe_quiet_for_undeclared_conventional_commits(tmp_path
     line = next(l for l in out.splitlines() if l.startswith("verifiability"))
     assert "no referee can check" in line
     assert "trailer_stamp" not in line
+
+
+# ---------------------------------------------------------------------------
+# Leaf-NAME trailers — `(fak gateway)`-style stamps a repo uses when it verifies
+# per NAMED unit, not a NUMBERED phase. The digit-requiring generic heuristic can't
+# see them (a `(word word)` could be prose), but `dos verify fak gateway` binds
+# them literally — so a trailer-declared repo gets a recurrence-gated counter that
+# folds them into the affirmative 'can check' headline instead of undercounting.
+# ---------------------------------------------------------------------------
+def test_named_trailer_counts_recurring_plan_token():
+    on = StampConvention(subject_dirs=(), trailer_stamp=True)
+    subjects = [
+        "feat(tools): commit-stamp doctor (fak tools)",
+        "feat(dos): trailer stamp (fak claude)",
+        "fix(gateway): harden the wire",            # no trailer
+        "feat(api): paginate (edge case)",          # one-off prose aside — 'edge' won't recur
+    ]
+    got = named_trailer_ship_subjects(on, subjects)
+    # Both `(fak …)` recur on 'fak' → counted; the lone `(edge case)` → not.
+    assert got == {
+        "feat(tools): commit-stamp doctor (fak tools)",
+        "feat(dos): trailer stamp (fak claude)",
+    }
+
+
+def test_named_trailer_requires_recurrence():
+    """A single `(fak gateway)` with no other `(fak …)` does not recur → not counted
+    (conservative: better to undercount one than to count a prose aside)."""
+    on = StampConvention(subject_dirs=(), trailer_stamp=True)
+    assert named_trailer_ship_subjects(on, ["fix(x): y (fak gateway)", "feat(z): w"]) == set()
+
+
+def test_named_trailer_disjoint_from_numbered_and_off_by_default():
+    on = StampConvention(subject_dirs=(), trailer_stamp=True)
+    # Numbered-phase trailers are NOT counted here (they belong to recognizes_direct_ship).
+    assert named_trailer_ship_subjects(
+        on, ["feat(a): x (docs/286 Phase 3)", "feat(b): y (docs/286 Phase 4)"]
+    ) == set()
+    # trailer_stamp OFF → never fires, even on recurring leaf trailers.
+    off = StampConvention(subject_dirs=())
+    assert named_trailer_ship_subjects(
+        off, ["a (fak tools)", "b (fak gateway)"]
+    ) == set()
+
+
+def test_verifiability_counts_leaf_name_trailers(tmp_path):
+    """End-to-end: a trailer_stamp repo whose ships carry recurring leaf-NAME
+    trailers → the affirmative 'can check' headline counts them (was the
+    undercount: the digit-requiring heuristic saw zero and fell to the recipe)."""
+    _repo(tmp_path,
+          "feat(tools): commit-stamp doctor (fak tools)",
+          "feat(dos): trailer stamp wiring (fak claude)")
+    (tmp_path / "dos.toml").write_text(
+        '[stamp]\nstyle = "grep"\nsubject_dirs = []\ntrailer_stamp = true\n', encoding="utf-8"
+    )
+    out = _doctor(tmp_path).stdout
+    line = next(l for l in out.splitlines() if l.startswith("verifiability"))
+    assert "can check" in line
+    assert "2 of your last 3 commits" in line  # init + 2 leaf-name ships
+    assert "no referee" not in line
+
+
+def test_verifiability_json_carries_named_trailer(tmp_path):
+    import json as _json
+    _repo(tmp_path,
+          "feat(tools): doctor (fak tools)",
+          "feat(dos): wiring (fak claude)")
+    (tmp_path / "dos.toml").write_text(
+        '[stamp]\nsubject_dirs = []\ntrailer_stamp = true\n', encoding="utf-8"
+    )
+    report = _json.loads(_doctor(tmp_path, "--json").stdout)
+    v = report["verifiability"]
+    assert v["named_trailer"] == 2
+    assert v["verifiable"] == 2

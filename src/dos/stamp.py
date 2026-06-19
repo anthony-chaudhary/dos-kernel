@@ -830,6 +830,55 @@ def conventional_commits_unstamped_finding(
     )
 
 
+# A leaf-NAME `(<plan> <phase>)` trailer — the stamp a repo uses when it verifies
+# per NAMED unit (a package / leaf), e.g. `fix(gateway): … (fak gateway)`, rather
+# than a NUMBERED phase. `recognizes_direct_ship`'s trailer probe REQUIRES a digit
+# in the phase token (so `(edge case)` prose never reads as a ship), so it
+# structurally cannot see these — yet `dos verify fak gateway` binds them literally.
+# The phase token here is letters-only (NO digit), keeping this set DISJOINT from the
+# digit-phase forms `recognizes_direct_ship` already counts (a subject is in at most
+# one), so a caller may union the two without double-counting.
+_NAMED_TRAILER_RE = re.compile(
+    r"\(\s*(?:refs\s+)?([A-Za-z0-9][\w./\-]*):?\s+"   # the <plan> token
+    r"([A-Za-z][A-Za-z._\-]*)"                        # the <phase> NAME (no digit)
+    r"(?:\s*[,;]?\s*(?:fixes|closes|refs)?\s*#\d+)*\s*\)\s*$",
+    re.IGNORECASE,
+)
+
+
+def named_trailer_ship_subjects(
+    convention: StampConvention, subjects: list[str]
+) -> set[str]:
+    """The subjects carrying a RECURRING leaf-name `(<plan> <phase>)` ship trailer.
+
+    A non-numbered stamp the digit-requiring generic heuristic can't see, but
+    `dos verify` binds literally (e.g. `fix(gateway): … (fak gateway)`). A trailer
+    counts only when its <plan> token RECURS across ≥2 subjects — the discriminator
+    that separates a real per-leaf stamping convention (`(fak gateway)`,
+    `(fak tools)` — 'fak' recurs) from a one-off prose aside (`(edge case)`, whose
+    first word does not). Bookkeeping subjects are excluded. Empty unless the
+    convention opted into `trailer_stamp` (the same gate as the trailer rung), so a
+    repo that declared no trailer stamp is never affected. Returns the SUBJECT SET
+    (not a count) so a caller can union it with `recognizes_direct_ship` hits
+    without double-counting. Pure / unit-testable.
+    """
+    if not convention.trailer_stamp:
+        return set()
+    from collections import Counter
+
+    bookkeeping = convention.bookkeeping_subject_re()
+    hits: list[tuple[str, str]] = []
+    for s in subjects:
+        t = (s or "").strip()
+        if not t or bookkeeping.match(t):
+            continue
+        m = _NAMED_TRAILER_RE.search(t)
+        if m:
+            hits.append((m.group(1).lower(), t))
+    plan_counts = Counter(p for p, _ in hits)
+    return {t for p, t in hits if plan_counts[p] >= 2}
+
+
 # ---------------------------------------------------------------------------
 # The reference userland app's convention — the current hardcoded grammar, lifted
 # VERBATIM from `phase_shipped.py`'s module constants so the existing
