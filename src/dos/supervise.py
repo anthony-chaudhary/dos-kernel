@@ -695,44 +695,86 @@ def supervise(
     # ask. A non-repeatable (fixed-tree) lane keeps the old single-emit, region-locking
     # behaviour byte-for-byte.
     # Order: fixed-tree concurrent lanes FIRST (they fill exactly as before, region
-    # by region), THEN repeatable handles (they soak any remaining budget without a
-    # region lock), THEN exclusive lanes (only if nothing else can fill). The sort
-    # key is a 2-tuple (repeatable-or-exclusive bucket); `sorted` is stable so roster
-    # order holds within each bucket. This keeps the no-`max_concurrency` path
-    # byte-for-byte (no lane is repeatable there, so the key degenerates to the old
-    # `is_exclusive` sort).
+    # by region), THEN repeatable handles (first one slot per handle, then any
+    # derived-budget overflow without a region lock), THEN exclusive lanes (only if
+    # nothing else can fill). The sort key buckets free/reaped repeatable handles
+    # before held repeatable handles so a standing autopick roster fills other free
+    # concrete lanes before duplicating a lane that is already ADVANCING. `sorted`
+    # is stable so roster order holds within each bucket. This keeps the no-
+    # `max_concurrency` fixed-lane path byte-for-byte (no lane is repeatable there,
+    # so the key degenerates to the old `is_exclusive` sort).
     def _spawn_order_key(ln: LaneLiveness) -> tuple[int, int]:
         if ln.is_exclusive:
             return (2, 0)
         if ln.repeatable:
-            return (1, 0)
+            held_handle = ln.liveness == Liveness.ADVANCING
+            return (1, 1 if held_handle else 0)
         return (0, 0)
 
     ordered = sorted(spawn_candidates, key=_spawn_order_key)
     spawns: list[LanePlan] = []
     chosen_trees: list[tuple[str, ...]] = []
+    repeatable_candidates = [ln for ln in ordered if ln.repeatable]
+
+    def _append_repeatable_spawn(ln: LaneLiveness) -> None:
+        spawns.append(
+            LanePlan(
+                lane=ln.lane,
+                disposition=Disposition.SPAWN,
+                reason=(
+                    f"repeatable auto-pick lane under target "
+                    f"(alive {alive} < target {target}, admissible "
+                    f"{admissible}, max_concurrency {policy.max_concurrency}) "
+                    f"— spawn a worker; the arbiter narrows its per-pick claim"
+                ),
+            )
+        )
+
     for ln in ordered:
         if len(spawns) >= spawn_needed:
             break
         if ln.repeatable:
-            # A fungible handle: synthesise as many slots as the budget still wants.
-            # No disjointness check against held/chosen trees (the handle locks no
-            # fixed region — the arbiter narrows each pick at acquire time) and no
-            # tree added to chosen_trees (so a later fixed-tree candidate is judged
-            # only against real region-locks). Bounded by spawn_needed.
-            while len(spawns) < spawn_needed:
-                spawns.append(
-                    LanePlan(
-                        lane=ln.lane,
-                        disposition=Disposition.SPAWN,
-                        reason=(
-                            f"repeatable auto-pick lane under target "
-                            f"(alive {alive} < target {target}, admissible "
-                            f"{admissible}, max_concurrency {policy.max_concurrency}) "
-                            f"— spawn a worker; the arbiter narrows its per-pick claim"
-                        ),
-                    )
-                )
+            # A fungible handle gets ONE first-pass slot here. This preserves the
+            # concrete-lane roster case where every autopick lane is repeatable:
+            # fill distinct lane names before using a handle twice. Any remaining
+            # derived-budget slots are synthesized in the overflow pass below,
+            # before exclusive lanes are considered.
+            _append_repeatable_spawn(ln)
+            continue
+        if ln.is_exclusive:
+            # Exclusive lanes are the last resort. Repeatable overflow is handled
+            # before this pass, matching the old "repeatables soak before exclusive"
+            # ordering while still giving distinct repeatable handles a first slot.
+            continue
+        disjoint = all(
+            _tree.lane_trees_disjoint(list(ln.tree), list(t))
+            for t in held_trees + chosen_trees
+        )
+        if not disjoint:
+            continue
+        spawns.append(
+            LanePlan(
+                lane=ln.lane,
+                disposition=Disposition.SPAWN,
+                reason=(
+                    f"lane is free and the roster is under target "
+                    f"(alive {alive} < target {target}, admissible {admissible}) "
+                    f"— spawn a worker"
+                ),
+            )
+        )
+        chosen_trees.append(ln.tree)
+
+    repeatable_i = 0
+    while len(spawns) < spawn_needed and repeatable_candidates:
+        ln = repeatable_candidates[repeatable_i % len(repeatable_candidates)]
+        _append_repeatable_spawn(ln)
+        repeatable_i += 1
+
+    for ln in ordered:
+        if len(spawns) >= spawn_needed:
+            break
+        if not ln.is_exclusive:
             continue
         disjoint = all(
             _tree.lane_trees_disjoint(list(ln.tree), list(t))

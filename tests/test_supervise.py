@@ -17,7 +17,6 @@ from dos.supervise import (
     DEFAULT_POLICY,
     Disposition,
     LaneLiveness,
-    LanePlan,
     SuperviseEvidence,
     SuperviseOutcome,
     SupervisePolicy,
@@ -740,6 +739,39 @@ class TestDerivedClaimConcurrency:
         assert all(p.lane == "auto" for p in v.spawn)
         assert all(p.disposition == Disposition.SPAWN for p in v.spawn)
 
+    def test_multiple_repeatable_lanes_get_distinct_slots_before_repeats(self):
+        # A workspace may put every concrete concurrent lane in autopick, making
+        # each one repeatable. The supervisor should still fill distinct free lanes
+        # before using any repeatable handle twice.
+        ev = SuperviseEvidence(
+            lanes=(
+                repeatable_free("api", ("src/api/**",)),
+                repeatable_free("worker", ("src/worker/**",)),
+                repeatable_free("web", ("src/web/**",)),
+            ),
+            target=3,
+        )
+        v = supervise(ev, SupervisePolicy(target=3))
+        assert v.admissible == 3
+        assert [p.lane for p in v.spawn] == ["api", "worker", "web"]
+
+    def test_free_repeatable_lanes_fill_before_duplicating_held_handle(self):
+        # Once a repeatable lane is already ADVANCING, refilling target should use
+        # other free concrete repeatable lanes before launching a duplicate on the
+        # held handle.
+        ev = SuperviseEvidence(
+            lanes=(
+                repeatable_held("api", Liveness.ADVANCING, ("src/api/**",)),
+                repeatable_free("worker", ("src/worker/**",)),
+                repeatable_free("web", ("src/web/**",)),
+            ),
+            target=3,
+        )
+        v = supervise(ev, SupervisePolicy(target=3))
+        assert v.alive == 1
+        assert v.admissible == 3
+        assert [p.lane for p in v.spawn] == ["worker", "web"]
+
     def test_target_below_budget_fills_to_target_not_budget(self):
         # admissible is max(static, budget)=8, but we only spawn up to TARGET (3).
         ev = SuperviseEvidence(lanes=(repeatable_free("auto"),), target=3)
@@ -819,7 +851,9 @@ class TestDerivedClaimConcurrency:
 
     def test_purity_no_io(self, monkeypatch):
         # The verdict stays pure under the budget path (no clock/subprocess/file).
-        import subprocess, time as _time
+        import subprocess
+        import time as _time
+
         monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no subprocess")))
         monkeypatch.setattr(_time, "time", lambda: (_ for _ in ()).throw(AssertionError("no clock")))
         ev = SuperviseEvidence(lanes=(repeatable_free("auto"),), target=3)
