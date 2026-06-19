@@ -12,6 +12,7 @@ you want to run something in the next minute.
 | [`fleet_frameworks/`](fleet_frameworks/) | suite-pinned recipes wiring DOS into LangGraph, CrewAI, AutoGen, and the OpenAI/Claude Agents SDK |
 | [`nemo_guardrails/`](nemo_guardrails/) | the effect-check rail — a NeMo Guardrails custom action that refuses a bot's "done" when the claimed effect is absent from repo evidence |
 | [`hermes_integration/`](hermes_integration/) | the swarm-runtime worked example — the exec-capability gate and the arbiter as a swarm's missing lock manager, A/B-measured |
+| [`opencode/`](opencode/) | the MCP wiring kit for opencode — `init_opencode.py` idempotently injects the `dos` MCP server into an opencode config and self-verifies; opencode is MCP-only (no hook surface), so this is the honest install path where `dos init --hooks` does not apply |
 | [`serverless_rl/`](serverless_rl/) | `dos reward` as a deterministic client-side `weave.Scorer` / ART reward function — the witness-gated, non-distillable label in the W&B Serverless-RL signal path |
 | [`braintrust_scorer/`](braintrust_scorer/) | `dos reward` as a Braintrust custom code scorer — ACCEPT/REJECT_POISON from a recorded or live read-back; abstains score `None`, never a silent 0 |
 | [`kernel_keep_gate/`](kernel_keep_gate/) | `dos improve` as a non-forgeable keep bit for an LLM-generated kernel — honest-faster KEEP vs reference-copy / tolerance-exploit / harness-edit REVERT, with the #35 harness-tamper floor as a tree check |
