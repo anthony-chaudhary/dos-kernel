@@ -56,6 +56,7 @@ the effects (Popen + scavenge), returning `(verdict, actions)`. `run(...)` loops
 from __future__ import annotations
 
 import os
+import shlex
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -65,17 +66,35 @@ from typing import Optional
 from dos import config as _config
 from dos import lane_journal, run_id, supervise
 
-# The worker launch argv the SPAWN plan turns into. Generic + host-free: it shells
-# the `/dos-dispatch-loop` slash-skill, never a host's fat script (the emitted
-# command names no host — the same rule the `dos loop` CLI emission keeps).
+# The worker launch argv the SPAWN plan turns into. The template is workspace
+# policy (`dos.toml [supervise].worker_launch_template`), so the enacting driver
+# can run under Claude, Codex, a local harness, or a shell wrapper without this
+# module naming a host binary.
 WORKER_PROCESS_ID = "PROC-dos-dispatch-loop"
 DEFAULT_INTERVAL_S = 300.0       # the watchdog wakes rarely — init's reaper cadence
 DEFAULT_COOLDOWN_MS = 120_000    # ~2 min: covers a worker's cold-start + first ACQUIRE
 
 
-def _worker_argv(lane: str) -> list[str]:
-    """The argv for one worker dispatch-loop on `lane` (generic, host-free)."""
-    return ["claude", "-p", f"/dos-dispatch-loop --lane {lane}"]
+def _worker_argv(template: str, lane: str) -> list[str]:
+    """Render the configured worker launch template into argv for `lane`.
+
+    The template is validated by `SupervisePolicy` to contain `{lane}`. Splitting
+    with `shlex` keeps the common host declarations (`claude -p "... {lane}"`,
+    `codex exec "... {lane}"`, wrapper scripts) as argv without routing through a
+    shell. On Windows we use non-POSIX tokenization so `C:\\...` paths keep their
+    backslashes, then trim wrapper quotes from grouped arguments. The default bare
+    skill template becomes `["/dos-dispatch-loop", "--lane", lane]`; a host that
+    needs a real runtime declares that wrapper in `dos.toml`.
+    """
+    parts = shlex.split(template.format(lane=lane), posix=(os.name != "nt"))
+    if os.name != "nt":
+        return parts
+    return [
+        part[1:-1]
+        if len(part) >= 2 and part[0] == part[-1] and part[0] in ("'", '"')
+        else part
+        for part in parts
+    ]
 
 
 # --------------------------------------------------------------------------
@@ -212,9 +231,11 @@ def plan_tick(cfg, *, target, now_ms, launched, cooldown_ms=DEFAULT_COOLDOWN_MS)
 
     from dos import cli  # consumer→consumer import (driver may import the CLI)
 
-    pending = _pending_from_launched(launched, now_ms=now_ms, cooldown_ms=cooldown_ms)
-    ev = cli._supervise_evidence(cfg, target=target, now_ms=now_ms, pending_lanes=pending)
     policy = dataclasses.replace(cfg.supervise, target=target)
+    pending = _pending_from_launched(launched, now_ms=now_ms, cooldown_ms=cooldown_ms)
+    ev = cli._supervise_evidence(
+        cfg, target=target, now_ms=now_ms, pending_lanes=pending, policy=policy
+    )
     return supervise.supervise(ev, policy)
 
 
@@ -253,14 +274,14 @@ def tick(
     # Spawn the free admissible lanes the plan named. Each worker gets its OWN
     # run-id minted as a CHILD of the supervisor root (process-id WORKER_PROCESS_ID),
     # so the correlation spine records "this dispatch-loop was launched by this
-    # supervisor" across the `claude -p` boundary via the CID_* lineage env.
+    # supervisor" across the configured worker boundary via the CID_* lineage env.
     for plan in verdict.spawn:
         env = dict(os.environ)
         if root_run is not None:
             child = run_id.mint(WORKER_PROCESS_ID, parent=root_run)
             env.update(run_id.lineage_env(child))
         try:
-            popen(_worker_argv(plan.lane), env=env)
+            popen(_worker_argv(cfg.supervise.worker_launch_template, plan.lane), env=env)
             launched[plan.lane] = now_ms
             actions.spawned.append(plan.lane)
         except Exception:  # noqa: BLE001 — a failed launch is non-fatal; retry next tick

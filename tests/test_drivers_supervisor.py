@@ -11,10 +11,8 @@ the verdict's inputs are controlled exactly, then assert the EFFECTS:
 
 from __future__ import annotations
 
-import json
+import dataclasses
 from pathlib import Path
-
-import pytest
 
 from dos import config as _config
 from dos import lane_journal, supervise
@@ -37,10 +35,13 @@ class _Recorder:
 
     @property
     def lanes(self):
-        # the --lane <X> token from each recorded "/dos-dispatch-loop --lane X"
+        # the --lane <X> token from each recorded worker launch command
         out = []
         for argv, _ in self.calls:
-            for part in argv:
+            for i, part in enumerate(argv):
+                if part == "--lane" and i + 1 < len(argv):
+                    out.append(argv[i + 1])
+                    continue
                 if "--lane " in part:
                     out.append(part.rsplit("--lane ", 1)[1].strip().strip('"'))
         return out
@@ -61,7 +62,8 @@ def _patch_evidence(monkeypatch, ev: supervise.SuperviseEvidence):
     """Force cli._supervise_evidence to return crafted evidence (control the plan)."""
     from dos import cli
     monkeypatch.setattr(cli, "_supervise_evidence",
-                        lambda cfg, *, target, now_ms, pending_lanes=frozenset(): ev)
+                        lambda cfg, *, target, now_ms, pending_lanes=frozenset(),
+                        policy=None: ev)
 
 
 # --------------------------------------------------------------------------
@@ -82,10 +84,51 @@ def test_tick_spawns_a_worker_for_a_free_lane(tmp_path, monkeypatch):
     assert rec.lanes == ["api"]                 # exactly one worker, on the free lane
     # the launched-set now tracks it (the race belt's memory)
     assert "api" in launched and launched["api"] == 1000
-    # the emitted argv is the generic, host-free worker command
+    # the emitted argv is the generic, host-free worker command from config
     argv = rec.calls[0][0]
-    assert argv[:2] == ["claude", "-p"]
-    assert "/dos-dispatch-loop --lane api" in argv[2]
+    assert argv == ["/dos-dispatch-loop", "--lane", "api"]
+    assert "claude" not in argv
+
+
+def test_tick_uses_configured_worker_launch_template(tmp_path, monkeypatch):
+    cfg = _cfg(tmp_path)
+    cfg = dataclasses.replace(
+        cfg,
+        supervise=supervise.SupervisePolicy(
+            worker_launch_template='codex exec "/dos-dispatch-loop --lane {lane}"'
+        ),
+    )
+    ev = supervise.SuperviseEvidence(
+        lanes=(_lane("api", None, ("src/api/**",)),), target=1)
+    _patch_evidence(monkeypatch, ev)
+    rec = _Recorder()
+
+    supervisor.tick(cfg, target=1, now_ms=1000, launched={}, popen=rec)
+
+    assert rec.calls[0][0] == ["codex", "exec", "/dos-dispatch-loop --lane api"]
+    assert rec.lanes == ["api"]
+
+
+def test_plan_tick_passes_effective_policy_to_evidence_gather(tmp_path, monkeypatch):
+    cfg = _cfg(tmp_path)
+    cfg = dataclasses.replace(
+        cfg, supervise=supervise.SupervisePolicy(target=1, max_concurrency=4)
+    )
+    captured = {}
+    from dos import cli
+
+    def _fake_gather(cfg, *, target, now_ms, pending_lanes=frozenset(), policy=None):
+        captured["target"] = target
+        captured["policy"] = policy
+        return supervise.SuperviseEvidence(lanes=(), target=target)
+
+    monkeypatch.setattr(cli, "_supervise_evidence", _fake_gather)
+
+    supervisor.plan_tick(cfg, target=3, now_ms=1000, launched={})
+
+    assert captured["target"] == 3
+    assert captured["policy"].target == 3
+    assert captured["policy"].max_concurrency == 4
 
 
 # --------------------------------------------------------------------------
@@ -100,7 +143,7 @@ def test_tick_does_not_respawn_a_pending_lane(tmp_path, monkeypatch):
 
     captured = {}
 
-    def _fake_gather(cfg, *, target, now_ms, pending_lanes=frozenset()):
+    def _fake_gather(cfg, *, target, now_ms, pending_lanes=frozenset(), policy=None):
         captured["pending"] = pending_lanes
         lv = None  # FREE in the journal
         return supervise.SuperviseEvidence(
@@ -194,7 +237,7 @@ def test_run_is_bounded_by_max_ticks(tmp_path, monkeypatch):
     # race belt engages across ticks and `main` is launched only ONCE.
     from dos import cli
 
-    def _fake_gather(cfg, *, target, now_ms, pending_lanes=frozenset()):
+    def _fake_gather(cfg, *, target, now_ms, pending_lanes=frozenset(), policy=None):
         return supervise.SuperviseEvidence(
             lanes=(
                 supervise.LaneLiveness(
@@ -239,12 +282,12 @@ def test_stale_lock_is_stolen_so_reaps_are_not_wedged(tmp_path, monkeypatch):
     # Simulate a crash that left a STALE lock behind, then age it past the TTL.
     lock = Path(str(cfg.paths.lane_journal) + ".supervisor.lock")
     lock.write_text("supervisor pid=99999\n", encoding="utf-8")
-    import os as _os, time as _time
+    import os as _os
+    import time as _time
+
     old = _time.time() - (supervisor._LOCK_TTL_S + 5)
     _os.utime(lock, (old, old))
 
-    # A fresh lock (just created) must be RESPECTED (the reap defers).
-    fresh = Path(str(cfg.paths.lane_journal) + ".x")  # sanity: TTL logic is age-based
     assert supervisor._lock_age_s(lock) > supervisor._LOCK_TTL_S
 
     ev = supervise.SuperviseEvidence(
@@ -289,7 +332,7 @@ def test_run_clears_a_stale_lock_at_startup(tmp_path, monkeypatch):
     from dos import cli
     monkeypatch.setattr(
         cli, "_supervise_evidence",
-        lambda cfg, *, target, now_ms, pending_lanes=frozenset():
+        lambda cfg, *, target, now_ms, pending_lanes=frozenset(), policy=None:
             supervise.SuperviseEvidence(lanes=(), target=target))
 
     supervisor.run(config=cfg, target=1, interval=0.0, max_ticks=1,
@@ -326,7 +369,6 @@ def test_driver_imports_kernel_not_the_other_way():
 # NO OP_RELEASE / OP_SCAVENGE and Popens nothing. The advisory-floor pin.
 # --------------------------------------------------------------------------
 def test_tick_surfaces_proposed_halt_without_releasing_or_killing(tmp_path, monkeypatch):
-    import dataclasses
     cfg = _cfg(tmp_path)
     # The driver's plan_tick builds its policy from cfg.supervise; bake the spin-halt
     # threshold in (the frozen config seam — replace, never setattr).
