@@ -1,6 +1,6 @@
 ---
 name: dos-replan-loop
-description: Run /dos-replan on a fixed cadence for a bounded number of iterations, then stop — an unattended planning-refresh sweep. A thin recurring wrapper over /dos-replan plus an optional guarded release; the release guard reads the workspace's trunk from config rather than assuming a branch name. Driven by `dos` verbs + the workspace's `dos.toml`. The DOS reference planning-loop workflow (SKP Axis 5).
+description: "Run bounded, recurring `dos-replan` sweeps, optionally guarded by the workspace's release policy. Use when the planning queue needs unattended refresh for a fixed cadence rather than one manual sweep."
 ---
 
 # dos-replan-loop — the generic recurring planning sweep

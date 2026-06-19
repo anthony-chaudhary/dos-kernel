@@ -1,6 +1,6 @@
 ---
 name: dos-enforce-tune
-description: "Run the DOS enforcement-policy self-tuning loop. Use when Codex should tune `[intervention_policy]`, `[intervention]`, or `[improve]` knobs from observed false-deny vs held-catch outcomes with `dos enforce-tune`, measuring candidates in an isolated worktree and keeping only kernel-witnessed improvements: suite green, truth clean, strict net_task_delta gain, and no runtime-logic edits. Driven by `dos` verbs and workspace `dos.toml`; escalate after repeated non-keeps. (docs/365)."
+description: "Tune DOS enforcement policy knobs (`[intervention_policy]`, `[intervention]`, `[improve]`) from false-deny versus held-catch evidence. Use when running `dos enforce-tune` to keep only measured net_task_delta gains and escalate repeated non-keeps."
 ---
 
 # dos-enforce-tune — the loop where DOS tunes its OWN enforcement, from outcomes

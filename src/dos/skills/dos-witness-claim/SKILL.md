@@ -1,6 +1,6 @@
 ---
 name: dos-witness-claim
-description: Route a subagent's actionable claims through the witness rung instead of folding its return string. For any worker whose deliverable is a CHECKABLE EFFECT — a shipped git phase, a created file, a DB row, a sent message — do NOT believe what the worker said it did; extract the claim at the boundary, gather an independently-authored read-back, and fold ONLY the confirmed effects. Driven by `dos` verbs and the workspace's own `dos.toml` — no host-specific paths, lanes, or commit conventions. Use at a `parallel()`/`pipeline()` barrier, a synthesis step, or any fold site where one agent's output becomes another's input. This is the DOS reference pattern for the docs/197 §7(2) witness-routing stage; the seam below is honest about which steps have a CLI verb and which are Python-API-only today.
+description: "Route subagent claims through independent read-back before another agent relies on them. Use at parallel, pipeline, or synthesis barriers where shipped phases, files, rows, messages, or other effects must be witnessed."
 ---
 
 # dos-witness-claim — fold the witnessed effect, never the narrated one

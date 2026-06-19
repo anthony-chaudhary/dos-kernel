@@ -1,6 +1,6 @@
 ---
 name: dos-class-cycle
-description: One automatic plan-class lifecycle tick. Reads the DECLARED class set + transition list from the workspace `[lifecycle]` table (not a hardcoded taxonomy), evaluates each trigger, spawns a read-only JUDGE-rung adjudicator (the `dos.judges` seam — advisory, fail-to-abstain) to approve/defer each candidate transition, applies the gated transitions as plan-meta edits + one commit per cycle, and logs to the run archive. Failsafes (per-cycle cap, per-plan cooldown, a veto class) are `[lifecycle]` data; the judge content is a host `dos.judges` driver. Every path/class comes from `dos doctor --json`. Use to garden a plan portfolio's lifecycle automatically, judge-gated. The DOS lifecycle gardener (SKP Axis 5, docs/207 Phase 5c).
+description: "Run one DOS plan-class lifecycle tick from the workspace `[lifecycle]` table: evaluate declared transitions, have a judge approve/defer them, write gated plan-meta edits, and log the cycle. Use when gardening plan lifecycle classes automatically."
 ---
 
 # dos-class-cycle — the judge-gated plan-lifecycle tick

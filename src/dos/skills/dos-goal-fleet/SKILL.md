@@ -1,6 +1,6 @@
 ---
 name: dos-goal-fleet
-description: Launch N independent headless worker instances in account-balanced waves, each armed with ONE goal whose "done" is gated on a witness the worker did not author — not on its own say-so. Each objective becomes one self-stopping child wired to `dos hook stop` (the `dos-goal-gate` discipline), co-launch safety comes from `dos arbitrate` over each child's file-tree, and every claimed ship is confirmed by `dos verify` / `dos commit-audit`, never by a transcript line. Driven by `dos` verbs and the workspace's own `dos.toml` — names no host path, runtime, model, or account mechanism. Use when an operator hands a context with several independent objectives and says "launch a worker per goal", "fire a wave of goal agents", or "run these N goals in parallel". The fan-OUT analogue of `dos-goal-gate` (one self-stopping leaf) and `dos-witness-claim` (the fold).
+description: "Launch multiple goal-scoped workers in waves, each with a witness-gated stop condition and `dos arbitrate` file-tree safety. Use when an operator asks to run several independent goals in parallel and fold only verified ships."
 ---
 
 # dos-goal-fleet — wave-launched self-stopping goal workers, witnessed not narrated

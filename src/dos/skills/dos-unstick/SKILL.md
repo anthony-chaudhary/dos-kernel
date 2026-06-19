@@ -1,6 +1,6 @@
 ---
 name: dos-unstick
-description: Sweep the run-archive trail of BLOCKED/DRAIN verdicts, normalize each to a canonical cause via the recurring-wedge fold, cluster by recurrence × stall-cost, and propose ONE structural fix per recurring cause — a contract/oracle/preflight change, never a one-off unblock. Read-only on code; surfaces via `dos decisions`. The cause taxonomy is `[reasons]` data; every path/lane comes from `dos doctor --json`. Use when a fleet keeps stalling on the same thing across runs and you want the structural fix, not another manual unblock. The DOS operator remediation sweep (SKP Axis 5, docs/207 Phase 5a).
+description: "Analyze BLOCKED/DRAIN run history, cluster recurring causes, and propose one structural fix per wedge via `dos decisions`. Use when a fleet keeps stalling and you want a systemic unblock rather than another manual nudge."
 ---
 
 # dos-unstick — the recurring-blocker remediation sweep

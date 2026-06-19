@@ -1,6 +1,6 @@
 ---
 name: dos-promote
-description: The visibility-inverse of lifecycle-demote. Run `dos pickable` over every declared unit; for each HELD unit, surface it with its typed HoldReason and the derived unblock action (DRAFT_CLASS→promote-to-active, UNPARSEABLE→inspect-the-deriver, OPERATOR_GATED→raise-a-decision, SOAK_OPEN→wait, DEPENDENCY_UNMET→ship-the-prerequisite). The only auto-applied action is a safe mechanical reclassify (gated, one commit); everything else is surfaced for a human via `dos decisions`. Every path/lane/class comes from `dos doctor --json`. Use when units are stuck un-pickable and you want each one's typed reason + the right unblock move. The operator-facing half of the shipped `pickable` gate (SKP Axis 5, docs/207 Phase 5b).
+description: "Surface units held out of the pickable set with their typed HoldReason and derived unblock action, auto-applying only safe reclassifies. Use when work is stuck unpickable and a human needs the exact unblock move."
 ---
 
 # dos-promote — surface every held unit + its unblock action

@@ -1,6 +1,6 @@
 ---
 name: dos-supervise-loop
-description: Keep a target population of worker dispatch-loops alive across a workspace's lane roster — the supervisor cadence (the init/PID-1 analogy for a fleet). Each tick reads the active lane taxonomy from `dos doctor --json`, asks the kernel for a spawn/reap/flag plan via `dos loop --target N --json`, launches one `/dos-dispatch-loop` per SPAWN, scavenges only STALLED leases, and SURFACES (never kills) a SPINNING worker. The spawn/reap/flag decision is the kernel's typed `supervise()` verdict, not inline prose — the supervisor only carries out the plan. Driven entirely by `dos` verbs + the workspace's `dos.toml`. The DOS reference supervisor workflow (SKP Axis 5).
+description: "Keep a target count of dispatch loops alive across the workspace lane roster: spawn missing loops, scavenge stalled leases, and surface spinning workers. Use when supervising a DOS dispatch-loop fleet."
 ---
 
 # dos-supervise-loop — the generic worker-population supervisor

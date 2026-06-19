@@ -1,6 +1,6 @@
 ---
 name: dos-dispatch
-description: End-to-end plan-and-ship for one lane — snapshot the portfolio with /dos-next-up, take a lane lease via `dos arbitrate` so parallel dispatches don't collide, gate the empty case via `dos gate`, ship the packet, and archive the run under the configured run dir. Driven entirely by `dos` verbs + the workspace's `dos.toml`; names no host path, lane, or commit convention. Use when you want to plan and ship the next batch on one lane in a single command, with concurrency safety. The DOS reference dispatch workflow (SKP Axis 5).
+description: "Plan and ship the next batch on one lane: run `dos-next-up`, acquire a lease with `dos arbitrate`, gate empty work, dispatch the packet, and archive the run. Use when a single lane should move end to end with collision safety."
 ---
 
 # dos-dispatch — the generic chained snapshot→ship cycle

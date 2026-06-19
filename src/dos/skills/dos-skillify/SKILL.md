@@ -1,6 +1,6 @@
 ---
 name: dos-skillify
-description: Convert any agent skill into a trust-grounded variant — read the skill, find every place it believes a worker's word (a self-certified "done", an ungrounded "it shipped", a blind file-edit, a filter(Boolean) fan-out fold), and emit an ADDITIVE new-copy variant whose trust seams shell a `dos` verb and read the verdict, plus a re-derivable conversion report. Driven by `dos` verbs and the workspace's own `dos.toml` — no host-specific paths, lanes, or commit conventions. Use when an operator hands you a skill and says "make this DOS-aware", "ground this skill's self-checks", or "what would DOS add to this skill". The converter is itself a judged agent — it abstains on an unwitnessable claim and its output is admitted by witness, never by its own say-so.
+description: "Convert an agent skill into a DOS-grounded variant by replacing self-certified claims with `dos` witness checks and emitting an additive copy plus report. Use when asked to make a skill DOS-aware or audit its self-checks."
 ---
 
 # dos-skillify — make any skill ask a witness instead of believing itself

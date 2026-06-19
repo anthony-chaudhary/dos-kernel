@@ -1,6 +1,6 @@
 ---
 name: dos-next-up
-description: Snapshot a repo's phased-plan portfolio and produce a parallel-agent dispatch packet, driven entirely by `dos` verbs and the workspace's own `dos.toml` — no host-specific paths, lanes, or commit conventions. Walks the configured plans glob, audits each candidate pick against `dos verify` for its true shipped/unshipped status, renders a self-contained packet to the configured output dir, and reports a typed gate verdict via `dos gate`. Use when you want a "where are we / what's next / who-does-what" snapshot of any repo that has a few plan docs and real commits. This is the DOS reference workflow (SKP Axis 5); a host may use it, fork it, or ignore it.
+description: "Snapshot the repo's phased-plan portfolio into a dispatch packet: audit candidates with `dos verify`, render who-does-what, and emit a `dos gate` verdict. Use when you need the current next-work view before dispatching agents."
 ---
 
 # dos-next-up — the generic plan-and-ship snapshot

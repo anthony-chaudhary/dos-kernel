@@ -1,6 +1,6 @@
 ---
 name: dos-plan-price
-description: Price a PROPOSED multi-agent fan-out BEFORE any worker launches — from the kernel's own agent-blind file-tree geometry, not a self-report. Given the partition a fan-out is about to hand its workers (N agents x declared trees), compute the collision graph, the true collision-free maximum concurrency, the safe set to run now, and the cheapest disjoint re-partition — so a colliding plan is refused with zero agents launched instead of discovered after the Kth acquire already raced. Driven by `dos` verbs and the workspace's own `dos.toml` — no host-specific paths, lanes, or commit conventions. Use before a `dos-goal-fleet` wave, before dispatching a `dos-next-up` packet, or any time an operator says "fan these N agents out over these trees" and you want the price before the launch. The PREDICTIVE complement to `dos arbitrate` (EXAMPLES.md R2), which is the reactive floor that refuses one colliding acquire at a time.
+description: "Price a proposed multi-agent fan-out before launch by computing tree collisions, safe concurrency, and a cheaper disjoint partition. Use before `dos-goal-fleet`, a `dos-next-up` dispatch packet, or any N-agent tree split."
 ---
 
 # dos-plan-price — price the fan-out before you launch it

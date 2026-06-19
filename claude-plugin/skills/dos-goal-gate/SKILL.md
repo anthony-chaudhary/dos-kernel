@@ -1,6 +1,6 @@
 ---
 name: dos-goal-gate
-description: Ground a "keep working until the goal is met" stop condition in a witness the agent did not author, instead of letting the agent self-certify "done". A harness goal/Stop-hook condition is normally checked by the model re-reading its OWN work — consistency, not grounding. This skill turns the operator's goal into checkable EFFECT claims and wires `dos hook stop` so the Stop is refused until git ancestry (a shipped phase) or an effect read-back corroborates the claimed effect. Driven by `dos` verbs and the workspace's own `dos.toml` — no host-specific paths, lanes, or commit conventions. Use when you want a self-stopping agent (or a `/loop` worker) to be unable to declare a goal complete on its own say-so. The single-agent self-stop analogue of `dos-witness-claim`.
+description: "Ground a keep-working goal in evidence the worker did not author by wiring `dos hook stop` to refuse false done claims. Use for one self-stopping agent or loop worker; use `dos-witness-claim` for fold barriers."
 ---
 
 # dos-goal-gate — gate "I'm done" on a witness, not on self-report

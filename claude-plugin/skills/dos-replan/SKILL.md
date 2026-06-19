@@ -1,6 +1,6 @@
 ---
 name: dos-replan
-description: Garden a repo's plan portfolio from accumulated evidence — detect closures (a queue item whose phases now `dos verify` as shipped is done), track cooldown state, and surface the 0-2 items the operator must actually decide via the `dos decisions` queue. Read-only on code/data; writes only its queue + cooldown state. Driven by `dos` verbs + the workspace's `dos.toml`; names no host path or convention. Use after a burst of dispatches, when the backlog looks drained, or when recurring findings start hurting throughput. The DOS reference planning-sweep workflow (SKP Axis 5).
+description: "Refresh a plan portfolio from evidence: close shipped queue items, update cooldown state, and surface the few decisions an operator must make. Use after dispatch bursts, drained backlogs, or recurring findings."
 ---
 
 # dos-replan — the generic portfolio gardening sweep
