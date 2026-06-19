@@ -109,6 +109,29 @@ def test_tick_uses_configured_worker_launch_template(tmp_path, monkeypatch):
     assert rec.lanes == ["api"]
 
 
+def test_tick_records_failed_worker_launch(tmp_path, monkeypatch):
+    cfg = _cfg(tmp_path)
+    ev = supervise.SuperviseEvidence(
+        lanes=(_lane("api", None, ("src/api/**",)),), target=1)
+    _patch_evidence(monkeypatch, ev)
+    launched: dict = {}
+
+    def _missing_launcher(argv, env=None):
+        raise OSError("missing host wrapper")
+
+    verdict, actions = supervisor.tick(
+        cfg, target=1, now_ms=1000, launched=launched, popen=_missing_launcher)
+
+    assert verdict.verdict == supervise.SuperviseOutcome.FILLING
+    assert actions.spawned == []
+    assert launched == {}
+    assert [f.lane for f in actions.failed_spawns] == ["api"]
+    assert "missing host wrapper" in actions.failed_spawns[0].error
+    assert actions.to_dict()["failed_spawns"] == [
+        {"lane": "api", "error": actions.failed_spawns[0].error}
+    ]
+
+
 def test_plan_tick_passes_effective_policy_to_evidence_gather(tmp_path, monkeypatch):
     cfg = _cfg(tmp_path)
     cfg = dataclasses.replace(
@@ -264,6 +287,27 @@ def test_run_is_bounded_by_max_ticks(tmp_path, monkeypatch):
     assert rec.lanes == ["main"]
     # max_ticks bounds the loop: it sleeps between ticks but not after the last one.
     assert len(sleeps) == 2
+
+
+def test_run_reports_launch_failures_and_returns_nonzero(tmp_path, monkeypatch):
+    cfg = _cfg(tmp_path)
+    ev = supervise.SuperviseEvidence(
+        lanes=(_lane("api", None, ("src/api/**",)),), target=1)
+    _patch_evidence(monkeypatch, ev)
+    seen = []
+
+    def _missing_launcher(argv, env=None):
+        raise OSError("missing host wrapper")
+
+    rc = supervisor.run(
+        config=cfg, target=1, interval=0.0, max_ticks=1,
+        clock_ms=lambda: 1000, sleep=lambda s: None, popen=_missing_launcher,
+        on_tick=lambda verdict, actions: seen.append(actions.to_dict()))
+
+    assert rc == 1
+    assert seen[0]["spawned"] == []
+    assert seen[0]["failed_spawns"][0]["lane"] == "api"
+    assert "missing host wrapper" in seen[0]["failed_spawns"][0]["error"]
 
 
 # --------------------------------------------------------------------------

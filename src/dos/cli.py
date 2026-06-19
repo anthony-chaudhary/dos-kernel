@@ -4816,12 +4816,48 @@ def cmd_loop(args: argparse.Namespace) -> int:
         _supervisor = importlib.import_module("dos.drivers.supervisor")
         enact_cfg = dataclasses.replace(cfg, supervise=policy)
         clock_ms = (lambda: args.now_ms) if args.now_ms is not None else None
+
+        def _emit_enacted_tick(v, actions) -> None:
+            verdict_dict = v.to_dict()
+            actions_dict = actions.to_dict()
+            if args.json or getattr(args, "output", None) == "json":
+                print(json.dumps({
+                    "verdict": verdict_dict,
+                    "actions": actions_dict,
+                }, sort_keys=True))
+                return
+
+            parts: list[str] = []
+            if actions_dict.get("spawned"):
+                parts.append("spawned " + ", ".join(actions_dict["spawned"]))
+            if actions_dict.get("reaped"):
+                parts.append("reaped " + ", ".join(actions_dict["reaped"]))
+            if actions_dict.get("flagged"):
+                parts.append("flagged " + ", ".join(actions_dict["flagged"]))
+            if actions_dict.get("skipped_reaps"):
+                parts.append(
+                    "skipped-reaps " + ", ".join(actions_dict["skipped_reaps"])
+                )
+            for failed in actions_dict.get("failed_spawns", []):
+                lane = failed.get("lane", "")
+                error = failed.get("error", "")
+                parts.append(f"launch-failed {lane} ({error})")
+            if actions_dict.get("proposed_halts"):
+                parts.append(
+                    "proposed-halts " + ", ".join(actions_dict["proposed_halts"])
+                )
+            if not parts:
+                parts.append("no-actions")
+            print(f"ENACT {verdict_dict.get('verdict', 'UNKNOWN')}: "
+                  + "; ".join(parts))
+
         return _supervisor.run(
             config=enact_cfg,
             target=target,
             interval=args.interval,
             max_ticks=getattr(args, "max_ticks", None),
             clock_ms=clock_ms,
+            on_tick=_emit_enacted_tick,
         )
 
     # --now-ms pins the clock; absent ⇒ wall clock, read here at the boundary.

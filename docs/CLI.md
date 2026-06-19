@@ -1058,15 +1058,22 @@ policy (`--target` / `--max-concurrency` / launcher over `dos.toml [supervise]`)
 handed to the driver before it gathers evidence, so the emitted and enacted paths
 see the same roster budget.
 
+An enacted tick reports what actually happened, not just the plan: text prints an
+`ENACT ...` action line, while `--json` emits one JSON object per tick with
+`{verdict, actions}`. `actions.failed_spawns` carries lanes whose worker launcher
+raised (for example a missing host wrapper), and a bounded `--enact` run exits 1
+if any launch failed. Emit-only `dos loop` still exits 0 after printing the plan.
+
 The clock is read ONCE at this boundary, injectable via `--now-ms` for
 deterministic runs/tests (the `cmd_liveness` idiom). `--watch` re-emits the
 plan every `--interval` seconds until Ctrl-C; it is the only place this verb
 reads the clock repeatedly, and it STILL only emits — no spawn, no write.
 
-Exit code is 0 always: unlike `dos liveness` (whose verdict IS the exit code),
-the supervisor's output is an effect PLAN carried in stdout, not a verdict a
-shell branches on. A caller acts on the printed/JSON plan; the process exit
-only signals that the tick ran.
+Emit-only exit code is 0 always: unlike `dos liveness` (whose verdict IS the
+exit code), the supervisor's output is an effect PLAN carried in stdout, not a
+verdict a shell branches on. A caller acts on the printed/JSON plan; the process
+exit only signals that the tick ran. Under `--enact`, the driver may return 1
+when the effect path itself failed to launch a planned worker.
 
 ### § `_load_watchdog`
 

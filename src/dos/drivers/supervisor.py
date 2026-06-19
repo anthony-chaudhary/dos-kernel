@@ -189,6 +189,17 @@ def _scavenge_under_lock(cfg, lease: dict, *, reason: str) -> bool:
 # The tick — plan (near-pure) then enact (effects).
 # --------------------------------------------------------------------------
 @dataclass
+class LaunchFailure:
+    """A spawn the supervisor attempted but the host launcher rejected."""
+
+    lane: str
+    error: str
+
+    def to_dict(self) -> dict:
+        return {"lane": self.lane, "error": self.error}
+
+
+@dataclass
 class TickActions:
     """What a tick actually did — the audit record a test asserts on."""
 
@@ -196,12 +207,23 @@ class TickActions:
     reaped: list[str] = field(default_factory=list)     # lanes a SCAVENGE was appended for
     flagged: list[str] = field(default_factory=list)    # lanes surfaced (advisory)
     skipped_reaps: list[str] = field(default_factory=list)  # REAPs the lock deferred
+    failed_spawns: list[LaunchFailure] = field(default_factory=list)
     # Lanes a *proposed* halt was surfaced for (acting-on-spin, docs/90 §5). PURELY
     # ADVISORY: the driver surfaces the proposal exactly as it surfaces `flagged` —
     # it Popens nothing, writes NO OP_RELEASE / OP_SCAVENGE, kills no process. A
     # spinner whose halt is proposed STILL holds its lease; actuation is the
     # operator's explicit `dos halt`, never the supervisor's (the docs/99 floor).
     proposed_halts: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "spawned": list(self.spawned),
+            "reaped": list(self.reaped),
+            "flagged": list(self.flagged),
+            "skipped_reaps": list(self.skipped_reaps),
+            "failed_spawns": [f.to_dict() for f in self.failed_spawns],
+            "proposed_halts": list(self.proposed_halts),
+        }
 
 
 def _pending_from_launched(launched: dict, *, now_ms: int, cooldown_ms: int) -> frozenset:
@@ -284,8 +306,10 @@ def tick(
             popen(_worker_argv(cfg.supervise.worker_launch_template, plan.lane), env=env)
             launched[plan.lane] = now_ms
             actions.spawned.append(plan.lane)
-        except Exception:  # noqa: BLE001 — a failed launch is non-fatal; retry next tick
-            pass
+        except Exception as exc:  # noqa: BLE001 — retry next tick; report this one
+            actions.failed_spawns.append(
+                LaunchFailure(plan.lane, f"{type(exc).__name__}: {exc}")
+            )
 
     actions.flagged = [p.lane for p in verdict.flag]
 
@@ -327,6 +351,7 @@ def run(
     clock_ms=None,
     sleep=time.sleep,
     popen=subprocess.Popen,
+    on_tick=None,
 ) -> int:
     """Run the supervisor watchdog until `max_ticks` or an operator interrupt.
 
@@ -336,11 +361,13 @@ def run(
     watchdog, not a busy-poll). `clock_ms`/`sleep`/`popen` are injectable for
     deterministic tests. Returns 0 on a clean stop.
 
-    `target` defaults to the workspace's standing `dos.toml [supervise]` target
-    (`cfg.supervise.target`) so a watchdog launched with no explicit population
-    keeps the declared one; pass an int to override it for this process. The two
-    booleans (count_spinning_as_alive / reap_stalled) always come from the config
-    policy via `plan_tick`.
+    `on_tick`, when provided, receives `(verdict, actions)` after each enacted
+    tick so CLI/hosts can report what happened without duplicating the driver
+    loop. `target` defaults to the workspace's standing `dos.toml [supervise]`
+    target (`cfg.supervise.target`) so a watchdog launched with no explicit
+    population keeps the declared one; pass an int to override it for this
+    process. The two booleans (count_spinning_as_alive / reap_stalled) always
+    come from the config policy via `plan_tick`.
     """
     cfg = _config.ensure(config)
     if target is None:
@@ -353,16 +380,22 @@ def run(
     root_run = run_id.mint("dos-supervise")
     launched: dict = {}
     ticks = 0
+    had_launch_failure = False
     _clock = clock_ms if clock_ms is not None else (lambda: int(time.time() * 1000))
     try:
         while max_ticks is None or ticks < max_ticks:
             now_ms = _clock()
-            tick(cfg, target=target, now_ms=now_ms, launched=launched,
-                 root_run=root_run, cooldown_ms=cooldown_ms, popen=popen)
+            verdict, actions = tick(
+                cfg, target=target, now_ms=now_ms, launched=launched,
+                root_run=root_run, cooldown_ms=cooldown_ms, popen=popen)
+            if actions.failed_spawns:
+                had_launch_failure = True
+            if on_tick is not None:
+                on_tick(verdict, actions)
             ticks += 1
             if max_ticks is not None and ticks >= max_ticks:
                 break
             sleep(interval)
     except KeyboardInterrupt:
         return 0
-    return 0
+    return 1 if had_launch_failure else 0

@@ -207,13 +207,14 @@ def test_loop_enact_delegates_to_supervisor_driver(tmp_path, monkeypatch):
     )
     captured = {}
 
-    def _fake_run(*, config, target, interval, max_ticks, clock_ms):
+    def _fake_run(*, config, target, interval, max_ticks, clock_ms, on_tick):
         captured.update(
             config=config,
             target=target,
             interval=interval,
             max_ticks=max_ticks,
             clock_ms=clock_ms,
+            on_tick=on_tick,
         )
         return 0
 
@@ -231,10 +232,53 @@ def test_loop_enact_delegates_to_supervisor_driver(tmp_path, monkeypatch):
     assert captured["interval"] == 0
     assert captured["max_ticks"] == 1
     assert captured["clock_ms"]() == 123
+    assert callable(captured["on_tick"])
     policy = captured["config"].supervise
     assert policy.target == 3
     assert policy.max_concurrency == 5
     assert policy.worker_launch_template == 'codex exec "/dos-dispatch-loop --lane {lane}"'
+
+
+def test_loop_enact_json_emits_tick_actions(tmp_path, monkeypatch, capsys):
+    """With `--json`, enacted ticks report both the verdict and actual effects,
+    including launch failures from the driver."""
+    from dos import cli
+    from dos.drivers import supervisor
+
+    class _Verdict:
+        def to_dict(self):
+            return {"verdict": "FILLING", "reason": "alive 0 < target 1"}
+
+    class _Actions:
+        def to_dict(self):
+            return {
+                "spawned": [],
+                "reaped": [],
+                "flagged": [],
+                "skipped_reaps": [],
+                "failed_spawns": [
+                    {"lane": "api", "error": "OSError: missing host wrapper"}
+                ],
+                "proposed_halts": [],
+            }
+
+    def _fake_run(*, config, target, interval, max_ticks, clock_ms, on_tick):
+        on_tick(_Verdict(), _Actions())
+        return 1
+
+    monkeypatch.setattr(supervisor, "run", _fake_run)
+
+    rc = cli.main([
+        "loop", "--workspace", str(tmp_path), "--enact", "--json",
+        "--target", "1", "--max-ticks", "1", "--interval", "0",
+    ])
+
+    assert rc == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["verdict"]["verdict"] == "FILLING"
+    assert payload["actions"]["failed_spawns"] == [
+        {"lane": "api", "error": "OSError: missing host wrapper"}
+    ]
 
 
 
