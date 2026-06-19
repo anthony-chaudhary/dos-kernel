@@ -1062,7 +1062,10 @@ An enacted tick reports what actually happened, not just the plan: text prints a
 `ENACT ...` action line, while `--json` emits one JSON object per tick with
 `{verdict, actions}`. `actions.failed_spawns` carries lanes whose worker launcher
 raised (for example a missing host wrapper), and a bounded `--enact` run exits 1
-if any launch failed. Emit-only `dos loop` still exits 0 after printing the plan.
+if any launch failed. Spawned workers run with `cwd` set to the supervised
+workspace root and `DISPATCH_WORKSPACE` set to that same root, so a supervisor
+launched from a sidecar checkout still starts children in the repo it is serving.
+Emit-only `dos loop` still exits 0 after printing the plan.
 
 The clock is read ONCE at this boundary, injectable via `--now-ms` for
 deterministic runs/tests (the `cmd_liveness` idiom). `--watch` re-emits the

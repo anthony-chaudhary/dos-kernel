@@ -299,11 +299,16 @@ def tick(
     # supervisor" across the configured worker boundary via the CID_* lineage env.
     for plan in verdict.spawn:
         env = dict(os.environ)
+        env[_config.ENV_WORKSPACE] = str(cfg.paths.root)
         if root_run is not None:
             child = run_id.mint(WORKER_PROCESS_ID, parent=root_run)
             env.update(run_id.lineage_env(child))
         try:
-            popen(_worker_argv(cfg.supervise.worker_launch_template, plan.lane), env=env)
+            popen(
+                _worker_argv(cfg.supervise.worker_launch_template, plan.lane),
+                env=env,
+                cwd=str(cfg.paths.root),
+            )
             launched[plan.lane] = now_ms
             actions.spawned.append(plan.lane)
         except Exception as exc:  # noqa: BLE001 — retry next tick; report this one

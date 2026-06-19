@@ -29,15 +29,15 @@ class _Recorder:
     def __init__(self):
         self.calls = []
 
-    def __call__(self, argv, env=None):
-        self.calls.append((list(argv), env))
+    def __call__(self, argv, env=None, cwd=None):
+        self.calls.append((list(argv), env, cwd))
         return object()  # a fake process handle; the driver does not wait on it
 
     @property
     def lanes(self):
         # the --lane <X> token from each recorded worker launch command
         out = []
-        for argv, _ in self.calls:
+        for argv, _, _ in self.calls:
             for i, part in enumerate(argv):
                 if part == "--lane" and i + 1 < len(argv):
                     out.append(argv[i + 1])
@@ -85,9 +85,11 @@ def test_tick_spawns_a_worker_for_a_free_lane(tmp_path, monkeypatch):
     # the launched-set now tracks it (the race belt's memory)
     assert "api" in launched and launched["api"] == 1000
     # the emitted argv is the generic, host-free worker command from config
-    argv = rec.calls[0][0]
+    argv, env, cwd = rec.calls[0]
     assert argv == ["/dos-dispatch-loop", "--lane", "api"]
     assert "claude" not in argv
+    assert env[_config.ENV_WORKSPACE] == str(cfg.paths.root)
+    assert cwd == str(cfg.paths.root)
 
 
 def test_tick_uses_configured_worker_launch_template(tmp_path, monkeypatch):
@@ -116,7 +118,7 @@ def test_tick_records_failed_worker_launch(tmp_path, monkeypatch):
     _patch_evidence(monkeypatch, ev)
     launched: dict = {}
 
-    def _missing_launcher(argv, env=None):
+    def _missing_launcher(argv, env=None, cwd=None):
         raise OSError("missing host wrapper")
 
     verdict, actions = supervisor.tick(
@@ -296,7 +298,7 @@ def test_run_reports_launch_failures_and_returns_nonzero(tmp_path, monkeypatch):
     _patch_evidence(monkeypatch, ev)
     seen = []
 
-    def _missing_launcher(argv, env=None):
+    def _missing_launcher(argv, env=None, cwd=None):
         raise OSError("missing host wrapper")
 
     rc = supervisor.run(
