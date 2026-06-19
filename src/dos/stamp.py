@@ -758,6 +758,78 @@ def convention_coverage_finding(
     )
 
 
+# The Conventional-Commits header set (the Angular/CC canon). A CLOSED type set on
+# purpose: a bare `tools: add x` is a generic `<series>:` ship candidate, NOT a
+# Conventional-Commits subject — keeping the set closed is what stops the recipe
+# below from misreading one as the other (the same discriminator `recognizes_
+# direct_ship` uses: a ship names a NUMBERED phase, an ordinary `type: …` does not).
+_CONVENTIONAL_COMMIT_TYPES = (
+    "build", "chore", "ci", "docs", "feat", "fix",
+    "perf", "refactor", "revert", "style", "test",
+)
+_CONVENTIONAL_COMMIT_RE = re.compile(
+    r"^(?:" + "|".join(_CONVENTIONAL_COMMIT_TYPES) + r")(?:\([^)]*\))?!?:\s",
+    re.IGNORECASE,
+)
+
+
+def is_conventional_commit(subject: str) -> bool:
+    """True iff `subject` is a Conventional-Commits header (`type(scope): …`,
+    `type!: …`, `type: …`) for the canonical type set.
+
+    Pure. A Conventional-Commits repo carries its ship-stamp (if any) in a TRAILER
+    at the end of the subject — the one place a start-anchored ship grammar can
+    never see (docs/289) — so this predicate gates the actionable trailer recipe in
+    `conventional_commits_unstamped_finding`.
+    """
+    return bool(_CONVENTIONAL_COMMIT_RE.match((subject or "").strip()))
+
+
+def conventional_commits_unstamped_finding(
+    convention: StampConvention, subjects: list[str], *, declared: bool
+) -> str | None:
+    """An ACTIONABLE verifiability recipe for a declared Conventional-Commits repo
+    whose commits carry no ship-stamp the active grammar can bind — else None.
+
+    The complement to `convention_coverage_finding`. That one fires when ship-SHAPED
+    commits miss a declared grammar; this one fires the OTHER dead-end — a declared
+    workspace whose recent commits are Conventional-Commits-shaped (so the start-
+    anchored grammar sees no ship at all) and carry no `(<plan> <phase>)` trailer
+    yet. Instead of the bare "no referee can check agent claims yet" cul-de-sac,
+    hand back the concrete fix: declare the trailer stamp and stamp the ships.
+
+    Fires only when (mirrors `convention_coverage_finding`'s opt-in discipline so a
+    foreign CC repo is never nagged — the "never cries wolf" contract):
+      * ``declared`` — only a host's OWN [stamp] declaration is audited; an inherited
+        default keeps the gentle 'no referee' line,
+      * at least one subject is Conventional-Commits-shaped, AND
+      * the active convention recognizes NONE of the subjects as a direct ship (if it
+        already binds one, the affirmative 'can check' form wins upstream).
+
+    The wording branches on whether the trailer rung is already declared: OFF →
+    "set [stamp] trailer_stamp = true and stamp ships"; ON → "stamp ship commits"
+    (the config is right, only the commits lag — the early-adoption state). Returns a
+    concise one-line clause sized for the verifiability headline. Pure / unit-testable.
+    """
+    if not declared:
+        return None
+    cc = [s for s in subjects if is_conventional_commit(s)]
+    if not cc:
+        return None
+    if any(convention.recognizes_direct_ship(s) for s in subjects):
+        return None  # something already binds — the affirmative form wins
+    head = f"{len(cc)} of your last {len(subjects)} commits are Conventional-Commits-shaped"
+    if convention.trailer_stamp:
+        return (
+            f"{head} but none carry a `(<plan> <phase>)` ship trailer yet — stamp ship "
+            f"commits so `dos verify` can bind them"
+        )
+    return (
+        f"{head} but carry no ship-stamp — set [stamp] trailer_stamp = true and end ship "
+        f"subjects with a `(<plan> <phase>)` trailer so `dos verify` can bind them"
+    )
+
+
 # ---------------------------------------------------------------------------
 # The reference userland app's convention — the current hardcoded grammar, lifted
 # VERBATIM from `phase_shipped.py`'s module constants so the existing

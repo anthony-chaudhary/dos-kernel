@@ -10731,6 +10731,26 @@ def _skill_grounding_findings(cfg: _config.SubstrateConfig) -> list[str]:
     return findings
 
 
+def _stamp_table_declared(cfg: _config.SubstrateConfig) -> bool:
+    """True iff this workspace's dos.toml DECLARES a non-empty [stamp] table (vs
+    inheriting the default). Only a host's OWN declaration is audited by the
+    verifiability findings — an inherited default on a foreign repo is expected, not
+    a misconfiguration to flag (the 'never cries wolf' opt-in discipline)."""
+    toml_path = cfg.paths.root / "dos.toml"
+    if not toml_path.exists():
+        return False
+    try:
+        try:
+            import tomllib  # py3.11+
+        except ModuleNotFoundError:  # pragma: no cover
+            import tomli as tomllib  # type: ignore
+        # utf-8-sig strips a PowerShell BOM (consistent with the loaders).
+        data = tomllib.loads(toml_path.read_text(encoding="utf-8-sig"))
+        return isinstance(data.get("stamp"), dict) and bool(data.get("stamp"))
+    except Exception:
+        return False
+
+
 def _stamp_coverage_finding(cfg: _config.SubstrateConfig) -> str | None:
     """Compute the SCV 3c stamp-coverage finding for `cfg` (or None). Reads the
     repo's recent commit subjects and whether its dos.toml declares [stamp];
@@ -10738,20 +10758,7 @@ def _stamp_coverage_finding(cfg: _config.SubstrateConfig) -> str | None:
     import subprocess
     from dos import stamp as _stamp
 
-    # Did this workspace DECLARE a [stamp] table (vs inherit the default)?
-    declared = False
-    toml_path = cfg.paths.root / "dos.toml"
-    if toml_path.exists():
-        try:
-            try:
-                import tomllib  # py3.11+
-            except ModuleNotFoundError:  # pragma: no cover
-                import tomli as tomllib  # type: ignore
-            # utf-8-sig strips a PowerShell BOM (consistent with the loaders).
-            data = tomllib.loads(toml_path.read_text(encoding="utf-8-sig"))
-            declared = isinstance(data.get("stamp"), dict) and bool(data.get("stamp"))
-        except Exception:
-            declared = False
+    declared = _stamp_table_declared(cfg)
     if not declared:
         return None
     # Recent commit subjects from the served workspace (best-effort; a non-git or
@@ -10802,6 +10809,16 @@ def _verifiability_headline(cfg: _config.SubstrateConfig) -> str:
             f"verifiability        0 of {len(ship_shaped)} ship-shaped commit(s) match the "
             f"active grammar ({grammar}) — `verify` will resolve `via none`; reconcile [stamp]"
         )
+    # Nothing ship-shaped under ANY grammar. If the repo DECLARED a [stamp] table and
+    # its commits are Conventional-Commits-shaped, the stamp (if any) lives in a
+    # trailer the start-anchored grammar can't see — hand back the concrete trailer
+    # recipe (docs/289) instead of the cul-de-sac. A repo that declared nothing keeps
+    # the gentle 'no referee' line below (never nag a foreign CC repo).
+    recipe = _stamp.conventional_commits_unstamped_finding(
+        cfg.stamp, subjects, declared=_stamp_table_declared(cfg)
+    )
+    if recipe:
+        return f"verifiability        {recipe}"
     return (
         "verifiability        none of your last "
         f"{len(subjects)} commits name a unit of work — no referee can check agent claims yet"

@@ -24,6 +24,8 @@ from dos.stamp import (
     StampConvention,
     ship_shaped_under_generic,
     convention_coverage_finding,
+    is_conventional_commit,
+    conventional_commits_unstamped_finding,
 )
 
 
@@ -263,3 +265,102 @@ def test_verifiability_in_json(tmp_path):
     assert v["ship_shaped"] == 1
     assert v["recognized"] == 1
     assert "generic" in v["grammar"]
+
+
+# ---------------------------------------------------------------------------
+# The actionable trailer recipe — a DECLARED Conventional-Commits repo whose
+# commits carry no stamp the grammar can bind should hear the concrete fix
+# (docs/289 trailer), not the bare 'no referee can check' cul-de-sac. The
+# complement to the 3c mismatch finding: that flags ship-SHAPED commits the
+# declared grammar misses; this flags the OTHER dead-end (nothing ship-shaped at
+# all, because the stamp lives in a trailer the start-anchored grammar can't see).
+# ---------------------------------------------------------------------------
+def test_is_conventional_commit():
+    # Canonical CC headers (with/without scope, with `!`) → True.
+    assert is_conventional_commit("fix(gateway): treat same-tick ready") is True
+    assert is_conventional_commit("feat(fak): add pagination plane") is True
+    assert is_conventional_commit("docs(claude): audit dos install") is True
+    assert is_conventional_commit("chore!: drop py38") is True
+    assert is_conventional_commit("revert: bad merge") is True
+    # A bare `<series>:` ship candidate, a release, a merge, prose → NOT CC (a
+    # closed type set keeps `tools:`/`AUTH2:` out of the recipe's way).
+    assert is_conventional_commit("tools: add DOS canary") is False
+    assert is_conventional_commit("AUTH2: ship token refresh") is False
+    assert is_conventional_commit("v0.23.0: release") is False
+    assert is_conventional_commit("Merge branch main") is False
+    assert is_conventional_commit("") is False
+
+
+def test_unstamped_finding_recommends_trailer_when_off():
+    """Declared generic grammar + bare CC commits (trailer OFF) → the 'set
+    trailer_stamp = true and stamp' recipe."""
+    gen = StampConvention(subject_dirs=())  # generic, trailer_stamp default False
+    out = conventional_commits_unstamped_finding(
+        gen, ["fix(gateway): harden", "feat(api): paginate"], declared=True
+    )
+    assert out is not None
+    assert "Conventional-Commits-shaped" in out
+    assert "trailer_stamp = true" in out
+
+
+def test_unstamped_finding_nudges_when_trailer_on_but_unstamped():
+    """trailer_stamp already ON but no commit carries a trailer yet → the
+    early-adoption 'stamp ship commits' nudge, WITHOUT re-recommending the flag."""
+    on = StampConvention(subject_dirs=(), trailer_stamp=True)
+    out = conventional_commits_unstamped_finding(
+        on, ["fix(gateway): harden", "feat(api): paginate"], declared=True
+    )
+    assert out is not None
+    assert "stamp ship commits" in out
+    assert "trailer_stamp = true" not in out  # config is right; don't re-recommend
+
+
+def test_unstamped_finding_quiet_when_not_declared():
+    """An inherited default on a foreign CC repo is never nagged (never cries wolf)."""
+    gen = StampConvention(subject_dirs=())
+    assert conventional_commits_unstamped_finding(
+        gen, ["fix(x): y", "feat(z): w"], declared=False
+    ) is None
+
+
+def test_unstamped_finding_quiet_when_something_binds():
+    """If the active grammar already binds a ship, the affirmative form wins
+    upstream — no recipe (mixed CC + a real `<SERIES><PHASE>:` ship)."""
+    gen = StampConvention(subject_dirs=())
+    assert conventional_commits_unstamped_finding(
+        gen, ["AUTH2: ship it", "fix(x): y"], declared=True
+    ) is None
+
+
+def test_unstamped_finding_quiet_when_no_conventional_commits():
+    """No CC commit to advise on → None (the bare/ship-shaped cases own those)."""
+    gen = StampConvention(subject_dirs=())
+    assert conventional_commits_unstamped_finding(
+        gen, ["just prose", "more prose"], declared=True
+    ) is None
+
+
+def test_verifiability_recipe_for_declared_conventional_commits(tmp_path):
+    """End-to-end: a DECLARED [stamp] repo whose commits are Conventional-Commits-
+    shaped (no trailer) → the actionable trailer recipe on the headline, NOT the
+    dead-end 'no referee can check' line."""
+    _repo(tmp_path, "fix(gateway): treat same-tick ready", "feat(api): add pagination")
+    (tmp_path / "dos.toml").write_text(
+        '[stamp]\nstyle = "grep"\nsubject_dirs = []\n', encoding="utf-8"
+    )
+    out = _doctor(tmp_path).stdout
+    line = next(l for l in out.splitlines() if l.startswith("verifiability"))
+    assert "Conventional-Commits-shaped" in line
+    assert "trailer_stamp = true" in line
+    assert "no referee can check" not in line
+
+
+def test_verifiability_recipe_quiet_for_undeclared_conventional_commits(tmp_path):
+    """Regression guard for `test_verifiability_honest_on_conventional_commits`: a
+    CC repo that declared NO [stamp] table keeps the gentle 'no referee' line — the
+    recipe must not nag an un-opted-in repo."""
+    _repo(tmp_path, "fix: typo", "chore: bump deps", "feat: add button")
+    out = _doctor(tmp_path).stdout
+    line = next(l for l in out.splitlines() if l.startswith("verifiability"))
+    assert "no referee can check" in line
+    assert "trailer_stamp" not in line
