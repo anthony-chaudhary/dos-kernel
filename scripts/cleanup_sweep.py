@@ -25,6 +25,12 @@ safety rules, into one fail-soft sweep:
     5. `dos pulse`                      — the standing self-watch heartbeat. CONDITIONAL:
        if the verb is not present on this checkout (it ships on a later line), the step
        no-ops with a clear note rather than failing the sweep.
+    6. `scripts/proc_reaper.py [--apply]` — reap RUNAWAY processes a fleet leaks: an
+       orphaned whole-disk scanner (`find /` re-parented after its parent died, still
+       burning CPU) and a memory-leak outlier (a worker over a hard RSS ceiling). Its
+       pure classifier KEEPs every protected fleet member (supervisors, apply-loops,
+       MCP servers) and REAPs only proven-waste classes, so a live worker is never
+       killed. CONDITIONAL on psutil: absent -> a clean recorded skip, not a failure.
 
 > **Fail-soft is the contract.** One chore erroring (a torn journal, `dos` not
 > importable, git unhappy) NEVER aborts the rest — its step is recorded as `ok:
@@ -131,7 +137,7 @@ def step_reap(root: Path, *, apply: bool) -> StepResult:
     journal = data.get("journal", {}) if isinstance(data, dict) else {}
     j_note = ""
     if journal.get("compacted"):
-        j_note = (f"; journal {journal.get('entries_before')}→"
+        j_note = (f"; journal {journal.get('entries_before')}->"
                   f"{journal.get('entries_after')} lines")
     elif journal.get("would_compact"):
         j_note = f"; journal would compact ({journal.get('entries')} lines)"
@@ -258,6 +264,42 @@ def step_pulse(root: Path) -> StepResult:
                       summary=f"heartbeat: {line}")
 
 
+def step_proc_reaper(root: Path, *, apply: bool) -> StepResult:
+    """`scripts/proc_reaper.py [--apply] --json` — reap runaway leaked processes.
+
+    Shelled (not imported) so the sweep stays a thin orchestrator and the reaper keeps
+    its own process/exit semantics. Its classifier REAPs only an orphaned whole-disk
+    scanner past a CPU floor or a process over a hard RSS cap, and KEEPs every
+    protected fleet member — so a live worker is structurally safe. CONDITIONAL on
+    psutil: if absent the reaper reports an error note and this step records a clean
+    skip rather than failing the sweep."""
+    script = Path(__file__).with_name("proc_reaper.py")
+    argv = [sys.executable, str(script), "--json"]
+    if apply:
+        argv.append("--apply")
+    code, out, err = _run(argv, cwd=root)
+    data = _load_json(out) or {}
+    # psutil absent -> the reaper emits {"error": ...}; that is a skip, not a failure.
+    if isinstance(data, dict) and data.get("error"):
+        return StepResult("proc_reaper", ran=False, ok=True, acted=False,
+                          summary=data["error"])
+    counts = data.get("counts", {}) if isinstance(data, dict) else {}
+    reaped = data.get("reaped", []) if isinstance(data, dict) else []
+    surfaced = data.get("surfaced", []) if isinstance(data, dict) else []
+    fails = [r for r in reaped if r.get("ok") is False]
+    n = len([r for r in reaped if r.get("ok") is not False])
+    verb = "reaped" if apply else "would reap"
+    summary = f"{verb} {n} runaway process(es), {len(surfaced)} surfaced"
+    if fails:
+        summary += f"; {len(fails)} kill(s) failed"
+    # proc_reaper exits 1 only when an --apply kill failed (e.g. access denied).
+    ok = (code == 0 or not apply) and not fails
+    return StepResult("proc_reaper", ran=True, ok=ok, acted=apply and n > 0,
+                      summary=summary,
+                      detail={"counts": counts, "reaped": reaped,
+                              "surfaced": surfaced})
+
+
 # --------------------------------------------------------------------------- #
 # The sweep — run every chore, fold the results, decide the exit code.
 # --------------------------------------------------------------------------- #
@@ -270,6 +312,7 @@ def run_sweep(root: Path, *, apply: bool) -> list[StepResult]:
         step_git_cleanup(root, apply=apply),
         step_memory_index(),
         step_pulse(root),
+        step_proc_reaper(root, apply=apply),
     ]
 
 

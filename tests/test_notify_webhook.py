@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 
 from dos.notify import Notification, Severity, resolve_notifier, send_safely
-from dos.drivers import notify_webhook
 from dos.drivers.notify_webhook import (
     WebhookNotifier,
     build_payload,
@@ -70,6 +69,26 @@ def test_build_payload_is_json_serializable():
     # The driver json.dumps()es this; a frozen field tuple must round-trip.
     body = build_payload(_note())
     json.dumps(body)  # must not raise
+
+
+def test_build_payload_carries_the_action_and_folds_open_into_text():
+    from dos.notify import notification_for_decisions
+    # A note built through the adapter carries the clickable follow-up (docs/387).
+    n = notification_for_decisions([], summary="(none)", root="/ws")
+    body = build_payload(n)
+    # structured consumers read the action object…
+    assert body["action"]["command"] == "dos decisions --workspace /ws"
+    # …and a dumb chat hook gets the open-verb appended to text.
+    assert "⟶ open: dos decisions --workspace /ws" in body["text"]
+
+
+def test_build_payload_no_action_leaves_text_unchanged():
+    # A directly-built, action-less note must not grow an open line (the == below
+    # pins that the fold is guarded on an actual action).
+    n = Notification(Severity.INFO, "fleet clear", "", fields=(), source="decisions")
+    body = build_payload(n)
+    assert body["text"] == "· [INFO] fleet clear"
+    assert body["action"] is None
 
 
 # ---------------------------------------------------------------------------

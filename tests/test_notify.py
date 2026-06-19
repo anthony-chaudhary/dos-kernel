@@ -15,9 +15,11 @@ import pytest
 from dos import notify
 from dos.notify import (
     Notification,
+    NotifyAction,
     NotifyResult,
     NullNotifier,
     Severity,
+    action_for_source,
     notification_for_decisions,
     notification_for_top,
     resolve_notifier,
@@ -87,6 +89,47 @@ def test_notifyresult_to_dict():
 
 
 # ---------------------------------------------------------------------------
+# NotifyAction + action_for_source — the clickable follow-up (docs/387).
+# ---------------------------------------------------------------------------
+
+
+def test_notify_action_to_dict():
+    a = NotifyAction(label="open it", command="dos top", url="https://x")
+    assert a.to_dict() == {"label": "open it", "command": "dos top", "url": "https://x"}
+
+
+def test_action_for_source_maps_the_three_projections():
+    for source, verb in (("decisions", "decisions"), ("top", "top"), ("pulse", "pulse")):
+        a = action_for_source(source)
+        assert a is not None
+        assert a.command == f"dos {verb}"
+        assert a.url == ""  # no explicit deep link by default
+
+
+def test_action_for_source_folds_workspace_into_command():
+    a = action_for_source("decisions", root="/ws")
+    assert a.command == "dos decisions --workspace /ws"
+
+
+def test_action_for_source_quotes_a_root_with_spaces():
+    a = action_for_source("top", root="/two words/ws")
+    assert a.command == 'dos top --workspace "/two words/ws"'
+
+
+def test_action_for_source_unknown_is_none():
+    assert action_for_source("nope") is None
+    assert action_for_source("") is None
+
+
+def test_notification_to_dict_carries_action_or_none():
+    a = NotifyAction(label="L", command="dos top")
+    n = Notification(Severity.INFO, "t", "s", action=a)
+    assert n.to_dict()["action"] == {"label": "L", "command": "dos top", "url": ""}
+    # an action-less notification serializes a JSON-null, not a missing key
+    assert Notification(Severity.INFO, "t", "s").to_dict()["action"] is None
+
+
+# ---------------------------------------------------------------------------
 # notification_for_decisions — severity escalation + TOP rows as fields.
 # ---------------------------------------------------------------------------
 
@@ -136,6 +179,12 @@ def test_decisions_dup_count_shown_in_field():
     assert "×4" in n.fields[0][1]
 
 
+def test_decisions_adapter_attaches_the_decisions_action():
+    n = notification_for_decisions([], summary="(none)", root="/ws")
+    assert n.action is not None
+    assert n.action.command == "dos decisions --workspace /ws"
+
+
 # ---------------------------------------------------------------------------
 # notification_for_top — severity from the worst lane + non-free lanes as fields.
 # ---------------------------------------------------------------------------
@@ -182,6 +231,14 @@ def test_top_severity_reads_word_not_glyph():
     f = _Frame(lanes=(_LaneState("src", "X STALLED"),))
     n = notification_for_top(f, summary="s")
     assert n.severity is Severity.URGENT
+
+
+def test_top_adapter_self_sources_action_root_from_the_frame():
+    # No explicit root → the top adapter folds the frame's workspace into the open.
+    f = _Frame(workspace="/ws", lanes=(_LaneState("src", "🟢 ADVANCING"),))
+    n = notification_for_top(f, summary="screen")
+    assert n.action is not None
+    assert n.action.command == "dos top --workspace /ws"
 
 
 # ---------------------------------------------------------------------------

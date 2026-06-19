@@ -100,6 +100,76 @@ class Severity(str, enum.Enum):
 
 
 # ---------------------------------------------------------------------------
+# The clickable affordance — the ONE relevant follow-up a transport renders as a
+# link/button so a notification is not a dead end (docs/387). Pure data: the
+# kernel says WHICH read-only view answers this notification; a transport decides
+# HOW to make it clickable (an OSC 8 terminal hyperlink, a Slack link button, a
+# webhook `action` field). It stays inside the advisory floor — every target is a
+# read-only projection (`dos decisions` / `dos top` / `dos pulse`), so a click
+# OPENS a view, it never enacts a stop (the paste-to-stop stays a field value).
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class NotifyAction:
+    """The relevant thing to open when a notification is clicked — pure data.
+
+    `label` is the human verb ("review the decisions queue"); `command` is the
+    DOS verb that opens the relevant view (`dos decisions --workspace …`), shown
+    copy-pasteable and runnable from anywhere; `url` is an OPTIONAL explicit deep
+    link a host/driver may set (a dashboard, a future web view) — empty by default,
+    in which case a terminal transport falls back to the workspace location so the
+    click still lands somewhere relevant.
+    """
+
+    label: str
+    command: str
+    url: str = ""
+
+    def to_dict(self) -> dict:
+        return {"label": self.label, "command": self.command, "url": self.url}
+
+
+# The closed source → action map. A new projection adds one row here, never a
+# transport edit (the by-name-resolver instinct, for the follow-up affordance).
+# Each target is a read-only DOS verb — naming no host, the kernel-blindness rule.
+_SOURCE_ACTION: dict[str, tuple[str, str]] = {
+    "decisions": ("review the decisions queue", "decisions"),
+    "top": ("open the live fleet status", "top"),
+    "pulse": ("open the fleet pulse", "pulse"),
+}
+
+
+def _q(path: str) -> str:
+    """Double-quote a path that has whitespace so the copy-pasted command runs.
+
+    Quotes for both PowerShell and POSIX shells (a path without an embedded quote
+    is safe under `"..."` in either). Pure; a quote-free, space-free path passes
+    through untouched so the common case stays clean.
+    """
+    return f'"{path}"' if (path and any(c.isspace() for c in path)) else path
+
+
+def action_for_source(source: str, *, root: str = "") -> "NotifyAction | None":
+    """The relevant follow-up for a projection `source`, or None for an unknown one.
+
+    Pure, closed-set: maps `decisions`/`top`/`pulse` to the read-only DOS verb that
+    opens that view. `root` (the workspace) is folded into the command as
+    `--workspace <root>` so the copy-pasted line runs from anywhere; an empty root
+    yields the bare verb. An unknown source returns None (no affordance), never a
+    guess — the `resolve_*` fail-quiet posture for a follow-up that does not exist.
+    """
+    spec = _SOURCE_ACTION.get(source or "")
+    if spec is None:
+        return None
+    label, verb = spec
+    command = f"dos {verb}"
+    if root:
+        command = f"{command} --workspace {_q(root)}"
+    return NotifyAction(label=label, command=command)
+
+
+# ---------------------------------------------------------------------------
 # The neutral payload — the DOS-shaped fact a driver renders to its wire format.
 # ---------------------------------------------------------------------------
 
@@ -113,6 +183,8 @@ class Notification:
     as `(label, value)` pairs — what a Block-Kit/section transport shows at a
     glance. `key` is the stable identity for edit-in-place (a notifier that can
     edit re-uses one message keyed on it); `source` names which projection this is.
+    `action` is the ONE relevant view to open when the notification is clicked
+    (docs/387) — None when there is no sensible follow-up.
     """
 
     severity: Severity
@@ -121,6 +193,7 @@ class Notification:
     fields: tuple[tuple[str, str], ...] = ()
     key: str = ""
     source: str = ""
+    action: "NotifyAction | None" = None
 
     def to_dict(self) -> dict:
         return {
@@ -130,6 +203,7 @@ class Notification:
             "fields": [list(f) for f in self.fields],
             "key": self.key,
             "source": self.source,
+            "action": self.action.to_dict() if self.action else None,
         }
 
 
@@ -223,7 +297,7 @@ def _decision_field(d: "Decision") -> tuple[str, str]:
 
 
 def notification_for_decisions(
-    rows: list["Decision"], *, summary: str = "", top: int = 5
+    rows: list["Decision"], *, summary: str = "", top: int = 5, root: str = ""
 ) -> Notification:
     """Pure: the ranked decision rows → one `Notification` (the digest surface).
 
@@ -261,10 +335,11 @@ def notification_for_decisions(
         fields=fields,
         key="dos-decisions",
         source="decisions",
+        action=action_for_source("decisions", root=root),
     )
 
 
-def notification_for_top(frame: "Frame", *, summary: str = "") -> Notification:
+def notification_for_top(frame: "Frame", *, summary: str = "", root: str = "") -> Notification:
     """Pure: a `dos top` `Frame` → one `Notification` (the live-status surface).
 
     `frame` is the output of `dispatch_top.snapshot(...)`; `summary` is the prebuilt
@@ -316,6 +391,9 @@ def notification_for_top(frame: "Frame", *, summary: str = "") -> Notification:
     if nverd:
         fields.append(("recent verdicts", str(nverd)))
 
+    # The frame already carries the workspace, so the top adapter can self-source
+    # the action root when the caller did not pass one explicitly.
+    action_root = root or str(getattr(frame, "workspace", "") or "")
     return Notification(
         severity=severity,
         title=title,
@@ -323,10 +401,11 @@ def notification_for_top(frame: "Frame", *, summary: str = "") -> Notification:
         fields=tuple(fields),
         key=f"dos-top:{getattr(frame, 'workspace', '')}",
         source="top",
+        action=action_for_source("top", root=action_root),
     )
 
 
-def notification_for_pulse(digest: "PulseDigest", *, summary: str = "") -> Notification:
+def notification_for_pulse(digest: "PulseDigest", *, summary: str = "", root: str = "") -> Notification:
     """Pure: a `pulse.PulseDigest` → one `Notification` (the standing-pulse surface).
 
     `digest` is the output of `pulse.fold_pulse(...)` — the folded fleet state a cron
@@ -380,6 +459,7 @@ def notification_for_pulse(digest: "PulseDigest", *, summary: str = "") -> Notif
         fields=tuple(fields),
         key="dos-pulse",
         source="pulse",
+        action=action_for_source("pulse", root=root),
     )
 
 

@@ -99,7 +99,7 @@ def test_reap_folds_dropped_counts_and_journal(monkeypatch):
     r = cs.step_reap(Path("/ws"), apply=True)
     assert r.ok and r.acted
     assert "reaped 3" in r.summary          # 2 audits + 1 verdict + 0 runs
-    assert "900→200" in r.summary
+    assert "900->200" in r.summary
 
 
 def test_reap_failure_is_failsoft(monkeypatch):
@@ -183,6 +183,44 @@ def test_pulse_present_runs_and_reports(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
+# proc_reaper — runaway-process reaping, conditional on psutil
+# --------------------------------------------------------------------------- #
+
+def test_proc_reaper_folds_counts(monkeypatch):
+    payload = json.dumps({
+        "counts": {"KEEP": 500, "REAP": 2, "REFUSE": 1},
+        "reaped": [{"pid": 42, "ok": True}, {"pid": 43, "ok": True}],
+        "surfaced": [{"pid": 99}],
+    })
+    _install(monkeypatch, {"proc_reaper.py": (0, payload, "")})
+    r = cs.step_proc_reaper(Path("/ws"), apply=True)
+    assert r.ran and r.ok and r.acted
+    assert "reaped 2" in r.summary and "1 surfaced" in r.summary
+
+
+def test_proc_reaper_psutil_absent_is_a_skip(monkeypatch):
+    # The reaper emits {"error": ...} when psutil is missing → a clean recorded skip.
+    payload = json.dumps({"error": "psutil not installed — proc-reaper skipped",
+                          "counts": {}, "reaped": [], "surfaced": []})
+    _install(monkeypatch, {"proc_reaper.py": (0, payload, "")})
+    r = cs.step_proc_reaper(Path("/ws"), apply=True)
+    assert not r.ran and r.ok                 # absent dep == skip, sweep stays green
+    assert "psutil" in r.summary
+
+
+def test_proc_reaper_kill_failure_marks_not_ok(monkeypatch):
+    payload = json.dumps({
+        "counts": {"REAP": 1},
+        "reaped": [{"pid": 42, "ok": False, "note": "access denied"}],
+        "surfaced": [],
+    })
+    _install(monkeypatch, {"proc_reaper.py": (1, payload, "")})
+    r = cs.step_proc_reaper(Path("/ws"), apply=True)
+    assert r.ran and not r.ok
+    assert "1 kill(s) failed" in r.summary
+
+
+# --------------------------------------------------------------------------- #
 # the whole sweep — fail-soft + exit code
 # --------------------------------------------------------------------------- #
 
@@ -194,7 +232,8 @@ def test_sweep_is_failsoft_one_bad_step_does_not_abort(monkeypatch):
     })
     results = cs.run_sweep(Path("/ws"), apply=True)
     names = [r.name for r in results]
-    assert names == ["reap", "reindex", "git_cleanup", "memory_index", "pulse"]
+    assert names == ["reap", "reindex", "git_cleanup", "memory_index", "pulse",
+                     "proc_reaper"]
     assert any(r.name == "reap" and not r.ok for r in results)
     assert any(r.name == "reindex" and r.ok for r in results)   # ran despite reap failing
 

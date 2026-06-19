@@ -10,7 +10,6 @@ manual dogfood in docs/225.
 from __future__ import annotations
 
 from dos.notify import Notification, Severity, send_safely
-from dos.drivers import notify_slack
 from dos.drivers.notify_slack import (
     SlackNotifier,
     build_blocks,
@@ -71,8 +70,29 @@ def test_build_blocks_urgent_emoji_and_no_fields():
     n = Notification(Severity.URGENT, "fleet hung", "screen", fields=(), source="top")
     blocks = build_blocks(n)
     assert ":red_circle:" in blocks[0]["text"]["text"]
-    # no fields section when fields empty
+    # no fields section when fields empty (and no actions block without an action)
     assert [b["type"] for b in blocks] == ["header", "section", "context"]
+
+
+def test_build_blocks_action_with_url_adds_a_link_button():
+    from dos.notify import NotifyAction
+    a = NotifyAction(label="open the live fleet status", command="dos top", url="https://x/ui")
+    n = Notification(Severity.INFO, "fleet", "screen", source="top", action=a)
+    blocks = build_blocks(n)
+    assert "actions" in [b["type"] for b in blocks]
+    btn = [b for b in blocks if b["type"] == "actions"][0]["elements"][0]
+    assert btn["type"] == "button" and btn["url"] == "https://x/ui"
+    # the open-command is folded into the context line too
+    assert "open: `dos top`" in blocks[-1]["elements"][0]["text"]
+
+
+def test_build_blocks_action_without_url_has_no_button_but_shows_command():
+    from dos.notify import NotifyAction
+    a = NotifyAction(label="review the decisions queue", command="dos decisions")
+    n = Notification(Severity.WARN, "3 need you", "body", source="decisions", action=a)
+    blocks = build_blocks(n)
+    assert "actions" not in [b["type"] for b in blocks]  # no URL → no dead button
+    assert "open: `dos decisions`" in blocks[-1]["elements"][0]["text"]
 
 
 # ---------------------------------------------------------------------------

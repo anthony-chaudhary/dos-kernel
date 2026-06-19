@@ -83,6 +83,13 @@ def build_payload(note: Notification) -> dict:
     tag = _SEV_TAG.get(note.severity.value, "·")
     head = f"{tag} [{note.severity.value}] {note.title}".strip()
     text = head if not body.get("summary") else f"{head}\n{body['summary']}"
+    # The clickable follow-up (docs/387): `body['action']` already carries the
+    # structured `{label, command, url}` (via `note.to_dict()`) for a consumer that
+    # renders a button; a dumb chat hook that only renders `text` gets the open-verb
+    # appended so the notification is not a dead end there either.
+    action = getattr(note, "action", None)
+    if action is not None and getattr(action, "command", ""):
+        text = f"{text}\n⟶ open: {action.command}"
     body["text"] = text
     return body
 

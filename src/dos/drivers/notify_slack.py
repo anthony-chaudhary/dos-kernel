@@ -101,11 +101,30 @@ def build_blocks(note: Notification) -> list[dict]:
             "type": "section",
             "text": {"type": "mrkdwn", "text": f"```\n{body}\n```"},
         })
+    # The clickable follow-up (docs/387): a Slack link button when the action
+    # carries an explicit URL (a button with no URL has no backend here and the
+    # advisory floor forbids one that enacts), so a button only appears when it can
+    # actually open something. The open-command is ALSO folded into the context line
+    # below so a plain Slack still shows the copy-pasteable `dos …` verb.
+    action = getattr(note, "action", None)
+    if action is not None and getattr(action, "url", ""):
+        blocks.append({
+            "type": "actions",
+            "elements": [{
+                "type": "button",
+                "text": {"type": "plain_text",
+                         "text": (getattr(action, "label", "") or "open")[:75],
+                         "emoji": True},
+                "url": action.url,
+            }],
+        })
+    ctx = (f"dos notify · source=`{note.source or '?'}` · "
+           f"severity=`{note.severity.value}`")
+    if action is not None and getattr(action, "command", ""):
+        ctx = f"{ctx} · open: `{action.command}`"
     blocks.append({
         "type": "context",
-        "elements": [{"type": "mrkdwn",
-                      "text": f"dos notify · source=`{note.source or '?'}` · "
-                              f"severity=`{note.severity.value}`"}],
+        "elements": [{"type": "mrkdwn", "text": ctx}],
     })
     return blocks
 

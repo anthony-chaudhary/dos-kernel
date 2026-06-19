@@ -10,8 +10,7 @@ notices) while a dry-run never does.
 from __future__ import annotations
 
 import argparse
-
-import pytest
+import io
 
 from dos import cli
 from dos.notify import NotifyResult
@@ -116,3 +115,80 @@ def test_top_surface_builds_from_snapshot(capsys, monkeypatch):
     out = capsys.readouterr().out
     assert rc == 0
     assert "fleet:" in out
+
+
+# ---------------------------------------------------------------------------
+# The clickable follow-up (docs/387) — the open line in plain + JSON output.
+# ---------------------------------------------------------------------------
+
+
+def test_plain_output_prints_the_open_line(capsys, monkeypatch):
+    import dos.decisions as d
+    monkeypatch.setattr(d, "collect_decisions", lambda *a, **k: [])
+    monkeypatch.setattr(d, "render_list_plain", lambda rows: "(none)")
+    rc = cli.cmd_notify(_ns())
+    out = capsys.readouterr().out
+    assert rc == 0
+    # capsys is not a tty → no escape codes, just the copy-pasteable verb.
+    assert "→ review the decisions queue: dos decisions" in out
+    assert "\x1b]8" not in out
+
+
+def test_json_output_carries_the_action(capsys, monkeypatch):
+    import dos.decisions as d
+    monkeypatch.setattr(d, "collect_decisions", lambda *a, **k: [])
+    monkeypatch.setattr(d, "render_list_plain", lambda rows: "(none)")
+    rc = cli.cmd_notify(_ns(json=True))
+    out = capsys.readouterr().out
+    import json as _json
+    obj = _json.loads(out)
+    assert rc == 0
+    action = obj["notification"]["action"]
+    assert action is not None
+    assert action["command"].startswith("dos decisions")
+
+
+# ---------------------------------------------------------------------------
+# The OSC 8 hyperlink helpers — pure, opt-out, never raise.
+# ---------------------------------------------------------------------------
+
+
+def test_osc8_wraps_text_in_a_link():
+    s = cli._osc8("file:///ws", "dos top")
+    assert s == "\x1b]8;;file:///ws\x1b\\dos top\x1b]8;;\x1b\\"
+
+
+class _Tty:
+    def isatty(self):
+        return True
+
+
+def test_hyperlinks_disabled_off_a_non_tty():
+    assert cli._hyperlinks_enabled(io.StringIO()) is False
+
+
+def test_hyperlinks_enabled_on_a_tty(monkeypatch):
+    monkeypatch.delenv("DOS_NO_HYPERLINKS", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    assert cli._hyperlinks_enabled(_Tty()) is True
+
+
+def test_hyperlinks_opt_out_env(monkeypatch):
+    monkeypatch.setenv("DOS_NO_HYPERLINKS", "1")
+    assert cli._hyperlinks_enabled(_Tty()) is False
+
+
+def test_action_line_links_when_enabled_else_plain():
+    from dos.notify import NotifyAction
+    a = NotifyAction(label="open", command="dos top", url="https://x/ui")
+    linked = cli._action_line(a, hyperlinks=True)
+    assert "\x1b]8;;https://x/ui\x1b\\dos top" in linked
+    plain = cli._action_line(a, hyperlinks=False)
+    assert plain == "  → open: dos top"
+
+
+def test_action_line_falls_back_to_workspace_uri(tmp_path):
+    from dos.notify import NotifyAction
+    a = NotifyAction(label="open", command="dos decisions")  # no explicit url
+    linked = cli._action_line(a, root=str(tmp_path), hyperlinks=True)
+    assert "\x1b]8;;file://" in linked  # the workspace file:// became the target
