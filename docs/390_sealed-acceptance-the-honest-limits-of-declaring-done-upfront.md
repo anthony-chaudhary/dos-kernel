@@ -217,6 +217,27 @@ and each is mechanically enforceable.
    `dos.scope_sources` / `dos.judges` driver. Adding this as new Python *core*
    logic is forbidden — the Python here is confined to the genuine OS seam (git/fs
    reads) inside a driver, which the `ScopeSource` contract already permits.
+8. **Sufficiency is MANDATORY, not an optional add-on** (the stress-test's sharpest
+   finding). A worker can author a sealed contract of only-trivially-true grounded
+   clauses, ship exactly those, and fold to `MET` — every clause genuinely satisfied,
+   the contract a lie by omission. The seal proves the clauses *predate* the work; it
+   says nothing about whether they *cover* the job. So every contract MUST carry a
+   coverage clause routed through a `dos.scope_sources` rung whose external account's
+   **byte-author is provably not either agent** (a human-committed plan-registry phase
+   list, a third-party tracker's acceptance field fetched by read-back, a CI-enforced
+   required-checks manifest) — AND-ed under `honest_under_floor`, fail-to-strict, so a
+   contract whose clause-set under-covers that account folds to `UNDERDECLARED`. An
+   agent-drafted issue's acceptance criteria do **not** qualify — that just relocates
+   the collusion one level up. Absent a non-agent coverage account, the verdict is
+   "*covered only to the extent declared*," never "done."
+9. **`contract-MET` may only GATE a reward, never BE the label** (the incentive
+   side-door). The kernel path is safe (a contract can only withhold), but if a
+   downstream consumer — `reward.py`, the `improve` loop, the "fak" judge's surfaced
+   signal — reads `MET` as a *positive* signal, the worker is pushed back toward the
+   minimal passable sealed spec. `contract-MET` may only *withhold* a positive label
+   that a non-forgeable witness already minted; it must never itself be that label.
+   Pin it with a soundness test: a *thinned* contract (fewer / looser clauses) cannot
+   raise any reward or `improve` metric.
 
 ## 5. The DOS-shaped design that survives — the "sealed acceptance" manifest
 
@@ -241,6 +262,33 @@ artifact, committed before the work, listing checkable **effect-claims**, each
   rung    = "judge"             # dos.judges — ADVISORY ONLY, fail-to-abstain, never grants done
   effect  = "design: no module imports a host"
 ```
+
+The manifest above is the *authoring surface*; the kernel type behind it is a
+small, typed value with a pure fold — and that fold is the **only** genuinely-new
+decision-bearing logic in the whole design:
+
+```
+DoneContract { contract_blob: str   # the git blob sha — content-addressed, so the id IS the seal
+               run_id: str
+               clauses: tuple[Clause, ...] }
+Clause       { key: str             # opaque effect identity (the effect_witness.key bridge)
+               rung: Rung           # ORACLE | JUDGE | HUMAN — a closed enum
+               narrated: str        # the human-readable criterion — carried for the surface,
+                                     # NEVER parsed for truth
+               subject: str         # witness/probe correlation handle
+               oracle_ref: (plan, phase) | None }   # only on ORACLE clauses
+classify(contract, per_clause_adjudications, completion_floor) -> ContractVerdict
+ContractVerdict { state: MET | UNMET | INDETERMINATE ; unmet_clauses ; reason }
+```
+
+A clause is a typed **request routed to the existing adjudicator its rung names** —
+never a new oracle. And only **one** rung contributes a hard pass-or-withhold,
+because only one is grounded: **ORACLE** (a `(plan,phase)` `dos verify` answers from
+ancestry, or an `EffectClaim` whose read-back reaches a non-forgeable
+`OS_RECORDED`/`THIRD_PARTY` rung in `effect_witness`). **JUDGE** clauses ride
+`dos.judges` (advisory, can `DISAGREE`-to-withhold, never `AGREE`-into-done);
+**HUMAN** clauses are surfaced to `dos decisions`, never auto-resolved. With no
+contract supplied, the fold is byte-identical to today's completion floor.
 
 Each piece maps to an existing rung; nothing new is invented for the *grounding*:
 
@@ -278,12 +326,25 @@ Each piece maps to an existing rung; nothing new is invented for the *grounding*
   (docs/98: the orchestrator is a driver). If "fak"/fleet is a specific external
   adjudicator, it plugs here without a single kernel line naming it.
 
-- **Refinement without re-opening the hole.** The manifest is **append-only** and
-  refinements may only **tighten** (add a clause, raise a witness rung — never
-  delete a clause or downgrade a rung). A tightening is itself a new sealed commit,
-  so the audit trail shows every bar the work ever had to clear. This is the
-  discovery-lens answer: correct mid-run discovery *adds* witnessed clauses; it is
-  never forced to choose between the frozen seal and re-opening the co-design hole.
+- **Refinement without re-opening the hole — and its honest limit.** The manifest is
+  **append-only** and refinements may only **tighten** (add a clause, raise a witness
+  rung — never delete a clause or downgrade a rung). A tightening is itself a new
+  sealed commit, so the audit trail shows every bar the work ever had to clear. This
+  answers the *add-only* half of the discovery objection: correct mid-run discovery
+  *adds* witnessed clauses without re-opening the co-design hole, and a refinement
+  whose monotonicity cannot be **mechanically** decided must be **rejected**
+  (fail-to-reject — an `ABSTAIN`-ing refinement judge can never loosen). But the
+  stress-test found the *replace* half is genuinely hard and must not be papered over:
+  *"step 4 was the wrong design; steps 4′–6′ are the right job"* is a clause that needs
+  **dropping**, which tighten-only forbids — so a now-misfit sealed clause becomes a
+  permanent false `UNDERDECLARED`. Supersession can only stay refuse-more-safe if the
+  replacement carries a non-forgeable witness for the *new* effect **and** the dropped
+  clause is marked `SUPERSEDED` by the **independent** (non-worker) author with its own
+  sealed ancestry. Where that is unavailable, the honest limit is: sealed acceptance
+  handles *under-declaration* discovery (add-only), **not** *wrong-design* discovery
+  (replace) — the latter falls back to re-authoring the whole manifest in a fresh run.
+  That bounds the seal's value to the three narrow earns-its-keep cases of §3; it is
+  **not** a general iterative-work gate.
 
 ## 6. How to benchmark it — the falsifiable instrument
 
@@ -313,31 +374,96 @@ numbers, both extensions of the docs/117 Phase-5 pattern:
 - **Phase 0 — this note.** The integrity-vs-grounding finding (§2), the
   applicability map (§3), and the no-go rules (§4) are the load-bearing record,
   independent of build order.
-- **Phase 1 — the minimal spike (this pass).** A `dos.scope_sources` **driver**,
-  `SealedAcceptanceScope`, that: (a) reads a committed acceptance manifest, (b)
-  verifies the seal via `dos.vcs.is_ancestor` + `read_blob` (committed-before-HEAD;
-  adjudicate the committed blob, never the working tree), (c) cross-checks the
-  run's declared extent against the manifest's required effect-claims, and (d)
-  returns a `ScopeVerdict` that can **only withhold** completion (broken seal or
-  uncovered required effect → `extent_honest=False` → `UNDERDECLARED`). Plus a
-  read-only `dos contract` CLI verdict and the tests that pin the three load-bearing
-  properties: *the seal catches a post-hoc edit; a sealed-but-passed proxy never
-  grants `COMPLETE`; the verdict reads the committed blob, not a tampered working
-  tree.* This rides the **existing** refuse-more machinery — it adds the new *check*
-  (the seal) without any new kernel *decision* logic, satisfying no-go rule 7.
-- **Phase 2 — the effect-claim → witness binding.** Route `witness`-rung clauses
-  through `effect_witness`, so a manifest's effect-claims fold only when a
-  non-forgeable read-back confirms them (the reward.py / dos-goal-fleet sweet
-  spots).
-- **Phase 3 — the advisory judge clauses + the fleet additional-gate driver.**
-  `judge`-rung clauses ride `dos.judges`; the fleet repo registers its live
-  adjudicator by name. Fail-to-ABSTAIN; never grants done.
-- **Phase 4 — the benchmark (§6)** as a `benchmark/` consumer, including the
-  gaming-resistance ablation.
-- **Phase 5 — born-in-Go.** Port the (small) decision core to the Go driver seam on
-  the standing parity ratchet (docs/124), per no-go rule 7.
+- **Phase 1 — the coverage/sufficiency half (SHIPPED this pass).** A
+  `dos.scope_sources` **driver**, `SealedAcceptanceScope`
+  ([`src/dos/drivers/sealed_acceptance.py`](../src/dos/drivers/sealed_acceptance.py)),
+  that: (a) reads a committed acceptance manifest, (b) verifies the seal by reading
+  the manifest as the **committed blob at the run's start commit**
+  (`dos.vcs.read_blob(state.start_sha, path)` — present-before-the-work, immune to
+  working-tree tampering), (c) cross-checks the run's declared extent against the
+  manifest's sealed required ids, and (d) returns a `ScopeVerdict` that can **only
+  withhold** completion (broken / unanchored / malformed seal, or an uncovered sealed
+  id → `extent_honest=False` → `UNDERDECLARED`). Tests
+  ([`tests/test_sealed_acceptance.py`](../tests/test_sealed_acceptance.py), 22) pin
+  the load-bearing properties through the **real** `completion.classify`: *the seal
+  catches a post-hoc / late-added manifest; the verdict reads the committed blob, not
+  a tampered working tree; a sealed-but-passed proxy never grants `COMPLETE`.* This is
+  deliberately the **sufficiency** answer to the design's first open question (a
+  worker can author only-trivially-true clauses) — it is the external-scope **coverage**
+  check (docs/117 Gap B) made tamper-evident, and it stays a plain Python driver
+  precisely because it adds the new *check* (the seal) while riding the **existing**
+  refuse-more fold (`honest_under_floor` / `run_scope` fail-to-strict) — no new kernel
+  *decision* logic, so no-go rule 7 does not bind it yet.
+- **Phase 2 — the done-contract typed fold, BORN IN GO.** The `DoneContract` /
+  `Clause` / `Rung` / `ContractVerdict` value type + the pure
+  `classify(contract, per-clause-adjudications, completion_floor) -> ContractVerdict`
+  of §5. *This* is the genuinely-new decision-bearing logic, so per the strongly-typed
+  mandate (docs/385, no-go rule 7) it is **born in Go**, mirrored at the Python parity
+  seam for the byte-green soak (docs/124) — not ported later. Pure, refuse-more-only,
+  byte-identical to the completion floor when no contract is supplied; replay-tested on
+  frozen fixtures, with the soundness pin that a lying clause cannot manufacture `MET`.
+- **Phase 3 — the per-rung bindings (drivers).** `ORACLE` clauses bound to
+  `oracle.is_shipped` / `effect_witness` (`contract_oracle`); `JUDGE` clauses through
+  `dos.judges` (fail-to-ABSTAIN); `HUMAN` clauses surfaced to `dos decisions`. The
+  post-gate wires into `dos hook stop` beside the existing `claim_extract` check; the
+  fleet repo's "fak"-style adjudicator registers as a `dos.judges` driver **by name**.
+  A `dos contract` CLI verb (`admit` / `show` / `verify`) + the opt-in
+  `CONTRACT_ABSENT` pre-gate refusal for high-stakes lanes only (never general).
+- **Phase 4 — the benchmark (§6)** as a `benchmark/` consumer: the confusion grid +
+  false-DONE / false-UNMET rates + the blind-vs-sighted gaming ablation.
 
-## 8. Non-goals
+## 8. What an adversarial stress-test left standing — and what it didn't
+
+This design was red-teamed by an independent panel: six skeptics each tried to
+break it from a different angle (Goodhart, checkability, discovery, collusion,
+cost, incentive), then re-checked whether the design *resolves* their objection or
+*papers over* it. The result is worth recording verbatim, because it is the honest
+boundary of the whole idea.
+
+**What is fully resolved.** Every objection's **fatal** form is closed, and closed
+*structurally* — verified against the shipped code, not asserted. A sealed clause
+**cannot manufacture a positive done-bit**: the fold rides `honest_under_floor`
+(`scope_source.py` — a verdict can only flip `True→False`), `effect_witness`
+caps any agent-authored read-back at `UNWITNESSED` (`believe_under_floor`), and
+`run_judge` converts any judge to `ABSTAIN`, never `AGREE`. The checkability
+objection — *"sealing re-labels the shallow done as authoritative and suppresses
+human review"* — is rated **resolved**: the verdict stays typed as
+extent-against-a-frozen-proxy, quality is confined to the advisory rung, and
+`HUMAN` clauses can never be auto-resolved.
+
+**What survives as honest residue** (each rated *partial*, each now a no-go rule or
+an open question rather than a hidden assumption):
+
+1. **Sufficiency is the rung that actually bites — and it is borrowed, not
+   intrinsic.** The contract grounds whether each *authored* clause is satisfied,
+   never whether the clause *set* covers the job. The fix is real but external: a
+   non-agent-authored coverage account, AND-ed under the floor (now **no-go rule
+   8**). The shipped Phase-1 spike *is* that coverage rung — which is precisely why
+   the seal remains orthogonal to the mechanism that bites, exactly as the critique
+   charged. The design accepts this rather than refuting it.
+2. **Same-family correlation is *measured*, not *defeated*.** For any clause that
+   does not reduce to an ORACLE-rung witness, a sealer and worker from the same model
+   family share blind spots the blind-vs-sighted ablation cannot see. The only cure
+   is a held-out, non-agent label (no-go rule 6); the benchmark should add a
+   **same-family-vs-cross-family arm** that either justifies or *retires* the
+   independence claim — keeping only the integrity (timing) claim, which is the part
+   git ancestry actually anchors.
+3. **Discovery is handled for *add*, not *replace*** (§5's refinement limit). The
+   THRASHING→re-author routing is also intent, not wiring: `completion.convergence`
+   emits `THRASHING` but nothing consumes it; making spec-revision a first-class
+   `dos decisions` event is unbuilt.
+
+**One accuracy correction the panel caught:** the seal's ancestry check is a small
+**new `dos.vcs` read** (`read_blob` at the start commit / an is-ancestor predicate),
+**not** a reuse of `oracle.is_shipped` (which reads ship-stamp grammar, a different
+thing). The shipped spike is already correct on this — it calls `vcs.read_blob`
+directly; the prose elsewhere should not imply the oracle answers it.
+
+The net: the seal is a sound *integrity* gate that can only ever refuse-more, and
+its grounding is borrowed wholesale from the existing witness/scope rungs. That is
+the honest claim — and the reason this note is mostly subtraction.
+
+## 9. Non-goals
 
 - **No semantic-correctness claim.** Like `completion`, a passed sealed-acceptance
   verdict means *"every required, sealed effect is verifiably present against
@@ -349,7 +475,7 @@ numbers, both extensions of the docs/117 Phase-5 pattern:
 - **The kernel does not re-run the work.** The verdict is advisory (docs/99); the
   act of stopping / re-dispatching is the loop's.
 
-## 9. Provenance
+## 10. Provenance
 
 This note re-aims shipped machinery and refuses to add a new trust root. The
 extent rung, the refuse-more conjunction, and the fail-to-strict boundary are
