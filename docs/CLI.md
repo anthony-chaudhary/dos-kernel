@@ -767,6 +767,29 @@ replacing the default), and `--min-chars N` sets the viability floor. `--markers
 RE,…` opts a strict host into positive-evidence-required (a non-trivial text
 matching none of them is INDETERMINATE, not ANSWER_SHAPED).
 
+The SAME shape guard also catches the OPPOSITE failures — the verbosity/drift end
+the floor and the markers can't see:
+
+  * `--max-chars N` is the SYMMETRIC ceiling. A non-empty output OVER the host's
+    length budget is a runaway/padded dump → NON_ANSWER. Default `0` = off (the
+    "ceiling fixed by the source, never inferred from content" rule, docs/156 §3.2:
+    the host declares its budget, the kernel never guesses one).
+  * `--max-repeat R` is the DEGENERATION cap, `R` in `[0,1)`. An output whose
+    segmented units (lines / sentences) are mostly DUPLICATES has collapsed into a
+    decode loop → NON_ANSWER. The ratio is `(n_units − n_distinct) / n_units`; a cap
+    of `0.5` disqualifies when over half the units repeat. Default `0.0` = off, and
+    a too-short output (below the minimum unit count) ABSTAINS — the fail-safe
+    UNDER-disqualify direction, so a short Q&A never trips the loop guard. SCOPE IT
+    TO PROSE: the metric counts EXACT (content-blind) duplicate units, so a
+    list/table/CSV/log channel with legitimately repeated short rows (`- N/A` ×10,
+    a `| --- |` rule) reads as high-ratio — that is why it defaults off and you opt
+    in only on free-prose answer channels, not structured output.
+
+Both stay inside the honesty boundary: a length budget and a duplicate-fraction are
+mechanically checkable SHAPE properties, not a quality/correctness judgment. Both
+default OFF so the guard never disqualifies a legitimately long or repetitive output
+the host has not declared a threshold for.
+
 No-plan rail: needs only the text + policy — no git, no journal, no clock, no
 model. `classify` is pure and NEVER raises (a bad host regex degrades to "not
 matched", the fail-safe UNDER-disqualify direction). ADVISORY: it reports a

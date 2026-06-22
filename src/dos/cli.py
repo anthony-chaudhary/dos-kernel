@@ -4116,6 +4116,10 @@ def cmd_answer_shape(args: argparse.Namespace) -> int:
     policy = answer_shape.AnswerShapePolicy(
         min_viable_chars=args.min_chars if args.min_chars is not None
         else base.min_viable_chars,
+        max_viable_chars=args.max_chars if args.max_chars is not None
+        else base.max_viable_chars,
+        max_repeat_ratio=args.max_repeat if args.max_repeat is not None
+        else base.max_repeat_ratio,
         non_answer_patterns=base.non_answer_patterns + extra_patterns,
         answer_markers=markers,
     )
@@ -11899,13 +11903,20 @@ witnessed, yet the app shipped a 5,780-char reasoning log as its answer. The rul
   dos answer-shape --text "<thinking>let me reason…"     →  NON_ANSWER, exit 3
   echo "$draft" | dos answer-shape --text -              →  reads the candidate from stdin
 
+It also catches the OPPOSITE failures — the verbosity/drift end the floor can't see:
+`--max-chars N` is the symmetric ceiling (an output over the host's length budget is a
+runaway/padded dump → NON_ANSWER), and `--max-repeat R` is the degeneration cap (an
+output whose lines/sentences are mostly duplicates has collapsed into a loop → NON_ANSWER).
+Both default OFF — the host opts in; the kernel never guesses a length budget.
+
 THE BOUNDARY: this judges SHAPE, never CORRECTNESS. ANSWER_SHAPED means "shaped like an
 answer," NOT "a right answer" — the semantic question is a JUDGE/HUMAN's, and shape
 returns INDETERMINATE (the abstain floor) on anything it cannot decide. The markers are
 policy: `--non-answer RE,…` adds host disqualifiers ON TOP of the generic default,
-`--min-chars N` sets the viability floor, `--markers RE,…` requires a positive answer
-signature. PURE (no I/O, never raises). ADVISORY — it reports a shape; the consumer
-decides. The verdict IS the exit code: 0 ANSWER_SHAPED, 3 NON_ANSWER, 4 INDETERMINATE."""
+`--min-chars N` / `--max-chars N` set the viability floor/ceiling, `--max-repeat R` the
+degeneration cap, `--markers RE,…` requires a positive answer signature. PURE (no I/O,
+never raises). ADVISORY — it reports a shape; the consumer decides. The verdict IS the
+exit code: 0 ANSWER_SHAPED, 3 NON_ANSWER, 4 INDETERMINATE."""
 
 _HELP_GATE = """classify a /next-up packet into one typed gate verdict.
 
@@ -13207,6 +13218,17 @@ def build_parser() -> argparse.ArgumentParser:
                            "disqualifies on length). A non-empty output below it is a "
                            "NON_ANSWER stub. Length catches the empty end; the markers "
                            "catch the leaked-CoT end")
+    pash.add_argument("--max-chars", type=int, default=None, metavar="N",
+                      help="the verbosity ceiling (default 0 = off — the host declares "
+                           "its budget, the kernel never guesses). A non-empty output "
+                           "OVER it is a NON_ANSWER runaway/padded dump — the symmetric "
+                           "opposite of --min-chars. A SHAPE call, not correctness")
+    pash.add_argument("--max-repeat", type=float, default=None, metavar="R",
+                      help="the degeneration cap in [0,1) (default 0.0 = off). When set, "
+                           "an output whose repeated-unit fraction "
+                           "(non-distinct lines/sentences) exceeds R is a NON_ANSWER — "
+                           "the decode-loop/drift tell. e.g. 0.5 ⇒ over half the units "
+                           "are duplicates. Mechanically checkable; still a SHAPE call")
     pash.add_argument("--non-answer", default=None, metavar="RE,…",
                       help="extra disqualifying regexes (comma list) ADDED to the "
                            "generic cross-domain default, never replacing it. A hit "
