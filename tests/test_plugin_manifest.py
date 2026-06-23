@@ -191,24 +191,35 @@ def test_hooks_wire_the_dos_verbs():
                     f"{event} hook entry must be type=command: {h}"
 
 
-def test_stopfailure_rewake_and_heal_are_wired():
-    """The rate-limit auto-restart machinery is actually wired (not just shipped).
+def test_stopfailure_notifier_and_heal_are_wired():
+    """The API-failure notifier + breaker-heal are actually wired (not just shipped).
 
-    The breaker + asyncRewake code (cmd_hook_stop_failure) existed long before it
-    was bound to an event. This pins the binding: a StopFailure asyncRewake hook
-    that runs `hook stop-failure`, and a Stop-event heal that runs the same verb
-    with `--success` so the breaker resets after a clean session.
+    A StopFailure hook's output and exit code are IGNORED by the harness, so it
+    can never re-launch a stopped session — the harness's own retry
+    (CLAUDE_CODE_MAX_RETRIES / CLAUDE_CODE_RETRY_WATCHDOG) resumes a transient
+    wall. This pins the HONEST binding: a StopFailure hook scoped to the
+    transient-wall error classes that runs `hook stop-failure` to record +
+    attribute + escalate, and a Stop-event heal running the same verb with
+    `--success` so the breaker resets after a clean session.
+
+    The hook must NOT claim to rewake: asyncRewake on a StopFailure is a no-op
+    (the exit code it waits on is discarded), so it must be absent — keeping it
+    would advertise a resumption the contract cannot deliver.
     """
     hooks = _load(PLUGIN_HOOKS)
-    # StopFailure → asyncRewake retry on the failure verb.
     sf_groups = hooks["hooks"].get("StopFailure", [])
     sf_hooks = [h for g in sf_groups for h in g.get("hooks", [])]
-    assert sf_hooks, "no StopFailure hook wired — rate-limit auto-restart is dead"
-    assert any(h.get("asyncRewake") is True for h in sf_hooks), \
-        "StopFailure hook must set asyncRewake:true (the harness re-launch signal)"
+    assert sf_hooks, "no StopFailure hook wired — the API-failure notifier is dead"
+    # Honest contract: NO asyncRewake (it cannot rewake — exit code is ignored).
+    assert all(h.get("asyncRewake") is not True for h in sf_hooks), \
+        "StopFailure must NOT set asyncRewake — its exit code is ignored, so it " \
+        "cannot rewake; advertising it promises a resumption the contract can't keep"
+    # Scoped to the transient-wall error classes via the event matcher.
+    assert any("overloaded" in (g.get("matcher", "") or "") for g in sf_groups), \
+        "StopFailure should match the transient-wall classes (e.g. overloaded)"
     assert any("hook stop-failure" in h.get("command", "")
                and "--success" not in h.get("command", "") for h in sf_hooks), \
-        "StopFailure must run `hook stop-failure` (the failure/backoff path)"
+        "StopFailure must run `hook stop-failure` (the record/attribute/escalate path)"
     # Stop → the heal (so the breaker doesn't open from stale failures).
     stop_cmds = _hook_commands(hooks, "Stop")
     assert any("hook stop-failure" in c and "--success" in c for c in stop_cmds), \

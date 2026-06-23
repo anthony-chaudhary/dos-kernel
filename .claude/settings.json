@@ -30,14 +30,12 @@
     ],
     "StopFailure": [
       {
+        "matcher": "overloaded|server_error|rate_limit",
         "hooks": [
           {
             "type": "command",
             "shell": "bash",
-            "asyncRewake": true,
-            "rewakeMessage": "Session resumed after an API failure (rate limit / overload). DOS breaker state:",
-            "rewakeSummary": "API-failure backoff retry",
-            "timeout": 320,
+            "timeout": 15,
             "command": "python scripts/rate_limit_rewake.py --workspace . || true"
           }
         ]

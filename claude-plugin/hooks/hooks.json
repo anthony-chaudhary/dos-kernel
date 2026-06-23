@@ -41,14 +41,12 @@
     ],
     "StopFailure": [
       {
+        "matcher": "overloaded|server_error|rate_limit",
         "hooks": [
           {
             "type": "command",
             "shell": "bash",
-            "asyncRewake": true,
-            "rewakeMessage": "Session resumed after an API failure (rate limit / overload). DOS breaker state:",
-            "rewakeSummary": "API-failure backoff retry",
-            "timeout": 320,
+            "timeout": 15,
             "command": "python -m dos.cli hook stop-failure --workspace . 2>/dev/null || python3 -m dos.cli hook stop-failure --workspace . 2>/dev/null || powershell.exe -NoProfile -ExecutionPolicy Bypass -Command 'python -m dos.cli hook stop-failure --workspace .' 2>/dev/null || true"
           }
         ]

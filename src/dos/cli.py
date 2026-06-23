@@ -6639,10 +6639,25 @@ def _journal_pretool_outcome(event: dict, outcome: dict, cfg) -> None:
 
 
 # ---------------------------------------------------------------------------
-# hook stop-failure  (StopFailure asyncRewake — backoff retry on API failures)
+# hook stop-failure  (StopFailure notifier — attribute + escalate on API failures)
 # ---------------------------------------------------------------------------
-
-_STOP_FAILURE_BACKOFF_S: tuple = (30, 60, 120, 240, 300)  # cap at 5 min
+#
+# StopFailure fires when a turn ends due to an API error (overloaded / server /
+# rate-limit). Per the Claude Code hook contract its *output and exit code are
+# IGNORED* — a StopFailure hook can NEVER re-launch or resume the session. The
+# harness's own automatic retry (CLAUDE_CODE_MAX_RETRIES, default 10) is what
+# resumes a transient wall, and CLAUDE_CODE_RETRY_WATCHDOG=1 makes 429/529
+# capacity errors retry indefinitely. So this command does NOT sleep-and-rewake
+# (that was a false premise — the exit code is discarded). It does the part that
+# IS reachable from a StopFailure: record the failure into the per-session
+# breaker, attribute it to its seat, and escalate to the operator when the
+# breaker OPENS. Pure notifier; always exits 0.
+_RETRY_REMEDY_HINT = (
+    "Transient API walls are retried by the harness itself "
+    "(CLAUDE_CODE_MAX_RETRIES, default 10). For unattended sessions set "
+    "CLAUDE_CODE_RETRY_WATCHDOG=1 to retry 429/529 capacity errors "
+    "indefinitely instead of stopping at a manual prompt."
+)
 
 
 def _write_rotation_handoff(cfg, session_id: str, from_account: str, alt_acct) -> bool:
@@ -6675,14 +6690,15 @@ def _write_rotation_handoff(cfg, session_id: str, from_account: str, alt_acct) -
 def _stop_failure_seat_advice(event: dict, cfg, *, session_id: str, counts) -> "str | None":
     """Attribute a StopFailure to its seat + compute a rotation suggestion. Fail-soft.
 
-    On a transient API wall DOS backs off and the harness re-launches the SAME seat.
-    The 10x step — rotate to a serving account — needs an asyncRewake env-override
-    channel the harness does not yet expose (docs/386 §4), so this does the half that
-    IS reachable now: it ATTRIBUTES the failure to the seat the session ran on (the
-    per-account `failures` ledger) and COMPUTES a serving seat to rotate to, returning
-    a one-line suggestion to fold into the rewake message. The seat is read from the
-    event or the `CID_ACCOUNT` lineage env (caller-supplied — the kernel never derives
-    an account). Any error → None: a ledger/roster fault must NEVER break the rewake."""
+    On a transient API wall the harness retries the SAME seat (its own retry, or
+    CLAUDE_CODE_RETRY_WATCHDOG for capacity errors). The 10x step — rotate to a
+    serving account — needs an env-override channel the StopFailure event does not
+    expose (docs/386 §4), so this does the half that IS reachable now: it ATTRIBUTES
+    the failure to the seat the session ran on (the per-account `failures` ledger)
+    and COMPUTES a serving seat to rotate to, returning a one-line suggestion to fold
+    into the notifier's stdout. The seat is read from the event or the `CID_ACCOUNT`
+    lineage env (caller-supplied — the kernel never derives an account). Any error →
+    None: a ledger/roster fault must NEVER break the hook."""
     try:
         from dos import run_id as _run_id
         current = ((event.get("account") if isinstance(event, dict) else None)
@@ -6720,23 +6736,30 @@ def _stop_failure_seat_advice(event: dict, cfg, *, session_id: str, counts) -> "
 
 
 def cmd_hook_stop_failure(args: argparse.Namespace) -> int:
-    """A StopFailure asyncRewake hook: backoff-retry on transient API failures.
+    """A StopFailure notifier: attribute + escalate on transient API failures.
 
     The StopFailure companion to `dos hook stop`. Where `dos hook stop`
-    adjudicates a claimed ship, this command handles the session DYING before
-    it could ship — a transient API failure (rate limit, overload, network blip).
-    It is the kernel-generic answer to "what should DOS do when the harness
-    drops the session?":
+    adjudicates a claimed ship, this command observes the session ending on a
+    transient API failure (rate limit, overload, server error, network blip).
+
+    IMPORTANT — this hook does NOT resume the session. Per the Claude Code hook
+    contract a StopFailure hook's *output and exit code are ignored*, so it can
+    never re-launch a stopped turn (an earlier design slept-then-exited-2 to
+    "rewake" the session; the exit code is discarded, so that did nothing but
+    burn wall-clock). Resumption is the harness's own job: it auto-retries
+    transient walls (CLAUDE_CODE_MAX_RETRIES, default 10) before surfacing the
+    error, and CLAUDE_CODE_RETRY_WATCHDOG=1 retries 429/529 capacity errors
+    indefinitely. This command does the part a StopFailure CAN do:
 
       1. Read the StopFailure event JSON from STDIN ({session_id, cwd, …}).
       2. Load the session's persisted BreakerCounts from .dos/stop-failures/.
       3. Call breaker.record_failure() — PURE, stateless, kernel primitive.
       4. Persist the new counts so the next fire sees the accumulated state.
-      5. If the breaker OPENED: emit the escalation reason and exit 0 (no rewake;
-         the --on-trip=human flag queued the decision for the operator).
-      6. If the breaker is CLOSED: sleep (exponential backoff — consecutive-indexed
-         from _STOP_FAILURE_BACKOFF_S), print retry context to stdout (the harness
-         appends stdout to the rewakeMessage), and exit 2 (asyncRewake fires).
+      5. Attribute the wall to its seat (per-account ledger) + record it.
+      6. If the breaker OPENED: emit the escalation reason (the --on-trip=human
+         flag queued the decision for the operator).
+
+    Always exits 0 — it is a pure notifier, never a control point.
 
     --success inverts polarity: records a clean Stop (resets the consecutive
     counter via breaker.record_success), exits 0.  Wire this from the Stop hook
@@ -6745,25 +6768,19 @@ def cmd_hook_stop_failure(args: argparse.Namespace) -> int:
         "Stop": [{"hooks": [{"type":"command","shell":"bash",
             "command":"dos hook stop-failure --success --workspace . 2>/dev/null || true"}]}]
 
-    Wire the failure path from StopFailure (with asyncRewake in plugin hooks.json
-    or .claude/settings.json):
+    Wire the failure path from StopFailure (scoped to the transient-wall error
+    classes via the event matcher; no asyncRewake — it cannot rewake):
 
-        "StopFailure": [{"hooks": [{"type":"command","shell":"bash",
-            "asyncRewake":true,
-            "rewakeMessage":"Session resumed after API failure. DOS state:",
-            "rewakeSummary":"API-failure retry",
-            "command":"dos hook stop-failure --workspace .","timeout":320}]}]
+        "StopFailure": [{"matcher":"overloaded|server_error|rate_limit",
+            "hooks": [{"type":"command","shell":"bash",
+            "command":"dos hook stop-failure --workspace .","timeout":15}]}]
 
-    The whole contract (failure + success) fits one verb because the braker's
+    The whole contract (failure + success) fits one verb because the breaker's
     durable state (BreakerCounts in .dos/stop-failures/) is this module's
     only owned surface; there is no "stop-failure-success" sibling to drift.
 
-    Exit codes (the asyncRewake + kernel contract):
-      0 — no rewake: circuit OPEN, or --success mode
-      2 — rewake: circuit CLOSED, backoff elapsed
+    Exit code: always 0 (the StopFailure contract ignores it anyway).
     """
-    import time as _time
-
     from dos import breaker as _brk
     from dos import stop_failure_sensor as _sfs
 
@@ -6826,11 +6843,11 @@ def cmd_hook_stop_failure(args: argparse.Namespace) -> int:
 
     # 4b. Attribute the failure to its seat + compute a rotation suggestion (docs/386).
     #     Records to the per-account ledger regardless of the verdict; the suggestion
-    #     is surfaced only on a rewake (an OPEN breaker stops, so a rotation hint is moot).
+    #     is surfaced so the operator can rotate to a serving seat on the next launch.
     seat_advice = _stop_failure_seat_advice(
         event, cfg, session_id=session_id, counts=new_counts)
 
-    # 5. Circuit OPEN → emit reason, exit 0 (no rewake — operator handles it).
+    # 5. Circuit OPEN → emit the escalation reason (operator handles it).
     if verdict.is_open:
         print(
             f"dos breaker OPEN: {verdict.reason} "
@@ -6840,22 +6857,18 @@ def cmd_hook_stop_failure(args: argparse.Namespace) -> int:
         )
         return 0
 
-    # 6. Circuit CLOSED → backoff + exit 2 (asyncRewake).
-    idx = min(new_counts.consecutive - 1, len(_STOP_FAILURE_BACKOFF_S) - 1)
-    wait = _STOP_FAILURE_BACKOFF_S[idx]
-    _dbg(f"sleeping {wait}s before rewake")
-    _time.sleep(wait)
-
-    # Stdout is appended to rewakeMessage by the harness.
+    # 6. Circuit CLOSED → record + notify. The harness's own retry resumes the
+    #    session (this hook's exit code is ignored by the StopFailure contract);
+    #    we surface the count, the real remedy, and any seat rotation hint.
     msg = (
-        f"Retry #{new_counts.consecutive} after {wait}s backoff "
-        f"(circuit {new_counts.consecutive}/{policy.max_consecutive} consecutive). "
-        "Re-orient with `dos doctor --workspace .` then resume."
+        f"dos: API wall #{new_counts.consecutive} this session "
+        f"({new_counts.consecutive}/{policy.max_consecutive} consecutive before "
+        f"breaker OPEN). {_RETRY_REMEDY_HINT}"
     )
     if seat_advice:
         msg += " " + seat_advice
     print(msg, flush=True)
-    return 2  # asyncRewake fires
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -14189,20 +14202,22 @@ def build_parser() -> argparse.ArgumentParser:
 
     psf = hsub.add_parser(
         "stop-failure",
-        help="a StopFailure asyncRewake hook: backoff-retry on transient API "
-             "failures — the kernel-generic answer to a rate-limited session",
+        help="a StopFailure notifier: record + attribute + escalate on transient "
+             "API failures — the kernel-generic answer to a rate-limited session",
         description=(
             "Reads the host StopFailure event JSON on STDIN ({session_id, cwd, …}), "
             "loads the session's persisted dos.breaker counts from "
             ".dos/stop-failures/, records the failure (or --success for a clean "
-            "stop), and acts on the breaker verdict: OPEN → emit escalation reason, "
-            "exit 0 (no rewake, operator handles); CLOSED → sleep exponential "
-            "backoff, print retry context (appended to rewakeMessage by the harness), "
-            "exit 2 (asyncRewake fires). Wire the failure side from a StopFailure "
-            "hook with asyncRewake:true (timeout 320s); wire --success from the Stop "
-            "hook so the breaker heals after a clean session. Every failure mode "
-            "(no stdin, bad JSON, no session_id) degrades to exit 0 — the advisory "
-            "fail-safe shared by every dos hook command."),
+            "stop), attributes the wall to its seat, and on an OPEN breaker emits "
+            "the escalation reason. Always exits 0 — a StopFailure hook's output and "
+            "exit code are ignored by the harness, so it CANNOT resume the session; "
+            "resumption is the harness's own retry (CLAUDE_CODE_MAX_RETRIES; set "
+            "CLAUDE_CODE_RETRY_WATCHDOG=1 to retry 429/529 capacity errors "
+            "indefinitely). Wire the failure side from a StopFailure hook scoped to "
+            "the transient-wall classes (matcher overloaded|server_error|rate_limit); "
+            "wire --success from the Stop hook so the breaker heals after a clean "
+            "session. Every failure mode (no stdin, bad JSON, no session_id) also "
+            "degrades to exit 0 — the advisory fail-safe shared by every dos hook."),
         formatter_class=argparse.RawDescriptionHelpFormatter)
     _add_workspace_flags(psf)
     psf.add_argument("--session-id", dest="session_id", default=None,
@@ -14217,8 +14232,8 @@ def build_parser() -> argparse.ArgumentParser:
     psf.add_argument("--max-total", dest="max_total", type=int, default=None,
                      help="open the circuit after N total failures (default 50)")
     psf.add_argument("--debug", action="store_true",
-                     help="print diagnostics to STDERR (stdout stays exclusively "
-                          "the asyncRewake context or empty)")
+                     help="print diagnostics to STDERR (stdout stays the operator "
+                          "notification line or empty)")
     psf.set_defaults(func=cmd_hook_stop_failure)
 
     pia = sub.add_parser(
