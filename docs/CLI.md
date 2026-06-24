@@ -799,6 +799,50 @@ The verdict IS the exit code so an assembly gate can branch without re-parsing:
 ANSWER_SHAPED=0 (shippable on shape grounds), NON_ANSWER=3, INDETERMINATE=4
 (disjoint from argparse's usage code 2, which a malformed flag reserves).
 
+### § `cmd_salience`
+
+Is this TRUE thing LIVE, or true-but-PARKED out of the hotpath, recoverable? (docs/391, SAL).
+
+The prevent-silent-loss verdict, and the keep-but-park dual of `cmd_retire`. Truth
+and usefulness are orthogonal axes; the danger is dropping a true thing *as if it
+were false* just because it is not, today, on the hot path (a real bug off the
+default execution path, a correct note behind a disabled flag, a lesson that still
+holds but no longer decides). A silent drop costs nothing today and bites the day
+the path goes live — and leaves no record. This verb converts that silent drop into
+a recorded, RECOVERABLE park under a typed reason:
+
+    LIVE       — no park-reason fired; kept in the default hotpath (NOT "important")
+    PARKED     — true-but-not-useful; out of the hotpath under a typed reason,
+                 RETAINED + surfaced + carrying a reactivation line (the path back)
+    INDETERMINATE — cannot decide on the evidence; abstain → RETAIN + surface
+
+THE CONTRACT: `PARKED ≠ dropped`. No state ever means delete — `is_retained` is
+True for every verdict. The fail-safe ALWAYS points at RETAIN: a null policy / null
+evidence / unknown signal / thin measured evidence never parks and never raises.
+
+THE HONESTY BOUNDARY: this judges MECHANICAL/MEASURED salience, never semantic
+importance. LIVE means "no park-reason fired," NOT "this matters" — the "is it
+worth acting on?" question is the Tier-3 gestalt the kernel ABSTAINS on (a
+JUDGE/HUMAN's call); shape-undecidable items go INDETERMINATE.
+
+The evidence is env-authored and handed in at THIS boundary (the kernel computes no
+reachability): `--reachable`/`--unreachable`, `--default-on`/`--default-off`,
+`--superseded`, a host's own `--reason CLASS` (the open extension point, honored
+first), and the MEASURED rung `--contribution F` + `--trials N` gated by
+`--min-contribution F` + `--min-trials N` (off unless a trials floor is set; never
+parks on thin evidence — the `retire` witness ceiling). The park reasons the kernel
+ships: `SUPERSEDED`, `UNREACHABLE`, `NOT_IN_HOTPATH`, `LOW_CONTRIBUTION`. Each
+PARKED verdict carries a `reactivation` line (the re-entry path `retire`'s
+evict-to-archive lacks) — the load-bearing distinction that makes a park recoverable
+rather than a slow drop.
+
+No-plan rail: needs only the evidence + policy — no git, no journal, no clock, no
+model. `classify` is pure and NEVER raises. ADVISORY: it reports a park; a consumer
+(a picker, a reviewer, an assembly policy) routes the hotpath. Read-only.
+
+The verdict IS the exit code so a tool can branch without re-parsing: LIVE=0,
+PARKED=3, INDETERMINATE=4 (disjoint from argparse's usage code 2).
+
 ### § `cmd_reward`
 
 May a fine-tune TRAIN on this trajectory? The reward-set admission verdict (docs/230/234).

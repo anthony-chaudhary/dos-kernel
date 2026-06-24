@@ -4130,6 +4130,61 @@ def cmd_answer_shape(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# salience  (is this true thing LIVE, or true-but-PARKED out of the hotpath? docs/391)
+#   The prevent-silent-loss dual of `retire`: a thing can be perfectly TRUE and not
+#   currently useful (a bug off the default path); this verb PARKS it under a typed,
+#   RECOVERABLE reason instead of letting it be silently dropped. LIVE 0 / PARKED 3 /
+#   INDETERMINATE 4 / contract-error 2 — and PARKED never means delete.
+_SALIENCE_EXITS = ExitMap(
+    {"LIVE": 0, "PARKED": 3, "INDETERMINATE": 4},
+    unknown=5,  # a future verdict the CLI hasn't caught up to — non-zero, distinct.
+)
+_SALIENCE_EXIT_CODES = _SALIENCE_EXITS.codes
+_SALIENCE_EXIT_UNKNOWN = _SALIENCE_EXITS.unknown
+_SALIENCE_EXIT_CONTRACT_ERROR = _SALIENCE_EXITS.contract_error
+
+
+def cmd_salience(args: argparse.Namespace) -> int:
+    """Is this true thing LIVE, or true-but-PARKED (out of the hotpath, recoverable)? (docs/391, SAL).
+
+    Detail: docs/CLI.md § cmd_salience.
+    """
+    _apply_workspace(args)
+    from dos import salience
+
+    # Resolve the tri-state reachability / default-on bits from the exclusive flags:
+    # absent ⇒ None (unknown — never parks); a flag ⇒ the asserted bool.
+    reachable: "bool | None" = True if args.reachable else (False if args.unreachable else None)
+    default_on: "bool | None" = True if args.default_on else (False if args.default_off else None)
+
+    evidence = salience.SalienceEvidence(
+        label=(args.label or ""),
+        reachable=reachable,
+        default_on=default_on,
+        superseded=bool(args.superseded),
+        declared_reason=(args.reason or "").strip(),
+        contribution=args.contribution,
+        trials=(args.trials if args.trials is not None else 0),
+    )
+    # The generic policy arms the mechanical rungs; --min-trials/--min-contribution arm
+    # the MEASURED rung (off unless the host declares a trials floor — never guessed).
+    base = salience.GENERIC_SALIENCE_POLICY
+    policy = salience.SaliencePolicy(
+        park_unreachable=base.park_unreachable,
+        park_default_off=base.park_default_off,
+        park_superseded=base.park_superseded,
+        park_declared=base.park_declared,
+        min_contribution=args.min_contribution if args.min_contribution is not None
+        else base.min_contribution,
+        min_trials=args.min_trials if args.min_trials is not None else base.min_trials,
+    )
+
+    verdict = salience.classify(evidence, policy=policy)
+
+    return _SALIENCE_EXITS.emit(args, verdict, verdict.state.value)
+
+
+# ---------------------------------------------------------------------------
 # reward  (may a training run TRAIN on this trajectory? — the lab on-ramp, docs/230/234)
 #   (full prose: docs/CLI.md § "reward  (may a training run TRAIN on this trajectory? — the")
 _REWARD_EXITS = ExitMap(
@@ -10058,6 +10113,7 @@ def _exit_code_contract() -> dict:
         "exec-capability": _EXEC_CAPABILITY_EXITS.contract(),
         "hook-exit": _HOOK_EXIT_EXITS.contract(),
         "answer-shape": _ANSWER_SHAPE_EXITS.contract(),
+        "salience": _SALIENCE_EXITS.contract(),
         "reward": _REWARD_EXITS.contract(),
         "test-witness": _TEST_WITNESS_EXITS.contract(),
         "resume": _RESUME_EXITS.contract(),
@@ -11931,6 +11987,32 @@ degeneration cap, `--markers RE,…` requires a positive answer signature. PURE 
 never raises). ADVISORY — it reports a shape; the consumer decides. The verdict IS the
 exit code: 0 ANSWER_SHAPED, 3 NON_ANSWER, 4 INDETERMINATE."""
 
+_HELP_SALIENCE = """is this TRUE thing LIVE, or true-but-PARKED out of the hotpath? prevent silent loss.
+
+USE THIS WHEN: you are about to DROP a true finding/claim/path/lesson because it is not
+useful right now — a real bug off the default execution path, a correct note about a
+feature behind a disabled flag, a lesson that still holds but no longer decides. Truth and
+usefulness are ORTHOGONAL; dropping a true thing as if it were false is silent loss, and
+it bites the day the path goes live. This verb converts the silent drop into a recorded,
+RECOVERABLE park under a typed reason — the keep-but-park dual of `retire` (which DROPS).
+
+  dos salience --label F12 --default-off      →  PARKED(NOT_IN_HOTPATH), exit 3
+  dos salience --label F12 --reachable         →  LIVE, exit 0
+  dos salience --label F12                      →  INDETERMINATE (no evidence), exit 4
+
+The park rungs (all RETAIN — PARKED ≠ delete): --superseded (a later thing replaces it),
+--unreachable (no path reaches it), --default-off (off the default path → NOT_IN_HOTPATH),
+--reason TEXT (a host's own typed park class), and the MEASURED rung --min-contribution F
+with --min-trials N (low contribution on enough trials → LOW_CONTRIBUTION; never parks on
+thin evidence). Assert the positive side with --reachable / --default-on / --contribution.
+
+THE BOUNDARY: this judges MECHANICAL/MEASURED salience, never semantic importance. LIVE
+means "no park-reason fired," NOT "this is important" — that is a JUDGE/HUMAN's call, and
+salience returns INDETERMINATE on anything it cannot decide. The fail-safe ALWAYS points
+at RETAIN: no state ever means delete; absence of evidence never parks. PURE (no I/O,
+never raises). ADVISORY — it reports a park; the consumer routes the hotpath. The verdict
+IS the exit code: 0 LIVE, 3 PARKED, 4 INDETERMINATE."""
+
 _HELP_GATE = """classify a /next-up packet into one typed gate verdict.
 
 USE THIS WHEN: a dispatch loop renders an empty (or thin) packet and you must
@@ -13257,6 +13339,53 @@ def build_parser() -> argparse.ArgumentParser:
                            "is_shippable, is_disqualified, reason}")
     _add_output_flag(pash)
     pash.set_defaults(func=cmd_answer_shape)
+
+    # salience (docs/391) — is this TRUE thing LIVE or true-but-PARKED? the prevent-
+    #   silent-loss dual of `retire`: keep-but-park under a typed reason, never drop.
+    psal = sub.add_parser(
+        "salience",
+        help="is this TRUE thing LIVE or true-but-PARKED out of the hotpath "
+             "(LIVE/PARKED/INDETERMINATE)? prevent silent loss — PARKED ≠ delete",
+        description=_HELP_SALIENCE,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    _add_workspace_flags(psal)
+    psal.add_argument("--label", default=None, metavar="ID",
+                      help="the item being judged (a finding id, a symbol, a memory key); "
+                           "echoed back so a surfaced verdict self-joins")
+    _reach = psal.add_mutually_exclusive_group()
+    _reach.add_argument("--reachable", action="store_true",
+                        help="assert the item IS reached from a default entrypoint "
+                             "(a positive usefulness signal → LIVE if nothing parks it)")
+    _reach.add_argument("--unreachable", action="store_true",
+                        help="assert the item is NOT reachable at all → PARKED(UNREACHABLE). "
+                             "Absent both, reachability is unknown (never parks)")
+    _dflt = psal.add_mutually_exclusive_group()
+    _dflt.add_argument("--default-on", action="store_true",
+                       help="assert the item is on the DEFAULT path (a positive signal)")
+    _dflt.add_argument("--default-off", action="store_true",
+                       help="assert the item is OFF by default (behind a disabled flag / "
+                            "not on the default path) → PARKED(NOT_IN_HOTPATH) — the docs/391 case")
+    psal.add_argument("--superseded", action="store_true",
+                      help="a later thing replaces this one → PARKED(SUPERSEDED)")
+    psal.add_argument("--reason", default=None, metavar="CLASS",
+                      help="a host-declared typed park class (extends the generic set) → "
+                           "PARKED(that class). Read verbatim, honored first")
+    psal.add_argument("--contribution", type=float, default=None, metavar="F",
+                      help="the MEASURED net utility of the item (env-authored). Consulted "
+                           "only with --min-trials (the measured rung)")
+    psal.add_argument("--trials", type=int, default=None, metavar="N",
+                      help="how many measurements stand behind --contribution")
+    psal.add_argument("--min-contribution", type=float, default=None, metavar="F",
+                      help="the contribution floor: with --min-trials set, contribution "
+                           "below it on enough trials → PARKED(LOW_CONTRIBUTION)")
+    psal.add_argument("--min-trials", type=int, default=None, metavar="N",
+                      help="arm the MEASURED rung (off by default = 0): never park on "
+                           "fewer than N measurements (the thin-evidence floor)")
+    psal.add_argument("--json", action="store_true",
+                      help="machine-readable verdict {state, reason_class, is_live, "
+                           "is_parked, is_retained, label, reason}")
+    _add_output_flag(psal)
+    psal.set_defaults(func=cmd_salience)
 
     # reward (docs/230/234) — the lab on-ramp: may a fine-tune TRAIN on this
     #   (full prose: docs/CLI.md § "reward (docs/230/234) — the lab on-ramp: may a fine-tune TRA")
