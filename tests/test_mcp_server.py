@@ -702,9 +702,10 @@ def test_citation_tool_abstains_with_no_network_no_token(monkeypatch):
 # ---------------------------------------------------------------------------
 # The tool-call deadline — the server applies the kernel's STALLED verdict to
 # its own MCP surface (docs/282): a tool body that never returns yields a typed
-# STALLED envelope within the budget instead of hanging the host. A blocked git
-# call on a hot, multi-session tree (a peer holding `.git/index.lock`) is the
-# real trigger; here we block deterministically on an Event that is never set.
+# STALLED envelope within the budget instead of hanging the host. The only
+# witnessed fact is the missed deadline; the cause (a peer git lock, transport
+# contention, a slow FS) is offered as an UNRANKED differential, never asserted
+# as fact. Here we block deterministically on an Event that is never set.
 # ---------------------------------------------------------------------------
 def test_deadline_fast_body_passes_through_byte_identical():
     """A body that returns in time is unchanged — the deadline is invisible."""
@@ -746,6 +747,17 @@ def test_deadline_blocked_body_returns_typed_stalled_within_budget():
     assert "deadline" in out["reason"].lower()
     assert "cli" in out["fallback"].lower()
     assert "advis" in out["advice"].lower()  # advisory: do not auto-retry
+    # Honesty property (the kernel's own rule applied to its stall envelope):
+    # the reason states ONLY the witnessed missed-budget fact and explicitly
+    # disclaims a root cause; the differential is an unranked list, not a guess
+    # dressed as a finding.
+    reason = out["reason"].lower()
+    assert "not established" in reason or "witnessed fact" in reason
+    assert "is blocked" not in reason  # no unwitnessed cause asserted as fact
+    causes = out["candidate_causes"]
+    assert isinstance(causes, list) and len(causes) >= 2  # a differential, not one cause
+    blob = " ".join(causes).lower()
+    assert "git" in blob and ("transport" in blob or "contention" in blob)
 
 
 def test_deadline_zero_budget_is_identity_passthrough(monkeypatch):
