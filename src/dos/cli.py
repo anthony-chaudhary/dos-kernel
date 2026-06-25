@@ -2716,6 +2716,47 @@ def cmd_accounts(args: argparse.Namespace) -> int:
         print("  near_cap_util: 0.9")
         return 0
 
+    if verb == "remove":
+        # Retire a roster account so it is NEVER picked again — the inverse of
+        # enroll. The one-call fix for a phantom duplicate seat (same login as
+        # another account → one shared rate-limit bucket) that fail-opens to
+        # "serving" and is handed out as a dead seat. Drops the named account's
+        # block from the roster YAML (comment-preserving) and, unless
+        # --keep-dir, renames its config dir to a dated `.DELETED-<date>`
+        # tombstone so a later `scaffold` never re-detects it. WRITES disk (like
+        # enroll/sync), so it is an explicit operator verb, not part of any
+        # read-only fold.
+        name = getattr(args, "name", "")
+        try:
+            res = _sw.remove_account(
+                name,
+                path=getattr(args, "accounts_file", None),
+                rename_dir=not bool(getattr(args, "keep_dir", False)),
+            )
+        except ValueError as e:
+            return _fail(str(e),
+                         hint="run `dos accounts list` to see roster names")
+        if as_json:
+            print(json.dumps({
+                "name": res.name,
+                "roster_path": res.roster_path,
+                "removed_from_roster": res.removed_from_roster,
+                "config_dir": res.config_dir,
+                "renamed_to": res.renamed_to,
+            }, indent=2))
+            return 0
+        if res.removed_from_roster:
+            print(f"removed {name} from roster ({res.roster_path})")
+        else:
+            print(f"{name}: not present in roster body ({res.roster_path}) — "
+                  "nothing to drop")
+        if res.renamed_to:
+            print(f"  config dir tombstoned: {res.config_dir} -> {res.renamed_to}")
+        elif not getattr(args, "keep_dir", False):
+            print(f"  config dir left in place ({res.config_dir}) — "
+                  "missing or in use")
+        return 0
+
     accounts, policy = _accounts_roster(args)
 
     if verb == "list":
@@ -13776,6 +13817,18 @@ def build_parser() -> argparse.ArgumentParser:
     async_.add_argument("--dry-run", dest="dry_run", action="store_true",
                         help="preview the per-account merge without writing")
     async_.set_defaults(func=cmd_accounts)
+
+    aremove = accsub.add_parser(
+        "remove",
+        help="retire an account from the roster (drop it + tombstone its config "
+             "dir) so it is never picked again — the inverse of enroll")
+    _acc_common(aremove)
+    aremove.add_argument("--name", required=True,
+                         help="roster account name to remove")
+    aremove.add_argument("--keep-dir", dest="keep_dir", action="store_true",
+                         help="deactivate only: drop from the roster but do NOT "
+                              "rename the config dir to a .DELETED tombstone")
+    aremove.set_defaults(func=cmd_accounts)
 
     # scope-gate (docs/102 §5) — the BINDING pre-effect scope gate. Asks the same
     #   (full prose: docs/CLI.md § "scope-gate (docs/102 §5) — the BINDING pre-effect scope gate")
