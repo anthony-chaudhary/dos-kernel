@@ -68,7 +68,7 @@ install is one small Python package.
 > entries there undoes it. (No runtime detected? It says so and lists the
 > names to pick from — it never guesses.)
 
-<sub>**v0.28.0** · 5,600+ tests · CI: Python 3.11–3.13 on Linux + a Windows 3.13
+<sub>**v0.29.0** · 5,600+ tests · CI: Python 3.11–3.13 on Linux + a Windows 3.13
 smoke run · the only runtime dependency is **PyYAML** · **MIT**.</sub>
 
 > 🧭 **Where to go next:** the [why & evidence](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/guide/why-a-referee.md) (plain-words story, the 20-lines-of-bash answer, what's proven),
