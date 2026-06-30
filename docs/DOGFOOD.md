@@ -123,9 +123,14 @@ On a hot fleet, do not hold meaningful uncommitted work in the shared main tree.
 A sibling tree move (`git reset`, `git checkout`, rebase, or branch switch) can
 delete another worker's untracked, never-staged files outright. Since those bytes
 were never added, git has no commit, index entry, stash, or dangling blob to
-recover. If the work cannot be committed within minutes, start in a detached
-`git worktree` off `origin/master` from the beginning. Commit within minutes if
-you stay in the shared root.
+recover. Do not use `git stash` / `git stash pop` to temporarily hide contended
+files for a diagnostic run in this shared tree. If a sibling rewrites those paths
+between push and pop, `git stash pop` can keep the entry without applying it,
+leave the files at HEAD, and make a later `git stash drop` destroy the only copy
+of the stashed bytes. If the work cannot be committed within minutes, start in a
+detached `git worktree` off `origin/master` from the beginning. For a quick
+probe, use a throwaway worktree or copy-aside. Commit within minutes if you stay
+in the shared root.
 
 Stay disciplined about scope, the same way the arbiter is: commit only the lane
 you actually worked. Stage the specific files your change touched, never a

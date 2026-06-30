@@ -193,9 +193,13 @@ the preference is to land promptly, not defer. A few specifics:
   tree.** A sibling tree move (`git reset`, `git checkout`, rebase, or branch
   switch) can delete your untracked, never-staged files outright; because they
   were never added, git has no commit, index entry, stash, or dangling blob to
-  recover. If the work cannot be committed within minutes, start in a detached
-  `git worktree` off `origin/master` instead; otherwise commit within minutes
-  with a narrow pathspec.
+  recover. Do not use `git stash` / `git stash pop` to probe contended files in
+  the shared tree: a kept-entry partial apply can leave files at HEAD while the
+  stash still holds the only copy, and a later `git stash drop` destroys it. If
+  the work cannot be committed within minutes, start in a detached
+  `git worktree` off `origin/master` instead; for a quick diagnostic, use a
+  throwaway worktree or copy-aside. Otherwise commit within minutes with a
+  narrow pathspec.
 - **Match the existing commit-subject grammar** (`git log` shows it). Do **not**
   add a `Co-Authored-By` or other agent-attribution trailer — commits here carry
   no agent co-author, even if your harness appends one by default.

@@ -8,7 +8,7 @@ makes non-negotiable — is that the reporter is a REPORTER: in its default mode
 prints a nudge and **always exits 0**, so it can never force-loop an interactive
 turn (a non-zero / blocking Stop hook does exactly that). The only non-zero exit is
 the explicit, opt-in `--strict` / `DOS_GIT_HYGIENE=strict` mode, meant for a
-headless loop that WANTS to act on a dirty tree.
+headless loop that WANTS to act on dirty or hidden work.
 
 This test pins that contract structurally against scaffolded SACRIFICIAL git repos
 (never the live tree — the docs/274 sister-law: a destructive/stateful proof runs
@@ -20,7 +20,8 @@ against a throwaway target). It checks:
   * a live lane-lease subtracts its region from the stranded set (the WAL fold),
   * durable untracked files warn as hot-tree risk while any live lease exists,
   * a stale lease does NOT (its region is fair game → stranded),
-  * scratch (`.err`, `_scratch/`, `scripts/_probe.py`) is bucketed, not nagged.
+  * scratch (`.err`, `_scratch/`, `scripts/_probe.py`) is bucketed, not nagged,
+  * stash entries are reported as hidden work and point away from hot-tree pop/drop.
 
 Dev/workflow TOOLING, not kernel — it operates ON the package, never imported BY it.
 Loaded by path because `scripts/` is not an importable package.
@@ -186,3 +187,26 @@ def test_stale_lease_region_counts_as_stranded(tmp_path):
     assert rep["live_leases"] == 0
     assert any("benchmark" in p for p in rep["stranded"])
     assert not rep["lease_held"]
+
+
+def test_stash_entries_nudge_without_blocking(tmp_path):
+    """A leftover stash is hidden work; report it, but stay advisory by default."""
+    repo = _init_repo(tmp_path)
+    tracked = repo / "tracked.py"
+    tracked.write_text("base\n", encoding="utf-8")
+    _git(repo, "add", "tracked.py")
+    _git(repo, "commit", "-q", "-m", "add tracked")
+    tracked.write_text("wip\n", encoding="utf-8")
+    _git(repo, "stash", "push", "-q", "-m", "issue-208-probe", "--", "tracked.py")
+
+    proc = _run(repo)
+    assert proc.returncode == 0
+    assert "git stash entry present" in proc.stderr
+    assert "copy-aside" in proc.stderr
+    assert "do not git stash pop/drop on a hot tree" in proc.stderr
+
+    rep = _report(repo)
+    assert rep["clean"] is False
+    assert rep["dirty_total"] == 0
+    assert rep["stash_count"] == 1
+    assert any("issue-208-probe" in row for row in rep["stash_entries"])

@@ -3,12 +3,12 @@
 
 Wired as a **second, advisory `Stop` hook** in `.claude/settings.json` (alongside
 the trajectory audit). When a Claude Code session finishes a turn, this prints a
-one-line reminder if the working tree carries uncommitted work or the branch is
-ahead of its upstream — so a session never quietly ends leaving the tree dirty and
-the work unshipped. It is the lightweight, *always-on* complement to the deliberate
-`/release` skill: `/release` cuts a version when you ask; this just keeps the tree's
-state **visible** at every stopping point so "commit / `/release` the work" is the
-default reflex, not an afterthought.
+one-line reminder if the working tree carries uncommitted work, local stash
+entries, or commits ahead of its upstream — so a session never quietly ends
+leaving work hidden or unshipped. It is the lightweight, *always-on* complement to
+the deliberate `/release` skill: `/release` cuts a version when you ask; this just
+keeps the tree's state **visible** at every stopping point so "commit / `/release`
+the work" is the default reflex, not an afterthought.
 
 > **Advisory, never a gate — by construction (the docs/274 rule).** A `Stop`-hook
 > that *blocks* (`{"decision":"block"}`) FORCES the agent to keep working, and a
@@ -19,8 +19,8 @@ default reflex, not an afterthought.
 > mode. It never blocks a turn, never commits, never pushes, never `rm`s anything.
 > The act stays the operator's; the reporter only makes the work visible. The one
 > non-zero exit is the explicit, opt-in `--strict` mode (or `DOS_GIT_HYGIENE=strict`
-> env), intended for a *headless loop* that WANTS to act on a dirty tree — never the
-> interactive default.
+> env), intended for a *headless loop* that WANTS to act on dirty or hidden work —
+> never the interactive default.
 
 > **Lease-aware (the DOS-on-DOS dogfood).** This tree is multi-session-hot — several
 > agents write it at once, and a live `/dispatch-loop` legitimately holds dirty paths
@@ -34,6 +34,13 @@ default reflex, not an afterthought.
 > exception is the hot-tree loss class: durable untracked files are warned when any
 > live lease exists, even if a lease owns their path, because a sibling tree move can
 > delete never-staged files before git has an index, stash, commit, or blob for them.
+
+> **Stash-aware (issue #208).** A hot-tree `git stash pop` is not a safe probe:
+> a kept-entry partial apply can leave contended files at HEAD while the stash
+> still holds the only copy, and a later `git stash drop` deletes those bytes.
+> The reporter cannot prove WHY a stash entry exists from local refs alone, so it
+> reports any stash entries and points the operator to a throwaway worktree or
+> copy-aside instead of pop/drop in the shared tree.
 
 This is dev / workflow tooling — it operates ON the package (reads its journal via
 the public `dos` API) but is never imported BY it (the `dos.*` modules import
@@ -162,6 +169,20 @@ def ahead_behind(root: Path) -> tuple[int, int] | None:
     except ValueError:
         return None
     return ahead, behind
+
+
+def stash_entries(root: Path) -> list[str]:
+    """Return the local stash rows, newest first. Empty on any git failure.
+
+    Read-only and intentionally coarse: git does not record "this entry was kept
+    after a failed pop" in a portable, cheap shape. A stash entry in this shared
+    checkout is hidden work, so the Stop hook reports it and lets the operator
+    inspect or copy it aside.
+    """
+    code, out = _git(["stash", "list", "--format=%gd%x09%s"], root=root)
+    if code != 0:
+        return []
+    return [line.strip() for line in out.splitlines() if line.strip()]
 
 
 def _lease_age_seconds(ts: str | None, now: "object") -> float | None:
@@ -298,6 +319,7 @@ def build_report(root: Path) -> dict:
     branch = current_branch(root)
     ab = ahead_behind(root)
     ahead, behind = (ab if ab is not None else (None, None))
+    stashes = stash_entries(root)
 
     hot_untracked_at_risk = bool(lease_trees and durable_untracked)
 
@@ -310,12 +332,18 @@ def build_report(root: Path) -> dict:
         "scratch": sorted(scratch),
         "durable_untracked": sorted(durable_untracked),
         "hot_untracked_at_risk": hot_untracked_at_risk,
+        "stash_entries": stashes,
+        "stash_count": len(stashes),
         "ahead": ahead,            # local commits not pushed (None = no upstream)
         "behind": behind,
         "live_leases": len(lease_trees),
         # The nudge fires iff there is stranded work, unpushed commits, OR durable
-        # untracked work exposed in a hot tree. Scratch never trips it.
-        "clean": (not stranded) and (not ahead) and (not hot_untracked_at_risk),
+        # untracked work exposed in a hot tree, OR hidden stash work. Scratch never
+        # trips it.
+        "clean": (
+            (not stranded) and (not ahead) and (not hot_untracked_at_risk)
+            and (not stashes)
+        ),
     }
 
 
@@ -340,13 +368,24 @@ def render_nudge(rep: dict) -> str:
             f"{risk_n} untracked file{'s' if risk_n != 1 else ''} at risk "
             f"while {leases} live {lease_noun} {lease_verb} present"
         )
+    stash_n = int(rep.get("stash_count") or 0)
+    if stash_n:
+        bits.append(f"{stash_n} git stash entr{'y' if stash_n == 1 else 'ies'} present")
     held = len(rep["lease_held"])
     tail = f" ({held} more held by a live loop — left for it)" if held else ""
-    action = (
-        "commit within minutes or use a detached git worktree off origin/master"
-        if risk_n else
-        ("commit the lane or run /release" if n else "git push origin master (or /release)")
-    )
+    actions: list[str] = []
+    if risk_n:
+        actions.append("commit within minutes or use a detached git worktree off origin/master")
+    elif n:
+        actions.append("commit the lane or run /release")
+    elif rep["ahead"]:
+        actions.append("git push origin master (or /release)")
+    if stash_n:
+        actions.append(
+            "move stash bytes to a throwaway worktree or copy-aside; "
+            "do not git stash pop/drop on a hot tree"
+        )
+    action = "; ".join(actions)
     return f"DOS git-hygiene: {', '.join(bits)}{tail} — {action}."
 
 
@@ -358,7 +397,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--json", action="store_true", help="emit the full report as JSON")
     p.add_argument(
         "--strict", action="store_true",
-        help="exit 1 when stranded work or unpushed commits exist (loops only; "
+        help="exit 1 when stranded work, stash entries, or unpushed commits exist "
+             "(loops only; "
              "the interactive default is advisory exit-0). Also enabled by "
              "DOS_GIT_HYGIENE=strict.",
     )

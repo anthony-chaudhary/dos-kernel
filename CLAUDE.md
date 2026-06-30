@@ -172,9 +172,13 @@ ritual):
   can delete another worker's untracked, never-staged files outright. Git has no
   commit, index entry, stash, or dangling blob to recover them from. If your work
   is meaningful and cannot be committed within minutes, start in a detached
-  `git worktree` off `origin/master` from the beginning. Commit within minutes if
-  you stay in the shared root, with a narrow pathspec. Do not let hours of new
-  files sit only on disk in the shared root.
+  `git worktree` off `origin/master` from the beginning. Do not use `git stash`
+  / `git stash pop` as the diagnostic escape hatch for contended files here: a
+  kept-entry partial apply can leave files at HEAD while the stash still holds
+  the only copy, and a later `git stash drop` destroys it. For a quick probe, use
+  a throwaway worktree or copy-aside. Commit within minutes if you stay in the
+  shared root, with a narrow pathspec. Do not let hours of new files sit only on
+  disk in the shared root.
 - **Worktrees are the exception when the tree is quiet.** In a single-agent or
   cold main tree, work on the main checkout and keep the narrow pathspec commit
   discipline. A detached worktree's commits live only at its HEAD, so they can
