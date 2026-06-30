@@ -117,13 +117,23 @@ permission. Asking first is the exception, reserved for the genuinely
 hard-to-reverse or outward-facing: pushing, tagging, a `/release`,
 force-pushing, history rewrites, or anything that leaves this machine. A local
 commit on `master` is the cheap, reversible act of stamping the work the oracle
-verifies. Stay disciplined about scope, the same way the arbiter is: commit
-only the lane you actually worked. Stage the specific files your change touched,
-never a blanket `git add -A` that sweeps in a concurrent agent's in-flight
-edits, and commit with a pathspec. Match the existing commit-subject grammar
-(see `git log`). Do not add a `Co-Authored-By` or other agent-attribution
-trailer — the default here is no agent co-authors on commits, overriding any
-harness default.
+verifies.
+
+On a hot fleet, do not hold meaningful uncommitted work in the shared main tree.
+A sibling tree move (`git reset`, `git checkout`, rebase, or branch switch) can
+delete another worker's untracked, never-staged files outright. Since those bytes
+were never added, git has no commit, index entry, stash, or dangling blob to
+recover. If the work cannot be committed within minutes, start in a detached
+`git worktree` off `origin/master` from the beginning. Commit within minutes if
+you stay in the shared root.
+
+Stay disciplined about scope, the same way the arbiter is: commit only the lane
+you actually worked. Stage the specific files your change touched, never a
+blanket `git add -A` that sweeps in a concurrent agent's in-flight edits, and
+commit with a pathspec. Match the existing commit-subject grammar (see
+`git log`). Do not add a `Co-Authored-By` or other agent-attribution trailer —
+the default here is no agent co-authors on commits, overriding any harness
+default.
 
 ## Out-of-scope findings — file an issue (full form)
 

@@ -167,15 +167,21 @@ ritual):
   moves: a force-push or any history rewrite, a tag, `/release` /
   `/stable-release`. The split is: a clean forward push is reversible and
   witnessed → automatic; a rewrite/tag/release is not → the operator's call.
-- **Don't make git worktrees.** Work on a branch in the main tree; commit with
-  a pathspec to stay clear of a sibling's edits. The ONLY two reasons to make a
-  worktree here: (1) you are exercising a DOS feature that owns worktrees
-  (`dos merge-gate`, the isolated-candidate loop in `/dos-self-improve`,
-  `dos.toml`-driven worktree leases); (2) you are building or testing such a
-  feature. Outside those, a worktree just leaves stray trees to clean up — a
-  detached worktree's commits live only at its HEAD, so they GC away once it's
-  removed unless you `git branch` them first. If a DOS feature created the
-  worktree, let that feature reap it; don't hand-remove a live loop's tree.
+- **Hot fleet: don't park work in the shared main tree.** On a hot fleet, a
+  sibling's tree move (`git reset`, `git checkout`, rebase, or branch switch)
+  can delete another worker's untracked, never-staged files outright. Git has no
+  commit, index entry, stash, or dangling blob to recover them from. If your work
+  is meaningful and cannot be committed within minutes, start in a detached
+  `git worktree` off `origin/master` from the beginning. Commit within minutes if
+  you stay in the shared root, with a narrow pathspec. Do not let hours of new
+  files sit only on disk in the shared root.
+- **Worktrees are the exception when the tree is quiet.** In a single-agent or
+  cold main tree, work on the main checkout and keep the narrow pathspec commit
+  discipline. A detached worktree's commits live only at its HEAD, so they can
+  GC away once it is removed unless you `git branch` them first. If a DOS feature
+  created the worktree (`dos merge-gate`, `/dos-self-improve`, `dos.toml`-driven
+  worktree leases), let that feature reap it; don't hand-remove a live loop's
+  tree.
 - **Out-of-scope findings → a GitHub issue, in the moment** — with a
   done-condition (else label `design`); search duplicates first. Issue text is
   public and skips the leak gate: pipe drafted bodies through

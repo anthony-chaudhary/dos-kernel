@@ -18,6 +18,7 @@ against a throwaway target). It checks:
   * a clean tree reports `clean: true` and prints nothing,
   * `--strict` exits 1 on stranded work but 0 on a clean tree,
   * a live lane-lease subtracts its region from the stranded set (the WAL fold),
+  * durable untracked files warn as hot-tree risk while any live lease exists,
   * a stale lease does NOT (its region is fair game → stranded),
   * scratch (`.err`, `_scratch/`, `scripts/_probe.py`) is bucketed, not nagged.
 
@@ -156,6 +157,22 @@ def test_live_lease_region_is_subtracted_from_stranded(tmp_path):
     assert rep["live_leases"] == 1
     assert any("benchmark" in p for p in rep["lease_held"])
     assert not any("benchmark" in p for p in rep["stranded"])
+    assert rep["hot_untracked_at_risk"] is True
+
+
+def test_live_lease_untracked_risk_mentions_worktree_escape(tmp_path):
+    """A hot tree with durable untracked files gets the unrecoverable-loss warning."""
+    repo = _init_repo(tmp_path)
+    (repo / "notes.py").write_text("x\n", encoding="utf-8")
+    _write_journal(repo, tree=["docs/**"], stale=False)
+    proc = _run(repo)
+    assert proc.returncode == 0
+    assert "untracked file" in proc.stderr
+    assert "at risk" in proc.stderr
+    assert "detached git worktree off origin/master" in proc.stderr
+    rep = _report(repo)
+    assert rep["hot_untracked_at_risk"] is True
+    assert "notes.py" in rep["durable_untracked"]
 
 
 def test_stale_lease_region_counts_as_stranded(tmp_path):

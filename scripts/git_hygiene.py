@@ -27,10 +27,13 @@ default reflex, not an afterthought.
 > mid-flight under a lane lease. Nagging about those would be noise. So the reporter
 > folds DOS's OWN kernel WAL (`dos.lane_journal.read_all → replay`, the same fold
 > `dos top` and `/release` Step 1.6 read) and **splits** the dirty set: paths a live
-> (non-stale) lease owns are reported as *lease-held (in-flight, fine)*, the rest as
+> (non-stale) lease owns are reported as *lease-held (in-flight)*, the rest as
 > *stranded (commit me)*. A lease past its TTL heartbeat is treated as dead — its
 > region counts as stranded (the same stale-steal rule the arbiter applies). The
-> nudge fires on the **stranded** count, not the raw dirty count.
+> normal nudge fires on the **stranded** count, not the raw dirty count. The
+> exception is the hot-tree loss class: durable untracked files are warned when any
+> live lease exists, even if a lease owns their path, because a sibling tree move can
+> delete never-staged files before git has an index, stash, commit, or blob for them.
 
 This is dev / workflow tooling — it operates ON the package (reads its journal via
 the public `dos` API) but is never imported BY it (the `dos.*` modules import
@@ -278,19 +281,25 @@ def build_report(root: Path) -> dict:
         return any(_matches_glob(path, g) for tree in lease_trees for g in tree)
 
     stranded: list[str] = []      # dirty + durable + NOT under a live lease → "commit me"
-    lease_held: list[str] = []    # dirty but a live loop owns it → in-flight, fine
+    lease_held: list[str] = []    # dirty but a live loop owns it → in-flight
     scratch: list[str] = []       # untracked short-lived probe output → deletable noise
+    durable_untracked: list[str] = []  # non-scratch ?? paths; unrecoverable if deleted
     for xy, path in rows:
         if _is_scratch(xy, path):
             scratch.append(path)
-        elif _lease_held(path):
-            lease_held.append(path)
         else:
-            stranded.append(path)
+            if xy == "??":
+                durable_untracked.append(path)
+            if _lease_held(path):
+                lease_held.append(path)
+            else:
+                stranded.append(path)
 
     branch = current_branch(root)
     ab = ahead_behind(root)
     ahead, behind = (ab if ab is not None else (None, None))
+
+    hot_untracked_at_risk = bool(lease_trees and durable_untracked)
 
     return {
         "workspace": str(root),
@@ -299,13 +308,14 @@ def build_report(root: Path) -> dict:
         "stranded": sorted(stranded),
         "lease_held": sorted(lease_held),
         "scratch": sorted(scratch),
+        "durable_untracked": sorted(durable_untracked),
+        "hot_untracked_at_risk": hot_untracked_at_risk,
         "ahead": ahead,            # local commits not pushed (None = no upstream)
         "behind": behind,
         "live_leases": len(lease_trees),
-        # The nudge fires iff there is stranded work OR unpushed commits — the two
-        # "this session is leaving work behind" conditions. lease_held + scratch do
-        # NOT trip it (in-flight / deletable, not stranded).
-        "clean": (not stranded) and (not ahead),
+        # The nudge fires iff there is stranded work, unpushed commits, OR durable
+        # untracked work exposed in a hot tree. Scratch never trips it.
+        "clean": (not stranded) and (not ahead) and (not hot_untracked_at_risk),
     }
 
 
@@ -321,9 +331,22 @@ def render_nudge(rep: dict) -> str:
     if rep["ahead"]:
         a = rep["ahead"]
         bits.append(f"{a} commit{'s' if a != 1 else ''} not pushed")
+    risk_n = len(rep.get("durable_untracked") or []) if rep.get("hot_untracked_at_risk") else 0
+    if risk_n:
+        leases = rep.get("live_leases") or 0
+        lease_noun = "lease" if leases == 1 else "leases"
+        lease_verb = "is" if leases == 1 else "are"
+        bits.append(
+            f"{risk_n} untracked file{'s' if risk_n != 1 else ''} at risk "
+            f"while {leases} live {lease_noun} {lease_verb} present"
+        )
     held = len(rep["lease_held"])
     tail = f" ({held} more held by a live loop — left for it)" if held else ""
-    action = "commit the lane or run /release" if n else "git push origin master (or /release)"
+    action = (
+        "commit within minutes or use a detached git worktree off origin/master"
+        if risk_n else
+        ("commit the lane or run /release" if n else "git push origin master (or /release)")
+    )
     return f"DOS git-hygiene: {', '.join(bits)}{tail} — {action}."
 
 
