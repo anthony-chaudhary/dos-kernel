@@ -25,6 +25,7 @@ hermetically on any machine.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import importlib.util
 import os
 import stat
@@ -103,10 +104,11 @@ def test_platform_map_matches_build_matrix():
         assert hb.bundled_binary_name().endswith(".exe") == expected.endswith(".exe")
 
 
-def test_bundled_name_is_arch_free():
-    """The wheel binary is `dos-hook[.exe]` — NOT the matrix `dos-hook-<os>-<arch>`."""
+def test_bundled_name_matches_platform_wheel_contract():
+    """The wheel binary is arch-free and uses this platform's real executable name."""
     name = hb.bundled_binary_name()
-    assert name in ("dos-hook", "dos-hook.exe")
+    expected = "dos-hook.exe" if os.name == "nt" else "dos-hook"
+    assert name == expected
 
 
 # ─────────────────────────── try_native_hook ───────────────────────────
@@ -196,8 +198,6 @@ def test_argv_tolerates_missing_attrs():
 
 # ─────────────────────────── helpers ───────────────────────────
 
-import contextlib
-
 
 @contextlib.contextmanager
 def _real_std_streams(monkeypatch, tmp_path: Path):
@@ -234,9 +234,11 @@ def _install_fake_binary(monkeypatch, tmp_path: Path, *, exit_code: int) -> Path
     toolchain. We patch only `_BIN_DIR` + `bundled_binary_name` (never subprocess), so
     `try_native_hook` exercises the real launch path.
 
-    On Windows a `.cmd` is directly runnable by `subprocess.run([path, ...])`; on POSIX
-    a `#!/bin/sh` script with the executable bit is. The locator's executable-bit check
-    is meaningful on POSIX only (an .exe/.cmd runs by extension on Windows).
+    On Windows the real wheel artifact is still `dos-hook.exe` (pinned above). The
+    helper uses a `.cmd` only as a tiny direct-launch test double, avoiding a Go/PE
+    build requirement while still exercising the real subprocess path. On POSIX a
+    `#!/bin/sh` script with the executable bit is enough. The locator's executable-bit
+    check is meaningful on POSIX only (an .exe/.cmd runs by extension on Windows).
 
     Clears the `DOS_HOOK_NATIVE` opt-out: these are the binary-PRESENT scenarios, so the
     native path must be ENABLED for the stub to be found. A box that exports the opt-out
@@ -254,6 +256,8 @@ def _install_fake_binary(monkeypatch, tmp_path: Path, *, exit_code: int) -> Path
         # @echo off + drain stdin via `more` is fiddly; a bare `exit /b N` returns the
         # code, and cmd.exe does not require stdin to be drained for the test's purpose.
         path.write_text(f"@echo off\r\nexit /b {exit_code}\r\n", encoding="utf-8")
+        # Point the locator at the launchable test double; production Windows wheels
+        # keep using `dos-hook.exe`, as asserted by the platform-name test above.
         monkeypatch.setattr(hb, "bundled_binary_name", lambda: name)
         return path
     # POSIX: a tiny shell script that drains stdin and exits N.
