@@ -42,6 +42,16 @@ the work" is the default reflex, not an afterthought.
 > reports any stash entries and points the operator to a throwaway worktree or
 > copy-aside instead of pop/drop in the shared tree.
 
+> **Stage-aware (issue #207).** A narrow pathspec is still file-scoped: `git add
+> path` stages every hunk in that file, including a sibling's pre-existing
+> worktree edits. For shared tracked files, capture a session-start snapshot and
+> check the staged hunks against it before committing:
+> `python scripts/git_hygiene.py --write-stage-snapshot .git/dos-stage-snapshot
+> path` before editing, then `python scripts/git_hygiene.py
+> --check-stage-snapshot .git/dos-stage-snapshot path` after staging. The check
+> compares `HEAD -> index` hunks with `snapshot -> worktree` hunks and exits 1 if
+> the index contains hunks that were not authored after the snapshot.
+
 This is dev / workflow tooling — it operates ON the package (reads its journal via
 the public `dos` API) but is never imported BY it (the `dos.*` modules import
 nothing under `scripts/`). Degradation is total: any failure folding the journal
@@ -56,11 +66,15 @@ Usage::
     python scripts/git_hygiene.py --workspace .            # one-line stderr nudge, exit 0
     python scripts/git_hygiene.py --workspace . --json      # machine-readable report
     python scripts/git_hygiene.py --workspace . --strict     # exit 1 if stranded work (loops only)
+    python scripts/git_hygiene.py --workspace . --write-stage-snapshot .git/dos-stage-snapshot path...
+    python scripts/git_hygiene.py --workspace . --check-stage-snapshot .git/dos-stage-snapshot path...
 """
 
 from __future__ import annotations
 
 import argparse
+import collections
+import difflib
 import json
 import os
 import subprocess
@@ -112,6 +126,169 @@ def _git(args: list[str], *, root: Path) -> tuple[int, str]:
         return proc.returncode, proc.stdout
     except (FileNotFoundError, OSError):
         return 127, ""
+
+
+def _repo_rel(root: Path, path: str) -> str:
+    """Normalize `path` to a POSIX repo-relative path under `root`."""
+    raw = Path(path).expanduser()
+    candidate = raw if raw.is_absolute() else root / raw
+    try:
+        rel = candidate.resolve().relative_to(root.resolve())
+    except ValueError as exc:
+        raise ValueError(f"path is outside workspace: {path}") from exc
+    return rel.as_posix()
+
+
+def _snapshot_root(root: Path, snapshot_dir: str) -> Path:
+    """Resolve the stage-snapshot directory without requiring it to exist yet."""
+    raw = Path(snapshot_dir).expanduser()
+    return (raw if raw.is_absolute() else root / raw).resolve()
+
+
+def _read_lines_lossy(path: Path) -> list[str]:
+    """Read a text file into newline-preserving lines; missing files are empty."""
+    if not path.exists():
+        return []
+    data = path.read_bytes()
+    return data.decode("utf-8", errors="surrogateescape").splitlines(keepends=True)
+
+
+def _git_blob_lines(root: Path, spec: str) -> list[str]:
+    """Read a git blob (`HEAD:path` or `:path`) as newline-preserving lines."""
+    code, out = _git(["show", spec], root=root)
+    if code != 0:
+        return []
+    return out.splitlines(keepends=True)
+
+
+def _hunk_signatures(
+    old_lines: list[str], new_lines: list[str]
+) -> list[tuple[tuple[str, ...], tuple[str, ...]]]:
+    """Return content signatures for hunks between two line lists.
+
+    The signature intentionally ignores line numbers: a sibling's pre-existing
+    hunk can shift later line numbers, but the current session's changed content
+    should still match between `snapshot -> worktree` and `HEAD -> index`.
+    """
+    matcher = difflib.SequenceMatcher(a=old_lines, b=new_lines, autojunk=False)
+    signatures: list[tuple[tuple[str, ...], tuple[str, ...]]] = []
+    for group in matcher.get_grouped_opcodes(0):
+        removed: list[str] = []
+        added: list[str] = []
+        for tag, i1, i2, j1, j2 in group:
+            if tag in {"replace", "delete"}:
+                removed.extend(line.rstrip("\r\n") for line in old_lines[i1:i2])
+            if tag in {"replace", "insert"}:
+                added.extend(line.rstrip("\r\n") for line in new_lines[j1:j2])
+        if removed or added:
+            signatures.append((tuple(removed), tuple(added)))
+    return signatures
+
+
+def write_stage_snapshot(root: Path, snapshot_dir: str, paths: list[str]) -> dict:
+    """Copy the current worktree bytes for `paths` into a session snapshot dir."""
+    if not paths:
+        raise ValueError("--write-stage-snapshot requires at least one path")
+    snap_root = _snapshot_root(root, snapshot_dir)
+    snap_root.mkdir(parents=True, exist_ok=True)
+    captured: list[str] = []
+    missing: list[str] = []
+    for raw in paths:
+        rel = _repo_rel(root, raw)
+        src = root / rel
+        dst = snap_root / rel
+        if src.is_file():
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_bytes(src.read_bytes())
+            captured.append(rel)
+        else:
+            missing.append(rel)
+    manifest = {
+        "schema": 1,
+        "workspace": str(root),
+        "snapshot": str(snap_root),
+        "captured": sorted(captured),
+        "missing": sorted(missing),
+    }
+    (snap_root / "_manifest.json").write_text(
+        json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+    )
+    return manifest
+
+
+def _staged_paths(root: Path) -> list[str]:
+    """Return staged paths when the caller omits an explicit path list."""
+    code, out = _git(["diff", "--cached", "--name-only"], root=root)
+    if code != 0:
+        return []
+    return [line.strip() for line in out.splitlines() if line.strip()]
+
+
+def check_stage_snapshot(root: Path, snapshot_dir: str, paths: list[str]) -> dict:
+    """Compare staged hunks against hunks authored since a session snapshot."""
+    snap_root = _snapshot_root(root, snapshot_dir)
+    rels = [_repo_rel(root, p) for p in paths] if paths else _staged_paths(root)
+    unsafe: list[dict] = []
+    ok: list[str] = []
+    missing_snapshot: list[str] = []
+    for rel in rels:
+        snap = snap_root / rel
+        if not snap.exists():
+            missing_snapshot.append(rel)
+            continue
+        staged = _hunk_signatures(
+            _git_blob_lines(root, f"HEAD:{rel}"),
+            _git_blob_lines(root, f":{rel}"),
+        )
+        session = _hunk_signatures(_read_lines_lossy(snap), _read_lines_lossy(root / rel))
+        allowed = collections.Counter(session)
+        unexpected = []
+        for sig in staged:
+            if allowed[sig]:
+                allowed[sig] -= 1
+            else:
+                unexpected.append(sig)
+        if unexpected:
+            unsafe.append(
+                {
+                    "path": rel,
+                    "unexpected_hunks": len(unexpected),
+                    "staged_hunks": len(staged),
+                    "session_hunks": len(session),
+                }
+            )
+        else:
+            ok.append(rel)
+    return {
+        "workspace": str(root),
+        "snapshot": str(snap_root),
+        "checked": sorted(rels),
+        "ok": sorted(ok),
+        "unsafe": unsafe,
+        "missing_snapshot": sorted(missing_snapshot),
+        "clean": not unsafe and not missing_snapshot,
+    }
+
+
+def render_stage_check(rep: dict) -> str:
+    """Human line for the stage-snapshot guard."""
+    if rep["clean"]:
+        n = len(rep.get("checked") or [])
+        return f"DOS safe-stage: staged hunks match the session snapshot for {n} file{'s' if n != 1 else ''}."
+    bits: list[str] = []
+    for item in rep.get("unsafe") or []:
+        bits.append(
+            f"{item['path']} has {item['unexpected_hunks']} staged hunk"
+            f"{'s' if item['unexpected_hunks'] != 1 else ''} absent from the session snapshot"
+        )
+    missing = rep.get("missing_snapshot") or []
+    if missing:
+        bits.append(f"{len(missing)} file{'s' if len(missing) != 1 else ''} missing from the snapshot")
+    return (
+        "DOS safe-stage: "
+        + "; ".join(bits)
+        + " — abort the commit, unstage the file, and stage only your session hunks."
+    )
 
 
 def porcelain_status(root: Path) -> list[tuple[str, str]]:
@@ -395,6 +572,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     p.add_argument("--workspace", default=".", help="workspace root (default: cwd / git top-level)")
     p.add_argument("--json", action="store_true", help="emit the full report as JSON")
+    p.add_argument("paths", nargs="*", help="repo paths for the stage-snapshot modes")
+    p.add_argument(
+        "--write-stage-snapshot",
+        metavar="DIR",
+        help="copy current worktree bytes for paths into DIR, before editing",
+    )
+    p.add_argument(
+        "--check-stage-snapshot",
+        metavar="DIR",
+        help="fail if staged hunks are absent from DIR's session-start snapshots",
+    )
     p.add_argument(
         "--strict", action="store_true",
         help="exit 1 when stranded work, stash entries, or unpushed commits exist "
@@ -407,10 +595,40 @@ def main(argv: list[str] | None = None) -> int:
     try:
         args = p.parse_args(argv)
         root = repo_root(args.workspace)
+        if args.write_stage_snapshot and args.check_stage_snapshot:
+            p.error("--write-stage-snapshot and --check-stage-snapshot are exclusive")
+        if args.paths and not (args.write_stage_snapshot or args.check_stage_snapshot):
+            p.error("paths are only valid with the stage-snapshot modes")
+        if args.write_stage_snapshot:
+            rep = write_stage_snapshot(root, args.write_stage_snapshot, args.paths)
+            if args.json:
+                sys.stdout.write(json.dumps(rep, indent=2) + "\n")
+            else:
+                sys.stdout.write(
+                    "DOS safe-stage: captured "
+                    f"{len(rep['captured'])} file{'s' if len(rep['captured']) != 1 else ''} "
+                    f"in {rep['snapshot']}.\n"
+                )
+            return 1 if rep["missing"] else 0
+        if args.check_stage_snapshot:
+            rep = check_stage_snapshot(root, args.check_stage_snapshot, args.paths)
+            if args.json:
+                sys.stdout.write(json.dumps(rep, indent=2) + "\n")
+            else:
+                line = render_stage_check(rep)
+                stream = sys.stdout if rep["clean"] else sys.stderr
+                stream.write(line + "\n")
+            return 0 if rep["clean"] else 1
         rep = build_report(root)
     except SystemExit:
         raise  # argparse --help / bad-flag: let it through
     except Exception as exc:  # pragma: no cover - defensive belt
+        if "args" in locals() and (
+            getattr(args, "write_stage_snapshot", None)
+            or getattr(args, "check_stage_snapshot", None)
+        ):
+            sys.stderr.write(f"git-hygiene: stage-snapshot failed ({type(exc).__name__}: {exc})\n")
+            return 2
         sys.stderr.write(f"git-hygiene: skipped ({type(exc).__name__})\n")
         return 0
 

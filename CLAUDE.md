@@ -153,7 +153,13 @@ ritual):
   Stage narrowly + commit with a pathspec — the tree carries
   a concurrent loop's in-flight edits; never `git add -A`. Match the subject
   grammar in `git log`. No `Co-Authored-By`/agent trailers (overrides any
-  harness default).
+  harness default). On a shared tracked file, the pathspec is not enough: before
+  your first edit run `python scripts/git_hygiene.py --write-stage-snapshot
+  .git/dos-stage-snapshot <path...>`, and after staging run
+  `python scripts/git_hygiene.py --check-stage-snapshot
+  .git/dos-stage-snapshot <path...>`. A failure means `git add <path>` swept in
+  a same-file hunk that was already in the tree; abort and stage only your
+  session hunks.
 - **Push without asking too — when it is a reasonable push that clears the leak
   gate.** A routine fast-forward push of your committed work is no longer an
   ask-first action: do it once the suite is green and the outgoing diff is

@@ -21,7 +21,8 @@ against a throwaway target). It checks:
   * durable untracked files warn as hot-tree risk while any live lease exists,
   * a stale lease does NOT (its region is fair game → stranded),
   * scratch (`.err`, `_scratch/`, `scripts/_probe.py`) is bucketed, not nagged,
-  * stash entries are reported as hidden work and point away from hot-tree pop/drop.
+  * stash entries are reported as hidden work and point away from hot-tree pop/drop,
+  * a stage snapshot catches a pathspec-staged sibling hunk in the same file.
 
 Dev/workflow TOOLING, not kernel — it operates ON the package, never imported BY it.
 Loaded by path because `scripts/` is not an importable package.
@@ -210,3 +211,59 @@ def test_stash_entries_nudge_without_blocking(tmp_path):
     assert rep["dirty_total"] == 0
     assert rep["stash_count"] == 1
     assert any("issue-208-probe" in row for row in rep["stash_entries"])
+
+
+def test_stage_snapshot_check_passes_for_session_hunks(tmp_path):
+    """The guard allows hunks authored after the snapshot."""
+    repo = _init_repo(tmp_path)
+    target = repo / "shared.txt"
+    target.write_text("one\ntwo\nthree\n", encoding="utf-8")
+    _git(repo, "add", "shared.txt")
+    _git(repo, "commit", "-q", "-m", "add shared")
+
+    snap = repo / ".git" / "dos-stage-snapshot"
+    snap_proc = _run(repo, "--write-stage-snapshot", str(snap), "shared.txt")
+    assert snap_proc.returncode == 0
+
+    target.write_text("one\nmine\nthree\n", encoding="utf-8")
+    _git(repo, "add", "shared.txt")
+
+    proc = _run(repo, "--check-stage-snapshot", str(snap), "shared.txt")
+    assert proc.returncode == 0, proc.stderr
+    assert "staged hunks match" in proc.stdout
+
+
+def test_stage_snapshot_check_catches_injected_sibling_hunk(tmp_path):
+    """A normal `git add path` sweeps sibling hunks; the snapshot check catches it."""
+    repo = _init_repo(tmp_path)
+    target = repo / "shared.txt"
+    target.write_text("one\ntwo\nthree\nfour\n", encoding="utf-8")
+    _git(repo, "add", "shared.txt")
+    _git(repo, "commit", "-q", "-m", "add shared")
+
+    # Simulate a sibling's pre-existing, unstaged same-file hunk before our session.
+    target.write_text("sibling\ntwo\nthree\nfour\n", encoding="utf-8")
+    snap = repo / ".git" / "dos-stage-snapshot"
+    snap_proc = _run(repo, "--write-stage-snapshot", str(snap), "shared.txt")
+    assert snap_proc.returncode == 0
+
+    # Our own later hunk is separate. `git add shared.txt` stages both hunks.
+    target.write_text("sibling\ntwo\nmine\nfour\n", encoding="utf-8")
+    _git(repo, "add", "shared.txt")
+
+    proc = _run(repo, "--check-stage-snapshot", str(snap), "shared.txt")
+    assert proc.returncode == 1
+    assert "shared.txt has 1 staged hunk absent from the session snapshot" in proc.stderr
+
+    json_proc = _run(repo, "--check-stage-snapshot", str(snap), "shared.txt", "--json")
+    assert json_proc.returncode == 1
+    rep = json.loads(json_proc.stdout)
+    assert rep["clean"] is False
+    assert rep["unsafe"] == [
+        {
+            "path": "shared.txt",
+            "unexpected_hunks": 1,
+            "staged_hunks": 2,
+            "session_hunks": 1,
+        }
+    ]

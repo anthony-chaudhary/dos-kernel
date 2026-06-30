@@ -188,7 +188,13 @@ the preference is to land promptly, not defer. A few specifics:
 - **Commit only the lane you worked.** Stage the specific files you touched
   (`git add src/dos/… docs/…`); never a blanket `git add -A`. The working tree here
   is often shared with another agent's in-flight edits — sweeping them into your
-  commit is the exact `SELF_MODIFY` / disjoint-lane hazard the kernel refuses.
+  commit is the exact `SELF_MODIFY` / disjoint-lane hazard the kernel refuses. A
+  pathspec is still file-scoped, not hunk-scoped: before editing a tracked file
+  that may already carry sibling hunks, snapshot it with `python
+  scripts/git_hygiene.py --write-stage-snapshot .git/dos-stage-snapshot <path...>`;
+  after staging, run `python scripts/git_hygiene.py --check-stage-snapshot
+  .git/dos-stage-snapshot <path...>`. If it fails, do not commit that index;
+  re-stage only your session hunks.
 - **On a hot fleet, do not hold meaningful uncommitted work in the shared main
   tree.** A sibling tree move (`git reset`, `git checkout`, rebase, or branch
   switch) can delete your untracked, never-staged files outright; because they

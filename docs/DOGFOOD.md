@@ -140,6 +140,28 @@ commit with a pathspec. Match the existing commit-subject grammar (see
 the default here is no agent co-authors on commits, overriding any harness
 default.
 
+One more #205 symptom sits inside that pathspec rule: a pathspec deconflicts
+files, not hunks. If a sibling already has an unstaged hunk in the same tracked
+file you touched, `git add path` stages both hunks and your commit ships their
+work under your subject. On a shared tracked file, take a session-start snapshot
+before your first edit:
+
+```bash
+python scripts/git_hygiene.py --write-stage-snapshot .git/dos-stage-snapshot path/to/file
+```
+
+After staging, run the guard before committing:
+
+```bash
+python scripts/git_hygiene.py --check-stage-snapshot .git/dos-stage-snapshot path/to/file
+```
+
+The guard compares `HEAD -> index` hunks with `snapshot -> worktree` hunks. If
+it reports a staged hunk absent from the snapshot diff, abort that commit and
+stage only your session hunks. This extends the same hot-tree discipline as the
+untracked-file and stash warnings above; it is not a substitute for a private
+worktree when the file is actively contended.
+
 ## Out-of-scope findings — file an issue (full form)
 
 Do not absorb out-of-scope findings into the current commit, and do not let
