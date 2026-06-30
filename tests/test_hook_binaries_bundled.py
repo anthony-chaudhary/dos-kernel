@@ -31,10 +31,13 @@ checks a distribution surface, nothing under `src/dos/` imports the binaries.
 from __future__ import annotations
 
 import importlib.util
+import os
+import shutil
 import subprocess
 from pathlib import Path
 
 import dos
+import pytest
 
 _REPO_ROOT = Path(dos.__file__).resolve().parents[2]
 _BUILD_PY = _REPO_ROOT / "scripts" / "build_hook_binary.py"
@@ -56,6 +59,21 @@ def _tracked_files(rel_dir: str) -> set[str]:
         cwd=str(_REPO_ROOT), capture_output=True, text=True, check=True,
     )
     return {line.strip() for line in out.stdout.splitlines() if line.strip()}
+
+
+def _tracked_modes(rel_dir: str) -> dict[str, str]:
+    """Git index modes for tracked paths under rel_dir."""
+    out = subprocess.run(
+        ["git", "ls-files", "--stage", rel_dir],
+        cwd=str(_REPO_ROOT), capture_output=True, text=True, check=True,
+    )
+    modes: dict[str, str] = {}
+    for line in out.stdout.splitlines():
+        if not line.strip():
+            continue
+        mode, _, _, path = line.split(maxsplit=3)
+        modes[path] = mode
+    return modes
 
 
 def _expected_binary_names() -> list[str]:
@@ -95,6 +113,60 @@ def test_launchers_are_tracked():
     tracked = _tracked_files("claude-plugin/bin")
     for launcher in ("claude-plugin/bin/dos-hook", "claude-plugin/bin/dos-hook.ps1"):
         assert launcher in tracked, f"launcher not tracked in git: {launcher}"
+
+
+def test_posix_launchers_and_binaries_are_executable_in_git():
+    """Fresh plugin clones must preserve +x for the POSIX launcher and binaries."""
+    modes = _tracked_modes("claude-plugin/bin")
+    expected = {"claude-plugin/bin/dos-hook"}
+    expected.update(
+        f"claude-plugin/bin/{name}"
+        for name in _expected_binary_names()
+        if not name.endswith(".exe")
+    )
+    not_executable = [
+        path for path in sorted(expected)
+        if modes.get(path) != "100755"
+    ]
+    assert not not_executable, (
+        "POSIX plugin hook launchers/binaries must be tracked with mode 100755 "
+        "so a marketplace clone ships executable hooks: " + ", ".join(not_executable)
+    )
+
+
+def test_posix_launcher_uses_lf_line_endings():
+    """`sh` rejects CRLF in the launcher on POSIX plugin installs."""
+    data = (_BIN_DIR / "dos-hook").read_bytes()
+    assert b"\r\n" not in data, "claude-plugin/bin/dos-hook must use LF line endings"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX execute-bit repair is not meaningful on Windows")
+def test_posix_launcher_repairs_stripped_native_execute_bit(tmp_path):
+    """The launcher self-heals an installer that preserves bytes but strips +x."""
+    if shutil.which("sh") is None:
+        pytest.skip("sh not available")
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    launcher = bin_dir / "dos-hook"
+    shutil.copy2(_BIN_DIR / "dos-hook", launcher)
+
+    goos, goarch = build_hook_binary._host_arch().split("/", 1)
+    if goos == "windows":
+        pytest.skip("host arch maps to Windows")
+    native = bin_dir / build_hook_binary._binary_name(goos, goarch)
+    native.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    native.chmod(0o644)
+
+    proc = subprocess.run(
+        ["sh", str(launcher), "pretool", "--workspace", "."],
+        cwd=tmp_path,
+        input="{}",
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert os.access(native, os.X_OK), "launcher did not chmod the stripped native binary"
 
 
 def test_gitignore_does_not_ignore_the_binaries():

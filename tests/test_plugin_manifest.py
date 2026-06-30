@@ -249,8 +249,9 @@ def test_hook_commands_are_cold_safe_for_codex_plugin_shell(tmp_path):
     assert all_cmds
     session_cmd = _hook_commands(hooks, "SessionStart")[0]
     assert "CODEX_PLUGIN_ROOT" in session_cmd
+    assert 'command -p sh "$root/bin/dos-hook"' in session_cmd
     assert "powershell.exe" in session_cmd
-    assert session_cmd.endswith("|| true")
+    assert "no DOS hook backend could run" in session_cmd
 
     if os.name == "nt":
         pytest.skip("the executable empty-PATH check is POSIX-bash only")
@@ -276,6 +277,58 @@ def test_hook_commands_are_cold_safe_for_codex_plugin_shell(tmp_path):
         assert proc.returncode == 0, f"hook command is not fail-safe: {cmd}\n{proc.stderr}"
         assert proc.stdout == ""
         assert proc.stderr == ""
+
+
+def test_hook_commands_warn_when_plugin_root_backend_is_dead(tmp_path):
+    """If the plugin is present but no backend can run, do not silently `|| true`.
+
+    The warning is gated on a plugin root so a cold repo without a plugin stays quiet,
+    but an installed plugin whose native/Python backends are dead tells the operator
+    that live enforcement is fail-open.
+    """
+    import os
+    import pytest
+
+    if os.name == "nt":
+        pytest.skip("the fail-loud shell probe is POSIX-bash only")
+    bash = shutil.which("bash")
+    if not bash:
+        pytest.skip("bash not available")
+
+    fake_root = tmp_path / "plugin"
+    fake_bin = fake_root / "bin"
+    fake_bin.mkdir(parents=True)
+    shutil.copy2(PLUGIN_DIR / "bin" / "dos-hook", fake_bin / "dos-hook")
+
+    cmd = _hook_commands(_load(PLUGIN_HOOKS), "PreToolUse")[0]
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    for name in ("dirname", "uname", "chmod"):
+        src = shutil.which(name)
+        if not src:
+            pytest.skip(f"{name} not available")
+        try:
+            os.symlink(src, tools / name)
+        except (AttributeError, OSError):
+            shutil.copy2(src, tools / name)
+
+    env = {
+        "PATH": str(tools),
+        "HOME": str(tmp_path),
+        "CLAUDE_PLUGIN_ROOT": str(fake_root),
+        "CODEX_PLUGIN_ROOT": "",
+    }
+    proc = subprocess.run(
+        [bash, "-lc", cmd],
+        cwd=tmp_path,
+        input="{}",
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert proc.returncode == 0
+    assert proc.stdout == ""
+    assert "no DOS hook backend could run" in proc.stderr
 
 
 def test_hook_verbs_are_real_cli_subcommands():
