@@ -38,8 +38,8 @@ The tier:
   AV6 (pins D8) — running the suite modifies no tracked file. The enforcement is
         the session-scoped autouse guard in `tests/conftest.py`
         (`_suite_is_effect_free_on_tracked_files`), so it arms EVERY pytest
-        session; the tests here pin the pure delta classifier and that the
-        guard is actually registered and armed.
+        session; the tests here pin the pure delta + self-write attribution
+        classifiers and that the guard is actually registered and armed.
 
 D4 and D7 already have their own pinning tests (the hermes bash-resolution skip
 probe; `test_vendor_agnostic_kernel.py`) and are deliberately not duplicated.
@@ -521,22 +521,73 @@ def test_av5_documented_suite_size_is_in_band(collected_suite_size):
 # AV6 / D8 — the suite is effect-free on tracked files. The ENFORCEMENT is the
 # session-scoped autouse guard in tests/conftest.py (it must arm every
 # session, including ones that never collect this module); here we pin the
-# pure classifier and that the guard is actually registered.
+# pure classifiers and that the guard is actually registered.
 # ---------------------------------------------------------------------------
 
 
-def test_av6_delta_classifier_excludes_untracked_and_preexisting_dirt():
+def test_av6_write_tracker_only_marks_write_mode_repo_paths(tmp_path):
+    assert (
+        suite_conftest._repo_path_opened_for_write(REPO_ROOT / "AGENTS.md", "a")
+        == "AGENTS.md"
+    )
+    assert (
+        suite_conftest._repo_path_opened_for_write(REPO_ROOT / "AGENTS.md", "r+")
+        == "AGENTS.md"
+    )
+    assert (
+        suite_conftest._repo_path_opened_for_write(REPO_ROOT / "AGENTS.md", "r")
+        is None
+    )
+    assert (
+        suite_conftest._repo_path_opened_for_write(tmp_path / "outside.txt", "w")
+        is None
+    )
+    assert suite_conftest._repo_path_opened_for_write(12, "w") is None
+
+
+def test_av6_delta_classifier_excludes_untracked_preexisting_and_sibling_dirt():
     before = suite_conftest._modified_tracked_paths(
         " M src/dos/cli.py\n?? notes.txt\n"
     )
     after = suite_conftest._modified_tracked_paths(
         " M src/dos/cli.py\n"  # pre-existing hot-tree dirt — not the suite's doing
         " M go/internal/hook/parity/corpus.jsonl\n"  # the D8 shape: a regen rewrote a corpus
+        " M docs/untouched-by-this-session.md\n"  # sibling dirt — not this session
         "?? more-notes.txt\n"  # untracked scratch — out of AV6 scope
         "!! .venv\n"  # ignored — out of AV6 scope
     )
-    assert sorted(after - before) == ["go/internal/hook/parity/corpus.jsonl"]
+    new = suite_conftest._new_tracked_paths_written_by_session(
+        before,
+        after,
+        {"go/internal/hook/parity/corpus.jsonl"},
+    )
+    assert new == ["go/internal/hook/parity/corpus.jsonl"]
     assert suite_conftest._modified_tracked_paths("") == frozenset()
+
+
+def test_av6_delta_classifier_ignores_untouched_concurrent_edit():
+    before = frozenset()
+    after = frozenset({"docs/untouched-by-this-session.md"})
+
+    assert (
+        suite_conftest._new_tracked_paths_written_by_session(
+            before,
+            after,
+            written_by_session=frozenset(),
+        )
+        == []
+    )
+
+
+def test_av6_delta_classifier_flags_session_written_tracked_file():
+    before = frozenset()
+    after = frozenset({"LICENSE"})
+
+    assert suite_conftest._new_tracked_paths_written_by_session(
+        before,
+        after,
+        written_by_session={"LICENSE"},
+    ) == ["LICENSE"]
 
 
 def test_av6_session_guard_is_armed_for_every_session():
