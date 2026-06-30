@@ -1695,20 +1695,21 @@ def cmd_review(args: argparse.Namespace) -> int:
     root = str(_config.active().paths.root)
     target = args.rev_range
     # An unreadable range is a contract error, distinct from an empty-but-valid
-    # one. `build_plan` calls `audit_range`, which returns [] for both; probe the
+    # one. `audit_range` returns [] for both; probe the
     # range's right side with a cheap rev-parse to tell them apart.
     if not _review_range_readable(target, root):
         print(f"review: cannot read range '{target}' in {root} "
               f"(not a git repo, or bad range)", file=sys.stderr)
         return _REVIEW_EXIT_CODES["contract_error"]
 
-    plan = _rr.build_plan(target, root=root)
+    plan = _review_build_plan(target, root)
 
     if getattr(args, "json", False):
         import json as _json
         print(_json.dumps(_rr.plan_to_dict(plan), indent=2))
     elif getattr(args, "walk", False):
-        print(_rr.render_walk(plan, root=root))
+        print(_rr.render_walk(plan, diffstats=_review_diffstats(
+            [it.sha for it in plan.residual], root)))
     else:
         print(_rr.render_text(plan))
 
@@ -1716,10 +1717,61 @@ def cmd_review(args: argparse.Namespace) -> int:
             else _REVIEW_EXIT_CODES["clean"])
 
 
+def _review_build_plan(target: str, root: str):
+    """Boundary read for `dos review`: audit commits, label subjects, project.
+
+    The projection itself lives in `dos.residual_review.plan_review` and is pure.
+    This CLI helper is where VCS evidence is gathered: commit-audit verdicts plus
+    subject labels for rendering. It recomputes no rung.
+    """
+    from dos import commit_audit as _ca
+    from dos import residual_review as _rr
+
+    verdicts = _ca.audit_range(target, root=root)
+    subjects = _review_subjects(target, root)
+    return _rr.plan_review(verdicts, target, subjects=subjects)
+
+
+def _review_subjects(rev_range: str, root: str, limit: int = 500) -> dict[str, str]:
+    """sha -> subject labels for `dos review`, gathered at the CLI boundary."""
+    from dos.vcs import active_vcs
+
+    lines = active_vcs(root=root).log_lines(
+        (f"-{int(limit)}", "--pretty=format:%H\x1f%s", rev_range))
+    if not lines:
+        return {}
+    out: dict[str, str] = {}
+    for line in lines:
+        if "\x1f" in line:
+            sha, subj = line.split("\x1f", 1)
+            out[sha.strip()] = subj
+    return out
+
+
+def _review_diffstats(shas: list[str], root: str) -> dict[str, str]:
+    """sha -> rendered per-file numstat for residual review cards."""
+    from dos.vcs import active_vcs
+
+    backend = active_vcs(root=root)
+    out: dict[str, str] = {}
+    for sha in shas:
+        deltas = backend.commit_diffstat(sha)
+        if not deltas:
+            continue
+        rows: list[str] = []
+        for d in deltas:
+            if d.added < 0 or d.removed < 0:
+                rows.append(f"{d.path} | bin")
+            else:
+                rows.append(f"{d.path} | +{d.added} -{d.removed}")
+        out[sha] = "\n".join(rows)
+    return out
+
+
 def _review_range_readable(target: str, root: str) -> bool:
     """True iff `target` is a readable git range/ref in `root`.
 
-    `build_plan`/`audit_range` return [] for both an empty-but-valid range and an
+    `audit_range` returns [] for both an empty-but-valid range and an
     unreadable one; `review` must distinguish them so a bad range is a contract
     error (exit 2), not a falsely-clean exit 0. `git rev-list` over the WHOLE
     range is the right probe — it fails (non-zero) on EITHER side being unknown,

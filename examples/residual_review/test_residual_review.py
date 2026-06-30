@@ -41,7 +41,6 @@ from dos.commit_audit import (  # noqa: E402
     audit_range,
 )
 from residual_review import (  # noqa: E402
-    ReviewPlan,
     build_plan,
     plan_review,
     render_walk,

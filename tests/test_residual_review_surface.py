@@ -1,4 +1,4 @@
-"""Pin the SHIPPED residual-review surface — kernel module + `dos review` verb + MCP.
+"""Pin the SHIPPED residual-review surface — kernel module, `dos review`, and MCP.
 
 Issue #211 promoted the `examples/residual_review/` experiment to a first-class
 kernel module (`dos.residual_review`), a `dos review` CLI verb, and a `dos_review`
@@ -187,14 +187,18 @@ def test_module_imports_no_host_or_vendor():
 
 
 def test_module_imports_only_kernel_and_stdlib():
-    """The only non-stdlib import is `dos.commit_audit` + the `dos.vcs` read seam (kernel siblings) — the
-    surface stands on the SHIPPED verdict and recomputes no rung."""
+    """The only non-stdlib import is `dos.commit_audit`.
+
+    The VCS reads for ranges, subjects, and review-card diffstats live at the
+    CLI/MCP/example boundaries. The kernel surface stands on the SHIPPED verdict
+    and recomputes no rung.
+    """
     src = inspect.getsource(rr)
     tree = ast.parse(src)
     modules = {n.module for n in ast.walk(tree)
                if isinstance(n, ast.ImportFrom) and n.module}
     non_stdlib = {m for m in modules if m.startswith("dos")}
-    assert non_stdlib == {"dos.commit_audit", "dos.vcs"}, non_stdlib
+    assert non_stdlib == {"dos.commit_audit"}, non_stdlib
 
 
 # --- 4. zero new trust: a pure re-projection of the shipped verdict -----------
@@ -221,7 +225,7 @@ def test_projection_equals_the_shipped_verdict():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     rng = "HEAD~30..HEAD"
     verdicts = audit_range(rng, root=root)
-    plan = rr.build_plan(rng, root=root)
+    plan = rr.plan_review(verdicts, rng)
 
     cleared = {v.sha for v in verdicts
                if v.verdict is Verdict.OK
