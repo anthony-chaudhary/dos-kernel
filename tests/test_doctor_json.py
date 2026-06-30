@@ -165,6 +165,8 @@ def test_doctor_json_check_clean_exits_zero(tmp_path: Path):
         "[lanes]\nconcurrent=['api']\nexclusive=['infra']\nautopick=['api']\n"
         "[lanes.trees]\napi=['src/api/**']\ninfra=['deploy/**']\n",
     )
+    (tmp_path / "src/api").mkdir(parents=True)
+    (tmp_path / "deploy").mkdir()
     proc = _cli(tmp_path, "doctor", "--json", "--check")
     assert proc.returncode == 0, (proc.stdout, proc.stderr)
     report = json.loads(proc.stdout)

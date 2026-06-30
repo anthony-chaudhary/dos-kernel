@@ -9695,6 +9695,10 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             findings.append(_f.line())
             if _f.severity is not _cl.Severity.INFO:
                 gating = True
+        _dead_tree_findings = _dead_lane_tree_glob_findings(cfg)
+        findings.extend(_dead_tree_findings)
+        if _dead_tree_findings:
+            gating = True
         # State-file health rail: flag a bloated execution-state file (the gap
         # where doctor reported the path but never whether it was healthy).
         _state_findings = _state_health_findings(cfg)
@@ -10751,6 +10755,71 @@ def _overlap_policy_names() -> list[str]:
 
 # NOTE (docs/227): the lane-integrity rails that used to live here as in-CLI helpers
 #   (full prose: docs/CLI.md § "NOTE (docs/227): the lane-integrity rails that used to live")
+
+
+def _lane_tree_glob_has_match(root: Path, pattern: str) -> bool:
+    """True iff a workspace-relative lane glob has an on-disk match or anchor.
+
+    This is deliberately a doctor-layer read, not `config_lint`: the pure linter
+    can judge declaration shape, but only the CLI boundary may ask the filesystem
+    whether a declared tree is stale. The fallback anchor uses the same
+    pre-wildcard prefix that the arbiter compares: an empty existing directory is
+    not a dead lane root, but a stale leading path segment is.
+    """
+    pat = str(pattern).strip()
+    if not pat:
+        return False
+    rel = pat.replace("\\", "/")
+    try:
+        # Lane trees are workspace-relative and documented with "/" separators.
+        # Normalize backslashes so a Windows-authored dos.toml still probes the
+        # same relative tree through pathlib's glob engine.
+        next(root.glob(rel))
+        return True
+    except (OSError, StopIteration, ValueError):
+        pass
+    except NotImplementedError:
+        return Path(pat).exists()
+
+    from dos._tree import norm_tree_prefix as _norm_tree_prefix
+
+    prefix = _norm_tree_prefix(rel)
+    if not prefix:
+        return root.exists()
+    return (root / prefix).exists()
+
+
+def _dead_lane_tree_glob_findings(cfg: _config.SubstrateConfig) -> list[str]:
+    """Filesystem-backed lane-tree health rail for `dos doctor --check`.
+
+    The config linter already catches an absent tree declaration. This catches
+    the present-but-empty case from issue #229: a glob exists in `[lanes.trees]`,
+    but it has no matching path or on-disk pre-glob anchor under the workspace
+    root, making arbitration over that declared region potentially vacuous.
+    """
+    findings: list[str] = []
+    root = cfg.paths.root
+    for lane in sorted(cfg.lanes.trees):
+        globs = [str(p) for p in cfg.lanes.trees.get(lane, ()) if str(p).strip()]
+        if not globs:
+            continue
+        dead: list[str] = []
+        for pat in globs:
+            if not _lane_tree_glob_has_match(root, pat):
+                dead.append(pat)
+                findings.append(
+                    f"[error] LANE_TREE_GLOB_DEAD {lane!r}: "
+                    f"[lanes.trees].{lane} glob {pat!r} has no matching path "
+                    f"or pre-glob anchor under the workspace root - fix the "
+                    f"glob or remove it from the lane"
+                )
+        if dead and len(dead) == len(globs):
+            findings.append(
+                f"[error] LANE_TREE_ALL_GLOBS_DEAD {lane!r}: every declared "
+                f"[lanes.trees].{lane} glob is dead on disk; arbitration over "
+                f"this lane is vacuous - fix at least one glob or drop the lane"
+            )
+    return findings
 
 
 def _state_health_findings(cfg: _config.SubstrateConfig) -> list[str]:
@@ -15128,7 +15197,8 @@ def build_parser() -> argparse.ArgumentParser:
     pd.add_argument("--check", action="store_true",
                     help="run completeness checks (a declared [stamp] that matches "
                          "none of this repo's ship-shaped commits; a lane declared "
-                         "without a [lanes.trees] entry); exit 1 if any finding fires")
+                         "without a [lanes.trees] entry; a [lanes.trees] glob that "
+                         "matches no on-disk path); exit 1 if any finding fires")
     pd.add_argument("--wiring", action="store_true",
                     help="re-check that the DOS hooks are still installed in each "
                          "runtime's config (the provision --verify drift check, "

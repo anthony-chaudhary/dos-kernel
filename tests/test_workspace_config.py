@@ -29,7 +29,6 @@ workspace data — `LaneTaxonomy.from_table` builds a value and names no job lan
 
 from __future__ import annotations
 
-import dataclasses
 import json
 import subprocess
 import sys
@@ -39,7 +38,6 @@ from dos import config as _config
 from dos.config import (
     LaneTaxonomy,
     PathLayout,
-    WorkspaceFacts,
     default_config,
     gather_workspace_facts,
     job_config,
@@ -95,6 +93,12 @@ infra  = ["deploy/**", "terraform/**"]
 [lanes.aliases]
 svc = "api"
 """
+
+
+def _materialize_foreign_lanes(repo: Path) -> None:
+    """Create one on-disk path for every glob in `_FOREIGN_LANES`."""
+    for rel in ("src/api", "src/worker", "web", "deploy", "terraform"):
+        (repo / rel).mkdir(parents=True, exist_ok=True)
 
 
 # ===========================================================================
@@ -433,10 +437,33 @@ def test_doctor_check_flags_treeless_lane(tmp_path: Path):
 def test_doctor_check_clean_when_every_lane_has_a_tree(tmp_path: Path):
     """`--check` is quiet when every concurrent/autopick lane has a tree."""
     _write_toml(tmp_path, _FOREIGN_LANES)
+    _materialize_foreign_lanes(tmp_path)
     proc = _cli(tmp_path, "doctor", "--check")
     assert proc.returncode == 0, proc.stderr
     # no treeless-lane finding
     assert "no tree" not in (proc.stdout + proc.stderr).lower()
+
+
+def test_doctor_check_flags_dead_lane_tree_globs(tmp_path: Path):
+    """A present `[lanes.trees]` glob that matches no path is a `--check` finding."""
+    _write_toml(
+        tmp_path,
+        "[lanes]\nconcurrent = ['api', 'web']\nexclusive = []\n"
+        "autopick = ['api', 'web']\n"
+        "[lanes.trees]\n"
+        "api = ['stale/src/api/**']\n"
+        "web = ['web/**', 'stale/web/**']\n",
+    )
+    (tmp_path / "web").mkdir()
+    proc = _cli(tmp_path, "doctor", "--check")
+    combined = proc.stdout + proc.stderr
+    assert proc.returncode == 1, combined
+    assert "LANE_TREE_GLOB_DEAD 'api'" in combined
+    assert "stale/src/api/**" in combined
+    assert "LANE_TREE_ALL_GLOBS_DEAD 'api'" in combined
+    assert "LANE_TREE_GLOB_DEAD 'web'" in combined
+    assert "stale/web/**" in combined
+    assert "LANE_TREE_ALL_GLOBS_DEAD 'web'" not in combined
 
 
 def test_doctor_check_ignores_treeless_exclusive_lane(tmp_path: Path):
@@ -454,6 +481,7 @@ def test_doctor_check_ignores_treeless_exclusive_lane(tmp_path: Path):
         "[lanes]\nconcurrent = ['api']\nexclusive = ['infra']\nautopick = ['api']\n"
         "[lanes.trees]\napi = ['src/api/**']\n",  # infra exclusive, deliberately treeless
     )
+    (tmp_path / "src/api").mkdir(parents=True)
     proc = _cli(tmp_path, "doctor", "--check")
     assert proc.returncode == 0, proc.stdout + proc.stderr
     # `infra` appears in the doctor's `exclusive lanes` report line (correct), but
@@ -466,6 +494,7 @@ def test_doctor_check_ignores_treeless_exclusive_lane(tmp_path: Path):
 def test_doctor_check_clean_on_job_taxonomy(tmp_path: Path):
     """`dos doctor --job --check` is clean — the reference taxonomy passes its own
     rail. (Job's `global` exclusive lane is treeless, which is fine.)"""
+    (tmp_path / "marker.txt").write_text("", encoding="utf-8")
     proc = _cli(tmp_path, "doctor", "--job", "--check")
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
