@@ -197,16 +197,16 @@ authors none of it:
 ```bash
 dos attest --workspace . --claim soak:unit-3 \
   --narrated "unit-3 completed 168h soak at 125C" \
-  --accept-cmd "grep -q 'PASS unit-3' benches/bench-a/campaign.log" \
+  --accept-cmd "python -c \"from pathlib import Path; import sys; sys.exit(0 if 'PASS unit-3' in Path('benches/bench-a/campaign.log').read_text(encoding='utf-8') else 1)\"" \
   --key-file benches/bench-a/attest-demo.key --timestamp 2026-06-14T00:00:00Z
 ```
 ```text
 VERDICT   CONFIRMED   (believe=True refuted=False)
 CLAIM     soak:unit-3
-WITNESS   os_acceptance (OS_RECORDED) over grep -q 'PASS unit-3' benches/bench-a/campaign.log
+WITNESS   os_acceptance (OS_RECORDED) over python -c "from pathlib import Path; import sys; sys.exit(0 if 'PASS unit-3' in Path('benches/bench-a/campaign.log').read_text(encoding='utf-8') else 1)"
 ALGORITHM HMAC-SHA256
 TIMESTAMP 2026-06-14T00:00:00Z
-SIGNATURE 27cde85ebf3c1b0983bedf41f4b9cacf3fd3efdee1b408e7377c4a0179ede5de
+SIGNATURE 835d42ab0193bab27adb43f59b90f7e46bd23385a028404559c751a6d560376c
 REASON    CONFIRMED — non-forgeable witness re-read the world and effect 'soak:unit-3' is PRESENT: os_acceptance
 ```
 ```text
