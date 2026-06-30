@@ -71,6 +71,8 @@ elif not isinstance(sys.stdout, io.TextIOWrapper):  # pragma: no cover
 
 from dos import breaker as _breaker
 from dos import config as _config
+from dos import effect_kind as _effect_kind
+from dos import hook_observation as _hook_observation
 from dos import lane_journal
 from dos import wedge_reason
 
@@ -95,6 +97,9 @@ class DecisionKind(str, enum.Enum):
                                            # tripped the docs/223 breaker (issue #14): the
                                            # refusal's only remedy is a human, so N
                                            # identical denies fold to ONE HUMAN decision
+    SPAWN_FANOUT = "SPAWN_FANOUT"          # repeated SPAWN-effect calls from one holder
+                                           # crossed the advisory fan-out threshold
+                                           # (issue #203): surface one row, deny nothing
     RESUME_PROPOSAL = "RESUME_PROPOSAL"    # a stalled run adjudicated RESUMABLE by
                                            # `dos resume` — a minted re-entry point waiting
                                            # for operator re-dispatch (issue #19, docs/107)
@@ -832,6 +837,106 @@ def _from_enforce_storms(
 
 
 # ---------------------------------------------------------------------------
+# SPAWN fan-out bursts — advisory visibility for a holder minting too many seats.
+# ---------------------------------------------------------------------------
+
+
+def _window_label(seconds: int) -> str:
+    """Compact label for a trailing window."""
+    s = max(1, int(seconds))
+    if s % 86400 == 0:
+        return f"{s // 86400}d"
+    if s % 3600 == 0:
+        return f"{s // 3600}h"
+    if s % 60 == 0:
+        return f"{s // 60}m"
+    return f"{s}s"
+
+
+def _spawn_pressure_policy(config) -> _effect_kind.SpawnPressurePolicy:
+    """The workspace's advisory SPAWN pressure policy, with a generic fallback."""
+    pol = getattr(config, "spawn_pressure", None)
+    if isinstance(pol, _effect_kind.SpawnPressurePolicy):
+        return pol
+    return _effect_kind.GENERIC_SPAWN_PRESSURE_POLICY
+
+
+def _from_spawn_fanout_bursts(
+    config,
+    *,
+    now: dt.datetime | None = None,
+) -> list[Decision]:
+    """Per-holder SPAWN-effect bursts from the hook observation log.
+
+    Reads the per-call hook observation log (the surface that records passthrough
+    calls too), keeps only pretool records tagged `effect_kind=spawn` inside the
+    policy window, and counts them per holder. A holder at/above `storm_at`
+    surfaces as ONE HUMAN-row advisory. This never denies, never leases, and never
+    pools holders together.
+    """
+    path = _hook_observation.observations_path(config)
+    try:
+        records = _hook_observation.read_observations(path)
+    except Exception:
+        return []
+    clock = now if now is not None else _now()
+    policy = _spawn_pressure_policy(config)
+    window_seconds = max(1, int(policy.window_seconds))
+    counts: dict[str, int] = {}
+    latest: dict[str, dict] = {}
+    latest_ts: dict[str, str] = {}
+    for rec in records:
+        if rec.get("verb") != "pretool":
+            continue
+        if str(rec.get("effect_kind") or "") != _effect_kind.EffectKind.SPAWN.value:
+            continue
+        holder = str(rec.get("holder") or "").strip()
+        if not holder:
+            continue
+        ts = str(rec.get("ts") or "")
+        age = _age_seconds(ts, now=clock)
+        if age is None or age > window_seconds:
+            continue
+        counts[holder] = counts.get(holder, 0) + 1
+        if holder not in latest_ts or ts >= latest_ts[holder]:
+            latest[holder] = rec
+            latest_ts[holder] = ts
+
+    out: list[Decision] = []
+    label = _window_label(window_seconds)
+    for holder, n in counts.items():
+        verdict = _effect_kind.classify_spawn_pressure(n, policy)
+        if verdict.pressure is not _effect_kind.SpawnPressure.STORM:
+            continue
+        rec = latest.get(holder, {})
+        age = _age_seconds(str(rec.get("ts") or ""), now=clock)
+        reason_text = (
+            f"holder {holder} made {n} SPAWN-effect call(s) in {label} "
+            f"(threshold {policy.storm_at}) — advisory fan-out burst; inspect the "
+            f"launcher before it burns seats/tokens"
+        )
+        evidence = (
+            f"observation latest ts {rec.get('ts', '-')}",
+            f"{n} spawn-effect pretool observation(s) for holder={holder}",
+            verdict.reason(),
+            "advisory only: no deny, no lease",
+        )
+        out.append(Decision(
+            kind=DecisionKind.SPAWN_FANOUT,
+            resolver_kind=ResolverKind.HUMAN,
+            lane="spawn",
+            reason_token="",
+            reason_text=reason_text,
+            run_id=str(rec.get("run_id") or ""),
+            age_seconds=age,
+            source_path=str(path),
+            evidence=evidence,
+            dup_count=n,
+        ))
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Time helpers.
 # ---------------------------------------------------------------------------
 
@@ -1240,6 +1345,9 @@ _KIND_RANK = {
     # turns RIGHT NOW and the parked edit blocks work — a NOW decision, not a
     # someday one. (Equal rank is fine; the within-rank sort is oldest-first.)
     DecisionKind.ENFORCE_BREAKER: 1,
+    # A fan-out burst is advisory, but it is active resource pressure from one
+    # holder, so keep it in the same "look now" tier as hook storms.
+    DecisionKind.SPAWN_FANOUT: 1,
     DecisionKind.PREFLIGHT_REFUSE: 2,
     DecisionKind.WEDGE: 3,
     # A resume proposal is a stalled run waiting for re-dispatch — same urgency tier
@@ -1350,6 +1458,7 @@ def collect_decisions(
     # unit-testable with an injected set (#106). The collector owns the I/O.
     live_holders = _live_lease_holders(cfg)
     decisions.extend(_from_enforce_storms(cfg, now=clock, live_holders=live_holders))
+    decisions.extend(_from_spawn_fanout_bursts(cfg, now=clock))
     decisions.extend(_from_verdict_envelopes(cfg, now=clock))
     decisions.extend(_from_soaks(cfg))
     decisions.extend(_from_resume_proposals(cfg, now=clock))
@@ -1457,6 +1566,13 @@ def next_steps(decision: Decision, config=None) -> list[tuple[str, str]]:
         steps.append(("o", "dos override status"))
         if decision.reason_token:
             steps.append(("m", f"dos man wedge {decision.reason_token}"))
+        steps.append(("c", "<copy selected command>"))
+        return steps
+
+    # A spawn fan-out burst is an advisory visibility row. It reports pressure
+    # from the observation log only; there is no lease to force and no plan scope
+    # to re-shape from here.
+    if decision.kind is DecisionKind.SPAWN_FANOUT:
         steps.append(("c", "<copy selected command>"))
         return steps
 

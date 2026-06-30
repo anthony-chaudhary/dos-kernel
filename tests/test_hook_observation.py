@@ -169,12 +169,16 @@ def test_observation_entry_minimal_and_only_when_set():
     # Absent verb-specific fields are OMITTED, not nulled (the additive contract).
     for absent in ("run_id", "rung", "reason_class", "dialect", "tree_known",
                    "stream_state", "marker_count", "claims_seen", "verify_source",
-                   "blocked_plan", "panic_recovered", "ts"):
+                   "blocked_plan", "panic_recovered", "holder", "effect_kind", "ts"):
         assert absent not in e
     rich = hobs.observation_entry("stop", "block", claims_seen=2,
                                   verify_source="none", blocked_plan="P",
                                   blocked_phase="X")
     assert rich["claims_seen"] == 2 and rich["blocked_plan"] == "P"
+    spawn = hobs.observation_entry(
+        "pretool", "passthrough", holder="S1", effect_kind="spawn")
+    assert spawn["holder"] == "S1"
+    assert spawn["effect_kind"] == "spawn"
 
 
 def test_observation_entry_requires_verb_and_outcome():
@@ -452,9 +456,32 @@ def test_hook_pretool_python_path_writes_denominator_record(tmp_path, monkeypatc
     assert rec["verb"] == "pretool" and rec["outcome"] == "passthrough"
     assert rec["latency_ms"] >= 0 and rec["ts"]
     assert rec["dialect"]                                  # the resolved dialect name
+    assert rec["holder"] == "S1"
     # …and the fold sees it as one adjudicated, untouched call.
     rate = hobs.intervention_rate(recs)
     assert rate.adjudicated == 1 and rate.passed == 1
+
+
+def test_hook_pretool_agent_passthrough_records_spawn_effect(tmp_path, monkeypatch, capsys):
+    """A clean Agent passthrough still records the SPAWN-effect axis."""
+    from dos import cli
+
+    monkeypatch.setenv("DOS_HOOK_NATIVE", "0")
+    monkeypatch.delenv("DOS_HOOK_METRICS", raising=False)
+    event = {"tool_name": "Agent",
+             "tool_input": {"description": "x", "prompt": "spawn a worker"},
+             "cwd": str(tmp_path), "session_id": "S1"}
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(event)))
+    rc = cli.main(["hook", "pretool", "--workspace", str(tmp_path)])
+    assert rc == 0
+    capsys.readouterr()
+    recs = hobs.read_observations(tmp_path / ".dos" / "metrics" / "observations.jsonl")
+    assert len(recs) == 1
+    rec = recs[0]
+    assert rec["verb"] == "pretool"
+    assert rec["outcome"] == "passthrough"
+    assert rec["holder"] == "S1"
+    assert rec["effect_kind"] == "spawn"
 
 
 def test_hook_pretool_metrics_opt_out_writes_nothing(tmp_path, monkeypatch, capsys):

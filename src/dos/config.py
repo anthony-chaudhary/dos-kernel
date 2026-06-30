@@ -51,6 +51,10 @@ from dos.improve import ImprovePolicy, DEFAULT_POLICY as DEFAULT_IMPROVE_POLICY
 from dos.productivity import ProductivityPolicy, DEFAULT_POLICY as DEFAULT_PRODUCTIVITY_POLICY
 from dos.efficiency_trend import TrendPolicy, DEFAULT_POLICY as DEFAULT_TREND_POLICY
 from dos.supervise import SupervisePolicy, DEFAULT_POLICY as DEFAULT_SUPERVISE_POLICY
+from dos.effect_kind import (
+    SpawnPressurePolicy,
+    GENERIC_SPAWN_PRESSURE_POLICY,
+)
 from dos.freshness import HeartbeatPolicy, EMPTY_HEARTBEAT_POLICY
 from dos.queue_saturation import (
     SaturationPolicy,
@@ -687,6 +691,7 @@ class SubstrateConfig:
     efficiency_trend: "TrendPolicy" = DEFAULT_TREND_POLICY
     lifecycle: "LifecyclePolicy" = GENERIC_LIFECYCLE
     supervise: "SupervisePolicy" = DEFAULT_SUPERVISE_POLICY
+    spawn_pressure: "SpawnPressurePolicy" = GENERIC_SPAWN_PRESSURE_POLICY
     # ``heartbeats`` is the **freshness seam** (the cron dead-man's switch): WHICH
     # always-on jobs a workspace expects to beat, how often, and how much jitter
     # slack to allow before a missed beat reads LATE/MISSING. `pulse` watches every
@@ -1333,6 +1338,16 @@ def load_workspace_config(
         "supervise",
         lambda: _supervise.load_from_toml(toml_path, base=cfg.supervise),
         cfg.supervise))
+    # [spawn_pressure] — OVERRIDE the advisory per-holder SPAWN-effect burst
+    # thresholds. A present key changes the observation-window/count used by
+    # `dos decisions`; the fold only surfaces a row, it never denies a call or
+    # takes a lease. Malformed warns + keeps base, so a typo cannot manufacture
+    # a runaway-fan-out alarm.
+    from dos import effect_kind as _effect_kind
+    cfg = dataclasses.replace(cfg, spawn_pressure=_layer(
+        "spawn_pressure",
+        lambda: _effect_kind.load_from_toml(toml_path, base=cfg.spawn_pressure),
+        cfg.spawn_pressure))
     # [heartbeats] — DECLARE the always-on jobs whose freshness DOS watches (the
     # cron dead-man's switch): each job's expected cadence + the jitter-slack
     # factors. A present table adds the declared jobs; absent inherits the empty

@@ -85,6 +85,9 @@ class SpawnPressurePolicy:
                     (worth surfacing; a wide-but-not-yet-runaway fan-out).
     `storm_at`    — this many is a STORM (a runaway fan-out from one holder, the
                     140-from-one-worker class). `storm_at >= elevated_at`.
+    `window_seconds` — the trailing observation window a reader should count over
+                    when surfacing a burst. Default 6d, matching the observed
+                    "140 from one holder in 6 days" class.
 
     The defaults are deliberately loose — this axis SURFACES, it does not yet
     refuse (the #202 first leg is visibility; a refusing spawn-gate is a later
@@ -93,12 +96,22 @@ class SpawnPressurePolicy:
 
     elevated_at: int = 8
     storm_at: int = 25
+    window_seconds: int = 6 * 24 * 60 * 60
 
     def __post_init__(self) -> None:
         if self.elevated_at < 1 or self.storm_at < self.elevated_at:
             raise ValueError(
                 "spawn-pressure policy needs 1 <= elevated_at <= storm_at"
             )
+        if self.window_seconds < 1:
+            raise ValueError("spawn-pressure policy needs window_seconds >= 1")
+
+    def to_dict(self) -> dict:
+        return {
+            "elevated_at": self.elevated_at,
+            "storm_at": self.storm_at,
+            "window_seconds": self.window_seconds,
+        }
 
 
 # The generic default: loose enough that a normal multi-agent turn never trips,
@@ -213,3 +226,82 @@ def spawn_storm_holders(
         if v.surfaceable:
             out[holder] = v
     return out
+
+
+# ---------------------------------------------------------------------------
+# The `[spawn_pressure]` config seam — the fan-out burst thresholds as data.
+# ---------------------------------------------------------------------------
+
+
+def policy_from_table(
+    table: dict, *, base: SpawnPressurePolicy = GENERIC_SPAWN_PRESSURE_POLICY
+) -> SpawnPressurePolicy:
+    """Build a `SpawnPressurePolicy` from a parsed `[spawn_pressure]` table.
+
+    Each named field overrides `base`; omitted fields inherit. The table is
+    advisory-only: a bad value warns and keeps base at the config layer, and the
+    decision fold only surfaces rows. It never denies a tool call or takes a lease.
+    """
+    if not isinstance(table, dict):
+        raise ValueError(f"[spawn_pressure] must be a table, got {type(table).__name__}")
+    known = {"elevated_at", "storm_at", "window_seconds", "window_hours"}
+    unknown = set(table) - known
+    if unknown:
+        raise ValueError(
+            f"[spawn_pressure] has unknown key(s) {sorted(unknown)}; "
+            f"known keys are {sorted(known)}"
+        )
+    if "window_seconds" in table and "window_hours" in table:
+        raise ValueError(
+            "[spawn_pressure] declares both window_seconds and window_hours; pick one"
+        )
+
+    def _int(key: str) -> int:
+        v = table[key]
+        if isinstance(v, bool) or not isinstance(v, int):
+            raise ValueError(
+                f"[spawn_pressure].{key} must be an integer, got {type(v).__name__}"
+            )
+        return int(v)
+
+    elevated_at = base.elevated_at
+    if "elevated_at" in table:
+        elevated_at = _int("elevated_at")
+    storm_at = base.storm_at
+    if "storm_at" in table:
+        storm_at = _int("storm_at")
+    if "elevated_at" not in table and elevated_at > storm_at:
+        elevated_at = storm_at
+    window_seconds = base.window_seconds
+    if "window_seconds" in table:
+        window_seconds = _int("window_seconds")
+    elif "window_hours" in table:
+        window_seconds = _int("window_hours") * 60 * 60
+    return SpawnPressurePolicy(
+        elevated_at=elevated_at,
+        storm_at=storm_at,
+        window_seconds=window_seconds,
+    )
+
+
+def load_from_toml(
+    path, *, base: SpawnPressurePolicy = GENERIC_SPAWN_PRESSURE_POLICY
+) -> SpawnPressurePolicy:
+    """Build a `SpawnPressurePolicy` from a `dos.toml` `[spawn_pressure]` table."""
+    from pathlib import Path
+
+    p = Path(path)
+    if not p.exists():
+        return base
+    try:
+        import tomllib
+    except ModuleNotFoundError:  # pragma: no cover - py<3.11 fallback
+        try:
+            import tomli as tomllib  # type: ignore
+        except ModuleNotFoundError:
+            return base
+    data = tomllib.loads(p.read_text(encoding="utf-8-sig"))
+    table = data.get("spawn_pressure")
+    if not isinstance(table, dict) or not table:
+        return base
+    return policy_from_table(table, base=base)

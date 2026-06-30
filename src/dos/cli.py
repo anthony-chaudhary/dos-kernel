@@ -6706,6 +6706,8 @@ def cmd_hook_pretool(args: argparse.Namespace) -> int:
                              rung=str(outcome.get("rung") or ""),
                              reason_class=str(outcome.get("reason_class") or ""),
                              dialect=str(getattr(args, "dialect", None) or _default_dialect),
+                             holder=str(event.get("session_id") or ""),
+                             effect_kind=str(outcome.get("effect_kind") or ""),
                              tree_known=(bool(outcome["tree_known"])
                                          if "tree_known" in outcome else None),
                              **_posture_fields)
@@ -9830,6 +9832,8 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             # (target + reap posture) a skill/operator reads to discover how many
             # dispatch-loops `dos loop` keeps alive here without re-parsing dos.toml.
             "supervise": cfg.supervise.to_dict(),
+            # issue #203 — advisory per-holder SPAWN-effect burst thresholds.
+            "spawn_pressure": cfg.spawn_pressure.to_dict(),
             # The always-honest verifiability cold-open (machine form): how many of
             #   (full prose: docs/CLI.md § "The always-honest verifiability cold-open (machine form): ho")
             "verifiability": _verifiability_facts(cfg),
