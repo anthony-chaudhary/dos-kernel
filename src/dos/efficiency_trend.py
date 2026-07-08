@@ -310,14 +310,12 @@ def load_from_toml(path, *, base: "TrendPolicy" = DEFAULT_POLICY) -> "TrendPolic
     p = _Path(path)
     if not p.exists():
         return base
-    try:
-        import tomllib as _toml
-    except ModuleNotFoundError:  # pragma: no cover - py<3.11 fallback
-        try:
-            import tomli as _toml  # type: ignore
-        except ModuleNotFoundError:
-            return base
-    data = _toml.loads(p.read_text(encoding="utf-8-sig"))
+    # ONE shared, mtime-keyed parse (`_tomlcache`) - collapses the per-config-layer
+    # re-read/re-parse storm on `dos.toml`. A malformed file still raises here
+    # (uncached), so the caller's existing handling is unchanged; the missing-file
+    # guard above is untouched. The utf-8-sig BOM strip lives inside the helper.
+    from dos._tomlcache import read_toml_cached
+    data = read_toml_cached(p)
     table = data.get("efficiency_trend")
     if not isinstance(table, dict) or not table:
         return base

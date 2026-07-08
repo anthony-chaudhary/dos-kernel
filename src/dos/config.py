@@ -1056,23 +1056,13 @@ def _load_toml_table(path: Path | str, key: str) -> dict | None:
     identically on a missing/garbled config.
     """
     p = Path(path)
-    if not p.exists():
-        return None
-    try:
-        import tomllib  # py3.11+
-    except ModuleNotFoundError:  # pragma: no cover - py<3.11 fallback
-        try:
-            import tomli as tomllib  # type: ignore
-        except ModuleNotFoundError:
-            return None
-    # Read via `utf-8-sig` so a UTF-8 BOM is transparently stripped (it is a no-op
-    # when absent). PowerShell 5.1's `Set-Content -Encoding utf8` writes a BOM by
-    # default, and raw `tomllib.load(rb)` chokes on it ("Invalid statement at line
-    # 1") — which would silently demote a perfectly valid declared table to the
-    # base value (an additive-degradation-law violation: a present, well-formed
-    # table must NOT be silently dropped). `loads(read_text(utf-8-sig))` fixes it
-    # for both tomllib and tomli.
-    data = tomllib.loads(p.read_text(encoding="utf-8-sig"))
+    # ONE shared, mtime-keyed parse (`_tomlcache`): a missing file / unavailable
+    # `tomllib` degrade to {} (so `data.get(key)` is None -> the same "return None"
+    # as the old `p.exists()` / `except ModuleNotFoundError` branches), a malformed
+    # file's parse error still propagates (uncached), and the utf-8-sig BOM strip is
+    # preserved inside the helper. Collapses the per-layer re-read storm on dos.toml.
+    from dos._tomlcache import read_toml_cached
+    data = read_toml_cached(p)
     table = data.get(key)
     if not isinstance(table, dict) or not table:
         return None
@@ -1108,16 +1098,13 @@ def load_class_budgets_from_toml(
     ``base`` (additive degradation: no budgets = today's unbounded-per-kind behavior).
     Present-but-malformed → raise (via `ClassBudgets.from_table`)."""
     p = Path(path)
-    if not p.exists():
-        return base
-    try:
-        import tomllib  # py3.11+
-    except ModuleNotFoundError:  # pragma: no cover - py<3.11 fallback
-        try:
-            import tomli as tomllib  # type: ignore
-        except ModuleNotFoundError:
-            return base
-    data = tomllib.loads(p.read_text(encoding="utf-8-sig"))
+    # ONE shared, mtime-keyed parse (`_tomlcache`): a missing file / unavailable
+    # `tomllib` degrade to {} (so `data.get(...)` is None -> `if not arr: return base`,
+    # the same as the old `p.exists()` / `except` branches); a malformed file still
+    # raises (uncached). `[[concurrency_class]]` is a top-level ARRAY, so it is read
+    # off the raw parsed table here rather than via `_load_toml_table`.
+    from dos._tomlcache import read_toml_cached
+    data = read_toml_cached(p)
     arr = data.get("concurrency_class")
     if not arr:  # absent or empty → base (degrade)
         return base
