@@ -60,6 +60,7 @@ class StatusDigest:
     progress: ProgressView
     region: tuple[str, ...] = ()
     resume: ResumePlan | None = None
+    transcript_uuid: str = ""
     schema: int = STATUS_DIGEST_SCHEMA
 
     def to_dict(self) -> dict:
@@ -76,6 +77,7 @@ class StatusDigest:
             },
             "region": list(self.region),
             "resume": self.resume.to_dict() if self.resume is not None else None,
+            **({"transcript_uuid": self.transcript_uuid} if self.transcript_uuid else {}),
         }
 
 
@@ -86,6 +88,7 @@ def status_digest(
     liveness_verdict: LivenessVerdict,
     live_region: tuple[str, ...] = (),
     resume_plan: ResumePlan | None = None,
+    transcript_uuid: str = "",
 ) -> StatusDigest:
     """Fold the four already-computed verdicts into one digest. PURE.
 
@@ -111,4 +114,5 @@ def status_digest(
         progress=progress,
         region=live_region,
         resume=resume_plan,
+        transcript_uuid=transcript_uuid,
     )
