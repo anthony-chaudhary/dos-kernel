@@ -4862,6 +4862,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         liveness_verdict=liveness_verdict,
         live_region=region,
         resume_plan=resume_plan,
+        transcript_uuid=__import__("dos.fak_identity", fromlist=["transcript_uuid_for_trace"]).transcript_uuid_for_trace(rid, workspace=Path.cwd()),
     )
 
     # ── read 5 (opt-in): a parent reads its CHILDREN's structural refusals by ──
