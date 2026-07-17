@@ -300,6 +300,15 @@ def load_roster(
             order=str(raw_rot.get("order") or "by_reset"),
             near_cap_util=near,
         )
+    # Collapse phantom DUPLICATE seats — two roster entries pointing at the SAME
+    # login (identical .oauth-token / creds access token → one shared rate-limit
+    # bucket) — to the first (operator-priority) occurrence. A duplicate fail-opens
+    # to "serving" and is otherwise handed out as a dead seat (a copied-login
+    # phantom). This is the Python HOST layer, not the parity-pinned ranking core
+    # (which ranks pre-built States and never sees a token), so deduping here keeps
+    # serving_pool/pick_account byte-identical to the Go-canonical corpus while
+    # still excluding the phantom from every roster consumer.
+    out = dedupe_by_identity(out)
     return out, policy
 
 
@@ -365,6 +374,148 @@ def write_account_token(account: Account, token: str) -> Path:
     except OSError:
         pass
     return path
+
+
+# --------------------------------------------------------------------------- #
+# Roster removal — retire an account so it is never picked again.
+# --------------------------------------------------------------------------- #
+# The inverse of enrollment. A roster account can go BAD in a way `account_state`
+# can't catch on its own: a phantom DUPLICATE of another seat (same login / same
+# `.oauth-token`, so one shared rate-limit bucket) fail-opens to "serving" and is
+# handed out as a dead seat. Disabling it must be ONE call, not a multi-file hand
+# edit. `remove_account` drops the seat from the roster's pickable set and, by
+# default, renames its config dir to a dated `.DELETED-<date>` tombstone (the
+# established convention) so a future `scaffold` never re-detects it. It is
+# comment-PRESERVING: it deletes only the named account's `- name:` block (plus the
+# contiguous comment lines that introduce it), leaving every other account, the
+# rotation policy, and the file's prose untouched — a YAML round-trip would strip
+# all of that. `rename_dir=False` deactivates without touching disk.
+@dataclass
+class RemoveResult:
+    """The outcome of ``remove_account`` — what changed, for a one-line report."""
+
+    name: str
+    roster_path: str
+    removed_from_roster: bool
+    config_dir: str
+    renamed_to: Optional[str]
+
+
+def _deleted_dir_target(config_dir: Path, date_str: str) -> Path:
+    """The `.DELETED-<date>` tombstone path, de-collided with a numeric suffix."""
+    base = config_dir.parent / f"{config_dir.name}.DELETED-{date_str}"
+    target = base
+    i = 1
+    while target.exists():
+        target = config_dir.parent / f"{base.name}.{i}"
+        i += 1
+    return target
+
+
+def remove_account(
+    name: str,
+    *,
+    path: "str | os.PathLike[str] | None" = None,
+    rename_dir: bool = True,
+    date_str: Optional[str] = None,
+) -> RemoveResult:
+    """Retire ``name`` from the roster so it is never picked again.
+
+    Comment-preserving: removes exactly the named account's ``- name:`` block from
+    the roster's ``accounts:`` list (and the contiguous comment lines directly above
+    it that introduce it), nothing else. When ``rename_dir`` (default), the account's
+    config dir is renamed to a dated ``.DELETED-<date>`` tombstone so a later
+    ``scaffold`` does not re-detect it. ``date_str`` is injectable (tests pin it);
+    it defaults to today's UTC date. Raises ``ValueError`` if the account is not in
+    the roster — removing a name the operator mistyped should fail loud, not no-op.
+    """
+    from datetime import datetime, timezone
+
+    roster_path = accounts_file_path(path)
+    accounts, _policy = load_roster(path)
+    match = next((a for a in accounts if a.name == name), None)
+    if match is None:
+        raise ValueError(
+            f"no account named {name!r} in roster {roster_path} — "
+            f"run `dos accounts list` to see roster names"
+        )
+    if date_str is None:
+        date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    # --- comment-preserving block removal ---------------------------------- #
+    # Find the `accounts:` list, then the `- name: <name>` item within it, and
+    # drop that item's lines plus the comment lines immediately above it (which
+    # introduce THIS account). Stop the upward sweep at a blank line, the
+    # `accounts:` key, or a previous list item, so a neighbor's trailing comment
+    # is never stolen.
+    removed = False
+    if roster_path.is_file():
+        lines = roster_path.read_text(encoding="utf-8").splitlines(keepends=True)
+        in_accounts = False
+        item_start = None
+        item_end = None
+        item_indent = 0
+        for i, raw in enumerate(lines):
+            stripped = raw.strip()
+            if not in_accounts:
+                if stripped == "accounts:" or stripped.startswith("accounts:"):
+                    in_accounts = True
+                continue
+            # A top-level key (no indent, ends with ':') ends the accounts block.
+            if raw.strip() and not raw[0].isspace() and stripped.endswith(":"):
+                break
+            if item_start is None:
+                if stripped in (f"- name: {name}", f"- name: {name!r}",
+                                f'- name: "{name}"'):
+                    item_start = i
+                    item_indent = len(raw) - len(raw.lstrip())
+                continue
+            # Inside the matched item: it ends at the next list item at the SAME
+            # (or shallower) indent, or the end of the accounts block.
+            indent = len(raw) - len(raw.lstrip())
+            if stripped.startswith("- ") and indent <= item_indent:
+                item_end = i
+                break
+        if item_start is not None:
+            if item_end is None:
+                item_end = len(lines)
+                for j in range(item_start + 1, len(lines)):
+                    rj = lines[j]
+                    if rj.strip() and not rj[0].isspace() and rj.strip().endswith(":"):
+                        item_end = j
+                        break
+            # Sweep upward over the intro comment lines belonging to this item.
+            top = item_start
+            while top - 1 > 0:
+                prev = lines[top - 1]
+                ps = prev.strip()
+                if ps.startswith("#") and prev[0].isspace():
+                    top -= 1
+                    continue
+                break
+            del lines[top:item_end]
+            roster_path.write_text("".join(lines), encoding="utf-8")
+            removed = True
+
+    # --- tombstone the config dir ------------------------------------------ #
+    renamed_to = None
+    if rename_dir:
+        config_dir = Path(match.config_dir).expanduser()
+        if config_dir.is_dir():
+            target = _deleted_dir_target(config_dir, date_str)
+            try:
+                config_dir.rename(target)
+                renamed_to = str(target)
+            except OSError:
+                renamed_to = None  # in use / cross-device — roster drop still stands
+
+    return RemoveResult(
+        name=name,
+        roster_path=str(roster_path),
+        removed_from_roster=removed,
+        config_dir=str(Path(match.config_dir).expanduser()),
+        renamed_to=renamed_to,
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -795,6 +946,62 @@ def pick_account_spread(
     )
 
 
+def _account_identity_key(account: Account) -> Optional[str]:
+    """A stable per-LOGIN fingerprint for an account, read from disk (no network).
+
+    Two roster seats that point at the SAME Anthropic login share ONE rate-limit
+    bucket — so treating them as independent windows is the bug that hands out a
+    dead "serving" seat (a copied-login phantom).
+
+    PRIORITY MATTERS. A seat's ``.credentials.json`` login is its TRUE identity, so
+    it wins. The ``.oauth-token`` setup-token sibling is only a fallback for a
+    token-ONLY seat (no creds), because that file is the artifact most often
+    stale-COPIED across config dirs: two genuinely DISTINCT logins (different
+    ``.credentials.json``) can end up carrying the same copied ``.oauth-token``. Keying on the token first would
+    wrongly fuse two real accounts; keying on creds first keeps them distinct and
+    still collapses a true duplicate (same login → same creds access token).
+
+    Returns ``None`` when neither is readable — an unidentifiable seat is NEVER
+    collapsed (each stays distinct), so dedup can only ever drop a PROVEN duplicate,
+    never a seat it merely failed to read.
+    """
+    creds = account_creds_path(account)
+    try:
+        data = json.loads(creds.read_text(encoding="utf-8"))
+        at = (((data or {}).get("claudeAiOauth") or {}).get("accessToken") or "").strip()
+    except (OSError, ValueError, AttributeError):
+        at = ""
+    if at:
+        return f"cred:{at}"
+    # No login creds → a setup-token-only seat. The token IS its identity then.
+    tok = read_account_token(account)
+    if tok:
+        return f"oat:{tok.strip()}"
+    return None
+
+
+def dedupe_by_identity(accounts: Sequence[Account]) -> list[Account]:
+    """Roster with phantom duplicate seats collapsed to their FIRST occurrence.
+
+    Keeps roster order (= operator priority): the first seat carrying a given login
+    fingerprint wins, every later seat with the SAME fingerprint is dropped from the
+    pickable set. Seats whose identity can't be read (``_account_identity_key`` →
+    ``None``) are always kept — so a read failure can never silently shrink the
+    pool. This is the standing guard so a future same-login phantom is excluded from
+    rotation BEFORE anyone runs ``remove_account``.
+    """
+    seen: set[str] = set()
+    out: list[Account] = []
+    for a in accounts:
+        key = _account_identity_key(a)
+        if key is not None and key in seen:
+            continue
+        if key is not None:
+            seen.add(key)
+        out.append(a)
+    return out
+
+
 def _serving_pool_states(
     accounts: Sequence[Account],
     *,
@@ -1096,4 +1303,7 @@ __all__ = [
     "serving_pool",
     "read_account_token",
     "write_account_token",
+    "remove_account",
+    "RemoveResult",
+    "dedupe_by_identity",
 ]

@@ -8,7 +8,7 @@ makes non-negotiable — is that the reporter is a REPORTER: in its default mode
 prints a nudge and **always exits 0**, so it can never force-loop an interactive
 turn (a non-zero / blocking Stop hook does exactly that). The only non-zero exit is
 the explicit, opt-in `--strict` / `DOS_GIT_HYGIENE=strict` mode, meant for a
-headless loop that WANTS to act on a dirty tree.
+headless loop that WANTS to act on dirty or hidden work.
 
 This test pins that contract structurally against scaffolded SACRIFICIAL git repos
 (never the live tree — the docs/274 sister-law: a destructive/stateful proof runs
@@ -18,8 +18,11 @@ against a throwaway target). It checks:
   * a clean tree reports `clean: true` and prints nothing,
   * `--strict` exits 1 on stranded work but 0 on a clean tree,
   * a live lane-lease subtracts its region from the stranded set (the WAL fold),
+  * durable untracked files warn as hot-tree risk while any live lease exists,
   * a stale lease does NOT (its region is fair game → stranded),
-  * scratch (`.err`, `_scratch/`, `scripts/_probe.py`) is bucketed, not nagged.
+  * scratch (`.err`, `_scratch/`, `scripts/_probe.py`) is bucketed, not nagged,
+  * stash entries are reported as hidden work and point away from hot-tree pop/drop,
+  * a stage snapshot catches a pathspec-staged sibling hunk in the same file.
 
 Dev/workflow TOOLING, not kernel — it operates ON the package, never imported BY it.
 Loaded by path because `scripts/` is not an importable package.
@@ -156,6 +159,22 @@ def test_live_lease_region_is_subtracted_from_stranded(tmp_path):
     assert rep["live_leases"] == 1
     assert any("benchmark" in p for p in rep["lease_held"])
     assert not any("benchmark" in p for p in rep["stranded"])
+    assert rep["hot_untracked_at_risk"] is True
+
+
+def test_live_lease_untracked_risk_mentions_worktree_escape(tmp_path):
+    """A hot tree with durable untracked files gets the unrecoverable-loss warning."""
+    repo = _init_repo(tmp_path)
+    (repo / "notes.py").write_text("x\n", encoding="utf-8")
+    _write_journal(repo, tree=["docs/**"], stale=False)
+    proc = _run(repo)
+    assert proc.returncode == 0
+    assert "untracked file" in proc.stderr
+    assert "at risk" in proc.stderr
+    assert "detached git worktree off origin/master" in proc.stderr
+    rep = _report(repo)
+    assert rep["hot_untracked_at_risk"] is True
+    assert "notes.py" in rep["durable_untracked"]
 
 
 def test_stale_lease_region_counts_as_stranded(tmp_path):
@@ -169,3 +188,82 @@ def test_stale_lease_region_counts_as_stranded(tmp_path):
     assert rep["live_leases"] == 0
     assert any("benchmark" in p for p in rep["stranded"])
     assert not rep["lease_held"]
+
+
+def test_stash_entries_nudge_without_blocking(tmp_path):
+    """A leftover stash is hidden work; report it, but stay advisory by default."""
+    repo = _init_repo(tmp_path)
+    tracked = repo / "tracked.py"
+    tracked.write_text("base\n", encoding="utf-8")
+    _git(repo, "add", "tracked.py")
+    _git(repo, "commit", "-q", "-m", "add tracked")
+    tracked.write_text("wip\n", encoding="utf-8")
+    _git(repo, "stash", "push", "-q", "-m", "issue-208-probe", "--", "tracked.py")
+
+    proc = _run(repo)
+    assert proc.returncode == 0
+    assert "git stash entry present" in proc.stderr
+    assert "copy-aside" in proc.stderr
+    assert "do not git stash pop/drop on a hot tree" in proc.stderr
+
+    rep = _report(repo)
+    assert rep["clean"] is False
+    assert rep["dirty_total"] == 0
+    assert rep["stash_count"] == 1
+    assert any("issue-208-probe" in row for row in rep["stash_entries"])
+
+
+def test_stage_snapshot_check_passes_for_session_hunks(tmp_path):
+    """The guard allows hunks authored after the snapshot."""
+    repo = _init_repo(tmp_path)
+    target = repo / "shared.txt"
+    target.write_text("one\ntwo\nthree\n", encoding="utf-8")
+    _git(repo, "add", "shared.txt")
+    _git(repo, "commit", "-q", "-m", "add shared")
+
+    snap = repo / ".git" / "dos-stage-snapshot"
+    snap_proc = _run(repo, "--write-stage-snapshot", str(snap), "shared.txt")
+    assert snap_proc.returncode == 0
+
+    target.write_text("one\nmine\nthree\n", encoding="utf-8")
+    _git(repo, "add", "shared.txt")
+
+    proc = _run(repo, "--check-stage-snapshot", str(snap), "shared.txt")
+    assert proc.returncode == 0, proc.stderr
+    assert "staged hunks match" in proc.stdout
+
+
+def test_stage_snapshot_check_catches_injected_sibling_hunk(tmp_path):
+    """A normal `git add path` sweeps sibling hunks; the snapshot check catches it."""
+    repo = _init_repo(tmp_path)
+    target = repo / "shared.txt"
+    target.write_text("one\ntwo\nthree\nfour\n", encoding="utf-8")
+    _git(repo, "add", "shared.txt")
+    _git(repo, "commit", "-q", "-m", "add shared")
+
+    # Simulate a sibling's pre-existing, unstaged same-file hunk before our session.
+    target.write_text("sibling\ntwo\nthree\nfour\n", encoding="utf-8")
+    snap = repo / ".git" / "dos-stage-snapshot"
+    snap_proc = _run(repo, "--write-stage-snapshot", str(snap), "shared.txt")
+    assert snap_proc.returncode == 0
+
+    # Our own later hunk is separate. `git add shared.txt` stages both hunks.
+    target.write_text("sibling\ntwo\nmine\nfour\n", encoding="utf-8")
+    _git(repo, "add", "shared.txt")
+
+    proc = _run(repo, "--check-stage-snapshot", str(snap), "shared.txt")
+    assert proc.returncode == 1
+    assert "shared.txt has 1 staged hunk absent from the session snapshot" in proc.stderr
+
+    json_proc = _run(repo, "--check-stage-snapshot", str(snap), "shared.txt", "--json")
+    assert json_proc.returncode == 1
+    rep = json.loads(json_proc.stdout)
+    assert rep["clean"] is False
+    assert rep["unsafe"] == [
+        {
+            "path": "shared.txt",
+            "unexpected_hunks": 1,
+            "staged_hunks": 2,
+            "session_hunks": 1,
+        }
+    ]

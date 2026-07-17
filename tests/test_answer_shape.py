@@ -87,6 +87,183 @@ def test_default_floor_is_one_so_a_single_char_passes_length():
 
 
 # ---------------------------------------------------------------------------
+# The verbosity ceiling — the symmetric opposite of the floor (the bloat end).
+# ---------------------------------------------------------------------------
+
+def test_ceiling_off_by_default_a_long_answer_ships():
+    """The ceiling defaults OFF (0): a long, clean answer is ANSWER_SHAPED (no false bloat)."""
+    long_clean = "The revenue grew steadily across all segments. " * 200  # ~9.4k chars
+    v = classify(long_clean)
+    assert v.state is AnswerShape.ANSWER_SHAPED
+
+
+def test_over_ceiling_is_non_answer():
+    """A non-empty output over the host's ceiling is a runaway dump → NON_ANSWER."""
+    pol = AnswerShapePolicy(max_viable_chars=20, max_repeat_ratio=0.0)
+    v = classify("this output is comfortably longer than twenty characters", policy=pol)
+    assert v.state is AnswerShape.NON_ANSWER
+    assert "ceiling" in v.reason
+    assert v.is_disqualified
+
+
+def test_at_ceiling_is_not_disqualified():
+    """At-or-below the ceiling passes (strict `>` boundary, mirroring the floor's `<`)."""
+    pol = AnswerShapePolicy(max_viable_chars=10)
+    v = classify("0123456789", policy=pol)  # exactly 10 non-space chars
+    assert v.state is AnswerShape.ANSWER_SHAPED
+
+
+def test_ceiling_is_a_shape_call_not_correctness():
+    """The ceiling reason states it is a SHAPE call on the host's budget, not correctness."""
+    pol = AnswerShapePolicy(max_viable_chars=5)
+    v = classify("this is well over five chars", policy=pol)
+    assert "not a correctness" in v.reason
+
+
+def test_floor_beats_ceiling_when_both_could_apply():
+    """A misconfigured max<min still resolves deterministically: the floor is checked first."""
+    pol = AnswerShapePolicy(min_viable_chars=50, max_viable_chars=5)
+    v = classify("twenty-ish chars here", policy=pol)
+    assert v.state is AnswerShape.NON_ANSWER
+    assert "viability floor" in v.reason  # floor wins (checked first), not the ceiling
+
+
+# ---------------------------------------------------------------------------
+# The degeneration cap — drift-into-a-loop (the repeating-line/sentence failure).
+# ---------------------------------------------------------------------------
+
+def test_repeat_off_by_default_repetitive_text_still_ships():
+    """The degeneration cap defaults OFF: even a repetitive output is not disqualified for it."""
+    degenerate = "The answer is 42.\n" * 10
+    v = classify(degenerate)  # generic policy: max_repeat_ratio 0.0 = off
+    assert v.state is AnswerShape.ANSWER_SHAPED
+
+
+def test_repeated_line_loop_is_non_answer():
+    """A generation collapsed into repeating one line → NON_ANSWER when the cap is set."""
+    pol = AnswerShapePolicy(max_repeat_ratio=0.5)
+    degenerate = "The answer is 42.\n" * 10  # 10 units, 1 distinct → ratio 0.9
+    v = classify(degenerate, policy=pol)
+    assert v.state is AnswerShape.NON_ANSWER
+    assert "repeat ratio" in v.reason
+    assert v.is_disqualified
+
+
+def test_repeated_sentence_on_one_line_is_caught():
+    """Sentence-level segmentation: the same sentence many times on ONE line is caught."""
+    pol = AnswerShapePolicy(max_repeat_ratio=0.5)
+    v = classify("Buy now. Buy now. Buy now. Buy now. Buy now.", policy=pol)
+    assert v.state is AnswerShape.NON_ANSWER
+
+
+def test_normal_answer_under_cap_ships():
+    """A normal multi-sentence answer has all-distinct units → ratio ~0, ships under the cap."""
+    pol = AnswerShapePolicy(max_repeat_ratio=0.5)
+    v = classify(
+        "Revenue rose 7%. Cloud led the growth. Margins held steady. Guidance was raised.",
+        policy=pol,
+    )
+    assert v.state is AnswerShape.ANSWER_SHAPED
+
+
+def test_too_few_units_is_fail_safe_not_disqualified():
+    """Below the minimum unit count the cap ABSTAINS (under-disqualify) — a short Q&A is safe."""
+    pol = AnswerShapePolicy(max_repeat_ratio=0.5)
+    v = classify("Yes. No. Yes.", policy=pol)  # 3 units < _MIN_REPEAT_UNITS
+    assert v.state is AnswerShape.ANSWER_SHAPED
+
+
+def test_repeat_cap_is_a_shape_call_not_correctness():
+    pol = AnswerShapePolicy(max_repeat_ratio=0.5)
+    v = classify("Loop. Loop. Loop. Loop. Loop.", policy=pol)
+    assert "not a correctness" in v.reason
+
+
+def test_cot_marker_beats_repetition():
+    """A more-specific CoT-leak marker still fires before the generic repetition cap."""
+    pol = AnswerShapePolicy(
+        non_answer_patterns=(r"<thinking>",),
+        max_repeat_ratio=0.5,
+    )
+    v = classify("<thinking>x</thinking>\nLoop. Loop. Loop. Loop. Loop.", policy=pol)
+    assert v.state is AnswerShape.NON_ANSWER
+    assert v.matched == r"<thinking>"  # the marker, not the repetition path
+
+
+def test_repeat_ratio_helper_is_pure_and_bounded():
+    """`_repeat_ratio` returns a ratio in [0,1) and the unit count; all-distinct → 0."""
+    assert _answer_shape._repeat_ratio("a. b. c. d.") == (0.0, 4)
+    ratio, n = _answer_shape._repeat_ratio("a. a. a. a.")
+    assert n == 4 and ratio == 0.75
+    assert _answer_shape._repeat_ratio("") == (0.0, 0)
+
+
+# ---------------------------------------------------------------------------
+# Boundary & fail-safe pins for the two new knobs — lock the load-bearing edges
+# against a future refactor (a `> 0` → `!= 0` slip would disqualify everything).
+# ---------------------------------------------------------------------------
+
+def test_negative_ceiling_is_off():
+    """A negative ceiling is OFF (the `> 0` gate), not "disqualify everything"."""
+    pol = AnswerShapePolicy(max_viable_chars=-5)
+    v = classify("any non-empty answer at all", policy=pol)
+    assert v.state is AnswerShape.ANSWER_SHAPED
+
+
+def test_negative_repeat_cap_is_off():
+    """A negative repeat cap is OFF (the `> 0.0` gate), not "disqualify everything"."""
+    pol = AnswerShapePolicy(max_repeat_ratio=-0.5)
+    v = classify("Loop. Loop. Loop. Loop. Loop.", policy=pol)
+    assert v.state is AnswerShape.ANSWER_SHAPED
+
+
+def test_repeat_ratio_exactly_at_cap_ships():
+    """Strict `>`: a ratio EXACTLY at the cap ships (the fail-safe under-disqualify side)."""
+    pol = AnswerShapePolicy(max_repeat_ratio=0.5)
+    v = classify("a. b. a. b.", policy=pol)  # 4 units, 2 distinct → ratio exactly 0.5
+    assert v.state is AnswerShape.ANSWER_SHAPED
+
+
+def test_exactly_min_units_can_fire():
+    """Exactly _MIN_REPEAT_UNITS units is enough to fire (not just strictly more)."""
+    assert _answer_shape._MIN_REPEAT_UNITS == 4
+    pol = AnswerShapePolicy(max_repeat_ratio=0.5)
+    v = classify("a. a. a. a.", policy=pol)  # exactly 4 units, ratio 0.75 > 0.5
+    assert v.state is AnswerShape.NON_ANSWER
+
+
+def test_ceiling_counts_non_space_chars_not_raw_length():
+    """The ceiling tests non-space chars (symmetry with the floor); `.length` reports raw."""
+    pol = AnswerShapePolicy(max_viable_chars=10)
+    v = classify("hello" + " " * 100, policy=pol)  # 5 non-space chars, 105 raw
+    assert v.state is AnswerShape.ANSWER_SHAPED  # ceiling sees 5 ≤ 10, ships
+    assert v.length == 105                       # but length echoes the raw count
+
+
+def test_ceiling_beats_marker_in_order():
+    """The ceiling (checked before the markers) wins when both could disqualify."""
+    long_cot = "<thinking>a leaked reasoning block well over ten chars</thinking>"
+    pol = AnswerShapePolicy(max_viable_chars=10, non_answer_patterns=(r"<thinking>",))
+    v = classify(long_cot, policy=pol)
+    assert v.state is AnswerShape.NON_ANSWER
+    assert "ceiling" in v.reason  # the length disqualifier fired first; matched stays empty
+    assert v.matched == ""
+
+
+def test_ceiling_and_repeat_non_answers_round_trip_with_empty_matched():
+    """Both new disqualifier paths set matched='' (like the floor) — the to_dict contract."""
+    ceil_v = classify("this is over the budget", policy=AnswerShapePolicy(max_viable_chars=5))
+    rep_v = classify("Loop. Loop. Loop. Loop.", policy=AnswerShapePolicy(max_repeat_ratio=0.5))
+    for v in (ceil_v, rep_v):
+        d = v.to_dict()
+        assert d["state"] == "NON_ANSWER"
+        assert d["matched"] == ""
+        assert d["is_disqualified"] is True
+        assert d["is_shippable"] is False
+        assert d["reason"]
+
+
+# ---------------------------------------------------------------------------
 # Marker NON_ANSWER — the q_025 catch.
 # ---------------------------------------------------------------------------
 
@@ -334,6 +511,40 @@ def test_cli_min_chars_floor(tmp_path: Path):
     r = _run_cli("answer-shape", "--text", "ok", "--min-chars", "10", cwd=tmp_path)
     assert r.returncode == 3, r.stderr
     assert "NON_ANSWER" in r.stdout
+
+
+def test_cli_max_chars_ceiling(tmp_path: Path):
+    """`--max-chars` sets the verbosity ceiling — an over-budget output → NON_ANSWER (3)."""
+    r = _run_cli("answer-shape", "--text", "this is well over ten characters",
+                 "--max-chars", "10", cwd=tmp_path)
+    assert r.returncode == 3, r.stderr
+    assert "NON_ANSWER" in r.stdout
+
+
+def test_cli_max_chars_off_by_default(tmp_path: Path):
+    """With no --max-chars, a long answer still ships (the ceiling is off by default)."""
+    r = _run_cli("answer-shape", "--text", "A clear, complete, and rather long answer here.",
+                 cwd=tmp_path)
+    assert r.returncode == 0, r.stderr
+    assert "ANSWER_SHAPED" in r.stdout
+
+
+def test_cli_max_repeat_degeneration(tmp_path: Path):
+    """`--max-repeat` flags a degenerate loop → NON_ANSWER (3)."""
+    r = _run_cli("answer-shape", "--text",
+                 "Buy now. Buy now. Buy now. Buy now. Buy now.",
+                 "--max-repeat", "0.5", cwd=tmp_path)
+    assert r.returncode == 3, r.stderr
+    assert "NON_ANSWER" in r.stdout
+
+
+def test_cli_max_repeat_normal_answer_ships(tmp_path: Path):
+    """A normal answer under the degeneration cap ships (0)."""
+    r = _run_cli("answer-shape", "--text",
+                 "Revenue rose. Cloud led. Margins held. Guidance was raised.",
+                 "--max-repeat", "0.5", cwd=tmp_path)
+    assert r.returncode == 0, r.stderr
+    assert "ANSWER_SHAPED" in r.stdout
 
 
 def test_cli_non_answer_overlay_adds_to_default(tmp_path: Path):

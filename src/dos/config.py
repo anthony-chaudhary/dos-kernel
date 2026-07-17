@@ -51,6 +51,10 @@ from dos.improve import ImprovePolicy, DEFAULT_POLICY as DEFAULT_IMPROVE_POLICY
 from dos.productivity import ProductivityPolicy, DEFAULT_POLICY as DEFAULT_PRODUCTIVITY_POLICY
 from dos.efficiency_trend import TrendPolicy, DEFAULT_POLICY as DEFAULT_TREND_POLICY
 from dos.supervise import SupervisePolicy, DEFAULT_POLICY as DEFAULT_SUPERVISE_POLICY
+from dos.effect_kind import (
+    SpawnPressurePolicy,
+    GENERIC_SPAWN_PRESSURE_POLICY,
+)
 from dos.freshness import HeartbeatPolicy, EMPTY_HEARTBEAT_POLICY
 from dos.queue_saturation import (
     SaturationPolicy,
@@ -687,6 +691,7 @@ class SubstrateConfig:
     efficiency_trend: "TrendPolicy" = DEFAULT_TREND_POLICY
     lifecycle: "LifecyclePolicy" = GENERIC_LIFECYCLE
     supervise: "SupervisePolicy" = DEFAULT_SUPERVISE_POLICY
+    spawn_pressure: "SpawnPressurePolicy" = GENERIC_SPAWN_PRESSURE_POLICY
     # ``heartbeats`` is the **freshness seam** (the cron dead-man's switch): WHICH
     # always-on jobs a workspace expects to beat, how often, and how much jitter
     # slack to allow before a missed beat reads LATE/MISSING. `pulse` watches every
@@ -1051,23 +1056,13 @@ def _load_toml_table(path: Path | str, key: str) -> dict | None:
     identically on a missing/garbled config.
     """
     p = Path(path)
-    if not p.exists():
-        return None
-    try:
-        import tomllib  # py3.11+
-    except ModuleNotFoundError:  # pragma: no cover - py<3.11 fallback
-        try:
-            import tomli as tomllib  # type: ignore
-        except ModuleNotFoundError:
-            return None
-    # Read via `utf-8-sig` so a UTF-8 BOM is transparently stripped (it is a no-op
-    # when absent). PowerShell 5.1's `Set-Content -Encoding utf8` writes a BOM by
-    # default, and raw `tomllib.load(rb)` chokes on it ("Invalid statement at line
-    # 1") — which would silently demote a perfectly valid declared table to the
-    # base value (an additive-degradation-law violation: a present, well-formed
-    # table must NOT be silently dropped). `loads(read_text(utf-8-sig))` fixes it
-    # for both tomllib and tomli.
-    data = tomllib.loads(p.read_text(encoding="utf-8-sig"))
+    # ONE shared, mtime-keyed parse (`_tomlcache`): a missing file / unavailable
+    # `tomllib` degrade to {} (so `data.get(key)` is None -> the same "return None"
+    # as the old `p.exists()` / `except ModuleNotFoundError` branches), a malformed
+    # file's parse error still propagates (uncached), and the utf-8-sig BOM strip is
+    # preserved inside the helper. Collapses the per-layer re-read storm on dos.toml.
+    from dos._tomlcache import read_toml_cached
+    data = read_toml_cached(p)
     table = data.get(key)
     if not isinstance(table, dict) or not table:
         return None
@@ -1103,16 +1098,13 @@ def load_class_budgets_from_toml(
     ``base`` (additive degradation: no budgets = today's unbounded-per-kind behavior).
     Present-but-malformed → raise (via `ClassBudgets.from_table`)."""
     p = Path(path)
-    if not p.exists():
-        return base
-    try:
-        import tomllib  # py3.11+
-    except ModuleNotFoundError:  # pragma: no cover - py<3.11 fallback
-        try:
-            import tomli as tomllib  # type: ignore
-        except ModuleNotFoundError:
-            return base
-    data = tomllib.loads(p.read_text(encoding="utf-8-sig"))
+    # ONE shared, mtime-keyed parse (`_tomlcache`): a missing file / unavailable
+    # `tomllib` degrade to {} (so `data.get(...)` is None -> `if not arr: return base`,
+    # the same as the old `p.exists()` / `except` branches); a malformed file still
+    # raises (uncached). `[[concurrency_class]]` is a top-level ARRAY, so it is read
+    # off the raw parsed table here rather than via `_load_toml_table`.
+    from dos._tomlcache import read_toml_cached
+    data = read_toml_cached(p)
     arr = data.get("concurrency_class")
     if not arr:  # absent or empty → base (degrade)
         return base
@@ -1333,6 +1325,16 @@ def load_workspace_config(
         "supervise",
         lambda: _supervise.load_from_toml(toml_path, base=cfg.supervise),
         cfg.supervise))
+    # [spawn_pressure] — OVERRIDE the advisory per-holder SPAWN-effect burst
+    # thresholds. A present key changes the observation-window/count used by
+    # `dos decisions`; the fold only surfaces a row, it never denies a call or
+    # takes a lease. Malformed warns + keeps base, so a typo cannot manufacture
+    # a runaway-fan-out alarm.
+    from dos import effect_kind as _effect_kind
+    cfg = dataclasses.replace(cfg, spawn_pressure=_layer(
+        "spawn_pressure",
+        lambda: _effect_kind.load_from_toml(toml_path, base=cfg.spawn_pressure),
+        cfg.spawn_pressure))
     # [heartbeats] — DECLARE the always-on jobs whose freshness DOS watches (the
     # cron dead-man's switch): each job's expected cadence + the jitter-slack
     # factors. A present table adds the declared jobs; absent inherits the empty

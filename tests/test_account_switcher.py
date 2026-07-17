@@ -953,3 +953,142 @@ def test_merge_account_settings_malformed_existing_is_replaced(tmp_path):
     assert changed is True
     data = json.loads(path.read_text())  # now valid, carries the defaults
     assert data["model"] == "opus"
+
+
+# --------------------------------------------------------------------------- #
+# dedupe_by_identity — collapse phantom duplicate seats (same login bucket)
+# --------------------------------------------------------------------------- #
+def test_dedupe_collapses_same_oauth_token(tmp_path):
+    # Two seats, DIFFERENT dirs, IDENTICAL setup-token = one rate-limit bucket
+    # (a copied-login phantom). The second must be dropped.
+    a_dir, b_dir = tmp_path / "acct-a", tmp_path / "acct-b"
+    _enroll_token(a_dir, token="sk-ant-oat01-shared-bucket-xyz")
+    _enroll_token(b_dir, token="sk-ant-oat01-shared-bucket-xyz")
+    a, b = _acct("acct-a", a_dir), _acct("acct-b", b_dir)
+    out = sw.dedupe_by_identity([a, b])
+    assert [x.name for x in out] == ["acct-a"]  # first roster occurrence wins
+
+
+def test_dedupe_collapses_same_creds_access_token(tmp_path):
+    # Same login via .credentials.json (no setup-token) is also a duplicate.
+    a_dir, b_dir = tmp_path / "a", tmp_path / "b"
+    for d in (a_dir, b_dir):
+        d.mkdir(parents=True, exist_ok=True)
+        (d / ".credentials.json").write_text(
+            json.dumps({"claudeAiOauth": {"accessToken": "AT-same"}}), encoding="utf-8")
+    out = sw.dedupe_by_identity([_acct("a", a_dir), _acct("b", b_dir)])
+    assert [x.name for x in out] == ["a"]
+
+
+def test_dedupe_keeps_distinct_logins(tmp_path):
+    a_dir, b_dir = tmp_path / "a", tmp_path / "b"
+    _enroll_token(a_dir, token="sk-ant-oat01-aaaaaaaa")
+    _enroll_token(b_dir, token="sk-ant-oat01-bbbbbbbb")
+    out = sw.dedupe_by_identity([_acct("a", a_dir), _acct("b", b_dir)])
+    assert [x.name for x in out] == ["a", "b"]  # different buckets → both kept
+
+
+def test_dedupe_keeps_distinct_logins_sharing_a_stale_setup_token(tmp_path):
+    # Regression: two DISTINCT logins (different .credentials.json) that
+    # carried the SAME copied .oauth-token. Creds identity must win so they stay
+    # distinct — keying on the copyable token first would wrongly fuse two accounts.
+    a_dir, b_dir = tmp_path / "acct-a", tmp_path / "acct-b"
+    _enroll(a_dir)  # creds accessToken = "tok-acct-a"
+    _enroll(b_dir)  # creds accessToken = "tok-acct-b"
+    _enroll_token(a_dir, token="sk-ant-oat01-STALE-COPIED")  # same token, both
+    _enroll_token(b_dir, token="sk-ant-oat01-STALE-COPIED")
+    out = sw.dedupe_by_identity([_acct("acct-a", a_dir), _acct("acct-b", b_dir)])
+    assert [x.name for x in out] == ["acct-a", "acct-b"]  # both kept — distinct logins
+
+
+def test_dedupe_never_collapses_unidentifiable_seats(tmp_path):
+    # Neither dir carries a readable identity → each stays distinct (a read
+    # failure must never silently shrink the pool).
+    a, b = _acct("a", tmp_path / "a"), _acct("b", tmp_path / "b")  # no creds/token
+    out = sw.dedupe_by_identity([a, b])
+    assert [x.name for x in out] == ["a", "b"]
+
+
+def test_dedupe_excludes_phantom_at_load_roster(tmp_path):
+    # End-to-end: the duplicate is gone from the loaded roster (the Python host
+    # seam), so every downstream consumer (pool/seats/launch) sees only the first.
+    a_dir, b_dir = tmp_path / ".claude-acct-a", tmp_path / ".claude-acct-b"
+    _enroll_token(a_dir, token="sk-ant-oat01-shared")
+    _enroll_token(b_dir, token="sk-ant-oat01-shared")
+    roster = tmp_path / "roster.yaml"
+    roster.write_text(
+        "accounts:\n"
+        f"  - name: acct-a\n    config_dir: {a_dir}\n"
+        f"  - name: acct-b\n    config_dir: {b_dir}\n",
+        encoding="utf-8")
+    accounts, _policy = sw.load_roster(roster)
+    assert [a.name for a in accounts] == ["acct-a"]
+    # and the pinned ranking core still ranks whatever it is GIVEN, unchanged.
+    pool = sw.serving_pool(accounts, now_epoch=1.0)
+    assert [a.name for a in pool] == ["acct-a"]
+
+
+# --------------------------------------------------------------------------- #
+# remove_account — retire a seat (drop from roster + tombstone its dir)
+# --------------------------------------------------------------------------- #
+_REMOVE_ROSTER = """\
+# a roster
+accounts:
+  # keep this one
+  - name: keep-me
+    config_dir: {keep}
+  # the phantom dup to retire
+  - name: kill-me
+    config_dir: {kill}
+    email: dup@x
+rotation:
+  order: by_reset
+  near_cap_util: 0.9
+"""
+
+
+def _write_remove_roster(tmp_path):
+    keep_dir = tmp_path / ".claude-keep"
+    kill_dir = tmp_path / ".claude-kill"
+    keep_dir.mkdir(); kill_dir.mkdir()
+    roster = tmp_path / "roster.yaml"
+    roster.write_text(_REMOVE_ROSTER.format(keep=keep_dir, kill=kill_dir),
+                      encoding="utf-8")
+    return roster, keep_dir, kill_dir
+
+
+def test_remove_account_drops_block_and_tombstones_dir(tmp_path):
+    roster, keep_dir, kill_dir = _write_remove_roster(tmp_path)
+    res = sw.remove_account("kill-me", path=roster, date_str="2026-06-25")
+    assert res.removed_from_roster is True
+    assert res.renamed_to == str(kill_dir.parent / ".claude-kill.DELETED-2026-06-25")
+    assert (kill_dir.parent / ".claude-kill.DELETED-2026-06-25").is_dir()
+    assert not kill_dir.exists()
+    # roster: keep-me + ITS comment survive; kill-me + ITS comment are gone.
+    body = roster.read_text(encoding="utf-8")
+    assert "keep-me" in body and "# keep this one" in body
+    assert "kill-me" not in body and "phantom dup to retire" not in body
+    assert "near_cap_util: 0.9" in body  # policy untouched
+
+
+def test_remove_account_keep_dir_does_not_rename(tmp_path):
+    roster, _keep, kill_dir = _write_remove_roster(tmp_path)
+    res = sw.remove_account("kill-me", path=roster, rename_dir=False)
+    assert res.removed_from_roster is True
+    assert res.renamed_to is None
+    assert kill_dir.is_dir()  # left in place
+    assert "kill-me" not in roster.read_text(encoding="utf-8")
+
+
+def test_remove_account_unknown_name_raises(tmp_path):
+    roster, _keep, _kill = _write_remove_roster(tmp_path)
+    with pytest.raises(ValueError):
+        sw.remove_account("nope", path=roster)
+
+
+def test_remove_account_load_roster_after_remove(tmp_path):
+    # The dropped account must no longer load (the real point of removal).
+    roster, _keep, _kill = _write_remove_roster(tmp_path)
+    sw.remove_account("kill-me", path=roster, rename_dir=False)
+    accounts, _policy = sw.load_roster(roster)
+    assert [a.name for a in accounts] == ["keep-me"]

@@ -21,6 +21,7 @@ All pure — no real git, no real terminal (curses is faked / forced absent).
 from __future__ import annotations
 
 import builtins
+import dataclasses
 import json
 from pathlib import Path
 
@@ -30,7 +31,9 @@ import datetime as _dt
 
 from dos import decisions as D
 from dos import decisions_tui as T
+from dos import hook_observation as hobs
 from dos.config import default_config
+from dos.effect_kind import EffectKind, SpawnPressurePolicy
 
 
 # The seeded fixtures all stamp 2026-05-31 / 2026-06-02 timestamps. `collect_decisions`
@@ -1515,6 +1518,82 @@ class TestEnforceStormResolution:
         rows = D._from_enforce_storms(
             cfg_long, now=D._now(), live_holders=frozenset())
         assert rows[0].resolved is False
+
+
+# ---------------------------------------------------------------------------
+# Spawn fan-out bursts — per-holder advisory row over hook observations (#203).
+# ---------------------------------------------------------------------------
+
+
+def _spawn_pressure_cfg(tmp_path: Path, *, threshold=4, window_seconds=6 * 3600):
+    cfg = default_config(tmp_path)
+    return dataclasses.replace(
+        cfg,
+        spawn_pressure=SpawnPressurePolicy(
+            elevated_at=2,
+            storm_at=threshold,
+            window_seconds=window_seconds,
+        ),
+    )
+
+
+def _seed_spawn_observation(cfg, *, holder="H1", seq=1,
+                            ts="2026-06-02T10:00:00Z"):
+    hobs.append(
+        hobs.observation_entry(
+            "pretool",
+            "passthrough",
+            ts=ts,
+            holder=holder,
+            effect_kind=EffectKind.SPAWN.value,
+            run_id=f"RID-{holder}-{seq}",
+        ),
+        cfg=cfg,
+        debug=True,
+    )
+
+
+class TestSpawnFanoutBursts:
+    def test_threshold_spawns_from_one_holder_surface_one_advisory_row(self, tmp_path: Path):
+        cfg = _spawn_pressure_cfg(tmp_path, threshold=4)
+        for i in range(4):
+            _seed_spawn_observation(cfg, seq=i + 1)
+
+        rows = D.collect_decisions(cfg)
+
+        assert len(rows) == 1
+        d = rows[0]
+        assert d.kind.value == "SPAWN_FANOUT"
+        assert d.resolver_kind.value == "HUMAN"
+        assert d.dup_count == 4
+        assert "H1" in d.reason_text
+        assert "4 SPAWN-effect" in d.reason_text
+        assert "threshold 4" in d.reason_text
+        assert "advisory only: no deny, no lease" in d.evidence
+        assert D.next_steps(d, cfg) == [("c", "<copy selected command>")]
+
+    def test_one_below_threshold_raises_nothing(self, tmp_path: Path):
+        cfg = _spawn_pressure_cfg(tmp_path, threshold=4)
+        for i in range(3):
+            _seed_spawn_observation(cfg, seq=i + 1)
+
+        assert D.collect_decisions(cfg, resolver=None) == []
+
+    def test_two_holders_below_threshold_do_not_pool(self, tmp_path: Path):
+        cfg = _spawn_pressure_cfg(tmp_path, threshold=4)
+        for i in range(3):
+            _seed_spawn_observation(cfg, holder="H1", seq=i + 1)
+            _seed_spawn_observation(cfg, holder="H2", seq=i + 1)
+
+        assert D.collect_decisions(cfg, resolver=None) == []
+
+    def test_old_spawns_outside_window_do_not_count(self, tmp_path: Path):
+        cfg = _spawn_pressure_cfg(tmp_path, threshold=4, window_seconds=3600)
+        for i in range(4):
+            _seed_spawn_observation(
+                cfg, seq=i + 1, ts="2026-06-02T08:00:00Z")
+
+        assert D.collect_decisions(cfg, resolver=None) == []
 
 
 class TestResumeProposalsSurface:

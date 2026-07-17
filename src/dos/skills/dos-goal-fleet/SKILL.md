@@ -26,12 +26,14 @@ sibling skills:
   when many workers' results converge. Step 5 here is that fold, applied to the
   fleet's per-instance outcomes.
 
-The shape is domain-free: **decompose into independent goals → arbitrate
-co-launch safety → wave-launch one self-stopping child per goal → witness every
-claimed ship → roll up.** The *policy* (which lanes, which plan grammar, how the
-host rotates accounts, which model a child runs) is **data** read from `dos
-doctor --json` / `dos.toml` and from the host's own launch convention — never a
-literal this screenplay hardcodes. A shipped generic skill names no host (the
+The shape is domain-free: **decompose into independent goals → price the wave into
+its serial/concurrent partition → arbitrate co-launch safety → wave-launch one
+self-stopping child per goal → witness every claimed ship → roll up.** Pricing the
+partition is the **default first move**, not an optional optimization: concurrency is
+*earned* per disjoint tree, never assumed for the wave. The *policy* (which lanes,
+which plan grammar, how the host rotates accounts, which model a child runs) is
+**data** read from `dos doctor --json` / `dos.toml` and from the host's own launch
+convention — never a literal this screenplay hardcodes. A shipped generic skill names no host (the
 litmus); the host-specific launch verb is a seam you fill in Step 3.
 
 ## When to use this (and when not)
@@ -141,16 +143,27 @@ mkdir -p "$RUN_DIR"   # always mkdir -p BEFORE any `>` redirect, or the shell
 (`<host-scratch-root>` is the host's gitignored scratch dir, read from config or
 chosen by the operator — not a literal this skill names.)
 
-**Price the whole wave first (predictive — saves the wasted launches).** Before the
-per-child loop below, price the *entire* proposed partition at once: the wave's
-goals × their `expected_paths` is exactly a proposed fan-out, and pricing it up
-front tells you the collision graph and the maximal safe set to launch *before you
-spend a single launch* — instead of discovering a collision only when the K-th
-child's `arbitrate` refuses, after K−1 children already started. Run
-[`dos-plan-price`](../dos-plan-price/SKILL.md) on the wave; launch its `safe_now`
-set (or re-partition the colliders) this wave. The per-goal `arbitrate` below is
-still the unforgeable floor at acquire time — the price is the early-warning ahead
-of it, not a replacement.
+**Price the whole wave first — the default first move, not an optimization.** Before
+the per-child loop below, price the *entire* proposed partition at once and emit its
+**serial/concurrent split** — the three sets you then launch on: **(1) the concurrent
+set** (the maximal disjoint group that may co-launch this wave), **(2) the serialized
+colliders** (goals whose trees overlap a co-launched goal — held to a later wave,
+sequenced behind the goal they collide with), and **(3) the peer-blocked holds** (next
+paragraph). You compute this *before you spend a single launch*, instead of discovering
+a collision only when the K-th child's `arbitrate` refuses, after the earlier children
+already started. Run [`dos-plan-price`](../dos-plan-price/SKILL.md) on the wave; launch
+its `safe_now` set, sequence the colliders, hold the rest.
+
+**Fold in live peer WIP, not just in-fleet geometry.** The price is geometric over the
+*proposed* trees, but a shared tree has a second collision source the lease WAL may not
+show yet: a lane a peer is **actively editing right now** (uncommitted or untracked
+files under that lane). A goal whose tree overlaps live peer WIP is **hot** — hold or
+serialize it even when `dos arbitrate` would `acquire` (no lease is held) and the
+in-fleet geometry is disjoint. Read the working tree's dirty/untracked set per lane and
+treat a hot lane as a peer-blocked hold; co-launching into it risks cross-pollinating a
+peer's in-flight work. The per-goal `arbitrate` below is still the unforgeable floor at
+acquire time — the price (geometry **+** live-WIP) is the early-warning ahead of it,
+not a replacement.
 
 **Collision check — the load-bearing safety step.** Independent *goals* can still
 touch overlapping *files* if they ship code. Two same-wave children writing the
@@ -284,7 +297,9 @@ proves the child didn't quit early, NOT that work landed. So fold only the
 Write a one-screen rollup to `$RUN_DIR/rollup.md`: per instance — label, seat
 used, outcome (`met` / `blocked-with-reason` / `auth-failed` / `errored`), cost,
 and any **verified** ship SHA (the `dos verify` / `commit-audit` verdict, not the
-child's claim). Tally seats used to confirm the spread actually happened:
+child's claim). Also record, per goal, which price bucket it came from — concurrent /
+serialized-after / peer-blocked-hold — so the serial-vs-concurrent decision is
+auditable. Tally seats used to confirm the spread actually happened:
 
 ```bash
 grep -h seat "$RUN_DIR"/inst-*/seat.txt | sort | uniq -c
@@ -306,6 +321,10 @@ an outward-facing push.
 - ❌ Co-launching two shipping goals without `dos arbitrate`. Independent goals
   can still write the same files; arbitrate each child's tree before the wave and
   sequence the refusals (Step 2).
+- ❌ Launching the wave without first pricing it into its serial/concurrent
+  partition. Concurrency is the default only for the priced-disjoint set; colliders
+  are serialized and lanes with live peer WIP are held. Price first (Step 2), then
+  launch the concurrent set and sequence the rest.
 - ❌ Launching more concurrent instances than serving seats. That forces ≥2 onto
   one seat's window and defeats the load-balance; re-read the pool between waves.
 - ❌ Naming a specific runtime binary, model, effort flag, or account mechanism in

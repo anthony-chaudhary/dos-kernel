@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Standalone entry-point for `dos hook stop-failure` — StopFailure asyncRewake.
+"""Standalone entry-point for `dos hook stop-failure` — StopFailure notifier.
 
 Wired from .claude/settings.json (and claude-plugin/hooks/hooks.json) as:
 
@@ -11,10 +11,15 @@ repo).  The full logic lives in dos.cli.cmd_hook_stop_failure (backed by the
 pure dos.breaker + dos.stop_failure_sensor I/O layer); this file is the thin
 callable boundary so the settings path stays readable.
 
-Exit codes (the asyncRewake + kernel contract):
-  0 — no rewake: circuit OPEN, or --success (clean Stop), or non-retriable error
-  2 — rewake: TRANSIENT_OVERLOAD, circuit CLOSED; backoff elapsed; harness
-      appends stdout to the session's rewakeMessage and re-launches
+NOTE — this is a NOTIFIER, not a resumer. A StopFailure hook's output and exit
+code are ignored by the harness, so it can never re-launch the session. The
+harness retries transient walls itself (CLAUDE_CODE_MAX_RETRIES; set
+CLAUDE_CODE_RETRY_WATCHDOG=1 to retry 429/529 capacity errors indefinitely).
+This hook records the wall into the per-session breaker, attributes it to its
+seat, and escalates to the operator when the breaker OPENs. It always exits 0.
+The legacy `rate_limit_rewake` filename is kept so existing settings keep working.
+
+Exit code: always 0 (the StopFailure contract ignores it regardless).
 """
 import argparse
 import sys

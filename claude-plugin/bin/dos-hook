@@ -11,8 +11,8 @@
 # The FIRST arg is the hook verb (pretool|posttool|stop); the rest are flags
 # (--workspace ., etc.) passed through unchanged. The binary itself owns the
 # fallback for a verb it does not serve natively (it exits 3=DELEGATE and the
-# hooks.json `|| python -m dos.cli hook ...` runs Python), so this launcher only has
-# to find a binary for THIS arch — it does not need to know which verbs are native.
+# hooks.json fallback runs Python), so this launcher only has to find a binary for
+# THIS arch — it does not need to know which verbs are native.
 
 # Resolve the directory this launcher lives in (the plugin's bin/), POSIX-portable.
 SELF_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
@@ -42,22 +42,42 @@ ext=""
 [ "$goos" = windows ] && ext=".exe"
 bin="$SELF_DIR/dos-hook-$goos-$goarch$ext"
 
-if [ -x "$bin" ]; then
-  exec "$bin" "$@"
+if [ -f "$bin" ]; then
+  # Some plugin installers preserve the bytes but strip POSIX execute bits. Repair
+  # the mode in place when possible; if chmod is denied we still fall through to the
+  # Python/console-script backend rather than silently pretending the hook ran.
+  if [ ! -x "$bin" ]; then
+    chmod +x "$bin" 2>/dev/null || true
+  fi
+  if [ -x "$bin" ] || [ "$goos" = windows ]; then
+    "$bin" "$@"
+    rc=$?
+    # 3 is the native DELEGATE sentinel: let the Python backend decide this verb.
+    [ "$rc" -eq 3 ] || exit "$rc"
+  fi
 fi
 
 # No native binary for this arch (or not built) — fall back to the Python verb.
-# `exec` so the hook's exit code is Python's. The first arg is the verb; the rest
-# are the flags. A missing `python` makes `exec` fail, which the hooks.json `||`
-# would normally catch — but this launcher is itself behind that `||` only when it
-# is ABSENT (exit 127); when it is PRESENT it owns the fallback, so try python here
-# and, if THAT is missing too, exit 0 (the hook fail-safe: never break a turn).
+# The first arg is the verb; the rest are the flags. Prefer the installed `dos`
+# console script first: pipx/uvx wrappers carry the interpreter that can import
+# `dos`, while ambient `python`/`python3` often cannot. A backend that returns
+# non-zero did not serve the hook, so keep trying; the hook CLI itself emits host
+# decisions on stdout and exits 0.
 verb=$1
 [ $# -gt 0 ] && shift
-if command -v python >/dev/null 2>&1; then
-  exec python -m dos.cli hook "$verb" "$@"
-elif command -v python3 >/dev/null 2>&1; then
-  exec python3 -m dos.cli hook "$verb" "$@"
+if command -v dos >/dev/null 2>&1; then
+  dos hook "$verb" "$@"
+  [ "$?" -eq 0 ] && exit 0
 fi
-# Neither a native binary nor Python — emit nothing, exit 0 (fail-safe).
-exit 0
+if command -v python >/dev/null 2>&1; then
+  python -m dos.cli hook "$verb" "$@"
+  [ "$?" -eq 0 ] && exit 0
+fi
+if command -v python3 >/dev/null 2>&1; then
+  python3 -m dos.cli hook "$verb" "$@"
+  [ "$?" -eq 0 ] && exit 0
+fi
+
+# No backend served the hook. Return non-zero so hooks.json can try its outer
+# compatibility fallbacks and, if all fail, print the fail-open warning there.
+exit 127

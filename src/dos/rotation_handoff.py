@@ -1,13 +1,16 @@
-"""rotation_handoff — DOS's side of the asyncRewake env-override contract (docs/386 §4).
+"""rotation_handoff — DOS's durable StopFailure-to-SessionStart handoff (docs/386 §4).
 
-The "10x" account-switcher step is: on a rate-limit wall, **rotate to a serving seat
-and relaunch under it**, not just back off the same one. The kernel side is cheap
-(``serving_pool`` already answers "a different serving seat") and the per-seat failure
-attribution is landed (``account_ledger``). The blocker was always external: the harness
-``asyncRewake`` event carries an exit code + a ``rewakeMessage`` string and **no channel**
-to hand the relaunch a different seat's auth env (``CLAUDE_CONFIG_DIR`` / token). The only
-relaunch-time env channel the harness exposes is ``CLAUDE_ENV_FILE`` on a SessionStart-class
-event — not on the StopFailure/rewake itself.
+The "10x" account-switcher step is: on a rate-limit wall, **record the serving seat
+the next real SessionStart should use**, not just back off the same one. The kernel
+side is cheap (``serving_pool`` already answers "a different serving seat") and the
+per-seat failure attribution is landed (``account_ledger``). The blocker is the host
+boundary: a StopFailure hook cannot relaunch the session or pass a different seat's
+auth env (``CLAUDE_CONFIG_DIR`` / token) to the next attempt. Its output and exit code
+are ignored for that purpose, so StopFailure ``asyncRewake`` is not a resumption
+mechanism. Actual resumption is Claude Code's retry loop (``CLAUDE_CODE_MAX_RETRIES``,
+with ``CLAUDE_CODE_RETRY_WATCHDOG=1`` for sustained 429/529 capacity errors). The only
+env channel this module can target is ``CLAUDE_ENV_FILE`` on a real SessionStart-class
+event.
 
 So the rotation is a **two-phase handoff**, and this module is the durable record between
 the phases — the contract the two hooks share:
@@ -15,8 +18,8 @@ the phases — the contract the two hooks share:
   * **WRITE** (the StopFailure hook, on a wall): attribute the wall to the current seat,
     pick a serving seat to rotate to, build that seat's env-override via the resolved
     ``AccountAuthSpec`` (``spec.launch_env``), and persist it here keyed by session. This
-    is the COMPUTE half — all the rewake event itself can reach.
-  * **CONSUME** (the SessionStart applier, at the next relaunch boundary): read the pending
+    is the COMPUTE half — all the StopFailure boundary can reach.
+  * **CONSUME** (the SessionStart applier, at the next real SessionStart): read the pending
     handoff, append its env to ``CLAUDE_ENV_FILE`` (the one env channel that boundary
     exposes), and clear the record so it applies exactly once. This is the APPLY half.
 
@@ -28,13 +31,13 @@ reads back as "no handoff". The store is a single record per session (atomic rep
 latest wall wins), not an append-only log: only the most recent rotation matters, and a
 successful apply clears it.
 
-Honesty note (docs/386 §4): whether an ``asyncRewake`` itself fires a fresh SessionStart is
-a harness detail this module does not assume. If it does, the rotation applies on the
-rewake; if it does not, the handoff persists until the next genuine session start that
-exposes ``CLAUDE_ENV_FILE`` picks it up. Either way the rotation is COMPUTED + RECORDED the
-moment the wall is seen, and APPLIED at the first env-capable boundary — never silently
-dropped. The residual the harness still owns (an env channel on the rewake event proper)
-stays named in docs/386 §4, not papered over.
+Honesty note (docs/386 §4): there is no StopFailure rewake boundary for this module to
+rely on. If Claude Code retry/watchdog (or any later host start) produces a real
+SessionStart exposing ``CLAUDE_ENV_FILE``, the handoff applies then; otherwise it
+persists until the next genuine env-capable start. Either way the rotation is COMPUTED +
+RECORDED the moment the wall is seen, and APPLIED at the first env-capable boundary —
+never silently dropped. The residual the harness still owns (retry/start needs an env
+channel before SessionStart) stays named in docs/386 §4, not papered over.
 """
 from __future__ import annotations
 
@@ -53,9 +56,9 @@ _ROTATION = "rotation"
 
 @dataclass(frozen=True)
 class RotationHandoff:
-    """A pending seat rotation: the seat to relaunch under + its env-override.
+    """A pending seat rotation: the seat/env the next env-capable start should apply.
 
-      ``to_account``   — the serving seat the relaunch should run under (a roster label).
+      ``to_account``   — the serving seat the next attempt should run under (a roster label).
       ``env``          — the env-override that selects that seat (a flat str→str map the
                          ``AccountAuthSpec`` built, e.g. ``{CLAUDE_CONFIG_DIR, ...}``); the
                          APPLY phase writes these to ``CLAUDE_ENV_FILE``.
@@ -86,7 +89,7 @@ class RotationHandoff:
 
         Tolerant: a non-dict, an empty ``to_account``, or a non-dict ``env`` reads back
         as None (no handoff). The env is coerced to a flat str→str map defensively — a
-        relaunch env is always plain strings; anything else is dropped, never trusted."""
+        session-start env is always plain strings; anything else is dropped, never trusted."""
         if not isinstance(d, dict):
             return None
         to = str(d.get("to_account") or "").strip()
@@ -199,13 +202,13 @@ def consume_handoff(cfg, session_id: str) -> Optional[RotationHandoff]:
 def apply_to_env_file(handoff: RotationHandoff, env_file_path: str) -> bool:
     """Append the handoff's env-override to ``CLAUDE_ENV_FILE`` (``KEY=value`` lines).
 
-    The APPLY half: ``CLAUDE_ENV_FILE`` is the path the harness persists env vars to for a
-    relaunched session's subsequent commands (a SessionStart-class channel). One
-    ``KEY=value`` line per override is appended so the relaunch runs under the rotated
-    seat. Returns True on a write. Fail-soft: an empty env, no path, or any OS error
-    returns False — the applier must never break the session start over an env-file
-    fault. (Format note: ``KEY=value`` is the dotenv convention the harness reads; values
-    are written verbatim — a config-dir path is a single token to end-of-line.)"""
+    The APPLY half: ``CLAUDE_ENV_FILE`` is the path the harness persists env vars to at a
+    SessionStart-class boundary. One ``KEY=value`` line per override is appended so
+    commands after that start run under the rotated seat. Returns True on a write.
+    Fail-soft: an empty env, no path, or any OS error returns False — the applier must
+    never break the session start over an env-file fault. (Format note: ``KEY=value`` is
+    the dotenv convention the harness reads; values are written verbatim — a config-dir
+    path is a single token to end-of-line.)"""
     if not isinstance(handoff, RotationHandoff) or not handoff.env or not env_file_path:
         return False
     try:

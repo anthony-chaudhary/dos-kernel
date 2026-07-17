@@ -1695,20 +1695,21 @@ def cmd_review(args: argparse.Namespace) -> int:
     root = str(_config.active().paths.root)
     target = args.rev_range
     # An unreadable range is a contract error, distinct from an empty-but-valid
-    # one. `build_plan` calls `audit_range`, which returns [] for both; probe the
+    # one. `audit_range` returns [] for both; probe the
     # range's right side with a cheap rev-parse to tell them apart.
     if not _review_range_readable(target, root):
         print(f"review: cannot read range '{target}' in {root} "
               f"(not a git repo, or bad range)", file=sys.stderr)
         return _REVIEW_EXIT_CODES["contract_error"]
 
-    plan = _rr.build_plan(target, root=root)
+    plan = _review_build_plan(target, root)
 
     if getattr(args, "json", False):
         import json as _json
         print(_json.dumps(_rr.plan_to_dict(plan), indent=2))
     elif getattr(args, "walk", False):
-        print(_rr.render_walk(plan, root=root))
+        print(_rr.render_walk(plan, diffstats=_review_diffstats(
+            [it.sha for it in plan.residual], root)))
     else:
         print(_rr.render_text(plan))
 
@@ -1716,10 +1717,61 @@ def cmd_review(args: argparse.Namespace) -> int:
             else _REVIEW_EXIT_CODES["clean"])
 
 
+def _review_build_plan(target: str, root: str):
+    """Boundary read for `dos review`: audit commits, label subjects, project.
+
+    The projection itself lives in `dos.residual_review.plan_review` and is pure.
+    This CLI helper is where VCS evidence is gathered: commit-audit verdicts plus
+    subject labels for rendering. It recomputes no rung.
+    """
+    from dos import commit_audit as _ca
+    from dos import residual_review as _rr
+
+    verdicts = _ca.audit_range(target, root=root)
+    subjects = _review_subjects(target, root)
+    return _rr.plan_review(verdicts, target, subjects=subjects)
+
+
+def _review_subjects(rev_range: str, root: str, limit: int = 500) -> dict[str, str]:
+    """sha -> subject labels for `dos review`, gathered at the CLI boundary."""
+    from dos.vcs import active_vcs
+
+    lines = active_vcs(root=root).log_lines(
+        (f"-{int(limit)}", "--pretty=format:%H\x1f%s", rev_range))
+    if not lines:
+        return {}
+    out: dict[str, str] = {}
+    for line in lines:
+        if "\x1f" in line:
+            sha, subj = line.split("\x1f", 1)
+            out[sha.strip()] = subj
+    return out
+
+
+def _review_diffstats(shas: list[str], root: str) -> dict[str, str]:
+    """sha -> rendered per-file numstat for residual review cards."""
+    from dos.vcs import active_vcs
+
+    backend = active_vcs(root=root)
+    out: dict[str, str] = {}
+    for sha in shas:
+        deltas = backend.commit_diffstat(sha)
+        if not deltas:
+            continue
+        rows: list[str] = []
+        for d in deltas:
+            if d.added < 0 or d.removed < 0:
+                rows.append(f"{d.path} | bin")
+            else:
+                rows.append(f"{d.path} | +{d.added} -{d.removed}")
+        out[sha] = "\n".join(rows)
+    return out
+
+
 def _review_range_readable(target: str, root: str) -> bool:
     """True iff `target` is a readable git range/ref in `root`.
 
-    `build_plan`/`audit_range` return [] for both an empty-but-valid range and an
+    `audit_range` returns [] for both an empty-but-valid range and an
     unreadable one; `review` must distinguish them so a bad range is a contract
     error (exit 2), not a falsely-clean exit 0. `git rev-list` over the WHOLE
     range is the right probe — it fails (non-zero) on EITHER side being unknown,
@@ -2783,6 +2835,47 @@ def cmd_accounts(args: argparse.Namespace) -> int:
         print("rotation:")
         print("  order: by_reset")
         print("  near_cap_util: 0.9")
+        return 0
+
+    if verb == "remove":
+        # Retire a roster account so it is NEVER picked again — the inverse of
+        # enroll. The one-call fix for a phantom duplicate seat (same login as
+        # another account → one shared rate-limit bucket) that fail-opens to
+        # "serving" and is handed out as a dead seat. Drops the named account's
+        # block from the roster YAML (comment-preserving) and, unless
+        # --keep-dir, renames its config dir to a dated `.DELETED-<date>`
+        # tombstone so a later `scaffold` never re-detects it. WRITES disk (like
+        # enroll/sync), so it is an explicit operator verb, not part of any
+        # read-only fold.
+        name = getattr(args, "name", "")
+        try:
+            res = _sw.remove_account(
+                name,
+                path=getattr(args, "accounts_file", None),
+                rename_dir=not bool(getattr(args, "keep_dir", False)),
+            )
+        except ValueError as e:
+            return _fail(str(e),
+                         hint="run `dos accounts list` to see roster names")
+        if as_json:
+            print(json.dumps({
+                "name": res.name,
+                "roster_path": res.roster_path,
+                "removed_from_roster": res.removed_from_roster,
+                "config_dir": res.config_dir,
+                "renamed_to": res.renamed_to,
+            }, indent=2))
+            return 0
+        if res.removed_from_roster:
+            print(f"removed {name} from roster ({res.roster_path})")
+        else:
+            print(f"{name}: not present in roster body ({res.roster_path}) — "
+                  "nothing to drop")
+        if res.renamed_to:
+            print(f"  config dir tombstoned: {res.config_dir} -> {res.renamed_to}")
+        elif not getattr(args, "keep_dir", False):
+            print(f"  config dir left in place ({res.config_dir}) — "
+                  "missing or in use")
         return 0
 
     accounts, policy = _accounts_roster(args)
@@ -4254,6 +4347,10 @@ def cmd_answer_shape(args: argparse.Namespace) -> int:
     policy = answer_shape.AnswerShapePolicy(
         min_viable_chars=args.min_chars if args.min_chars is not None
         else base.min_viable_chars,
+        max_viable_chars=args.max_chars if args.max_chars is not None
+        else base.max_viable_chars,
+        max_repeat_ratio=args.max_repeat if args.max_repeat is not None
+        else base.max_repeat_ratio,
         non_answer_patterns=base.non_answer_patterns + extra_patterns,
         answer_markers=markers,
     )
@@ -4261,6 +4358,61 @@ def cmd_answer_shape(args: argparse.Namespace) -> int:
     verdict = answer_shape.classify(text, policy=policy)
 
     return _ANSWER_SHAPE_EXITS.emit(args, verdict, verdict.state.value)
+
+
+# ---------------------------------------------------------------------------
+# salience  (is this true thing LIVE, or true-but-PARKED out of the hotpath? docs/391)
+#   The prevent-silent-loss dual of `retire`: a thing can be perfectly TRUE and not
+#   currently useful (a bug off the default path); this verb PARKS it under a typed,
+#   RECOVERABLE reason instead of letting it be silently dropped. LIVE 0 / PARKED 3 /
+#   INDETERMINATE 4 / contract-error 2 — and PARKED never means delete.
+_SALIENCE_EXITS = ExitMap(
+    {"LIVE": 0, "PARKED": 3, "INDETERMINATE": 4},
+    unknown=5,  # a future verdict the CLI hasn't caught up to — non-zero, distinct.
+)
+_SALIENCE_EXIT_CODES = _SALIENCE_EXITS.codes
+_SALIENCE_EXIT_UNKNOWN = _SALIENCE_EXITS.unknown
+_SALIENCE_EXIT_CONTRACT_ERROR = _SALIENCE_EXITS.contract_error
+
+
+def cmd_salience(args: argparse.Namespace) -> int:
+    """Is this true thing LIVE, or true-but-PARKED (out of the hotpath, recoverable)? (docs/391, SAL).
+
+    Detail: docs/CLI.md § cmd_salience.
+    """
+    _apply_workspace(args)
+    from dos import salience
+
+    # Resolve the tri-state reachability / default-on bits from the exclusive flags:
+    # absent ⇒ None (unknown — never parks); a flag ⇒ the asserted bool.
+    reachable: "bool | None" = True if args.reachable else (False if args.unreachable else None)
+    default_on: "bool | None" = True if args.default_on else (False if args.default_off else None)
+
+    evidence = salience.SalienceEvidence(
+        label=(args.label or ""),
+        reachable=reachable,
+        default_on=default_on,
+        superseded=bool(args.superseded),
+        declared_reason=(args.reason or "").strip(),
+        contribution=args.contribution,
+        trials=(args.trials if args.trials is not None else 0),
+    )
+    # The generic policy arms the mechanical rungs; --min-trials/--min-contribution arm
+    # the MEASURED rung (off unless the host declares a trials floor — never guessed).
+    base = salience.GENERIC_SALIENCE_POLICY
+    policy = salience.SaliencePolicy(
+        park_unreachable=base.park_unreachable,
+        park_default_off=base.park_default_off,
+        park_superseded=base.park_superseded,
+        park_declared=base.park_declared,
+        min_contribution=args.min_contribution if args.min_contribution is not None
+        else base.min_contribution,
+        min_trials=args.min_trials if args.min_trials is not None else base.min_trials,
+    )
+
+    verdict = salience.classify(evidence, policy=policy)
+
+    return _SALIENCE_EXITS.emit(args, verdict, verdict.state.value)
 
 
 # ---------------------------------------------------------------------------
@@ -6692,6 +6844,8 @@ def cmd_hook_pretool(args: argparse.Namespace) -> int:
                              rung=str(outcome.get("rung") or ""),
                              reason_class=str(outcome.get("reason_class") or ""),
                              dialect=str(getattr(args, "dialect", None) or _default_dialect),
+                             holder=str(event.get("session_id") or ""),
+                             effect_kind=str(outcome.get("effect_kind") or ""),
                              tree_known=(bool(outcome["tree_known"])
                                          if "tree_known" in outcome else None),
                              **_posture_fields)
@@ -6773,10 +6927,25 @@ def _journal_pretool_outcome(event: dict, outcome: dict, cfg) -> None:
 
 
 # ---------------------------------------------------------------------------
-# hook stop-failure  (StopFailure asyncRewake — backoff retry on API failures)
+# hook stop-failure  (StopFailure notifier — attribute + escalate on API failures)
 # ---------------------------------------------------------------------------
-
-_STOP_FAILURE_BACKOFF_S: tuple = (30, 60, 120, 240, 300)  # cap at 5 min
+#
+# StopFailure fires when a turn ends due to an API error (overloaded / server /
+# rate-limit). Per the Claude Code hook contract its *output and exit code are
+# IGNORED* — a StopFailure hook can NEVER re-launch or resume the session. The
+# harness's own automatic retry (CLAUDE_CODE_MAX_RETRIES, default 10) is what
+# resumes a transient wall, and CLAUDE_CODE_RETRY_WATCHDOG=1 makes 429/529
+# capacity errors retry indefinitely. So this command does NOT sleep-and-rewake
+# (that was a false premise — the exit code is discarded). It does the part that
+# IS reachable from a StopFailure: record the failure into the per-session
+# breaker, attribute it to its seat, and escalate to the operator when the
+# breaker OPENS. Pure notifier; always exits 0.
+_RETRY_REMEDY_HINT = (
+    "Transient API walls are retried by the harness itself "
+    "(CLAUDE_CODE_MAX_RETRIES, default 10). For unattended sessions set "
+    "CLAUDE_CODE_RETRY_WATCHDOG=1 to retry 429/529 capacity errors "
+    "indefinitely instead of stopping at a manual prompt."
+)
 
 
 def _write_rotation_handoff(cfg, session_id: str, from_account: str, alt_acct) -> bool:
@@ -6809,14 +6978,15 @@ def _write_rotation_handoff(cfg, session_id: str, from_account: str, alt_acct) -
 def _stop_failure_seat_advice(event: dict, cfg, *, session_id: str, counts) -> "str | None":
     """Attribute a StopFailure to its seat + compute a rotation suggestion. Fail-soft.
 
-    On a transient API wall DOS backs off and the harness re-launches the SAME seat.
-    The 10x step — rotate to a serving account — needs an asyncRewake env-override
-    channel the harness does not yet expose (docs/386 §4), so this does the half that
-    IS reachable now: it ATTRIBUTES the failure to the seat the session ran on (the
-    per-account `failures` ledger) and COMPUTES a serving seat to rotate to, returning
-    a one-line suggestion to fold into the rewake message. The seat is read from the
-    event or the `CID_ACCOUNT` lineage env (caller-supplied — the kernel never derives
-    an account). Any error → None: a ledger/roster fault must NEVER break the rewake."""
+    On a transient API wall the harness retries the SAME seat (its own retry, or
+    CLAUDE_CODE_RETRY_WATCHDOG for capacity errors). The 10x step — rotate to a
+    serving account — needs an env-override channel the StopFailure event does not
+    expose (docs/386 §4), so this does the half that IS reachable now: it ATTRIBUTES
+    the failure to the seat the session ran on (the per-account `failures` ledger)
+    and COMPUTES a serving seat to rotate to, returning a one-line suggestion to fold
+    into the notifier's stdout. The seat is read from the event or the `CID_ACCOUNT`
+    lineage env (caller-supplied — the kernel never derives an account). Any error →
+    None: a ledger/roster fault must NEVER break the hook."""
     try:
         from dos import run_id as _run_id
         current = ((event.get("account") if isinstance(event, dict) else None)
@@ -6854,23 +7024,30 @@ def _stop_failure_seat_advice(event: dict, cfg, *, session_id: str, counts) -> "
 
 
 def cmd_hook_stop_failure(args: argparse.Namespace) -> int:
-    """A StopFailure asyncRewake hook: backoff-retry on transient API failures.
+    """A StopFailure notifier: attribute + escalate on transient API failures.
 
     The StopFailure companion to `dos hook stop`. Where `dos hook stop`
-    adjudicates a claimed ship, this command handles the session DYING before
-    it could ship — a transient API failure (rate limit, overload, network blip).
-    It is the kernel-generic answer to "what should DOS do when the harness
-    drops the session?":
+    adjudicates a claimed ship, this command observes the session ending on a
+    transient API failure (rate limit, overload, server error, network blip).
+
+    IMPORTANT — this hook does NOT resume the session. Per the Claude Code hook
+    contract a StopFailure hook's *output and exit code are ignored*, so it can
+    never re-launch a stopped turn (an earlier design slept-then-exited-2 to
+    "rewake" the session; the exit code is discarded, so that did nothing but
+    burn wall-clock). Resumption is the harness's own job: it auto-retries
+    transient walls (CLAUDE_CODE_MAX_RETRIES, default 10) before surfacing the
+    error, and CLAUDE_CODE_RETRY_WATCHDOG=1 retries 429/529 capacity errors
+    indefinitely. This command does the part a StopFailure CAN do:
 
       1. Read the StopFailure event JSON from STDIN ({session_id, cwd, …}).
       2. Load the session's persisted BreakerCounts from .dos/stop-failures/.
       3. Call breaker.record_failure() — PURE, stateless, kernel primitive.
       4. Persist the new counts so the next fire sees the accumulated state.
-      5. If the breaker OPENED: emit the escalation reason and exit 0 (no rewake;
-         the --on-trip=human flag queued the decision for the operator).
-      6. If the breaker is CLOSED: sleep (exponential backoff — consecutive-indexed
-         from _STOP_FAILURE_BACKOFF_S), print retry context to stdout (the harness
-         appends stdout to the rewakeMessage), and exit 2 (asyncRewake fires).
+      5. Attribute the wall to its seat (per-account ledger) + record it.
+      6. If the breaker OPENED: emit the escalation reason (the --on-trip=human
+         flag queued the decision for the operator).
+
+    Always exits 0 — it is a pure notifier, never a control point.
 
     --success inverts polarity: records a clean Stop (resets the consecutive
     counter via breaker.record_success), exits 0.  Wire this from the Stop hook
@@ -6879,25 +7056,19 @@ def cmd_hook_stop_failure(args: argparse.Namespace) -> int:
         "Stop": [{"hooks": [{"type":"command","shell":"bash",
             "command":"dos hook stop-failure --success --workspace . 2>/dev/null || true"}]}]
 
-    Wire the failure path from StopFailure (with asyncRewake in plugin hooks.json
-    or .claude/settings.json):
+    Wire the failure path from StopFailure (scoped to the transient-wall error
+    classes via the event matcher; no asyncRewake — it cannot rewake):
 
-        "StopFailure": [{"hooks": [{"type":"command","shell":"bash",
-            "asyncRewake":true,
-            "rewakeMessage":"Session resumed after API failure. DOS state:",
-            "rewakeSummary":"API-failure retry",
-            "command":"dos hook stop-failure --workspace .","timeout":320}]}]
+        "StopFailure": [{"matcher":"overloaded|server_error|rate_limit",
+            "hooks": [{"type":"command","shell":"bash",
+            "command":"dos hook stop-failure --workspace .","timeout":15}]}]
 
-    The whole contract (failure + success) fits one verb because the braker's
+    The whole contract (failure + success) fits one verb because the breaker's
     durable state (BreakerCounts in .dos/stop-failures/) is this module's
     only owned surface; there is no "stop-failure-success" sibling to drift.
 
-    Exit codes (the asyncRewake + kernel contract):
-      0 — no rewake: circuit OPEN, or --success mode
-      2 — rewake: circuit CLOSED, backoff elapsed
+    Exit code: always 0 (the StopFailure contract ignores it anyway).
     """
-    import time as _time
-
     from dos import breaker as _brk
     from dos import stop_failure_sensor as _sfs
 
@@ -6960,11 +7131,11 @@ def cmd_hook_stop_failure(args: argparse.Namespace) -> int:
 
     # 4b. Attribute the failure to its seat + compute a rotation suggestion (docs/386).
     #     Records to the per-account ledger regardless of the verdict; the suggestion
-    #     is surfaced only on a rewake (an OPEN breaker stops, so a rotation hint is moot).
+    #     is surfaced so the operator can rotate to a serving seat on the next launch.
     seat_advice = _stop_failure_seat_advice(
         event, cfg, session_id=session_id, counts=new_counts)
 
-    # 5. Circuit OPEN → emit reason, exit 0 (no rewake — operator handles it).
+    # 5. Circuit OPEN → emit the escalation reason (operator handles it).
     if verdict.is_open:
         print(
             f"dos breaker OPEN: {verdict.reason} "
@@ -6974,22 +7145,18 @@ def cmd_hook_stop_failure(args: argparse.Namespace) -> int:
         )
         return 0
 
-    # 6. Circuit CLOSED → backoff + exit 2 (asyncRewake).
-    idx = min(new_counts.consecutive - 1, len(_STOP_FAILURE_BACKOFF_S) - 1)
-    wait = _STOP_FAILURE_BACKOFF_S[idx]
-    _dbg(f"sleeping {wait}s before rewake")
-    _time.sleep(wait)
-
-    # Stdout is appended to rewakeMessage by the harness.
+    # 6. Circuit CLOSED → record + notify. The harness's own retry resumes the
+    #    session (this hook's exit code is ignored by the StopFailure contract);
+    #    we surface the count, the real remedy, and any seat rotation hint.
     msg = (
-        f"Retry #{new_counts.consecutive} after {wait}s backoff "
-        f"(circuit {new_counts.consecutive}/{policy.max_consecutive} consecutive). "
-        "Re-orient with `dos doctor --workspace .` then resume."
+        f"dos: API wall #{new_counts.consecutive} this session "
+        f"({new_counts.consecutive}/{policy.max_consecutive} consecutive before "
+        f"breaker OPEN). {_RETRY_REMEDY_HINT}"
     )
     if seat_advice:
         msg += " " + seat_advice
     print(msg, flush=True)
-    return 2  # asyncRewake fires
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -9873,6 +10040,10 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             findings.append(_f.line())
             if _f.severity is not _cl.Severity.INFO:
                 gating = True
+        _dead_tree_findings = _dead_lane_tree_glob_findings(cfg)
+        findings.extend(_dead_tree_findings)
+        if _dead_tree_findings:
+            gating = True
         # State-file health rail: flag a bloated execution-state file (the gap
         # where doctor reported the path but never whether it was healthy).
         _state_findings = _state_health_findings(cfg)
@@ -9952,6 +10123,8 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             # (target + reap posture) a skill/operator reads to discover how many
             # dispatch-loops `dos loop` keeps alive here without re-parsing dos.toml.
             "supervise": cfg.supervise.to_dict(),
+            # issue #203 — advisory per-holder SPAWN-effect burst thresholds.
+            "spawn_pressure": cfg.spawn_pressure.to_dict(),
             # The always-honest verifiability cold-open (machine form): how many of
             #   (full prose: docs/CLI.md § "The always-honest verifiability cold-open (machine form): ho")
             "verifiability": _verifiability_facts(cfg),
@@ -10332,6 +10505,7 @@ def _exit_code_contract() -> dict:
         "exec-capability": _EXEC_CAPABILITY_EXITS.contract(),
         "hook-exit": _HOOK_EXIT_EXITS.contract(),
         "answer-shape": _ANSWER_SHAPE_EXITS.contract(),
+        "salience": _SALIENCE_EXITS.contract(),
         "reward": _REWARD_EXITS.contract(),
         "test-witness": _TEST_WITNESS_EXITS.contract(),
         "resume": _RESUME_EXITS.contract(),
@@ -10928,6 +11102,71 @@ def _overlap_policy_names() -> list[str]:
 
 # NOTE (docs/227): the lane-integrity rails that used to live here as in-CLI helpers
 #   (full prose: docs/CLI.md § "NOTE (docs/227): the lane-integrity rails that used to live")
+
+
+def _lane_tree_glob_has_match(root: Path, pattern: str) -> bool:
+    """True iff a workspace-relative lane glob has an on-disk match or anchor.
+
+    This is deliberately a doctor-layer read, not `config_lint`: the pure linter
+    can judge declaration shape, but only the CLI boundary may ask the filesystem
+    whether a declared tree is stale. The fallback anchor uses the same
+    pre-wildcard prefix that the arbiter compares: an empty existing directory is
+    not a dead lane root, but a stale leading path segment is.
+    """
+    pat = str(pattern).strip()
+    if not pat:
+        return False
+    rel = pat.replace("\\", "/")
+    try:
+        # Lane trees are workspace-relative and documented with "/" separators.
+        # Normalize backslashes so a Windows-authored dos.toml still probes the
+        # same relative tree through pathlib's glob engine.
+        next(root.glob(rel))
+        return True
+    except (OSError, StopIteration, ValueError):
+        pass
+    except NotImplementedError:
+        return Path(pat).exists()
+
+    from dos._tree import norm_tree_prefix as _norm_tree_prefix
+
+    prefix = _norm_tree_prefix(rel)
+    if not prefix:
+        return root.exists()
+    return (root / prefix).exists()
+
+
+def _dead_lane_tree_glob_findings(cfg: _config.SubstrateConfig) -> list[str]:
+    """Filesystem-backed lane-tree health rail for `dos doctor --check`.
+
+    The config linter already catches an absent tree declaration. This catches
+    the present-but-empty case from issue #229: a glob exists in `[lanes.trees]`,
+    but it has no matching path or on-disk pre-glob anchor under the workspace
+    root, making arbitration over that declared region potentially vacuous.
+    """
+    findings: list[str] = []
+    root = cfg.paths.root
+    for lane in sorted(cfg.lanes.trees):
+        globs = [str(p) for p in cfg.lanes.trees.get(lane, ()) if str(p).strip()]
+        if not globs:
+            continue
+        dead: list[str] = []
+        for pat in globs:
+            if not _lane_tree_glob_has_match(root, pat):
+                dead.append(pat)
+                findings.append(
+                    f"[error] LANE_TREE_GLOB_DEAD {lane!r}: "
+                    f"[lanes.trees].{lane} glob {pat!r} has no matching path "
+                    f"or pre-glob anchor under the workspace root - fix the "
+                    f"glob or remove it from the lane"
+                )
+        if dead and len(dead) == len(globs):
+            findings.append(
+                f"[error] LANE_TREE_ALL_GLOBS_DEAD {lane!r}: every declared "
+                f"[lanes.trees].{lane} glob is dead on disk; arbitration over "
+                f"this lane is vacuous - fix at least one glob or drop the lane"
+            )
+    return findings
 
 
 def _state_health_findings(cfg: _config.SubstrateConfig) -> list[str]:
@@ -12190,13 +12429,46 @@ witnessed, yet the app shipped a 5,780-char reasoning log as its answer. The rul
   dos answer-shape --text "<thinking>let me reason…"     →  NON_ANSWER, exit 3
   echo "$draft" | dos answer-shape --text -              →  reads the candidate from stdin
 
+It also catches the OPPOSITE failures — the verbosity/drift end the floor can't see:
+`--max-chars N` is the symmetric ceiling (an output over the host's length budget is a
+runaway/padded dump → NON_ANSWER), and `--max-repeat R` is the degeneration cap (an
+output whose lines/sentences are mostly duplicates has collapsed into a loop → NON_ANSWER).
+Both default OFF — the host opts in; the kernel never guesses a length budget.
+
 THE BOUNDARY: this judges SHAPE, never CORRECTNESS. ANSWER_SHAPED means "shaped like an
 answer," NOT "a right answer" — the semantic question is a JUDGE/HUMAN's, and shape
 returns INDETERMINATE (the abstain floor) on anything it cannot decide. The markers are
 policy: `--non-answer RE,…` adds host disqualifiers ON TOP of the generic default,
-`--min-chars N` sets the viability floor, `--markers RE,…` requires a positive answer
-signature. PURE (no I/O, never raises). ADVISORY — it reports a shape; the consumer
-decides. The verdict IS the exit code: 0 ANSWER_SHAPED, 3 NON_ANSWER, 4 INDETERMINATE."""
+`--min-chars N` / `--max-chars N` set the viability floor/ceiling, `--max-repeat R` the
+degeneration cap, `--markers RE,…` requires a positive answer signature. PURE (no I/O,
+never raises). ADVISORY — it reports a shape; the consumer decides. The verdict IS the
+exit code: 0 ANSWER_SHAPED, 3 NON_ANSWER, 4 INDETERMINATE."""
+
+_HELP_SALIENCE = """is this TRUE thing LIVE, or true-but-PARKED out of the hotpath? prevent silent loss.
+
+USE THIS WHEN: you are about to DROP a true finding/claim/path/lesson because it is not
+useful right now — a real bug off the default execution path, a correct note about a
+feature behind a disabled flag, a lesson that still holds but no longer decides. Truth and
+usefulness are ORTHOGONAL; dropping a true thing as if it were false is silent loss, and
+it bites the day the path goes live. This verb converts the silent drop into a recorded,
+RECOVERABLE park under a typed reason — the keep-but-park dual of `retire` (which DROPS).
+
+  dos salience --label F12 --default-off      →  PARKED(NOT_IN_HOTPATH), exit 3
+  dos salience --label F12 --reachable         →  LIVE, exit 0
+  dos salience --label F12                      →  INDETERMINATE (no evidence), exit 4
+
+The park rungs (all RETAIN — PARKED ≠ delete): --superseded (a later thing replaces it),
+--unreachable (no path reaches it), --default-off (off the default path → NOT_IN_HOTPATH),
+--reason TEXT (a host's own typed park class), and the MEASURED rung --min-contribution F
+with --min-trials N (low contribution on enough trials → LOW_CONTRIBUTION; never parks on
+thin evidence). Assert the positive side with --reachable / --default-on / --contribution.
+
+THE BOUNDARY: this judges MECHANICAL/MEASURED salience, never semantic importance. LIVE
+means "no park-reason fired," NOT "this is important" — that is a JUDGE/HUMAN's call, and
+salience returns INDETERMINATE on anything it cannot decide. The fail-safe ALWAYS points
+at RETAIN: no state ever means delete; absence of evidence never parks. PURE (no I/O,
+never raises). ADVISORY — it reports a park; the consumer routes the hotpath. The verdict
+IS the exit code: 0 LIVE, 3 PARKED, 4 INDETERMINATE."""
 
 _HELP_GATE = """classify a /next-up packet into one typed gate verdict.
 
@@ -13498,6 +13770,17 @@ def build_parser() -> argparse.ArgumentParser:
                            "disqualifies on length). A non-empty output below it is a "
                            "NON_ANSWER stub. Length catches the empty end; the markers "
                            "catch the leaked-CoT end")
+    pash.add_argument("--max-chars", type=int, default=None, metavar="N",
+                      help="the verbosity ceiling (default 0 = off — the host declares "
+                           "its budget, the kernel never guesses). A non-empty output "
+                           "OVER it is a NON_ANSWER runaway/padded dump — the symmetric "
+                           "opposite of --min-chars. A SHAPE call, not correctness")
+    pash.add_argument("--max-repeat", type=float, default=None, metavar="R",
+                      help="the degeneration cap in [0,1) (default 0.0 = off). When set, "
+                           "an output whose repeated-unit fraction "
+                           "(non-distinct lines/sentences) exceeds R is a NON_ANSWER — "
+                           "the decode-loop/drift tell. e.g. 0.5 ⇒ over half the units "
+                           "are duplicates. Mechanically checkable; still a SHAPE call")
     pash.add_argument("--non-answer", default=None, metavar="RE,…",
                       help="extra disqualifying regexes (comma list) ADDED to the "
                            "generic cross-domain default, never replacing it. A hit "
@@ -13513,6 +13796,53 @@ def build_parser() -> argparse.ArgumentParser:
                            "is_shippable, is_disqualified, reason}")
     _add_output_flag(pash)
     pash.set_defaults(func=cmd_answer_shape)
+
+    # salience (docs/391) — is this TRUE thing LIVE or true-but-PARKED? the prevent-
+    #   silent-loss dual of `retire`: keep-but-park under a typed reason, never drop.
+    psal = sub.add_parser(
+        "salience",
+        help="is this TRUE thing LIVE or true-but-PARKED out of the hotpath "
+             "(LIVE/PARKED/INDETERMINATE)? prevent silent loss — PARKED ≠ delete",
+        description=_HELP_SALIENCE,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    _add_workspace_flags(psal)
+    psal.add_argument("--label", default=None, metavar="ID",
+                      help="the item being judged (a finding id, a symbol, a memory key); "
+                           "echoed back so a surfaced verdict self-joins")
+    _reach = psal.add_mutually_exclusive_group()
+    _reach.add_argument("--reachable", action="store_true",
+                        help="assert the item IS reached from a default entrypoint "
+                             "(a positive usefulness signal → LIVE if nothing parks it)")
+    _reach.add_argument("--unreachable", action="store_true",
+                        help="assert the item is NOT reachable at all → PARKED(UNREACHABLE). "
+                             "Absent both, reachability is unknown (never parks)")
+    _dflt = psal.add_mutually_exclusive_group()
+    _dflt.add_argument("--default-on", action="store_true",
+                       help="assert the item is on the DEFAULT path (a positive signal)")
+    _dflt.add_argument("--default-off", action="store_true",
+                       help="assert the item is OFF by default (behind a disabled flag / "
+                            "not on the default path) → PARKED(NOT_IN_HOTPATH) — the docs/391 case")
+    psal.add_argument("--superseded", action="store_true",
+                      help="a later thing replaces this one → PARKED(SUPERSEDED)")
+    psal.add_argument("--reason", default=None, metavar="CLASS",
+                      help="a host-declared typed park class (extends the generic set) → "
+                           "PARKED(that class). Read verbatim, honored first")
+    psal.add_argument("--contribution", type=float, default=None, metavar="F",
+                      help="the MEASURED net utility of the item (env-authored). Consulted "
+                           "only with --min-trials (the measured rung)")
+    psal.add_argument("--trials", type=int, default=None, metavar="N",
+                      help="how many measurements stand behind --contribution")
+    psal.add_argument("--min-contribution", type=float, default=None, metavar="F",
+                      help="the contribution floor: with --min-trials set, contribution "
+                           "below it on enough trials → PARKED(LOW_CONTRIBUTION)")
+    psal.add_argument("--min-trials", type=int, default=None, metavar="N",
+                      help="arm the MEASURED rung (off by default = 0): never park on "
+                           "fewer than N measurements (the thin-evidence floor)")
+    psal.add_argument("--json", action="store_true",
+                      help="machine-readable verdict {state, reason_class, is_live, "
+                           "is_parked, is_retained, label, reason}")
+    _add_output_flag(psal)
+    psal.set_defaults(func=cmd_salience)
 
     # reward (docs/230/234) — the lab on-ramp: may a fine-tune TRAIN on this
     #   (full prose: docs/CLI.md § "reward (docs/230/234) — the lab on-ramp: may a fine-tune TRA")
@@ -13922,6 +14252,18 @@ def build_parser() -> argparse.ArgumentParser:
     async_.add_argument("--dry-run", dest="dry_run", action="store_true",
                         help="preview the per-account merge without writing")
     async_.set_defaults(func=cmd_accounts)
+
+    aremove = accsub.add_parser(
+        "remove",
+        help="retire an account from the roster (drop it + tombstone its config "
+             "dir) so it is never picked again — the inverse of enroll")
+    _acc_common(aremove)
+    aremove.add_argument("--name", required=True,
+                         help="roster account name to remove")
+    aremove.add_argument("--keep-dir", dest="keep_dir", action="store_true",
+                         help="deactivate only: drop from the roster but do NOT "
+                              "rename the config dir to a .DELETED tombstone")
+    aremove.set_defaults(func=cmd_accounts)
 
     # scope-gate (docs/102 §5) — the BINDING pre-effect scope gate. Asks the same
     #   (full prose: docs/CLI.md § "scope-gate (docs/102 §5) — the BINDING pre-effect scope gate")
@@ -14477,20 +14819,22 @@ def build_parser() -> argparse.ArgumentParser:
 
     psf = hsub.add_parser(
         "stop-failure",
-        help="a StopFailure asyncRewake hook: backoff-retry on transient API "
-             "failures — the kernel-generic answer to a rate-limited session",
+        help="a StopFailure notifier: record + attribute + escalate on transient "
+             "API failures — the kernel-generic answer to a rate-limited session",
         description=(
             "Reads the host StopFailure event JSON on STDIN ({session_id, cwd, …}), "
             "loads the session's persisted dos.breaker counts from "
             ".dos/stop-failures/, records the failure (or --success for a clean "
-            "stop), and acts on the breaker verdict: OPEN → emit escalation reason, "
-            "exit 0 (no rewake, operator handles); CLOSED → sleep exponential "
-            "backoff, print retry context (appended to rewakeMessage by the harness), "
-            "exit 2 (asyncRewake fires). Wire the failure side from a StopFailure "
-            "hook with asyncRewake:true (timeout 320s); wire --success from the Stop "
-            "hook so the breaker heals after a clean session. Every failure mode "
-            "(no stdin, bad JSON, no session_id) degrades to exit 0 — the advisory "
-            "fail-safe shared by every dos hook command."),
+            "stop), attributes the wall to its seat, and on an OPEN breaker emits "
+            "the escalation reason. Always exits 0 — a StopFailure hook's output and "
+            "exit code are ignored by the harness, so it CANNOT resume the session; "
+            "resumption is the harness's own retry (CLAUDE_CODE_MAX_RETRIES; set "
+            "CLAUDE_CODE_RETRY_WATCHDOG=1 to retry 429/529 capacity errors "
+            "indefinitely). Wire the failure side from a StopFailure hook scoped to "
+            "the transient-wall classes (matcher overloaded|server_error|rate_limit); "
+            "wire --success from the Stop hook so the breaker heals after a clean "
+            "session. Every failure mode (no stdin, bad JSON, no session_id) also "
+            "degrades to exit 0 — the advisory fail-safe shared by every dos hook."),
         formatter_class=argparse.RawDescriptionHelpFormatter)
     _add_workspace_flags(psf)
     psf.add_argument("--session-id", dest="session_id", default=None,
@@ -14505,8 +14849,8 @@ def build_parser() -> argparse.ArgumentParser:
     psf.add_argument("--max-total", dest="max_total", type=int, default=None,
                      help="open the circuit after N total failures (default 50)")
     psf.add_argument("--debug", action="store_true",
-                     help="print diagnostics to STDERR (stdout stays exclusively "
-                          "the asyncRewake context or empty)")
+                     help="print diagnostics to STDERR (stdout stays the operator "
+                          "notification line or empty)")
     psf.set_defaults(func=cmd_hook_stop_failure)
 
     plr = hsub.add_parser(
@@ -15248,7 +15592,8 @@ def build_parser() -> argparse.ArgumentParser:
     pd.add_argument("--check", action="store_true",
                     help="run completeness checks (a declared [stamp] that matches "
                          "none of this repo's ship-shaped commits; a lane declared "
-                         "without a [lanes.trees] entry); exit 1 if any finding fires")
+                         "without a [lanes.trees] entry; a [lanes.trees] glob that "
+                         "matches no on-disk path); exit 1 if any finding fires")
     pd.add_argument("--wiring", action="store_true",
                     help="re-check that the DOS hooks are still installed in each "
                          "runtime's config (the provision --verify drift check, "

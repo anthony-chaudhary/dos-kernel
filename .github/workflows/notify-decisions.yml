@@ -1,0 +1,64 @@
+name: notify-decisions
+
+# Recurring delivery for the operator decisions queue.
+#
+# The kernel intentionally has no daemon: the host supplies cadence. This workflow
+# is the durable GitHub Actions cadence for issue #22. With no credentials it runs
+# a null dry-run canary. Configure a notifier and endpoint/channel to turn the same
+# scheduled tick into real delivery.
+#
+# Variables:
+#   DOS_NOTIFY_DECISIONS_NOTIFIER   null, webhook, slack, whatsapp, or a plugin name.
+#                                  Unset means null plus --dry-run.
+#   DOS_NOTIFY_DECISIONS_CHANNEL    Slack channel name/id or transport channel.
+#   DOS_NOTIFY_DECISIONS_DRY_RUN    true keeps a real notifier non-sending.
+#   DOS_NOTIFY_DECISIONS_TOP        number of ranked rows to include. Default 5.
+#   DOS_NOTIFY_DECISIONS_ALL        true includes ORACLE/JUDGE rows, not only HUMAN.
+#
+# Secrets:
+#   DOS_NOTIFY_DECISIONS_URL        webhook endpoint URL, when the transport needs it.
+#   DOS_NOTIFY_DECISIONS_TOKEN      bearer token for webhook-style transports.
+#   SLACK_BOT_TOKEN                 token used by the slack notifier.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "19 */2 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: notify-decisions-${{ github.event_name }}
+  cancel-in-progress: false
+
+jobs:
+  notify-decisions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install DOS with notification transports
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[notify-slack]"
+
+      - name: Deliver the decisions digest
+        shell: bash
+        env:
+          DOS_NOTIFY_DECISIONS_NOTIFIER: ${{ vars.DOS_NOTIFY_DECISIONS_NOTIFIER }}
+          DOS_NOTIFY_DECISIONS_CHANNEL: ${{ vars.DOS_NOTIFY_DECISIONS_CHANNEL }}
+          DOS_NOTIFY_DECISIONS_DRY_RUN: ${{ vars.DOS_NOTIFY_DECISIONS_DRY_RUN }}
+          DOS_NOTIFY_DECISIONS_TOP: ${{ vars.DOS_NOTIFY_DECISIONS_TOP }}
+          DOS_NOTIFY_DECISIONS_ALL: ${{ vars.DOS_NOTIFY_DECISIONS_ALL }}
+          DOS_NOTIFY_DECISIONS_URL: ${{ secrets.DOS_NOTIFY_DECISIONS_URL }}
+          DOS_NOTIFY_DECISIONS_TOKEN: ${{ secrets.DOS_NOTIFY_DECISIONS_TOKEN }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        run: |
+          python scripts/notify_decisions_cadence.py --workspace .

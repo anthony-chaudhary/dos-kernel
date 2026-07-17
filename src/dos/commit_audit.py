@@ -127,6 +127,35 @@ _CODE_VERBS = (
     "optimise", "refactor", "rename", "move", "support", "handle", "resolve",
     "resolves", "patch", "correct", "introduce", "enable", "disable", "drop",
     "migrate", "upgrade", "downgrade", "wire", "hook",
+    # Descriptive effect verbs a house commit style reaches for when the generic
+    # "add/fix" undersells the change. Each names a concrete behavioral effect on
+    # code, so a leading one is as checkable a CODE_EFFECT claim as "add" -- and the
+    # diff still has to back it (an empty/doc-only commit leading with one still
+    # grades unwitnessed). Without these, a real diff-backed `feat(x): expose Y` /
+    # `extract Y into a registry` ABSTAINs as NO_CLAIM, and a closure auditor that
+    # treats ABSTAIN as not-witnessed mis-buckets a genuinely-shipped fix. Verbs
+    # only -- polysemous noun forms (a bare "surface"/"floor") are admitted because
+    # `_leading_words` requires the word to LEAD the type or scoped message, where
+    # it reads as the verb ("surface the dropped count"), never as a trailing noun.
+    "expose", "exposes", "exposed", "surface", "surfaces", "surfaced",
+    "extract", "extracts", "extracted", "enforce", "enforces", "enforced",
+    "declare", "declares", "declared", "derive", "derives", "derived",
+    "carry", "carries", "carried", "splice", "splices", "spliced",
+    "attribute", "attributes", "attributed", "reserve", "reserves", "reserved",
+    "consume", "consumes", "consumed", "route", "routes", "routed",
+    "forward", "forwards", "forwarded", "feed", "feeds", "fed",
+    "accumulate", "accumulates", "accumulated", "memoize", "memoizes", "memoized",
+    "synthesize", "synthesizes", "synthesized", "bind", "binds", "bound",
+    "ground", "grounds", "grounded", "price", "prices", "priced",
+    "fold", "folds", "folded", "arm", "arms", "armed",
+    "publish", "publishes", "published", "show", "shows", "showed",
+    "standardize", "standardizes", "standardized", "unify", "unifies", "unified",
+    "invert", "inverts", "inverted", "refresh", "refreshes", "refreshed",
+    "require", "requires", "required", "reset", "resets",
+    "warm", "warms", "warmed", "bridge", "bridges", "bridged",
+    "floor", "floors", "floored", "drive", "drives", "drove", "driven",
+    "refuse", "refuses", "refused", "land", "lands", "landed",
+    "dequant", "dequantize", "dequantizes", "author", "authors", "authored",
 )
 # Verbs/markers that claim TESTS specifically.
 _TEST_MARKERS = (

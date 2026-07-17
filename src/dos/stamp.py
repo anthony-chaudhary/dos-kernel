@@ -269,6 +269,15 @@ class StampConvention:
           instead (`trailer_ship_core`). The trailer is exactly as forgeable as
           the start-anchored subject, so the rung grades `grep-subject` like
           the direct rung it mirrors.
+      issue_leaf_stamp
+          Whether a subject carrying BOTH a ``(#<issue>)`` cite and a
+          ``(<ns> <leaf>)`` named trailer counts as a direct ship of
+          ``(plan=<leaf>, phase=<issue>)`` (fak #3132). The split-paren
+          Conventional-Commits shape: ``fix(gateway): … (#2911) (fak tools)``
+          verifies as ``dos verify tools 2911`` — plan is the trailer's LEAF
+          token, phase the all-digits issue number. Opt-in (default ``False``)
+          so no other workspace's grammar widens; graded `grep-subject` like
+          the trailer rung it mirrors (agent-authored subject text).
     """
 
     subject_dirs: tuple[str, ...] = ()
@@ -281,6 +290,7 @@ class StampConvention:
     progress_markers: tuple[str, ...] = ()
     sub_phase_parent_fallback: bool = False
     trailer_stamp: bool = False
+    issue_leaf_stamp: bool = False
 
     # -- serialization (crosses the grep-rung subprocess boundary) ----------
     def to_dict(self) -> dict:
@@ -306,6 +316,7 @@ class StampConvention:
             "progress_markers": list(self.progress_markers),
             "sub_phase_parent_fallback": self.sub_phase_parent_fallback,
             "trailer_stamp": self.trailer_stamp,
+            "issue_leaf_stamp": self.issue_leaf_stamp,
         }
 
     @classmethod
@@ -324,6 +335,7 @@ class StampConvention:
             progress_markers=tuple(data.get("progress_markers", ()) or ()),
             sub_phase_parent_fallback=bool(data.get("sub_phase_parent_fallback", False)),
             trailer_stamp=bool(data.get("trailer_stamp", False)),
+            issue_leaf_stamp=bool(data.get("issue_leaf_stamp", False)),
         )
 
     # -- the three regex fragments the grep rung interpolates ---------------
@@ -694,6 +706,17 @@ class StampConvention:
         trailer = self.trailer_ship_core(trailer_series_ph, phase_ph)
         if trailer and re.search(trailer, s, re.IGNORECASE):
             return True
+        if getattr(self, "issue_leaf_stamp", False):
+            # A ship stamped as a `(#<issue>)` cite + a `(<ns> <leaf>)` named
+            # trailer (fak #3132) — Conventional-Commits repos carrying the
+            # unit of work split across two parens: the GH issue number is the
+            # phase, the trailer's leaf token the plan (`… (#2911) (fak
+            # tools)` ↔ `dos verify tools 2911`). Both operands are required:
+            # the bare cite alone is a reference, the bare named trailer alone
+            # already has its own recurrence-guarded surface
+            # (`named_trailer_ship_subjects`).
+            if re.search(r"\(\s*#\d+\b", s) and _NAMED_TRAILER_RE.search(s):
+                return True
         return False
 
 
@@ -965,7 +988,9 @@ GENERIC_STAMP_CONVENTION = StampConvention(
 # is declared. This probe only widens what the completeness rail / verifiability
 # headline can SEE as ship-shaped, so a trailer-stamping repo is told to declare
 # the flag instead of being told it has nothing checkable.
-_GENERIC_TRAILER_PROBE = StampConvention(style="grep", trailer_stamp=True)
+_GENERIC_TRAILER_PROBE = StampConvention(
+    style="grep", trailer_stamp=True, issue_leaf_stamp=True
+)
 
 
 # ---------------------------------------------------------------------------
@@ -1036,6 +1061,7 @@ def convention_from_table(
         "style", "subject_dirs", "summary_bundle_prefixes", "bookkeeping_prefixes",
         "code_dirs", "infra_basenames", "infra_doc_basenames",
         "progress_markers", "sub_phase_parent_fallback", "trailer_stamp",
+        "issue_leaf_stamp",
     }
     unknown = set(table) - known
     if unknown:
@@ -1066,6 +1092,14 @@ def convention_from_table(
                 f"{type(table['trailer_stamp']).__name__}"
             )
         trailer = table["trailer_stamp"]
+    issue_leaf = base.issue_leaf_stamp
+    if "issue_leaf_stamp" in table:
+        if not isinstance(table["issue_leaf_stamp"], bool):
+            raise ValueError(
+                "[stamp].issue_leaf_stamp must be a boolean, got "
+                f"{type(table['issue_leaf_stamp']).__name__}"
+            )
+        issue_leaf = table["issue_leaf_stamp"]
     return StampConvention(
         subject_dirs=(
             _str_tuple(table["subject_dirs"], "subject_dirs")
@@ -1105,6 +1139,7 @@ def convention_from_table(
         ),
         sub_phase_parent_fallback=sub_phase,
         trailer_stamp=trailer,
+        issue_leaf_stamp=issue_leaf,
     )
 
 
@@ -1123,17 +1158,12 @@ def load_from_toml(
     p = Path(path)
     if not p.exists():
         return base
-    try:
-        import tomllib  # py3.11+
-    except ModuleNotFoundError:  # pragma: no cover - py<3.11 fallback
-        try:
-            import tomli as tomllib  # type: ignore
-        except ModuleNotFoundError:
-            return base
-    # `utf-8-sig` transparently strips a UTF-8 BOM (PowerShell's default `utf8`
-    # encoding writes one; raw `tomllib.load(rb)` chokes on it and would silently
-    # drop a valid declared table — see the same fix in `config._load_toml_table`).
-    data = tomllib.loads(p.read_text(encoding="utf-8-sig"))
+    # ONE shared, mtime-keyed parse (`_tomlcache`) - collapses the per-config-layer
+    # re-read/re-parse storm on `dos.toml`. A malformed file still raises here
+    # (uncached), so the caller's existing handling is unchanged; the missing-file
+    # guard above is untouched. The utf-8-sig BOM strip lives inside the helper.
+    from dos._tomlcache import read_toml_cached
+    data = read_toml_cached(p)
     table = data.get("stamp")
     if not isinstance(table, dict) or not table:
         return base

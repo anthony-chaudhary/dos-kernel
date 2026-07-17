@@ -30,6 +30,8 @@ from dos.effect_kind import (
     SpawnPressurePolicy,
     classify_spawn_pressure,
     count_spawns_per_holder,
+    load_from_toml,
+    policy_from_table,
     spawn_storm_holders,
     GENERIC_SPAWN_PRESSURE_POLICY,
 )
@@ -68,6 +70,34 @@ def test_spawn_pressure_policy_validates():
         SpawnPressurePolicy(elevated_at=0, storm_at=10)
     with pytest.raises(ValueError):
         SpawnPressurePolicy(elevated_at=10, storm_at=5)
+    with pytest.raises(ValueError):
+        SpawnPressurePolicy(elevated_at=2, storm_at=10, window_seconds=0)
+
+
+def test_spawn_pressure_policy_from_table_overrides_threshold_and_window():
+    p = policy_from_table({"storm_at": 4, "window_hours": 12})
+    assert p.elevated_at == 4
+    assert p.storm_at == 4
+    assert p.window_seconds == 12 * 60 * 60
+
+
+def test_spawn_pressure_load_from_toml(tmp_path):
+    toml = tmp_path / "dos.toml"
+    toml.write_text("[spawn_pressure]\nstorm_at = 9\nwindow_seconds = 30\n",
+                    encoding="utf-8")
+    p = load_from_toml(toml)
+    assert p.storm_at == 9
+    assert p.window_seconds == 30
+
+
+def test_workspace_config_reads_spawn_pressure_table(tmp_path):
+    toml = tmp_path / "dos.toml"
+    toml.write_text("[spawn_pressure]\nstorm_at = 9\nwindow_seconds = 30\n",
+                    encoding="utf-8")
+    base = _config.default_config(tmp_path)
+    cfg = _config.load_workspace_config(tmp_path, base=base)
+    assert cfg.spawn_pressure.storm_at == 9
+    assert cfg.spawn_pressure.window_seconds == 30
 
 
 def test_count_spawns_per_holder_counts_only_spawns():

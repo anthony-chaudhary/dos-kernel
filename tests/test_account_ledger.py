@@ -167,7 +167,10 @@ def _two_seat_roster(tmp_path, *names) -> Path:
     for n in names:
         d = tmp_path / n
         d.mkdir(parents=True, exist_ok=True)
-        (d / ".oauth-token").write_text("sk-ant-oat01-fake\n", encoding="utf-8")  # enrolled
+        # DISTINCT token per seat: real accounts never share a setup-token, and the
+        # roster loader now collapses same-login phantom duplicates (a copied token
+        # would fuse two seats into one — see dedupe_by_identity).
+        (d / ".oauth-token").write_text(f"sk-ant-oat01-fake-{n}\n", encoding="utf-8")  # enrolled
         lines.append(f"  - name: {n}")
         lines.append(f"    config_dir: '{d}'")
     f = tmp_path / "roster.yaml"

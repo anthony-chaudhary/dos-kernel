@@ -125,6 +125,8 @@ def observation_entry(
     dialect: str = "",
     posture: str = "",
     surface: str = "",
+    holder: str = "",
+    effect_kind: str = "",
     tree_known: Optional[bool] = None,
     stream_state: str = "",
     marker_count: int = 0,
@@ -180,6 +182,10 @@ def observation_entry(
         e["posture"] = posture
     if surface:
         e["surface"] = surface
+    if holder:
+        e["holder"] = holder
+    if effect_kind:
+        e["effect_kind"] = effect_kind
     if tree_known is not None:
         e["tree_known"] = bool(tree_known)
     if stream_state:

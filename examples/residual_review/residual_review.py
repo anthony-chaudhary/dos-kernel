@@ -3,9 +3,9 @@
 
 This example is now a THIN SHELL over the shipped kernel module
 `dos.residual_review` (issue #211): the three-band projection it pioneered was
-promoted to a first-class `dos review` verb + `dos_review` MCP tool. Re-import
-the kernel — recompute NOTHING — so the example and the verb are byte-for-byte
-the same surface, and the example can never drift from what ships.
+promoted to a first-class `dos review` verb + `dos_review` MCP tool. The example
+does only boundary reads (`commit_audit.audit_range`, subjects, diffstats), then
+hands those bytes to the kernel projection — it recomputes no rung.
 
 The whole point of the surface: a reviewer today reads every changed line with
 roughly equal attention, but for a large fraction of those lines the kernel
@@ -28,19 +28,19 @@ import argparse
 import json
 import sys
 
+from dos.commit_audit import audit_range
+from dos.vcs import active_vcs
+
 # Re-export the SHIPPED kernel surface — the example recomputes no rung. Names
 # kept stable so the example's own tests (and any downstream importer) still
-# resolve `plan_review`, `build_plan`, `render_walk`, `ReviewPlan`, `_subjects`.
+# resolve `plan_review`, `render_walk`, `ReviewPlan`.
 from dos.residual_review import (  # noqa: F401  (re-exported for the example API)
     RISK_SURFACES,
     ReviewItem,
     ReviewPlan,
     _all_files,
-    _commit_diffstat,
     _risk_reasons,
     _short,
-    _subjects,
-    build_plan,
     plan_review,
     plan_to_dict,
     render_text,
@@ -50,6 +50,44 @@ from dos.residual_review import (  # noqa: F401  (re-exported for the example AP
 # Back-compat alias: the example historically exposed `_plan_to_dict`. The kernel
 # promoted it to the public `plan_to_dict`; keep the old name working.
 _plan_to_dict = plan_to_dict
+
+
+def _subjects(rev_range: str, root: str, limit: int = 500) -> dict[str, str]:
+    """sha -> subject labels. Example/CLI boundary I/O; empty on failure."""
+    lines = active_vcs(root=root).log_lines(
+        (f"-{int(limit)}", "--pretty=format:%H\x1f%s", rev_range))
+    if not lines:
+        return {}
+    out: dict[str, str] = {}
+    for line in lines:
+        if "\x1f" in line:
+            sha, subj = line.split("\x1f", 1)
+            out[sha.strip()] = subj
+    return out
+
+
+def build_plan(rev_range: str, root: str = ".") -> ReviewPlan:
+    """Boundary pipeline for the example: audit commits, then project purely."""
+    verdicts = audit_range(rev_range, root=root)
+    return plan_review(verdicts, rev_range, subjects=_subjects(rev_range, root))
+
+
+def _commit_diffstat(sha: str, root: str) -> str:
+    """Rendered numstat for one review card. Example boundary I/O."""
+    deltas = active_vcs(root=root).commit_diffstat(sha)
+    if not deltas:
+        return ""
+    rows: list[str] = []
+    for d in deltas:
+        if d.added < 0 or d.removed < 0:
+            rows.append(f"{d.path} | bin")
+        else:
+            rows.append(f"{d.path} | +{d.added} -{d.removed}")
+    return "\n".join(rows)
+
+
+def _diffstats_for_plan(plan: ReviewPlan, root: str) -> dict[str, str]:
+    return {it.sha: _commit_diffstat(it.sha, root) for it in plan.residual}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -68,7 +106,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.json:
         print(json.dumps(plan_to_dict(plan), indent=2))
     elif args.walk:
-        print(render_walk(plan, root=args.root))
+        print(render_walk(plan, diffstats=_diffstats_for_plan(plan, args.root)))
     else:
         print(render_text(plan))
     # Exit code mirrors commit-audit's CI convention: non-zero iff there is a

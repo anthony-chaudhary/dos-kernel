@@ -767,6 +767,29 @@ replacing the default), and `--min-chars N` sets the viability floor. `--markers
 RE,…` opts a strict host into positive-evidence-required (a non-trivial text
 matching none of them is INDETERMINATE, not ANSWER_SHAPED).
 
+The SAME shape guard also catches the OPPOSITE failures — the verbosity/drift end
+the floor and the markers can't see:
+
+  * `--max-chars N` is the SYMMETRIC ceiling. A non-empty output OVER the host's
+    length budget is a runaway/padded dump → NON_ANSWER. Default `0` = off (the
+    "ceiling fixed by the source, never inferred from content" rule, docs/156 §3.2:
+    the host declares its budget, the kernel never guesses one).
+  * `--max-repeat R` is the DEGENERATION cap, `R` in `[0,1)`. An output whose
+    segmented units (lines / sentences) are mostly DUPLICATES has collapsed into a
+    decode loop → NON_ANSWER. The ratio is `(n_units − n_distinct) / n_units`; a cap
+    of `0.5` disqualifies when over half the units repeat. Default `0.0` = off, and
+    a too-short output (below the minimum unit count) ABSTAINS — the fail-safe
+    UNDER-disqualify direction, so a short Q&A never trips the loop guard. SCOPE IT
+    TO PROSE: the metric counts EXACT (content-blind) duplicate units, so a
+    list/table/CSV/log channel with legitimately repeated short rows (`- N/A` ×10,
+    a `| --- |` rule) reads as high-ratio — that is why it defaults off and you opt
+    in only on free-prose answer channels, not structured output.
+
+Both stay inside the honesty boundary: a length budget and a duplicate-fraction are
+mechanically checkable SHAPE properties, not a quality/correctness judgment. Both
+default OFF so the guard never disqualifies a legitimately long or repetitive output
+the host has not declared a threshold for.
+
 No-plan rail: needs only the text + policy — no git, no journal, no clock, no
 model. `classify` is pure and NEVER raises (a bad host regex degrades to "not
 matched", the fail-safe UNDER-disqualify direction). ADVISORY: it reports a
@@ -775,6 +798,50 @@ shape; a consumer (an assembly policy) decides whether to withhold. Read-only.
 The verdict IS the exit code so an assembly gate can branch without re-parsing:
 ANSWER_SHAPED=0 (shippable on shape grounds), NON_ANSWER=3, INDETERMINATE=4
 (disjoint from argparse's usage code 2, which a malformed flag reserves).
+
+### § `cmd_salience`
+
+Is this TRUE thing LIVE, or true-but-PARKED out of the hotpath, recoverable? (docs/391, SAL).
+
+The prevent-silent-loss verdict, and the keep-but-park dual of `cmd_retire`. Truth
+and usefulness are orthogonal axes; the danger is dropping a true thing *as if it
+were false* just because it is not, today, on the hot path (a real bug off the
+default execution path, a correct note behind a disabled flag, a lesson that still
+holds but no longer decides). A silent drop costs nothing today and bites the day
+the path goes live — and leaves no record. This verb converts that silent drop into
+a recorded, RECOVERABLE park under a typed reason:
+
+    LIVE       — no park-reason fired; kept in the default hotpath (NOT "important")
+    PARKED     — true-but-not-useful; out of the hotpath under a typed reason,
+                 RETAINED + surfaced + carrying a reactivation line (the path back)
+    INDETERMINATE — cannot decide on the evidence; abstain → RETAIN + surface
+
+THE CONTRACT: `PARKED ≠ dropped`. No state ever means delete — `is_retained` is
+True for every verdict. The fail-safe ALWAYS points at RETAIN: a null policy / null
+evidence / unknown signal / thin measured evidence never parks and never raises.
+
+THE HONESTY BOUNDARY: this judges MECHANICAL/MEASURED salience, never semantic
+importance. LIVE means "no park-reason fired," NOT "this matters" — the "is it
+worth acting on?" question is the Tier-3 gestalt the kernel ABSTAINS on (a
+JUDGE/HUMAN's call); shape-undecidable items go INDETERMINATE.
+
+The evidence is env-authored and handed in at THIS boundary (the kernel computes no
+reachability): `--reachable`/`--unreachable`, `--default-on`/`--default-off`,
+`--superseded`, a host's own `--reason CLASS` (the open extension point, honored
+first), and the MEASURED rung `--contribution F` + `--trials N` gated by
+`--min-contribution F` + `--min-trials N` (off unless a trials floor is set; never
+parks on thin evidence — the `retire` witness ceiling). The park reasons the kernel
+ships: `SUPERSEDED`, `UNREACHABLE`, `NOT_IN_HOTPATH`, `LOW_CONTRIBUTION`. Each
+PARKED verdict carries a `reactivation` line (the re-entry path `retire`'s
+evict-to-archive lacks) — the load-bearing distinction that makes a park recoverable
+rather than a slow drop.
+
+No-plan rail: needs only the evidence + policy — no git, no journal, no clock, no
+model. `classify` is pure and NEVER raises. ADVISORY: it reports a park; a consumer
+(a picker, a reviewer, an assembly policy) routes the hotpath. Read-only.
+
+The verdict IS the exit code so a tool can branch without re-parsing: LIVE=0,
+PARKED=3, INDETERMINATE=4 (disjoint from argparse's usage code 2).
 
 ### § `cmd_reward`
 

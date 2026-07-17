@@ -78,6 +78,22 @@ def _load_workspace_config(workspace: str | None) -> "_config.SubstrateConfig":
     return _config.load_workspace_config(workspace, gather_env=False, warn=_warn)
 
 
+def _review_subjects(rev_range: str, root: str, limit: int = 500) -> dict[str, str]:
+    """sha -> subject labels for `dos_review`, gathered at the MCP boundary."""
+    from dos.vcs import active_vcs
+
+    lines = active_vcs(root=root).log_lines(
+        (f"-{int(limit)}", "--pretty=format:%H\x1f%s", rev_range))
+    if not lines:
+        return {}
+    out: dict[str, str] = {}
+    for line in lines:
+        if "\x1f" in line:
+            sha, subj = line.split("\x1f", 1)
+            out[sha.strip()] = subj
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Agent-facing interpretation — turn a kernel verdict into one line of "what
 # this means for your NEXT action."
@@ -157,20 +173,37 @@ def _with_deadline(fn: Any, budget_ms: int) -> Any:
         if worker.is_alive():
             return {
                 "verdict": "STALLED",
+                # The ONLY witnessed fact is the missed deadline. The kernel's own
+                # rule -- never state what you cannot witness -- applies to its stall
+                # envelope too: the prior text asserted "the git index lock is
+                # blocked" as the cause, but a stall on a hot multi-session box is
+                # observed with NO `.git/index.lock` present and the CLI shelling
+                # the same git never blocking. So the reason names only the missed
+                # budget; the differential goes in `candidate_causes`, unranked.
                 "reason": (
-                    f"tool {fn.__name__!r} exceeded its {budget_ms} ms deadline — "
-                    "the server or a shared OS resource (e.g. the git index lock on "
-                    "a hot tree) is blocked; the call did not return."
+                    f"tool {fn.__name__!r} did not return within its {budget_ms} ms "
+                    "deadline. The only witnessed fact is the missed budget -- the "
+                    "root cause is NOT established here (see candidate_causes)."
                 ),
+                "candidate_causes": [
+                    "a peer process holding a git write lock (e.g. "
+                    "`.git/index.lock` during a concurrent commit)",
+                    "MCP-server / stdio-transport contention when many servers "
+                    "share one host (a fleet of agent sessions)",
+                    "a slow or contended filesystem under the workspace",
+                ],
                 "fallback": (
-                    "The kernel verdict is reachable on the CLI (which is healthy "
-                    "even when this transport stalls): run the matching `dos` verb "
-                    "for this tool. This stall is the TRANSPORT, not the syscall."
+                    "The kernel verdict is reachable on the CLI, which stays healthy "
+                    "under the same load that stalls this transport (verified: the "
+                    "CLI returns the same verdict in ~1-2 s while this call timed "
+                    "out): run the matching `dos` verb. This stall is the TRANSPORT, "
+                    "not the syscall."
                 ),
                 "advice": (
-                    "Advisory (do not auto-retry a held lock — it will stall again). "
-                    "Surface this and either use the CLI or wait for the lock holder "
-                    "to finish."
+                    "Advisory (do not auto-retry on a timeout -- if a lock IS held, a "
+                    "retry just stalls again; the poll-loop antipattern). Surface "
+                    "this and either use the CLI or wait and retry once the host "
+                    "quiesces."
                 ),
             }
         if "error" in box:
@@ -398,10 +431,14 @@ def build_server() -> FastMCP:
         `has_residual` is the one-bit CI gate (the `dos review` exit-1 condition);
         `interpretation` (added by this server) tells you in one line what to do next.
         """
+        from dos import commit_audit as _ca
         from dos import residual_review as _rr
+
         cfg = _load_workspace_config(workspace)
         root = str(cfg.paths.root)
-        plan = _rr.build_plan(rev_range, root=root)
+        verdicts = _ca.audit_range(rev_range, root=root)
+        plan = _rr.plan_review(
+            verdicts, rev_range, subjects=_review_subjects(rev_range, root))
         out = _rr.plan_to_dict(plan)
         n_resid = len(plan.residual)
         out["residual_count"] = n_resid
@@ -1138,12 +1175,52 @@ def _looks_like_registrar(obj: Any) -> bool:
     return len(required) == 1 and required[0].name in ("mcp", "server")
 
 
+def _quiet_windows_console() -> None:
+    """Hide the stray empty console window on Windows; no-op elsewhere.
+
+    The `console_scripts` launcher (`dos-mcp`) is a CONSOLE-subsystem .exe, so when
+    an MCP host (Claude Code/Desktop, Cursor, …) spawns the server detached, Windows
+    allocates a fresh, EMPTY console window that lingers for the whole session — one
+    per launch, which operators see as a random blank terminal box popping up. The
+    server only ever talks over the inherited stdio PIPES, never the console. We
+    can't just FreeConsole(): the LAUNCHER process owns that console and outlives
+    this call, so detaching only ourselves leaves the window up. Instead hide the
+    shared console WINDOW (any attached process may), which drops the visible box
+    regardless of who holds the console; then FreeConsole() so this process is
+    cleanly detached too. The JSON-RPC transport is untouched — the std handles are
+    already redirected to pipes, independent of the console (verified: the
+    initialize/list_tools handshake still completes after both calls).
+
+    Called from main() only — NOT at import — so importing the module (the test
+    suite, tooling) never touches a console. Skipped when stdin/stdout is an
+    interactive TTY (a human running `dos-mcp` in a terminal to poke it), so we only
+    ever hide the unused auto-allocated console, never a real one.
+    """
+    if os.name != "nt":
+        return
+    try:
+        stdin_tty = sys.stdin is not None and sys.stdin.isatty()
+        stdout_tty = sys.stdout is not None and sys.stdout.isatty()
+        if stdin_tty or stdout_tty:
+            return
+        import ctypes
+
+        k32 = ctypes.windll.kernel32
+        hwnd = k32.GetConsoleWindow()
+        if hwnd:
+            ctypes.windll.user32.ShowWindow(hwnd, 0)  # SW_HIDE
+        k32.FreeConsole()
+    except Exception:
+        pass
+
+
 def main(argv: list[str] | None = None) -> int:
     """Console-script entrypoint — build the server and serve over stdio.
 
     `argv` is accepted for symmetry with the `dos` CLI and to keep the signature
     test-friendly; the stdio transport takes no arguments today.
     """
+    _quiet_windows_console()
     server = build_server()
     server.run()  # stdio transport — what an MCP host launches and speaks to
     return 0

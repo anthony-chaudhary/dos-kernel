@@ -193,6 +193,32 @@ def test_scope_prefix_grammar_engages():
     assert classify_claim("core: add unit tests for the engine") is ClaimKind.TEST
 
 
+def test_descriptive_house_verbs_are_code_effect():
+    """A descriptive effect verb (`extract`/`surface`/`enforce`/`splice`/`carry`/
+    `memoize`/`derive`/`bind`) leading the scoped message names a concrete code
+    effect — so a real diff-backed `feat(x): <verb> …` is a checkable CODE_EFFECT
+    claim, not NO_CLAIM. Before this, such a commit ABSTAINed and a closure
+    auditor that reads ABSTAIN as not-witnessed mis-bucketed a shipped fix."""
+    for verb_subject in (
+        "feat(dojo): extract claims into a pure registry",
+        "feat(agent): surface the dropped redaction count",
+        "feat(ifc): enforce the result-side ShareScope ceiling",
+        "feat(kvmmu): attribute attention mass onto owning spans",
+        "feat(agent): splice an enqueued operator steer into a turn",
+        "feat(session): carry the active goal as a root field",
+        "perf(model): memoize the RoPE inv_freq across forwards",
+        "feat(modelroute): derive live routing from a registry",
+        "feat(taskmgr): bind issue closes to a resolving commit",
+        "feat(scheduler): reserve known-coming turn slots",
+        "feat(cmd): expose avoided-call economics as a CLI scorecard",
+    ):
+        assert classify_claim(verb_subject) is ClaimKind.CODE_EFFECT, verb_subject
+    # The widening is still LEAD-gated: a polysemous added verb BURIED after a
+    # non-verb lead must not fire (conservatism preserved, same as 'fix' buried).
+    assert classify_claim("kernel: the route table is stale") is ClaimKind.NONE  # 'route' buried
+    assert classify_claim("kernel: a floor on validation cost") is ClaimKind.NONE  # 'floor' buried
+
+
 def test_scope_widening_stays_conservative():
     """The widening must not create false fires: a buried verb or a non-verb lead
     after the scope must still ABSTAIN (the phase_shipped six-widenings lesson)."""

@@ -22,6 +22,7 @@ degrades to an empty list when the CLI is missing.
 from __future__ import annotations
 
 import json
+import os
 import re
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -48,9 +49,31 @@ def _tokens(text: str) -> set[str]:
     return {t for t in _WORD_RE.findall(text.lower()) if t not in _STOP and len(t) > 1}
 
 
+# The parsed index, cached per file-version. dos_answer re-enters load_rows() on
+# EVERY MCP call; the index (docs/answers/index.jsonl) is ~66KB, so re-reading and
+# re-parsing it each time was a needless I/O + allocation cost. Key on the file's
+# (resolved_path, st_mtime_ns, st_size): a rebuilt index (scripts/build_answers_index.py
+# rewrites the file, bumping mtime) is a cache miss, so the corpus is never served
+# stale — the same mtime-keyed invalidation as `dos._tomlcache`. A missing/unreadable
+# index is cached as [] under a sentinel key so the fail-soft path stays cheap too.
+_ROWS_CACHE: dict[tuple[str, int, int], list[dict]] = {}
+
+
 def load_rows() -> list[dict]:
-    """The index rows, or [] if the index is absent (fail-soft, never raises)."""
+    """The index rows, or [] if the index is absent (fail-soft, never raises).
+
+    Cached per index file-version (mtime + size): repeated dos_answer calls parse
+    the corpus once until the file changes on disk, then re-read on the next call.
+    """
     path = _index_path()
+    try:
+        st = os.stat(path)
+    except OSError:
+        return []  # absent index -> fail-soft empty, exactly as before
+    key = (str(path), st.st_mtime_ns, st.st_size)
+    cached = _ROWS_CACHE.get(key)
+    if cached is not None:
+        return cached
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
@@ -64,6 +87,10 @@ def load_rows() -> list[dict]:
             rows.append(json.loads(line))
         except json.JSONDecodeError:
             continue  # a corrupt line never sinks the whole corpus
+    # Bound the cache: the index is a single file, so a couple of versions is plenty.
+    if len(_ROWS_CACHE) >= 8:
+        del _ROWS_CACHE[next(iter(_ROWS_CACHE))]
+    _ROWS_CACHE[key] = rows
     return rows
 
 

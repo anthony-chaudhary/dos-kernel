@@ -42,9 +42,13 @@ The three states (mutually exclusive):
                         viability length, and matches no disqualifying marker. Shaped
                         like an answer. (NOT a claim of correctness — see the boundary.)
   * ``NON_ANSWER``    — structurally disqualified: empty/whitespace-only, below the
-                        viability floor, OR matches a declared non-answer marker (a
+                        viability floor, OVER the verbosity ceiling, degenerated into a
+                        repeating loop, OR matches a declared non-answer marker (a
                         process/CoT-log signature, a bare-refusal signature, a stub).
-                        The q_025 catch. The dangerous case a grounding gate misses.
+                        The q_025 catch (the stub/CoT end) PLUS the opposite failures the
+                        same shape guard should see — the runaway/padded dump and the
+                        decode-degeneration loop (the verbosity/drift end). The dangerous
+                        case a grounding gate misses.
   * ``INDETERMINATE`` — no policy supplied, or the text is non-trivial but the policy
                         cannot disqualify it on shape — the abstain floor. The semantic
                         "is it a good answer?" residue goes here, to a JUDGE / HUMAN.
@@ -116,6 +120,34 @@ class AnswerShapePolicy:
     (the RAG app's q_025 leaked-CoT was 5,780 chars, so length alone never catches that;
     the *markers* do — length catches the opposite failure, the empty/stub end).
 
+    ``max_viable_chars`` is the SYMMETRIC ceiling — the verbosity/bloat end the floor
+    can't see. Above it, a non-empty output is a runaway/padded generation, structurally
+    not a focused answer (the q_025 leaked-CoT was *long*; gross length is itself a
+    structural tell once a host declares its budget). Default ``0`` DISABLES the ceiling
+    (no upper bound) — exactly like the floor's default-1 only-empty behavior, the host
+    declares the threshold; the kernel never guesses a length budget (the "ceiling fixed
+    by the source, never inferred from content" rule, docs/156 §3.2). Still SHAPE, not
+    quality: a host setting a ceiling is declaring "in my domain an answer over N chars
+    is structurally a dump", the same kind of host call as setting ``min_viable_chars``.
+
+    ``max_repeat_ratio`` is the DEGENERATION guard — the drift-into-a-loop failure where
+    a generation collapses into repeating the same line/sentence (the classic decode
+    degeneration, and the most common *mechanism* of padded verbosity). It is the
+    fraction of repeated (non-distinct) units the output may carry before it is
+    structurally a non-answer: ``repeat_ratio = (n_units - n_distinct) / n_units`` over
+    the segmented units (see ``_repeat_ratio``). Above the threshold ⇒ NON_ANSWER.
+    Default ``0.0`` DISABLES it (the fail-safe UNDER-disqualify direction — the kernel
+    ships the *mechanism*, the host opts in with a threshold like ``0.5``). Mechanically
+    checkable and domain-free, so it stays inside the SHAPE boundary: a text that is
+    mostly the same sentence over and over is not an answer regardless of the topic.
+
+    ⚠ SCOPE IT TO PROSE. The metric is the fraction of EXACT (stripped+casefolded)
+    duplicate units — content-blind, not semantic. So a list/table/CSV/log channel whose
+    rows legitimately repeat a short literal (``- N/A`` ten times, a ``| --- |`` rule)
+    will read as high-ratio and be disqualified. That is WHY it defaults off and the host
+    opts in: point ``max_repeat_ratio`` at free-prose answer channels, not at structured
+    output, where exact-row repetition is a feature, not degeneration.
+
     ``non_answer_patterns`` is the host's closed set of disqualifying regexes — a
     process/CoT-log signature, a bare-refusal signature, a tool-call dump. Matched
     case-insensitively, in a `search` (anywhere in the text). The kernel ships a generic
@@ -133,6 +165,8 @@ class AnswerShapePolicy:
     """
 
     min_viable_chars: int = 1
+    max_viable_chars: int = 0
+    max_repeat_ratio: float = 0.0
     non_answer_patterns: tuple[str, ...] = ()
     answer_markers: tuple[str, ...] = ()
 
@@ -193,6 +227,35 @@ class AnswerShapeVerdict:
         }
 
 
+# The minimum number of segmented units before a repeat ratio is meaningful. Below it
+# there is too little signal to call degeneration, so the guard ABSTAINS (under-
+# disqualify — the same fail-safe direction as `_safe_search`). A short Q&A like
+# "Yes. No. Yes." must never trip the loop guard; a real degeneration repeats many times.
+_MIN_REPEAT_UNITS = 4
+
+# Segment on sentence terminators OR newlines, so a degeneration is caught whether it
+# repeats one-unit-per-line or many-sentences-on-one-line.
+_UNIT_SPLIT = re.compile(r"[.!?\n]+")
+
+
+def _repeat_ratio(text: str) -> tuple[float, int]:
+    """The fraction of REPEATED (non-distinct) units in ``text``, and the unit count.
+
+    Splits ``text`` into units on sentence terminators / newlines, normalizes each
+    (stripped + casefolded), drops empties, and returns
+    ``((n_units - n_distinct) / n_units, n_units)``. A clean answer with all-distinct
+    units scores ~0; a generation that has collapsed into repeating one line/sentence
+    approaches 1. PURE; returns ``(0.0, n)`` when there are too few units to judge (the
+    caller's `_MIN_REPEAT_UNITS` floor makes that an abstain, never a disqualification).
+    """
+    units = [u.strip().casefold() for u in _UNIT_SPLIT.split(text)]
+    units = [u for u in units if u]
+    n = len(units)
+    if n < 2:
+        return 0.0, n
+    return (n - len(set(units))) / n, n
+
+
 def _safe_search(pattern: str, text: str) -> bool:
     """Case-insensitive `re.search`, fail-safe to False on a bad pattern.
 
@@ -224,12 +287,18 @@ def classify(
       2. ``text`` empty / whitespace-only  → NON_ANSWER (nothing was delivered).
       3. ``len(text) < min_viable_chars``  → NON_ANSWER (below the viability floor — a
                                              stub / ack token, not an answer).
-      4. a ``non_answer_patterns`` hit     → NON_ANSWER (a process/CoT-log / bare-refusal
+      4. ``max_viable_chars`` set AND
+         ``len(text) > max_viable_chars``  → NON_ANSWER (over the verbosity/bloat ceiling
+                                             — a runaway/padded dump, not a focused answer).
+      5. a ``non_answer_patterns`` hit     → NON_ANSWER (a process/CoT-log / bare-refusal
                                              / tool-dump signature — the q_025 catch).
-      5. ``answer_markers`` non-empty AND
+      6. ``max_repeat_ratio`` set AND the
+         repeat ratio exceeds it           → NON_ANSWER (degenerated into a loop — the
+                                             same line/sentence over and over; drift).
+      7. ``answer_markers`` non-empty AND
          none matched                      → INDETERMINATE (the strict host required a
                                              positive answer marker and found none; abstain).
-      6. otherwise                         → ANSWER_SHAPED (no disqualifier; shaped like
+      8. otherwise                         → ANSWER_SHAPED (no disqualifier; shaped like
                                              an answer — NOT a claim of correctness).
 
     Returns an `AnswerShapeVerdict`; NEVER raises. Remember the boundary: a `NON_ANSWER`
@@ -268,6 +337,18 @@ def classify(
                     f"answer (NON_ANSWER)"),
         )
 
+    ceiling = int(policy.max_viable_chars)
+    if ceiling > 0 and len(stripped) > ceiling:
+        return AnswerShapeVerdict(
+            state=AnswerShape.NON_ANSWER,
+            length=n,
+            matched="",
+            reason=(f"output is {len(stripped)} non-space chars, over the verbosity "
+                    f"ceiling of {ceiling} — a runaway/padded dump, not a focused "
+                    f"answer (NON_ANSWER; a SHAPE call on the host's length budget, "
+                    f"not a correctness judgment)"),
+        )
+
     for pat in policy.non_answer_patterns:
         if _safe_search(pat, raw):
             return AnswerShapeVerdict(
@@ -277,6 +358,20 @@ def classify(
                 reason=(f"output matched the non-answer signature {pat!r} — a "
                         f"process/CoT-log, bare refusal, or tool dump pasted as the "
                         f"answer (the grounded-but-not-an-answer catch, docs/156 §4)"),
+            )
+
+    repeat_cap = float(policy.max_repeat_ratio)
+    if repeat_cap > 0.0:
+        ratio, units = _repeat_ratio(raw)
+        if units >= _MIN_REPEAT_UNITS and ratio > repeat_cap:
+            return AnswerShapeVerdict(
+                state=AnswerShape.NON_ANSWER,
+                length=n,
+                matched="",
+                reason=(f"output repeat ratio {ratio:.2f} over {units} units exceeds "
+                        f"the degeneration cap of {repeat_cap:.2f} — collapsed into "
+                        f"repeating the same line/sentence (NON_ANSWER; a structural "
+                        f"loop/drift tell, not a correctness judgment)"),
             )
 
     if policy.answer_markers:
