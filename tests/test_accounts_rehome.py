@@ -25,7 +25,7 @@ NEAR = 99_999_999_999_000  # epoch-ms, deliberately beyond the 2026 CI clock
 def _enroll(config_dir: Path) -> None:
     config_dir.mkdir(parents=True, exist_ok=True)
     (config_dir / ".credentials.json").write_text(
-        json.dumps({"claudeAiOauth": {"accessToken": "t", "expiresAt": NEAR}}),
+        json.dumps({"claudeAiOauth": {"accessToken": f"t-{config_dir.name}", "expiresAt": NEAR}}),
         encoding="utf-8",
     )
 
