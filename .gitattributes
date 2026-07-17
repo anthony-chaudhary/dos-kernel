@@ -8,6 +8,7 @@
 # wrapper runnable in WSL / Git Bash / Linux / macOS regardless of the clone's
 # autocrlf setting.
 *.sh text eol=lf
+claude-plugin/bin/dos-hook text eol=lf
 
 # PowerShell is comfortable with either ending; leave it to the platform default.
 *.ps1 text

@@ -35,6 +35,11 @@
             "type": "command",
             "shell": "bash",
             "command": "python -m dos.cli hook stop-failure --success --workspace . 2>/dev/null || python3 -m dos.cli hook stop-failure --success --workspace . 2>/dev/null || powershell.exe -NoProfile -ExecutionPolicy Bypass -Command 'python -m dos.cli hook stop-failure --success --workspace .' 2>/dev/null || true"
+          },
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "python -m dos.cli hook live-rotate --workspace . 2>/dev/null || python3 -m dos.cli hook live-rotate --workspace . 2>/dev/null || powershell.exe -NoProfile -ExecutionPolicy Bypass -Command 'python -m dos.cli hook live-rotate --workspace .' 2>/dev/null || true"
           }
         ]
       }
