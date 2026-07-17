@@ -19,7 +19,7 @@ from dos import cli
 from dos import config as _config
 from dos import rotation_handoff as _rh
 
-NEAR = 9_999_999_999_000
+NEAR = 99_999_999_999_000  # epoch-ms, deliberately beyond the 2026 CI clock
 
 
 def _enroll(config_dir: Path) -> None:
@@ -149,7 +149,8 @@ def test_rehome_with_no_serving_alternate_fails_cleanly(tmp_path, capsys):
     rc = cli.main(["accounts", "rehome", "--session-id", "s1", "--from", "seatA",
                    "--accounts-file", str(roster), "--workspace", str(ws)])
     assert rc != 0  # nothing serving to rehome to
-    err = capsys.readouterr().out + capsys.readouterr().err
+    captured = capsys.readouterr()
+    assert "no serving alternate" in (captured.out + captured.err)
 
 
 def test_rehome_requires_session_id(tmp_path):

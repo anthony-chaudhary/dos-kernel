@@ -2723,7 +2723,7 @@ def _rehome_popen(argv: list, env: dict, cwd: str) -> "int | None":
         kwargs: dict = {"env": env, "cwd": cwd}
         if os.name == "posix":
             kwargs["start_new_session"] = True
-        proc = subprocess.Popen(argv, **kwargs)
+        proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, **kwargs)
         return proc.pid
     except Exception:  # noqa: BLE001 — a spawn fault must not break the caller
         return None
