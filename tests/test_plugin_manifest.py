@@ -400,6 +400,14 @@ def test_mcp_server_config_shape():
     assert "dos" in servers, "the DOS server must be registered under `dos`"
     dos_server = servers["dos"]
     assert dos_server.get("command"), "the server entry needs a `command`"
+    # Do not pin the server to the plugin install/cache directory. Codex resolves a
+    # relative MCP `cwd` against the plugin root, so `cwd: "."` makes implicit DOS
+    # resources and tools inspect the cached plugin rather than the active workspace.
+    # With no override, stdio servers inherit the host session's project directory.
+    assert "cwd" not in dos_server, (
+        "the DOS MCP server must inherit the host workspace; an explicit `cwd` "
+        f"binds it to the plugin cache instead: {dos_server.get('cwd')!r}"
+    )
     args = dos_server.get("args", [])
     # The launcher must front the shipped MCP server one of two equivalent ways:
     #   * the `dos-mcp` console script (preferred — it carries its own interpreter
