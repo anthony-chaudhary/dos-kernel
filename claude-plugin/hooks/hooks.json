@@ -74,7 +74,8 @@
           {
             "type": "command",
             "shell": "bash",
-            "command": "python -m dos.cli hook marker --reset --workspace . 2>/dev/null || python3 -m dos.cli hook marker --reset --workspace . 2>/dev/null || powershell.exe -NoProfile -ExecutionPolicy Bypass -Command 'python -m dos.cli hook marker --reset --workspace .' 2>/dev/null || true"
+            "command": "python -m dos.cli hook marker --reset --workspace . 2>/dev/null || python3 -m dos.cli hook marker --reset --workspace . 2>/dev/null || powershell.exe -NoProfile -ExecutionPolicy Bypass -Command 'python -m dos.cli hook marker --reset --workspace .' 2>/dev/null || true",
+            "commandWindows": "dos hook marker --reset --workspace . 2>nul || python -m dos.cli hook marker --reset --workspace . 2>nul || py -3 -m dos.cli hook marker --reset --workspace . 2>nul || exit /b 0"
           }
         ]
       }
@@ -85,7 +86,8 @@
           {
             "type": "command",
             "shell": "bash",
-            "command": "root=\"${CLAUDE_PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT:-}}\"; if [ -n \"$root\" ] && [ -f \"$root/bin/dos-hook\" ]; then command -p sh \"$root/bin/dos-hook\" session-start --workspace .; rc=$?; [ \"$rc\" -eq 0 ] && exit 0; fi; python -m dos.cli hook session-start --workspace . 2>/dev/null || python3 -m dos.cli hook session-start --workspace . 2>/dev/null || powershell.exe -NoProfile -ExecutionPolicy Bypass -Command 'python -m dos.cli hook session-start --workspace .' 2>/dev/null || { [ -z \"$root\" ] || echo \"dos-hook: warning: no DOS hook backend could run; live DOS enforcement is fail-open. Install dos-kernel or restore claude-plugin/bin/dos-hook.\" >&2; true; }"
+            "command": "root=\"${CLAUDE_PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT:-}}\"; if [ -n \"$root\" ] && [ -f \"$root/bin/dos-hook\" ]; then command -p sh \"$root/bin/dos-hook\" session-start --workspace .; rc=$?; [ \"$rc\" -eq 0 ] && exit 0; fi; python -m dos.cli hook session-start --workspace . 2>/dev/null || python3 -m dos.cli hook session-start --workspace . 2>/dev/null || powershell.exe -NoProfile -ExecutionPolicy Bypass -Command 'python -m dos.cli hook session-start --workspace .' 2>/dev/null || { [ -z \"$root\" ] || echo \"dos-hook: warning: no DOS hook backend could run; live DOS enforcement is fail-open. Install dos-kernel or restore claude-plugin/bin/dos-hook.\" >&2; true; }",
+            "commandWindows": "dos hook session-start --workspace . 2>nul || python -m dos.cli hook session-start --workspace . 2>nul || py -3 -m dos.cli hook session-start --workspace . 2>nul || (echo dos-hook: warning: no DOS hook backend could run; live DOS enforcement is fail-open. Install dos-kernel or restore claude-plugin/bin/dos-hook. 1>&2 & exit /b 0)"
           }
         ]
       }

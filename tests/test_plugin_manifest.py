@@ -163,6 +163,35 @@ def _hook_commands(hooks_obj: dict, event: str) -> list[str]:
     return cmds
 
 
+def test_lifecycle_hooks_have_windows_fail_open_adapters():
+    """Codex on Windows executes commandWindows with cmd.exe, not bash."""
+    hooks = _load(PLUGIN_HOOKS)
+    expected = {
+        "UserPromptSubmit": "hook marker",
+        "SessionStart": "hook session-start",
+    }
+    for event, verb in expected.items():
+        entries = [
+            h
+            for group in hooks["hooks"][event]
+            for h in group["hooks"]
+        ]
+        assert entries, f"no hook wired for {event}"
+        for entry in entries:
+            command = entry.get("commandWindows")
+            assert isinstance(command, str) and command, (
+                f"{event} needs a cmd.exe adapter; its POSIX command exits 1 on Windows"
+            )
+            assert ("dos " + verb) in command or ("dos.cli " + verb) in command
+            assert "exit /b 0" in command, (
+                f"{event} must fail open if no DOS backend is available: {command}"
+            )
+            for token in ("/dev/null", " true", "${", "[ -"):
+                assert token not in command, (
+                    f"{event} commandWindows contains POSIX-only syntax {token!r}: {command}"
+                )
+
+
 def test_hooks_wire_the_dos_verbs():
     hooks = _load(PLUGIN_HOOKS)
     # Each DOS lifecycle moment is wired to its shipped verb. The command runs via
