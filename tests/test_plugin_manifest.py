@@ -226,6 +226,18 @@ def test_stopfailure_notifier_and_heal_are_wired():
         "Stop must also run `hook stop-failure --success` to heal the breaker"
 
 
+def test_windows_lifecycle_hooks_use_powershell_syntax():
+    hooks = _load(PLUGIN_HOOKS)["hooks"]
+    for event in ("SessionStart", "UserPromptSubmit"):
+        command = hooks[event][0]["hooks"][0]["commandWindows"]
+        assert "if /i" not in command
+        assert "||" not in command
+        assert "exit /b" not in command
+        assert "$LASTEXITCODE" in command
+        assert "2>$null" in command
+        assert command.endswith("exit 0")
+
+
 def test_hook_commands_are_cold_safe_for_codex_plugin_shell(tmp_path):
     """The plugin may be loaded by Codex, where `CLAUDE_PLUGIN_ROOT` is absent and
     the hook shell can be WSL bash with no `python` on PATH. In that shape the
