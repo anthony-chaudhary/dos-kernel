@@ -320,6 +320,38 @@ install deciding. The truth-pointer has flipped; the deletion is a later slice.
 
 **Files:** `src/dos/native_canonical.py`, `src/dos/cli.py`, `tests/test_native_canonical.py`, `tests/test_go_hook_parity.py`, `go/internal/hook/parity_test.go`
 
+### TP2 — liveness ported (2026-06-30): the first RE2-clean pure decider, PORT not FLIP
+
+The first TP2 slice ports the **cleanest decider in the kernel** — the liveness
+verdict (`liveness.classify`: the ADVANCING/SPINNING/STALLED ladder, docs/82) — to
+Go (`go/internal/liveness/liveness.go`). [`124`](124_the-go-core-build-plan-and-the-parity-contract.md)
+§3 names it the Phase-1 port on purpose: §1.4 / A.4 audited it clean of all three
+cross-language hazard classes (no lookbehind regex, no float-in-output — the reason
+interpolates INTEGER counts only, no set-into-output), so it proves the TP2 parity
+harness on the safest surface before the arbiter's float hazard (§4.1) or the
+oracle's RE2 debt (§4.2) are in play. Because the reason is fully byte-matchable
+(unlike the arbiter, whose prose §124 excludes from the byte gate), the corpus gates
+the **whole verdict + reason** — a strictly stronger pin than the account core's.
+
+The differential pin, both sides (the §3 PORT machinery, unchanged):
+`go/internal/liveness/parity/gen_corpus.py` drives the REAL `dos.liveness.classify`
+over 25 cases (every rung, every reason branch, both window boundaries, custom
+policy, the §124 A.4 examples) into `parity/corpus.jsonl`; the Go `TestParityCorpus`
+asserts `go == corpus` and `tests/test_go_liveness_parity.py` asserts
+`python == corpus`. A drift surfaces on both sides.
+
+What this slice deliberately does NOT do: it is **PORT, not FLIP** (§3). Python stays
+canonical — `native_canonical` is untouched, no truth-pointer moves — until the
+corpus soaks byte-green for a window; the FLIP (adding `liveness` to the registry,
+Go-canonical) is the explicitly-named next slice. This respects the §3/§6 discipline
+that *nothing flips while unsoaked*; the account core (which DID flip) had banked its
+soak. The three non-ASCII reason glyphs (— ≤ ≥) are carried as literal UTF-8 and
+compared as decoded runes, so they never re-encode (§124 §5 rule 7). Remaining TP2:
+the arbiter (§4.1, the crown jewel, first encounter with the float/reason split) and
+the loop cluster, each on this same PORT → SOAK → FLIP ratchet.
+
+**Files:** `go/internal/liveness/liveness.go`, `go/internal/liveness/liveness_test.go`, `go/internal/liveness/parity_test.go`, `go/internal/liveness/parity/gen_corpus.py`, `go/internal/liveness/parity/corpus.jsonl`, `tests/test_go_liveness_parity.py`
+
 ## 8. Acceptance / litmus for the direction
 
 Not all of these are test-pinned today (the direction is forward-looking); each

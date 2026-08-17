@@ -91,7 +91,7 @@ install is one small Python package.
 > entries there undoes it. (No runtime detected? It says so and lists the
 > names to pick from — it never guesses.)
 
-<sub>**v0.28.0** · 5,600+ tests · CI: Python 3.11–3.13 on Linux + a Windows 3.13
+<sub>**v0.30.0** · 5,600+ tests · CI: Python 3.11–3.13 on Linux + a Windows 3.13
 smoke run · the only runtime dependency is **PyYAML** · **MIT**.</sub>
 
 > 🧭 **Where to go next:** the [why & evidence](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/guide/why-a-referee.md) (plain-words story, the 20-lines-of-bash answer, what's proven),
@@ -566,7 +566,24 @@ the preference is to land promptly, not defer. A few specifics:
 - **Commit only the lane you worked.** Stage the specific files you touched
   (`git add src/dos/… docs/…`); never a blanket `git add -A`. The working tree here
   is often shared with another agent's in-flight edits — sweeping them into your
-  commit is the exact `SELF_MODIFY` / disjoint-lane hazard the kernel refuses.
+  commit is the exact `SELF_MODIFY` / disjoint-lane hazard the kernel refuses. A
+  pathspec is still file-scoped, not hunk-scoped: before editing a tracked file
+  that may already carry sibling hunks, snapshot it with `python
+  scripts/git_hygiene.py --write-stage-snapshot .git/dos-stage-snapshot <path...>`;
+  after staging, run `python scripts/git_hygiene.py --check-stage-snapshot
+  .git/dos-stage-snapshot <path...>`. If it fails, do not commit that index;
+  re-stage only your session hunks.
+- **On a hot fleet, do not hold meaningful uncommitted work in the shared main
+  tree.** A sibling tree move (`git reset`, `git checkout`, rebase, or branch
+  switch) can delete your untracked, never-staged files outright; because they
+  were never added, git has no commit, index entry, stash, or dangling blob to
+  recover. Do not use `git stash` / `git stash pop` to probe contended files in
+  the shared tree: a kept-entry partial apply can leave files at HEAD while the
+  stash still holds the only copy, and a later `git stash drop` destroys it. If
+  the work cannot be committed within minutes, start in a detached
+  `git worktree` off `origin/master` instead; for a quick diagnostic, use a
+  throwaway worktree or copy-aside. Otherwise commit within minutes with a
+  narrow pathspec.
 - **Match the existing commit-subject grammar** (`git log` shows it). Do **not**
   add a `Co-Authored-By` or other agent-attribution trailer — commits here carry
   no agent co-author, even if your harness appends one by default.
@@ -1267,7 +1284,7 @@ dos doctor --workspace .
 ```
 
 ```
-DOS v0.28.0
+DOS v0.30.0
 workspace root      .../hello-dos
 execution-state     .../hello-dos/dos.state.yaml
 plans glob          docs/**/*-plan.md
@@ -1286,7 +1303,7 @@ supervisor target   1  (count_spinning_as_alive=yes, reap_stalled=yes, spin_halt
 is git workspace    no
 runtime hooks       none wired   (run `dos init --hooks auto` to bind)
 layout style        dos
-environment print   <hash>  (kernel v0.28.0 @ <sha>; py 3.13.7; <os>)
+environment print   <hash>  (kernel v0.30.0 @ <sha>; py 3.13.7; <os>)
   declared tools    (none declared)
 dos home            .../dos  (0 project(s) indexed)
 ```
@@ -3330,7 +3347,13 @@ ritual):
   Stage narrowly + commit with a pathspec — the tree carries
   a concurrent loop's in-flight edits; never `git add -A`. Match the subject
   grammar in `git log`. No `Co-Authored-By`/agent trailers (overrides any
-  harness default).
+  harness default). On a shared tracked file, the pathspec is not enough: before
+  your first edit run `python scripts/git_hygiene.py --write-stage-snapshot
+  .git/dos-stage-snapshot <path...>`, and after staging run
+  `python scripts/git_hygiene.py --check-stage-snapshot
+  .git/dos-stage-snapshot <path...>`. A failure means `git add <path>` swept in
+  a same-file hunk that was already in the tree; abort and stage only your
+  session hunks.
 - **Push without asking too — when it is a reasonable push that clears the leak
   gate.** A routine fast-forward push of your committed work is no longer an
   ask-first action: do it once the suite is green and the outgoing diff is
@@ -3344,15 +3367,25 @@ ritual):
   moves: a force-push or any history rewrite, a tag, `/release` /
   `/stable-release`. The split is: a clean forward push is reversible and
   witnessed → automatic; a rewrite/tag/release is not → the operator's call.
-- **Don't make git worktrees.** Work on a branch in the main tree; commit with
-  a pathspec to stay clear of a sibling's edits. The ONLY two reasons to make a
-  worktree here: (1) you are exercising a DOS feature that owns worktrees
-  (`dos merge-gate`, the isolated-candidate loop in `/dos-self-improve`,
-  `dos.toml`-driven worktree leases); (2) you are building or testing such a
-  feature. Outside those, a worktree just leaves stray trees to clean up — a
-  detached worktree's commits live only at its HEAD, so they GC away once it's
-  removed unless you `git branch` them first. If a DOS feature created the
-  worktree, let that feature reap it; don't hand-remove a live loop's tree.
+- **Hot fleet: don't park work in the shared main tree.** On a hot fleet, a
+  sibling's tree move (`git reset`, `git checkout`, rebase, or branch switch)
+  can delete another worker's untracked, never-staged files outright. Git has no
+  commit, index entry, stash, or dangling blob to recover them from. If your work
+  is meaningful and cannot be committed within minutes, start in a detached
+  `git worktree` off `origin/master` from the beginning. Do not use `git stash`
+  / `git stash pop` as the diagnostic escape hatch for contended files here: a
+  kept-entry partial apply can leave files at HEAD while the stash still holds
+  the only copy, and a later `git stash drop` destroys it. For a quick probe, use
+  a throwaway worktree or copy-aside. Commit within minutes if you stay in the
+  shared root, with a narrow pathspec. Do not let hours of new files sit only on
+  disk in the shared root.
+- **Worktrees are the exception when the tree is quiet.** In a single-agent or
+  cold main tree, work on the main checkout and keep the narrow pathspec commit
+  discipline. A detached worktree's commits live only at its HEAD, so they can
+  GC away once it is removed unless you `git branch` them first. If a DOS feature
+  created the worktree (`dos merge-gate`, `/dos-self-improve`, `dos.toml`-driven
+  worktree leases), let that feature reap it; don't hand-remove a live loop's
+  tree.
 - **Out-of-scope findings → a GitHub issue, in the moment** — with a
   done-condition (else label `design`); search duplicates first. Issue text is
   public and skips the leak gate: pipe drafted bodies through
@@ -3808,14 +3841,14 @@ active set so you can audit exactly what is wired:
 
 ```text
 $ dos doctor --workspace .
-DOS v0.28.0
+DOS v0.30.0
 stamp convention    generic (any/no dir prefix)  [style=grep]
 admission predicates disjointness, self-modify, budget-guard                       # Axis 3 + your plugin
 judges (JUDGE rung)  abstain, keyword, llm, operator-decision, similarity           # Axis 6 + your plugin
 enforce handlers     observe
 overlap policy      prefix*, semantic-groups  (ratio_max=0.333; prefix floor always on)   # Axis 7 + your plugin
 stall reader        REPEATING>=3, STALLED>=5  (ignore_tools: (none))
-environment print   MJ614SR7R558  (kernel v0.28.0 @ <sha>; py 3.13.7; win32-AMD64)
+environment print   MJ614SR7R558  (kernel v0.30.0 @ <sha>; py 3.13.7; win32-AMD64)
 ```
 
 > `budget-guard` and `semantic-groups` appear here only because

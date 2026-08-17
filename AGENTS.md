@@ -188,7 +188,24 @@ the preference is to land promptly, not defer. A few specifics:
 - **Commit only the lane you worked.** Stage the specific files you touched
   (`git add src/dos/… docs/…`); never a blanket `git add -A`. The working tree here
   is often shared with another agent's in-flight edits — sweeping them into your
-  commit is the exact `SELF_MODIFY` / disjoint-lane hazard the kernel refuses.
+  commit is the exact `SELF_MODIFY` / disjoint-lane hazard the kernel refuses. A
+  pathspec is still file-scoped, not hunk-scoped: before editing a tracked file
+  that may already carry sibling hunks, snapshot it with `python
+  scripts/git_hygiene.py --write-stage-snapshot .git/dos-stage-snapshot <path...>`;
+  after staging, run `python scripts/git_hygiene.py --check-stage-snapshot
+  .git/dos-stage-snapshot <path...>`. If it fails, do not commit that index;
+  re-stage only your session hunks.
+- **On a hot fleet, do not hold meaningful uncommitted work in the shared main
+  tree.** A sibling tree move (`git reset`, `git checkout`, rebase, or branch
+  switch) can delete your untracked, never-staged files outright; because they
+  were never added, git has no commit, index entry, stash, or dangling blob to
+  recover. Do not use `git stash` / `git stash pop` to probe contended files in
+  the shared tree: a kept-entry partial apply can leave files at HEAD while the
+  stash still holds the only copy, and a later `git stash drop` destroys it. If
+  the work cannot be committed within minutes, start in a detached
+  `git worktree` off `origin/master` instead; for a quick diagnostic, use a
+  throwaway worktree or copy-aside. Otherwise commit within minutes with a
+  narrow pathspec.
 - **Match the existing commit-subject grammar** (`git log` shows it). Do **not**
   add a `Co-Authored-By` or other agent-attribution trailer — commits here carry
   no agent co-author, even if your harness appends one by default.

@@ -24,6 +24,11 @@
             "type": "command",
             "shell": "bash",
             "command": "dos hook stop-failure --success --workspace . 2>/dev/null || true"
+          },
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "dos hook live-rotate --workspace . 2>/dev/null || true"
           }
         ]
       }

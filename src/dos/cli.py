@@ -1695,20 +1695,21 @@ def cmd_review(args: argparse.Namespace) -> int:
     root = str(_config.active().paths.root)
     target = args.rev_range
     # An unreadable range is a contract error, distinct from an empty-but-valid
-    # one. `build_plan` calls `audit_range`, which returns [] for both; probe the
+    # one. `audit_range` returns [] for both; probe the
     # range's right side with a cheap rev-parse to tell them apart.
     if not _review_range_readable(target, root):
         print(f"review: cannot read range '{target}' in {root} "
               f"(not a git repo, or bad range)", file=sys.stderr)
         return _REVIEW_EXIT_CODES["contract_error"]
 
-    plan = _rr.build_plan(target, root=root)
+    plan = _review_build_plan(target, root)
 
     if getattr(args, "json", False):
         import json as _json
         print(_json.dumps(_rr.plan_to_dict(plan), indent=2))
     elif getattr(args, "walk", False):
-        print(_rr.render_walk(plan, root=root))
+        print(_rr.render_walk(plan, diffstats=_review_diffstats(
+            [it.sha for it in plan.residual], root)))
     else:
         print(_rr.render_text(plan))
 
@@ -1716,10 +1717,61 @@ def cmd_review(args: argparse.Namespace) -> int:
             else _REVIEW_EXIT_CODES["clean"])
 
 
+def _review_build_plan(target: str, root: str):
+    """Boundary read for `dos review`: audit commits, label subjects, project.
+
+    The projection itself lives in `dos.residual_review.plan_review` and is pure.
+    This CLI helper is where VCS evidence is gathered: commit-audit verdicts plus
+    subject labels for rendering. It recomputes no rung.
+    """
+    from dos import commit_audit as _ca
+    from dos import residual_review as _rr
+
+    verdicts = _ca.audit_range(target, root=root)
+    subjects = _review_subjects(target, root)
+    return _rr.plan_review(verdicts, target, subjects=subjects)
+
+
+def _review_subjects(rev_range: str, root: str, limit: int = 500) -> dict[str, str]:
+    """sha -> subject labels for `dos review`, gathered at the CLI boundary."""
+    from dos.vcs import active_vcs
+
+    lines = active_vcs(root=root).log_lines(
+        (f"-{int(limit)}", "--pretty=format:%H\x1f%s", rev_range))
+    if not lines:
+        return {}
+    out: dict[str, str] = {}
+    for line in lines:
+        if "\x1f" in line:
+            sha, subj = line.split("\x1f", 1)
+            out[sha.strip()] = subj
+    return out
+
+
+def _review_diffstats(shas: list[str], root: str) -> dict[str, str]:
+    """sha -> rendered per-file numstat for residual review cards."""
+    from dos.vcs import active_vcs
+
+    backend = active_vcs(root=root)
+    out: dict[str, str] = {}
+    for sha in shas:
+        deltas = backend.commit_diffstat(sha)
+        if not deltas:
+            continue
+        rows: list[str] = []
+        for d in deltas:
+            if d.added < 0 or d.removed < 0:
+                rows.append(f"{d.path} | bin")
+            else:
+                rows.append(f"{d.path} | +{d.added} -{d.removed}")
+        out[sha] = "\n".join(rows)
+    return out
+
+
 def _review_range_readable(target: str, root: str) -> bool:
     """True iff `target` is a readable git range/ref in `root`.
 
-    `build_plan`/`audit_range` return [] for both an empty-but-valid range and an
+    `audit_range` returns [] for both an empty-but-valid range and an
     unreadable one; `review` must distinguish them so a bad range is a contract
     error (exit 2), not a falsely-clean exit 0. `git rev-list` over the WHOLE
     range is the right probe — it fails (non-zero) on EITHER side being unknown,
@@ -2660,6 +2712,75 @@ def _account_to_dict(acct) -> dict:
             "email": acct.email, "enabled": acct.enabled}
 
 
+# --------------------------------------------------------------------------- #
+# rehome — the live-session rehome actuation contract (docs/391). Shared by the
+# `dos accounts rehome` verb and the `dos hook live-rotate` hook so both emit a
+# byte-identical launch env + resume command.
+# --------------------------------------------------------------------------- #
+_DEFAULT_RESUME_TEMPLATE = "claude --resume {session_id}"
+
+
+def _seat_launch_env(args, match) -> "tuple[dict, str]":
+    """The launch env for one seat via the resolved agent-auth spec (docs/386).
+
+    Returns ``(env, "")`` on success or ``({}, error)`` — the SAME capability path
+    ``dos accounts env`` uses (``spec.launch_env_fn`` when the agent ships a disk-aware
+    builder — Claude's docs/380 fresh-creds deferral — else the generic config-dir + token
+    overrides), factored so ``rehome`` emits an env byte-identical to what the launcher
+    would. Branches on the CAPABILITY, never the agent name (the vendor-blindness litmus)."""
+    _sw = _load_account_switcher()
+    spec = _resolve_agent_auth(args)
+    if spec.launch_env_fn is not None:
+        try:
+            return spec.launch_env_fn(match), ""
+        except _sw.OriginError as e:
+            return {}, str(e)
+    from pathlib import Path as _Path
+    cfg_dir = str(_Path(match.config_dir).expanduser())
+    token = None
+    if spec.token_file_name:
+        try:
+            token = (_Path(cfg_dir) / spec.token_file_name
+                     ).read_text(encoding="utf-8").strip() or None
+        except OSError:
+            token = None
+    env = spec.env_overrides(cfg_dir, token=token)
+    if not env:
+        return {}, (f"agent {spec.agent_kind!r} emits no launch env for {match.name!r}")
+    return env, ""
+
+
+def _render_resume_argv(template: "str | None", session_id: str) -> list[str]:
+    """Render a resume-relaunch command template → argv. ``{session_id}`` substituted,
+    POSIX ``shlex`` tokenization. Fail-soft: a bad template/format falls back to the
+    default ``claude --resume <sid>`` so a typo never breaks the rehome."""
+    import shlex
+    tmpl = (template or _DEFAULT_RESUME_TEMPLATE)
+    try:
+        argv = shlex.split(tmpl.format(session_id=session_id), posix=True)
+    except (KeyError, IndexError, ValueError):
+        argv = []
+    return argv or ["claude", "--resume", session_id]
+
+
+def _rehome_popen(argv: list, env: dict, cwd: str) -> "int | None":
+    """Spawn the relaunch (the headless ``--exec`` path), returning the child pid or None.
+
+    Module-level so a test monkeypatches it without launching a real ``claude``. The child
+    inherits the rotated seat's env; fail-soft — a spawn fault returns None (the operator
+    still has the printed resume command). Detached where the platform supports it so the
+    relaunch outlives the short-lived hook/CLI process."""
+    import subprocess
+    try:
+        kwargs: dict = {"env": env, "cwd": cwd}
+        if os.name == "posix":
+            kwargs["start_new_session"] = True
+        proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, **kwargs)
+        return proc.pid
+    except Exception:  # noqa: BLE001 — a spawn fault must not break the caller
+        return None
+
+
 def _accounts_no_roster_hint(args) -> str:
     _sw = _load_account_switcher()
     path = _sw.accounts_file_path(getattr(args, "accounts_file", None))
@@ -2985,8 +3106,77 @@ def cmd_accounts(args: argparse.Namespace) -> int:
         print(name)
         return 0
 
+    if verb == "rehome":
+        # docs/391 — the live-rehome actuation nucleus. Given a session that has hit (or
+        # is approaching) its seat's cap, pick a SERVING alternate, build that seat's launch
+        # env, persist the rotation handoff (so a SessionStart relaunch auto-applies it — the
+        # docs/386 §4 APPLY half), and emit the `--resume` continuation an operator can run
+        # SAME-WINDOW. `--exec` relaunches a headless child directly. PROPOSE by default (the
+        # `dos resume` discipline — never act unasked); ACT only on `--exec`.
+        session_id = (getattr(args, "session_id", "") or "").strip()
+        if not session_id:
+            return _fail(
+                "--session-id is required to rehome (the handoff is keyed by it)",
+                hint="pass the harness session_id of the session to rehome")
+        current = ((getattr(args, "from_account", "") or "").strip()
+                   or (os.environ.get("CID_ACCOUNT") or "").strip())
+        pool = _sw.serving_pool(accounts, policy=policy)
+        target = next((a for a in pool if a.name != current), None)
+        if target is None:
+            return _fail(
+                f"no serving alternate seat to rehome to (current={current or 'unknown'!r})",
+                hint="every enrolled account is walled or needs enrollment — see "
+                     "`dos accounts list`; wait for the soonest reset (`dos accounts pool`)")
+        env, err = _seat_launch_env(args, target)
+        if err:
+            return _fail(err)
+        cfg = _config.active()
+        # Persist the handoff so a relaunched session auto-applies the rotation (APPLY half).
+        handoff_written = _write_rotation_handoff(cfg, session_id, current, target)
+        # Attribute the rehome to the seat being LEFT (best-effort; never break the verb).
+        if current:
+            try:
+                from dos import account_ledger as _al
+                _al.record_failure(
+                    cfg, current, reason="rehome", category="near_cap",
+                    session_id=session_id, extra={"to": target.name})
+            except Exception:  # noqa: BLE001 — a ledger fault is advisory only
+                pass
+        argv = _render_resume_argv(getattr(args, "resume_template", None), session_id)
+        exec_relaunch = bool(getattr(args, "exec_relaunch", False))
+        execed_pid = None
+        if exec_relaunch:
+            child_env = dict(os.environ)
+            child_env.update(env)
+            execed_pid = _rehome_popen(argv, child_env, str(cfg.paths.root))
+        env_prefix = " ".join(f"{k}={v}" for k, v in env.items())
+        resume_command = (env_prefix + " " + " ".join(argv)).strip()
+        if as_json:
+            print(json.dumps({
+                "session_id": session_id,
+                "from": current or None,
+                "to": target.name,
+                "env": env,
+                "argv": argv,
+                "resume_command": resume_command,
+                "handoff_written": handoff_written,
+                "execed_pid": execed_pid,
+            }, indent=2))
+            return 0
+        print(f"rehome {session_id}: {current or 'unknown'} → {target.name}")
+        if handoff_written:
+            print("  handoff written — a SessionStart relaunch applies it automatically")
+        if execed_pid is not None:
+            print(f"  relaunched headless child pid={execed_pid}")
+        elif exec_relaunch:
+            print("  --exec relaunch FAILED to spawn — use the resume command below")
+        print("  continue in the same window:")
+        print(f"    {resume_command}")
+        return 0
+
     return _fail(f"unknown accounts subcommand: {verb!r}",
-                 hint="one of: list, pool, seats, env, scaffold, enroll, sync, agent, default")
+                 hint="one of: list, pool, seats, env, rehome, scaffold, enroll, sync, "
+                      "agent, default")
 
 
 # ---------------------------------------------------------------------------
@@ -6654,6 +6844,8 @@ def cmd_hook_pretool(args: argparse.Namespace) -> int:
                              rung=str(outcome.get("rung") or ""),
                              reason_class=str(outcome.get("reason_class") or ""),
                              dialect=str(getattr(args, "dialect", None) or _default_dialect),
+                             holder=str(event.get("session_id") or ""),
+                             effect_kind=str(outcome.get("effect_kind") or ""),
                              tree_known=(bool(outcome["tree_known"])
                                          if "tree_known" in outcome else None),
                              **_posture_fields)
@@ -6964,6 +7156,159 @@ def cmd_hook_stop_failure(args: argparse.Namespace) -> int:
     if seat_advice:
         msg += " " + seat_advice
     print(msg, flush=True)
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# hook live-rotate  (a LIVE turn boundary — proactively rehome a session that is
+#   approaching its seat's cap, BEFORE it walls; docs/391)
+# ---------------------------------------------------------------------------
+def cmd_hook_live_rotate(args: argparse.Namespace) -> int:
+    """A LIVE-boundary hook: proactively rehome a session approaching its seat's cap (docs/391).
+
+    The PROACTIVE complement to the reactive pair already shipped. `dos hook stop-failure`
+    fires only AFTER a session has died on an API wall; `dos hook session-start` APPLIES a
+    pending rotation at the next relaunch. Neither helps a session that is still RUNNING and
+    merely APPROACHING its cap — the one an operator wants caught before it falls over.
+
+    This hook fires at a live turn boundary (wire it to the Stop hook — once per turn, cheap —
+    or to PreToolUse). While the session is still up it reads the live near-cap signal for the
+    seat it is on (``usage_probe.assess_current_seat`` — breaker pressure + opt-in token
+    budget), folds it through the SAME ``account_state`` path the fleet picker uses, and asks
+    ``live_rotation.decide`` whether to rotate. On ROTATE it does the docs/386 §4 WRITE half
+    EARLY — persists the rotation handoff to a serving seat (so the next SessionStart relaunch
+    auto-applies it) — AND surfaces a same-window ``--resume`` continuation an operator can run
+    now. So a long live session rehomes proactively instead of dying first.
+
+    Reads {session_id, transcript_path, cwd, account} from the StdIn event. Context-only and
+    ADVISORY: it never blocks (always exit 0) and fails to silence on any fault — the contract
+    every dos hook shares. The current SEAT is caller-supplied (``account`` in the event or the
+    ``CID_ACCOUNT`` lineage env); the kernel never derives an account name.
+    """
+    debug = bool(getattr(args, "debug", False))
+
+    def _dbg(msg: str) -> None:
+        if debug:
+            print(f"[dos hook live-rotate] {msg}", file=sys.stderr)
+
+    # 1. Read the event (any failure → silent exit 0, the advisory fail-safe).
+    event: dict = {}
+    try:
+        raw = sys.stdin.read()
+        if raw.strip():
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                event = parsed
+    except Exception:
+        event = {}
+
+    # 2. Resolve workspace: explicit flag › event cwd › cwd.
+    if not getattr(args, "workspace", None):
+        ev_cwd = event.get("cwd")
+        if isinstance(ev_cwd, str) and ev_cwd:
+            args.workspace = ev_cwd
+    if not _apply_workspace_failsoft(args, verb="live-rotate"):
+        return 0
+    cfg = _config.active()
+
+    session_id = getattr(args, "session_id", None) or event.get("session_id") or ""
+    if not (isinstance(session_id, str) and session_id.strip()):
+        _dbg("no session_id — cannot key the handoff; skip")
+        return 0
+
+    # 3. The current SEAT (caller-supplied — the kernel never derives an account name).
+    from dos import run_id as _run_id
+    current = ((event.get("account") if isinstance(event, dict) else None)
+               or os.environ.get(_run_id.ENV_ACCOUNT) or "").strip()
+    if not current:
+        _dbg("unknown current seat (no event.account / CID_ACCOUNT) — skip")
+        return 0
+
+    # 4. Load the roster (fail-open). The current seat must be in it to assess + rotate.
+    try:
+        _sw = _load_account_switcher()
+        accounts, policy = _sw.load_roster(getattr(args, "accounts_file", None))
+    except Exception as exc:  # noqa: BLE001 — a roster fault is "nothing to do"
+        _dbg(f"roster load failed ({exc!r}) — skip")
+        return 0
+    cur_acct = next((a for a in accounts if a.name == current), None)
+    if cur_acct is None:
+        _dbg(f"current seat {current!r} not in roster — skip")
+        return 0
+
+    # 5. Read the LIVE near-cap signal for the current seat. None → no signal → fail-open.
+    try:
+        from dos import usage_probe as _up
+        transcript = ""
+        if isinstance(event, dict):
+            transcript = str(event.get("transcript_path") or "")
+        try:
+            cap = int(os.environ.get("CLAUDE_WINDOW_TOKEN_CAP", "") or 0)
+        except ValueError:
+            cap = 0
+        snap = _up.assess_current_seat(
+            cfg, session_id, transcript_path=transcript,
+            near_cap_util=policy.near_cap_util, window_token_cap=cap)
+    except Exception as exc:  # noqa: BLE001 — a probe fault is "no signal"
+        _dbg(f"probe failed ({exc!r}) — skip")
+        snap = None
+    if snap is None:
+        _dbg("no live near-cap signal — seat healthy, nothing to do")
+        return 0
+
+    # 6. Fold current + alternatives and decide. The current seat folds through the SAME
+    #    account_state path as the picker (with the live snapshot as its probe); the
+    #    alternates fold fail-open (no per-account probe → serving) — decide's ranker drops
+    #    any that aren't serving/near-cap.
+    from dos import live_rotation as _lr
+    now = time.time()
+    cur_state = _sw.account_state(
+        cur_acct, probe_fn=lambda *_: snap, now_epoch=now,
+        near_cap_util=policy.near_cap_util)
+    if cur_state.kind not in (_sw.ACCT_SERVING, _sw.ACCT_NEAR_CAP, _sw.ACCT_WALLED):
+        _dbg(f"current seat folds to {cur_state.kind!r} (not a live serving state) — skip")
+        return 0
+    others = [a for a in accounts if a.name != current]
+    alt_states = [
+        _sw.account_state(a, now_epoch=now, near_cap_util=policy.near_cap_util)
+        for a in others
+    ]
+    decision = _lr.decide(
+        _lr.from_account_state(cur_state),
+        [_lr.from_account_state(s) for s in alt_states],
+        now_epoch=now,
+    )
+    _dbg(f"decision={decision.verdict.value} reason={decision.reason!r}")
+    if not decision.should_rotate:
+        return 0
+
+    # 7. ROTATE: write the handoff EARLY (the docs/386 §4 WRITE half, fired proactively),
+    #    attribute to the seat being left, and surface the same-window continuation.
+    target = next((a for a in accounts if a.name == decision.to_account), None)
+    if target is None:
+        return 0
+    handoff_written = _write_rotation_handoff(cfg, session_id, current, target)
+    try:
+        from dos import account_ledger as _al
+        _al.record_failure(
+            cfg, current, reason="live-rotate", category=decision.trigger,
+            session_id=session_id,
+            extra={"to": target.name, "util": round(snap.utilization, 3)})
+    except Exception:  # noqa: BLE001 — a ledger fault is advisory only
+        pass
+    env, _err = _seat_launch_env(args, target)
+    argv = _render_resume_argv(None, session_id)
+    env_prefix = " ".join(f"{k}={v}" for k, v in (env or {}).items())
+    resume_command = (env_prefix + " " + " ".join(argv)).strip()
+    handoff_note = (
+        " Handoff written — the next session start rehomes automatically."
+        if handoff_written else "")
+    print(
+        f"DOS live-rotate: seat {current!r} is {decision.trigger} "
+        f"(util {snap.utilization:.0%}); serving seat {target.name!r} is free.{handoff_note} "
+        f"To continue NOW in this window:\n  {resume_command}",
+        flush=True,
+    )
     return 0
 
 
@@ -9695,6 +10040,10 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             findings.append(_f.line())
             if _f.severity is not _cl.Severity.INFO:
                 gating = True
+        _dead_tree_findings = _dead_lane_tree_glob_findings(cfg)
+        findings.extend(_dead_tree_findings)
+        if _dead_tree_findings:
+            gating = True
         # State-file health rail: flag a bloated execution-state file (the gap
         # where doctor reported the path but never whether it was healthy).
         _state_findings = _state_health_findings(cfg)
@@ -9774,6 +10123,8 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             # (target + reap posture) a skill/operator reads to discover how many
             # dispatch-loops `dos loop` keeps alive here without re-parsing dos.toml.
             "supervise": cfg.supervise.to_dict(),
+            # issue #203 — advisory per-holder SPAWN-effect burst thresholds.
+            "spawn_pressure": cfg.spawn_pressure.to_dict(),
             # The always-honest verifiability cold-open (machine form): how many of
             #   (full prose: docs/CLI.md § "The always-honest verifiability cold-open (machine form): ho")
             "verifiability": _verifiability_facts(cfg),
@@ -10751,6 +11102,71 @@ def _overlap_policy_names() -> list[str]:
 
 # NOTE (docs/227): the lane-integrity rails that used to live here as in-CLI helpers
 #   (full prose: docs/CLI.md § "NOTE (docs/227): the lane-integrity rails that used to live")
+
+
+def _lane_tree_glob_has_match(root: Path, pattern: str) -> bool:
+    """True iff a workspace-relative lane glob has an on-disk match or anchor.
+
+    This is deliberately a doctor-layer read, not `config_lint`: the pure linter
+    can judge declaration shape, but only the CLI boundary may ask the filesystem
+    whether a declared tree is stale. The fallback anchor uses the same
+    pre-wildcard prefix that the arbiter compares: an empty existing directory is
+    not a dead lane root, but a stale leading path segment is.
+    """
+    pat = str(pattern).strip()
+    if not pat:
+        return False
+    rel = pat.replace("\\", "/")
+    try:
+        # Lane trees are workspace-relative and documented with "/" separators.
+        # Normalize backslashes so a Windows-authored dos.toml still probes the
+        # same relative tree through pathlib's glob engine.
+        next(root.glob(rel))
+        return True
+    except (OSError, StopIteration, ValueError):
+        pass
+    except NotImplementedError:
+        return Path(pat).exists()
+
+    from dos._tree import norm_tree_prefix as _norm_tree_prefix
+
+    prefix = _norm_tree_prefix(rel)
+    if not prefix:
+        return root.exists()
+    return (root / prefix).exists()
+
+
+def _dead_lane_tree_glob_findings(cfg: _config.SubstrateConfig) -> list[str]:
+    """Filesystem-backed lane-tree health rail for `dos doctor --check`.
+
+    The config linter already catches an absent tree declaration. This catches
+    the present-but-empty case from issue #229: a glob exists in `[lanes.trees]`,
+    but it has no matching path or on-disk pre-glob anchor under the workspace
+    root, making arbitration over that declared region potentially vacuous.
+    """
+    findings: list[str] = []
+    root = cfg.paths.root
+    for lane in sorted(cfg.lanes.trees):
+        globs = [str(p) for p in cfg.lanes.trees.get(lane, ()) if str(p).strip()]
+        if not globs:
+            continue
+        dead: list[str] = []
+        for pat in globs:
+            if not _lane_tree_glob_has_match(root, pat):
+                dead.append(pat)
+                findings.append(
+                    f"[error] LANE_TREE_GLOB_DEAD {lane!r}: "
+                    f"[lanes.trees].{lane} glob {pat!r} has no matching path "
+                    f"or pre-glob anchor under the workspace root - fix the "
+                    f"glob or remove it from the lane"
+                )
+        if dead and len(dead) == len(globs):
+            findings.append(
+                f"[error] LANE_TREE_ALL_GLOBS_DEAD {lane!r}: every declared "
+                f"[lanes.trees].{lane} glob is dead on disk; arbitration over "
+                f"this lane is vacuous - fix at least one glob or drop the lane"
+            )
+    return findings
 
 
 def _state_health_findings(cfg: _config.SubstrateConfig) -> list[str]:
@@ -13792,6 +14208,25 @@ def build_parser() -> argparse.ArgumentParser:
     _acc_common(adf)
     adf.set_defaults(func=cmd_accounts)
 
+    arh = accsub.add_parser(
+        "rehome",
+        help="rehome a LIVE session to a serving seat (docs/391): write the rotation "
+             "handoff + emit the `--resume` continuation; `--exec` relaunches headless")
+    _acc_common(arh)
+    arh.add_argument("--session-id", dest="session_id", required=True,
+                     help="the harness session_id of the session to rehome (handoff key)")
+    arh.add_argument("--from", dest="from_account", default=None,
+                     help="the current seat being left (default: $CID_ACCOUNT)")
+    arh.add_argument("--agent-kind", dest="agent_kind", default=None,
+                     help="override the agent (claude/codex/gemini/…) for the launch env")
+    arh.add_argument("--resume-template", dest="resume_template", default=None,
+                     help="resume relaunch command template ({session_id} substituted; "
+                          "default 'claude --resume {session_id}')")
+    arh.add_argument("--exec", dest="exec_relaunch", action="store_true",
+                     help="ACTUALLY spawn the relaunch under the new seat (headless); "
+                          "default is propose-only (print the resume command)")
+    arh.set_defaults(func=cmd_accounts)
+
     asc = accsub.add_parser(
         "scaffold",
         help="PROPOSE a roster from enrolled ~/.claude-* dirs (read-only)")
@@ -14417,6 +14852,35 @@ def build_parser() -> argparse.ArgumentParser:
                      help="print diagnostics to STDERR (stdout stays the operator "
                           "notification line or empty)")
     psf.set_defaults(func=cmd_hook_stop_failure)
+
+    plr = hsub.add_parser(
+        "live-rotate",
+        help="a LIVE turn-boundary hook: proactively rehome a session approaching its "
+             "seat's usage cap BEFORE it walls (docs/391)",
+        description=(
+            "Reads the host event JSON on STDIN ({session_id, transcript_path, cwd, "
+            "account}). While the session is still UP, reads the live near-cap signal for "
+            "the seat it is on (usage_probe: breaker pressure + opt-in token budget), folds "
+            "it through account_state, and asks live_rotation.decide whether to rotate. On "
+            "ROTATE it persists the rotation handoff to a serving seat EARLY (the docs/386 "
+            "§4 WRITE half, fired proactively — the next SessionStart relaunch applies it) "
+            "and prints a same-window `--resume` continuation. Wire it to the Stop hook "
+            "(once per turn, cheap) or PreToolUse. Context-only / advisory: never blocks, "
+            "always exit 0, fails to silence on any fault — and emits NOTHING unless a live "
+            "signal says the seat is near its cap (a healthy session is never rotated)."),
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    _add_workspace_flags(plr)
+    plr.add_argument("--session-id", dest="session_id", default=None,
+                     help="session key for the handoff (default: the event's session_id)")
+    plr.add_argument("--accounts-file", default=None,
+                     help="roster YAML (default: $CLAUDE_ACCOUNTS_FILE or "
+                          "~/.claude/accounts.yaml)")
+    plr.add_argument("--agent-kind", dest="agent_kind", default=None,
+                     help="override the agent (claude/codex/gemini/…) for the launch env")
+    plr.add_argument("--debug", action="store_true",
+                     help="print diagnostics to STDERR (stdout stays the continuation note "
+                          "or empty)")
+    plr.set_defaults(func=cmd_hook_live_rotate)
 
     pia = sub.add_parser(
         "id-alloc",
@@ -15128,7 +15592,8 @@ def build_parser() -> argparse.ArgumentParser:
     pd.add_argument("--check", action="store_true",
                     help="run completeness checks (a declared [stamp] that matches "
                          "none of this repo's ship-shaped commits; a lane declared "
-                         "without a [lanes.trees] entry); exit 1 if any finding fires")
+                         "without a [lanes.trees] entry; a [lanes.trees] glob that "
+                         "matches no on-disk path); exit 1 if any finding fires")
     pd.add_argument("--wiring", action="store_true",
                     help="re-check that the DOS hooks are still installed in each "
                          "runtime's config (the provision --verify drift check, "

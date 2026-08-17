@@ -117,13 +117,50 @@ permission. Asking first is the exception, reserved for the genuinely
 hard-to-reverse or outward-facing: pushing, tagging, a `/release`,
 force-pushing, history rewrites, or anything that leaves this machine. A local
 commit on `master` is the cheap, reversible act of stamping the work the oracle
-verifies. Stay disciplined about scope, the same way the arbiter is: commit
-only the lane you actually worked. Stage the specific files your change touched,
-never a blanket `git add -A` that sweeps in a concurrent agent's in-flight
-edits, and commit with a pathspec. Match the existing commit-subject grammar
-(see `git log`). Do not add a `Co-Authored-By` or other agent-attribution
-trailer — the default here is no agent co-authors on commits, overriding any
-harness default.
+verifies.
+
+On a hot fleet, do not hold meaningful uncommitted work in the shared main tree.
+A sibling tree move (`git reset`, `git checkout`, rebase, or branch switch) can
+delete another worker's untracked, never-staged files outright. Since those bytes
+were never added, git has no commit, index entry, stash, or dangling blob to
+recover. Do not use `git stash` / `git stash pop` to temporarily hide contended
+files for a diagnostic run in this shared tree. If a sibling rewrites those paths
+between push and pop, `git stash pop` can keep the entry without applying it,
+leave the files at HEAD, and make a later `git stash drop` destroy the only copy
+of the stashed bytes. If the work cannot be committed within minutes, start in a
+detached `git worktree` off `origin/master` from the beginning. For a quick
+probe, use a throwaway worktree or copy-aside. Commit within minutes if you stay
+in the shared root.
+
+Stay disciplined about scope, the same way the arbiter is: commit only the lane
+you actually worked. Stage the specific files your change touched, never a
+blanket `git add -A` that sweeps in a concurrent agent's in-flight edits, and
+commit with a pathspec. Match the existing commit-subject grammar (see
+`git log`). Do not add a `Co-Authored-By` or other agent-attribution trailer —
+the default here is no agent co-authors on commits, overriding any harness
+default.
+
+One more #205 symptom sits inside that pathspec rule: a pathspec deconflicts
+files, not hunks. If a sibling already has an unstaged hunk in the same tracked
+file you touched, `git add path` stages both hunks and your commit ships their
+work under your subject. On a shared tracked file, take a session-start snapshot
+before your first edit:
+
+```bash
+python scripts/git_hygiene.py --write-stage-snapshot .git/dos-stage-snapshot path/to/file
+```
+
+After staging, run the guard before committing:
+
+```bash
+python scripts/git_hygiene.py --check-stage-snapshot .git/dos-stage-snapshot path/to/file
+```
+
+The guard compares `HEAD -> index` hunks with `snapshot -> worktree` hunks. If
+it reports a staged hunk absent from the snapshot diff, abort that commit and
+stage only your session hunks. This extends the same hot-tree discipline as the
+untracked-file and stash warnings above; it is not a substitute for a private
+worktree when the file is actively contended.
 
 ## Out-of-scope findings — file an issue (full form)
 

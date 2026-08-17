@@ -72,10 +72,32 @@ func DecidePretool(stdinBytes []byte, workspaceFlag, dialect string, debug io.Wr
 	}
 	workspace := ResolveWorkspace(wsArg)
 	journalPath := JournalPath(workspace)
+	callShape, callShapeErr := ReadCallShape(workspace)
+	if callShapeErr != nil {
+		d := callShapeConfigDeny(ev, callShapeErr)
+		dbg("call_shape config error: %v", callShapeErr)
+		recordPretool(d, dialect)
+		treeKnown := d.TreeKnown
+		return PretoolResult{
+			Handled:     true,
+			Stdout:      d.RenderAs(dialect),
+			Decision:    d,
+			JournalPath: journalPath,
+			Event:       ev,
+			Obs: Observation{
+				Outcome:     d.DecisionTag,
+				Rung:        d.Rung,
+				ReasonClass: d.ReasonClass,
+				Dialect:     nonEmpty(dialect, "claude-code"),
+				TreeKnown:   &treeKnown,
+			},
+		}
+	}
 
 	in := Inputs{
 		LiveLeases:   LiveLeasesFromWAL(journalPath),
 		RuntimeFiles: ExistingRuntimeFiles(workspace),
+		CallShape:    callShape,
 		// docs/296 — read the operator's armed SELF_MODIFY window at the boundary
 		// (fail-closed; nil when disarmed/absent) and stamp the clock, so the pure
 		// decider can dispose a SELF_MODIFY deny to an allow-with-note while the

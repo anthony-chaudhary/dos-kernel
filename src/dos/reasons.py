@@ -489,17 +489,12 @@ def load_from_toml(path: Path | str, *, base: ReasonRegistry = BASE_REASONS) -> 
     p = Path(path)
     if not p.exists():
         return base
-    try:
-        import tomllib  # py3.11+
-    except ModuleNotFoundError:  # pragma: no cover - py<3.11 fallback
-        try:
-            import tomli as tomllib  # type: ignore
-        except ModuleNotFoundError:
-            return base
-    # `utf-8-sig` transparently strips a UTF-8 BOM (PowerShell's default `utf8`
-    # encoding writes one; raw `tomllib.load(rb)` chokes on it and would silently
-    # drop a valid declared table — see the same fix in `config._load_toml_table`).
-    data = tomllib.loads(p.read_text(encoding="utf-8-sig"))
+    # ONE shared, mtime-keyed parse (`_tomlcache`) - collapses the per-config-layer
+    # re-read/re-parse storm on `dos.toml`. A malformed file still raises here
+    # (uncached), so the caller's existing handling is unchanged; the missing-file
+    # guard above is untouched. The utf-8-sig BOM strip lives inside the helper.
+    from dos._tomlcache import read_toml_cached
+    data = read_toml_cached(p)
     table = data.get("reasons")
     if not isinstance(table, dict) or not table:
         return base

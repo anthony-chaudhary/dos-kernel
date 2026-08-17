@@ -4,11 +4,14 @@
 > ledger, the seat stamp, and the rate-limit auto-restart wiring shipped first; the
 > two follow-ups this doc once queued are now landed too (the git ancestry of the
 > commits is the `dos verify` horizon, not this sentence): (1) the rotate-on-wall
-> **apply** — DOS's side of the asyncRewake env-override contract, a two-phase
-> rotation handoff (§4); and (2) the **Go port + FLIP** of the pure ranking core (§6,
-> the docs/385 ratchet). The one residual is genuinely the harness's, named in §4: the
-> rewake event itself still carries no env channel, so the apply fires at the next
-> env-capable session boundary (`CLAUDE_ENV_FILE`), not on the rewake instant.
+> **apply** — DOS's side of the StopFailure-to-SessionStart env-override contract,
+> a two-phase rotation handoff (§4); and (2) the **Go port + FLIP** of the pure
+> ranking core (§6, the docs/385 ratchet). The one residual is genuinely the
+> harness's, named in §4: StopFailure cannot relaunch or pass env; Claude Code's
+> retry loop (`CLAUDE_CODE_MAX_RETRIES`, with `CLAUDE_CODE_RETRY_WATCHDOG=1` for
+> sustained 429/529 capacity errors) is the actual resumption mechanism, and DOS
+> applies the recorded env only at the next real SessionStart boundary
+> (`CLAUDE_ENV_FILE`).
 
 The operator's ask: a **10× better account switcher** — (1) support arbitrary
 agents (Codex, Claude, Gemini, …), (2) land the in-progress Claude items (safe
@@ -94,29 +97,33 @@ question a multi-account fleet has. Two additive pieces close it:
   flush+fsync, torn-tail tolerant, name sanitized to a safe stem). `summary()` /
   `known_accounts()` fold it. This is the substrate rotate-on-wall reads.
 
-## 4. Rate-limit auto-restart (landed wiring; rotation gated)
+## 4. Rate-limit retry handoff (landed wiring; rotation gated)
 
-The breaker + asyncRewake machinery (`cmd_hook_stop_failure` / `dos.breaker` /
+The breaker + StopFailure machinery (`cmd_hook_stop_failure` / `dos.breaker` /
 `stop_failure_sensor`) shipped long ago but was **never bound to an event** — a
-rate-limited session just died. Now wired in both `claude-plugin/hooks/hooks.json`
-and this repo's `.claude/settings.json`:
+rate-limited session just died without attribution or a durable rotation record. Now
+wired in both `claude-plugin/hooks/hooks.json` and this repo's `.claude/settings.json`:
 
-- **StopFailure → `dos hook stop-failure`** with `asyncRewake:true` (timeout 320s):
-  back off, the harness re-launches, the breaker opens after N consecutive failures
-  (escalate, stop rewaking) so a non-retriable failure cannot loop.
+- **StopFailure → `dos hook stop-failure`** for overload / server-error / rate-limit
+  failures: attribute the wall, back off, maybe write a rotation handoff, and keep the
+  hook honest. A StopFailure hook's output and exit code are not a relaunch channel, so
+  `asyncRewake` is not the resumption mechanism here. The next attempt comes from
+  Claude Code's own retry loop (`CLAUDE_CODE_MAX_RETRIES`; `CLAUDE_CODE_RETRY_WATCHDOG=1`
+  keeps retrying 429/529 capacity errors). The breaker opens after N consecutive
+  failures (escalate, stop asking for retry) so a non-retriable failure cannot loop.
 - **Stop → `dos hook stop-failure --success`**: heal the breaker after a clean
   session.
 
 ### The rotate-on-wall apply — a two-phase env-override handoff (landed)
 
-The "10×" step is: on a wall, **rotate to a serving account and relaunch**, not just
-back off the same one. The kernel side is cheap (`serving_pool` already answers "a
-different serving seat"), and the per-account failure attribution is landed (the
-ledger). The one thing the harness does **not** expose is the obvious channel: the
-asyncRewake event carries an exit code + a `rewakeMessage` string and **no way to hand
-the relaunch a different `CLAUDE_CONFIG_DIR` / token**. The only relaunch-time env
-channel the harness gives a hook is `CLAUDE_ENV_FILE`, and only on a SessionStart-class
-event — not on the StopFailure/rewake itself.
+The "10×" step is: on a wall, **choose the serving account the next real session
+should use**, not just back off the same one. The kernel side is cheap (`serving_pool`
+already answers "a different serving seat"), and the per-account failure attribution
+is landed (the ledger). The one thing the harness does **not** expose is the obvious
+channel: a StopFailure hook cannot relaunch the session or hand the next attempt a
+different `CLAUDE_CONFIG_DIR` / token. Its output and exit code are ignored for that
+purpose, so a StopFailure `asyncRewake` does not resume the run. The only env channel
+DOS can write is `CLAUDE_ENV_FILE`, and only on a real SessionStart-class event.
 
 So the apply is a **two-phase handoff**, and DOS's side of the env-override contract is
 now landed (`src/dos/rotation_handoff.py`, the `stop_failure_sensor` / `account_ledger`
@@ -127,21 +134,22 @@ fail-soft discipline):
   seat's env-override through the resolved `AccountAuthSpec` (`spec.launch_env` — the
   vendor-blind capability path, byte-identical to what the launcher emits), and
   **persists a typed `RotationHandoff`** keyed by session (`_write_rotation_handoff` in
-  `cli.py`). This is all the rewake event itself can reach: it cannot change the
-  relaunch's env, so it records the decision durably.
-- **APPLY half — the SessionStart applier (at the relaunch boundary).** `dos hook
+  `cli.py`). This is all the StopFailure boundary can reach: it cannot launch or pass
+  env, so it records the decision durably.
+- **APPLY half — the SessionStart applier (at the next real SessionStart).** `dos hook
   session-start` reads the pending handoff and, when `CLAUDE_ENV_FILE` is present,
   appends the seat's env there and clears the handoff (apply-once). It surfaces the
   rotation in the orientation digest. The applier consumes the handoff **only** on a
   successful env-file write, so with no channel present it stays pending for the next
   env-capable start rather than being silently dropped.
-- **The residual is the harness's, named not waved off.** Whether an asyncRewake fires
-  a fresh SessionStart is a harness detail DOS does not assume. If it does, the rotation
-  applies on the rewake; if it does not, it applies at the next genuine session start
-  that exposes `CLAUDE_ENV_FILE`. Either way the rotation is **computed + recorded the
+- **The residual is the harness's, named not waved off.** StopFailure `asyncRewake` is
+  not a relaunch path here. Claude Code's retry loop / `CLAUDE_CODE_RETRY_WATCHDOG` is
+  the actual resumption mechanism. When that retry (or any later genuine start) produces
+  a real SessionStart that exposes `CLAUDE_ENV_FILE`, the rotation applies; until then,
+  the handoff remains pending. Either way the rotation is **computed + recorded the
   instant the wall is seen, and applied at the first env-capable boundary** — never lost.
-  A direct env channel on the rewake event proper would collapse the two phases into one;
-  that is the only piece still outside this repo.
+  A direct env channel on the retry/start boundary would collapse the two phases into
+  one; that is the only piece still outside this repo.
 
 ## 5. The in-progress Claude items (status)
 
@@ -195,8 +203,9 @@ All but the last are now landed (the git ancestry is the `dos verify` horizon):
 2. **`dos accounts env --agent-kind` / per-account `agent_kind`** — LANDED: the resolved
    spec is threaded through `dos accounts env` so it emits the right per-agent env.
 3. **Rotate-on-wall apply** — LANDED (§4): the two-phase env-override handoff
-   (`rotation_handoff` WRITE on StopFailure, the SessionStart applier on relaunch). The
-   only residual is the harness's — an env channel on the rewake event itself (§4).
+   (`rotation_handoff` WRITE on StopFailure, the SessionStart applier at the next real
+   SessionStart). The only residual is the harness's — retry/resumption is Claude Code's
+   own loop / `CLAUDE_CODE_RETRY_WATCHDOG`, not StopFailure `asyncRewake` (§4).
 4. **Go port of the pure ranking core** — LANDED + FLIPPED (§6): `go/internal/account`
    + the value-exact parity corpus; `native_canonical` records it Go-canonical.
 5. **The one batched re-vendor** of the public-led settings block into the canonical

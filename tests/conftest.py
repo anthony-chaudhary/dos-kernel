@@ -58,8 +58,12 @@ facts a single test module cannot observe alone.
 """
 from __future__ import annotations
 
+import builtins
+import io
 import os
 import subprocess
+from collections.abc import Callable
+from functools import wraps
 from pathlib import Path
 
 import pytest
@@ -71,6 +75,7 @@ from dos.config import ENV_DOS_HOME
 # its tree), and the suite's cwd is deliberately a tmp dir (see below), so
 # cwd-relative git calls would miss the real repo entirely.
 _REPO_ROOT = Path(__file__).resolve().parent.parent
+_WRITE_MODE_MARKERS = frozenset({"w", "a", "x", "+"})
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -130,8 +135,63 @@ def _modified_tracked_paths(porcelain_text: str) -> frozenset[str]:
         status = line[:2]
         if status in ("??", "!!"):
             continue
-        paths.add(line[3:])
+        paths.add(line[3:].replace("\\", "/"))
     return frozenset(paths)
+
+
+def _repo_path_opened_for_write(file: object, mode: object) -> str | None:
+    """Return the repo-relative path if this open can write a file in this repo."""
+    mode_text = str(mode)
+    if not any(marker in mode_text for marker in _WRITE_MODE_MARKERS):
+        return None
+    try:
+        path = Path(file).resolve()
+    except (OSError, TypeError, ValueError):
+        return None
+    try:
+        rel = path.relative_to(_REPO_ROOT)
+    except ValueError:
+        return None
+    return rel.as_posix()
+
+
+def _new_tracked_paths_written_by_session(
+    before: frozenset[str],
+    after: frozenset[str],
+    written_by_session: set[str] | frozenset[str],
+) -> list[str]:
+    """PURE: dirty-at-end paths that were clean at start and this session wrote."""
+    return sorted((after - before).intersection(written_by_session))
+
+
+def _install_repo_write_tracker(written_by_session: set[str]) -> Callable[[], None]:
+    """Track write-mode opens under the repo while the pytest session runs."""
+    original_builtins_open = builtins.open
+    original_io_open = io.open
+
+    def record(file: object, mode: object) -> None:
+        rel = _repo_path_opened_for_write(file, mode)
+        if rel is not None:
+            written_by_session.add(rel)
+
+    @wraps(original_builtins_open)
+    def tracked_builtins_open(file, mode="r", *args, **kwargs):
+        record(file, mode)
+        return original_builtins_open(file, mode, *args, **kwargs)
+
+    @wraps(original_io_open)
+    def tracked_io_open(file, mode="r", *args, **kwargs):
+        record(file, mode)
+        return original_io_open(file, mode, *args, **kwargs)
+
+    builtins.open = tracked_builtins_open
+    io.open = tracked_io_open
+
+    def restore() -> None:
+        builtins.open = original_builtins_open
+        io.open = original_io_open
+
+    return restore
 
 
 def _tracked_status_snapshot() -> frozenset[str] | None:
@@ -163,23 +223,29 @@ def _suite_is_effect_free_on_tracked_files():
     corpora as CRLF (`write_text` without `newline="\\n"`), dirtying every cold
     clone that ran the tests. The guard is the kernel shape — evidence snapshot
     at the boundary (the modified-tracked set before the first test), a pure
-    set comparison after the last. Delta-of-sets, NOT absolute cleanliness: the
-    hot tree is legitimately dirty with concurrent work; the suite must only
-    add nothing. A concurrent session editing a tracked file mid-run can
-    false-positive this guard — the failure names the paths so the operator can
-    adjudicate which writer it was.
+    set comparison after the last, intersected with write-mode opens made by
+    this pytest process. Delta-of-sets, NOT absolute cleanliness: the hot tree
+    is legitimately dirty with concurrent work; the suite must only add nothing
+    itself.
     """
+    written_by_session: set[str] = set()
+    restore_write_tracker = _install_repo_write_tracker(written_by_session)
     before = _tracked_status_snapshot()
-    yield
-    if before is None:
-        return
-    after = _tracked_status_snapshot()
-    if after is None:
-        return
-    new = sorted(after - before)
-    assert not new, (
-        "AV6 (docs/290): this pytest session left tracked files modified that "
-        f"were clean when it started: {new}. The suite must be effect-free on "
-        "tracked paths (the D8 corpus-CRLF defect class) — find the test that "
-        "wrote them, or rule out a concurrent session's edit."
-    )
+    try:
+        yield
+        if before is None:
+            return
+        after = _tracked_status_snapshot()
+        if after is None:
+            return
+        new = _new_tracked_paths_written_by_session(
+            before, after, written_by_session
+        )
+        assert not new, (
+            "AV6 (docs/290): this pytest session left tracked files modified "
+            f"that were clean when it started and were opened for write by "
+            f"this session: {new}. The suite must be effect-free on tracked "
+            "paths (the D8 corpus-CRLF defect class)."
+        )
+    finally:
+        restore_write_tracker()

@@ -139,13 +139,14 @@ re-enters by choice — the same way a LIVENESS notification carries a paste-to-
 operator runs by choice, never a one-click stop. A notification reports; it does not
 act on the fleet.
 
-This is the deliberate difference from the twin below: rotate-on-wall *auto*-relaunches
-because a machine wall plus the harness `asyncRewake` make an unattended recovery safe.
-A human who closed a session is the one who decides whether to reopen it, so the kernel
-default stays **advisory and human-gated**. A host that owns its loop *may* opt into a
-one-click full reopen by reusing the very same SessionStart applier path the
-rotate-on-wall handoff already uses — but that is the host's choice, downstream of the
-verdict, never the kernel's.
+This is the deliberate difference from the twin below: rotate-on-wall can recover
+unattended when Claude Code's retry loop / `CLAUDE_CODE_RETRY_WATCHDOG` produces the
+next real SessionStart, because the StopFailure hook has already written the rotation
+handoff that SessionStart will apply. A human who closed a session is the one who
+decides whether to reopen it, so the kernel default stays **advisory and human-gated**.
+A host that owns its loop *may* opt into a one-click full reopen by reusing the very
+same SessionStart applier path the rotate-on-wall handoff already uses — but that is the
+host's choice, downstream of the verdict, never the kernel's.
 
 ## The twin — why this is "the account switcher thing"
 
@@ -161,9 +162,9 @@ inventing one.
 | trigger hook | `StopFailure` | `SessionEnd` (+ a `Stop` checkpoint) |
 | durable record | `RotationHandoff` | `ReopenHandoff` |
 | filed at | `.dos/accounts/rotation/<sid>.json` | `.dos/reopen/<sid>.json` |
-| recovery posture | **auto** — `asyncRewake` relaunches under a new seat | **advisory** — a toast offers a one-click `dos resume` |
-| who enacts | the harness (machine) | the operator (a click) |
-| applied at | `SessionStart` → `CLAUDE_ENV_FILE` | the operator's next session / a host deep link |
+| recovery posture | **auto when retried** — Claude Code retry/watchdog resumes; the handoff applies under a new seat | **advisory** — a toast offers a one-click `dos resume` |
+| who enacts | Claude Code retry / host loop (machine); DOS only applies the handoff at SessionStart | the operator (a click) |
+| applied at | next real `SessionStart` → `CLAUDE_ENV_FILE` | the operator's next session / a host deep link |
 
 Both obey the one rule: *you cannot hand anything to a session that is already gone, so
 file a durable record and recover at the next boundary.*
@@ -175,7 +176,7 @@ file a durable record and recover at the next boundary.*
   `dos resume` verb. The OS-toast code and any host deep link live in the `notify_desktop`
   driver; the SessionEnd/Stop wiring is host config.
 - **Advisory floor (docs/99).** The click opens a *proposing* verb; nothing auto-stops,
-  auto-relaunches, or mutates. The reopen is the operator's call.
+  force-restarts, or mutates. The reopen is the operator's call.
 - **A new follow-up adds one row to `action_for_source`, never a transport edit** — the
   `reopen` row, exactly as docs/387 set up.
 - **Fail-soft everywhere.** A handoff-write fault never breaks the SessionEnd hook; a torn
@@ -195,7 +196,7 @@ Each phase is independently shippable and keeps the suite green.
 | 3 | `notification_for_reopen` + the `reopen` row in `_SOURCE_ACTION` | 1 kernel | adapter + source-map test |
 | 4 | wire `SessionEnd` (new) + a `Stop` checkpoint to emit via the configured notifier; add `SessionEnd` to `claude-plugin/hooks/hooks.json` + the `hook_install` specs | 3 helper / host | hook command driven by a synthetic event |
 | 5 | `src/dos/drivers/notify_desktop.py` — the OS-toast transport + click handler, under `dos.notifiers` | 4 driver | driver test with the OS call mocked; fail-soft |
-| 6 | *(optional, host-gated)* one-click full reopen via the SessionStart applier path, reusing the rotate-on-wall relaunch seam | 4 driver / host | opt-in; advisory default unchanged |
+| 6 | *(optional, host-gated)* one-click full reopen via the SessionStart applier path, reusing the rotate-on-wall resumption seam | 4 driver / host | opt-in; advisory default unchanged |
 
 ## Files
 

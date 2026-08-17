@@ -78,6 +78,22 @@ def _load_workspace_config(workspace: str | None) -> "_config.SubstrateConfig":
     return _config.load_workspace_config(workspace, gather_env=False, warn=_warn)
 
 
+def _review_subjects(rev_range: str, root: str, limit: int = 500) -> dict[str, str]:
+    """sha -> subject labels for `dos_review`, gathered at the MCP boundary."""
+    from dos.vcs import active_vcs
+
+    lines = active_vcs(root=root).log_lines(
+        (f"-{int(limit)}", "--pretty=format:%H\x1f%s", rev_range))
+    if not lines:
+        return {}
+    out: dict[str, str] = {}
+    for line in lines:
+        if "\x1f" in line:
+            sha, subj = line.split("\x1f", 1)
+            out[sha.strip()] = subj
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Agent-facing interpretation — turn a kernel verdict into one line of "what
 # this means for your NEXT action."
@@ -415,10 +431,14 @@ def build_server() -> FastMCP:
         `has_residual` is the one-bit CI gate (the `dos review` exit-1 condition);
         `interpretation` (added by this server) tells you in one line what to do next.
         """
+        from dos import commit_audit as _ca
         from dos import residual_review as _rr
+
         cfg = _load_workspace_config(workspace)
         root = str(cfg.paths.root)
-        plan = _rr.build_plan(rev_range, root=root)
+        verdicts = _ca.audit_range(rev_range, root=root)
+        plan = _rr.plan_review(
+            verdicts, rev_range, subjects=_review_subjects(rev_range, root))
         out = _rr.plan_to_dict(plan)
         n_resid = len(plan.residual)
         out["residual_count"] = n_resid

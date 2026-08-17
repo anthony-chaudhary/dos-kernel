@@ -946,6 +946,43 @@ def _check_phase_with_cache(
             if summary_start.match(subject):
                 continue
             return {"shipped": True, "sha": m.group(1), "summary": line, "via": "trailer"}
+    # Pass 1a″ (fak #3132): split-paren issue+leaf stamp — a `(#<issue>)` cite
+    # plus a `(<ns> <leaf>)` NAMED trailer ending the subject, the shape a
+    # Conventional-Commits repo uses when the unit of work is a leaf + a GH
+    # issue (`fix(pythongate): … (#2911) (fak tools)` ↔ `dos verify tools
+    # 2911`). Per-convention OPT-IN (`issue_leaf_stamp`) and only for an
+    # ALL-DIGITS phase query — the issue number IS the phase; a named phase
+    # never binds here. The plan operand is the trailer's LEAF token
+    # (`_NAMED_TRAILER_RE` group 2 — `tools` in `(fak tools)`), compared
+    # case-insensitively to the queried plan; the namespace token (`fak`) is
+    # deliberately NOT an operand, mirroring how the loop queries. Runs after
+    # the trailer pass (a digit-phase trailer stays the canonical attribution)
+    # and before the release-prefix pass, with the same two guards: a
+    # bookkeeping subject never ships (FQ-77), and a summary/release subject
+    # falls through to Pass 1b where the footprint guards apply.
+    if getattr(matchers.convention, "issue_leaf_stamp", False) and phase.isdigit():
+        from dos.stamp import _NAMED_TRAILER_RE
+
+        issue_pat = re.compile(rf"\(\s*#{re.escape(phase)}\b")
+        summary_start = re.compile(rf"^{matchers.summary_subject}", re.IGNORECASE)
+        plan_token = series.lower()
+        for line in oneline_lines:
+            subject = _oneline_subject(line)
+            if not subject or not issue_pat.search(subject):
+                continue
+            m = _NAMED_TRAILER_RE.search(subject)
+            if not m or m.group(2).lower() != plan_token:
+                continue
+            if matchers.is_bookkeeping_subject(subject):
+                continue
+            if summary_start.match(subject):
+                continue
+            return {
+                "shipped": True,
+                "sha": line.split(None, 1)[0],
+                "summary": line,
+                "via": "issue-leaf",
+            }
     # Pass 1b: release-prefix bundled mentions, only if no direct ship was
     # found above. Newest release commit wins (oneline is newest-first).
     # Same progress-marker demotion as Pass 1a — a release commit that

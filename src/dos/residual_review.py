@@ -48,24 +48,25 @@ ask for MORE eyes, never fewer, so it cannot hide a real residual.
 
 Layering (CLAUDE.md): this is a KERNEL leaf. `plan_review` is the pure
 projection (`classify(evidence, policy)` — no git, no I/O). The git reads
-(`audit_range`, the subject/diffstat reads, `build_plan`) live here too but are
-boundary I/O the CLI drives, exactly as `commit_audit._git` does. The module
+(`commit_audit.audit_range`, subject labels, and diffstats for review cards) live
+at the CLI / MCP / example boundaries and are passed in as evidence. The module
 imports only `dos.commit_audit` + stdlib — it names no host, no vendor (the
 `RISK_SURFACES` table is a generic default a host overrides via config, the same
-host-policy seam the example shipped). `dos review` (the CLI verb) and
-`dos_review` (the MCP tool) are thin shells over `build_plan`/`plan_review`;
-`examples/residual_review/` re-exports this module, recomputing no rung.
+host-policy seam the example shipped). `dos review` (the CLI verb), `dos_review`
+(the MCP tool), and `examples/residual_review/` are thin shells over
+`plan_review`; they recompute no rung.
 """
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 # Stand on the REAL kernel verdict — do NOT reimplement the witness rung. The
 # whole proof is that the residual is exactly the shipped `commit-audit` output,
 # re-projected. If we recomputed the rung here it would be a different (and
 # unproven) thing wearing the same name.
-from dos.commit_audit import ClaimVerdict, Verdict, Witness, audit_range
+from dos.commit_audit import ClaimVerdict, Verdict, Witness
 
 
 # --- Band 2: the advisory semantic lens (fail-to-ABSTAIN) -------------------
@@ -145,7 +146,29 @@ def _all_files(v: ClaimVerdict) -> tuple[str, ...]:
     return tuple(seen)
 
 
-def plan_review(verdicts: list[ClaimVerdict], rev_range: str) -> ReviewPlan:
+def _lookup_sha(mapping: Mapping[str, str] | None, sha: str) -> str:
+    """Return the value for ``sha`` from a full-or-short-sha keyed mapping.
+
+    Pure boundary adapter: callers may label verdicts with full SHAs from a VCS
+    log while `commit_audit` returns short SHAs. Prefix matching keeps the
+    projection independent of whichever width the evidence reader supplied.
+    """
+    if not mapping:
+        return ""
+    if sha in mapping:
+        return mapping[sha]
+    for key, value in mapping.items():
+        if key.startswith(sha) or sha.startswith(key):
+            return value
+    return ""
+
+
+def plan_review(
+    verdicts: list[ClaimVerdict],
+    rev_range: str,
+    *,
+    subjects: Mapping[str, str] | None = None,
+) -> ReviewPlan:
     """Project a list of shipped `ClaimVerdict`s into the three-band review plan.
 
     Pure: no git, no I/O. Takes the kernel's verdicts and sorts them by where a
@@ -183,7 +206,7 @@ def plan_review(verdicts: list[ClaimVerdict], rev_range: str) -> ReviewPlan:
         files = list(_all_files(v))
         item = ReviewItem(
             sha=v.sha,
-            subject="",  # filled by the caller from git; pure layer leaves blank
+            subject=_lookup_sha(subjects, v.sha),
             band="",
             witness=v.witness.value,
             claim_kind=v.claim_kind.value,
@@ -218,7 +241,7 @@ def plan_review(verdicts: list[ClaimVerdict], rev_range: str) -> ReviewPlan:
             flags = _risk_reasons(tuple(files))
             if flags:
                 sem = ReviewItem(
-                    sha=v.sha, subject="", band="semantic",
+                    sha=v.sha, subject=_lookup_sha(subjects, v.sha), band="semantic",
                     witness=v.witness.value, claim_kind=v.claim_kind.value,
                     verdict=v.verdict.value, files=files, reason=v.reason,
                     semantic_flags=flags,
@@ -245,47 +268,6 @@ def plan_review(verdicts: list[ClaimVerdict], rev_range: str) -> ReviewPlan:
     )
 
 
-# --- Subjects (a thin git read at the boundary, like commit_audit's) ---------
-
-def _subjects(rev_range: str, root: str, limit: int = 500) -> dict[str, str]:
-    """sha -> subject, for labelling. Boundary I/O through the `dos.vcs` seam; empty
-    on any failure.
-
-    Routed through `active_vcs(...).log_lines` rather than shelling `git` here so the
-    kernel's VCS-read seam stays the single git boundary (docs/379, pinned by
-    `tests/test_vcs_layering.py`). The seam's `_run_git` keeps the same envelope this
-    read had directly — `stdin=DEVNULL` (docs/295) and utf-8/replace decoding so an
-    international contributor's subject can't mojibake into the data (mirroring
-    `commit_audit`)."""
-    from dos.vcs import active_vcs
-
-    lines = active_vcs(root=root).log_lines(
-        (f"-{int(limit)}", "--pretty=format:%H\x1f%s", rev_range))
-    if not lines:
-        return {}
-    m: dict[str, str] = {}
-    for line in lines:
-        if "\x1f" in line:
-            sha, subj = line.split("\x1f", 1)
-            m[sha.strip()] = subj
-    return m
-
-
-def build_plan(rev_range: str, root: str = ".") -> ReviewPlan:
-    """The full pipeline: kernel verdicts -> three-band plan, with subjects."""
-    verdicts = audit_range(rev_range, root=root)
-    plan = plan_review(verdicts, rev_range)
-    subj = _subjects(rev_range, root)
-    # `commit_audit.read_commit` stores the ABBREVIATED sha (`git show`'s `%h`),
-    # while `git log --pretty=%H` keys the subject map on the FULL sha. Match by
-    # prefix so the two sha widths line up.
-    for bucket in (plan.cleared, plan.residual, plan.unverifiable, plan.semantic):
-        for it in bucket:
-            it.subject = next(
-                (s for full, s in subj.items() if full.startswith(it.sha)), "")
-    return plan
-
-
 # --- Navigation (the UI/UX surface) ------------------------------------------
 #
 # A flat three-band listing answers "where is my attention owed". The next
@@ -299,36 +281,22 @@ def build_plan(rev_range: str, root: str = ".") -> ReviewPlan:
 # (every TUI is downstream of the same data); a host wires it to a pager, an
 # editor's quickfix list, or a PR-comment thread.
 
-def _commit_diffstat(sha: str, root: str) -> str:
-    """The per-file line-delta for one commit — the boundary read for a review card.
-
-    Routed through the `dos.vcs` seam's `commit_diffstat` (docs/379) rather than
-    shelling `git show --stat` here, so the kernel keeps a single VCS-read boundary
-    (`tests/test_vcs_layering.py`). The seam returns structured `FileDelta`s; we
-    render one `path | +A -R` line per file (a binary file — git's numstat `-`,
-    carried as the `-1` sentinel — renders `path | bin`). Empty on any failure (the
-    seam returns None / an empty list)."""
-    from dos.vcs import active_vcs
-
-    deltas = active_vcs(root=root).commit_diffstat(sha)
-    if not deltas:
-        return ""
-    rows: list[str] = []
-    for d in deltas:
-        if d.added < 0 or d.removed < 0:  # binary — no countable line delta
-            rows.append(f"{d.path} | bin")
-        else:
-            rows.append(f"{d.path} | +{d.added} -{d.removed}")
-    return "\n".join(rows)
-
-
-def render_walk(plan: ReviewPlan, root: str = ".") -> str:
+def render_walk(
+    plan: ReviewPlan,
+    root: str | None = None,
+    *,
+    diffstats: Mapping[str, str] | None = None,
+) -> str:
     """Render the residual as a numbered sequence of review cards to step through.
 
     Only the residual (and, dimmed, the advisory semantic flags) — the cleared
     band is the whole point of NOT showing here. If the residual is empty the walk
-    is one line: there is nothing the kernel couldn't clear.
+    is one line: there is nothing the kernel couldn't clear. ``diffstats`` is
+    optional boundary evidence keyed by full or short SHA; this renderer never
+    reads VCS state itself. ``root`` is accepted for the old example API and is
+    intentionally unused.
     """
+    _ = root
     L: list[str] = []
     n = len(plan.residual)
     pct = round(plan.cleared_rate * 100)
@@ -352,7 +320,7 @@ def render_walk(plan: ReviewPlan, root: str = ".") -> str:
             L.append(f"│  files: {shown}{more}")
         for fl in sem_by_sha.get(it.sha, []):
             L.append(f"│  ⚠ semantic: {fl}")
-        stat = _commit_diffstat(it.sha, root)
+        stat = _lookup_sha(diffstats, it.sha)
         if stat:
             for s in stat.splitlines():
                 L.append(f"│    {s}")
