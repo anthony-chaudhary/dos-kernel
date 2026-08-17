@@ -1,0 +1,15 @@
+{
+  "session_id": "01a011f8-5f98-7ad1-b883-a044a5c4438f",
+  "transcript_path": "X:\\codex-fixture\\.codex\\rollout.jsonl",
+  "cwd": "X:\\codex-fixture\\dos-kernel-public",
+  "hook_event_name": "PostToolUse",
+  "model": "gpt-5.6-sol",
+  "permission_mode": "bypassPermissions",
+  "turn_id": "01a011f8-6067-7823-a069-c696148a897b",
+  "tool_name": "Bash",
+  "tool_use_id": "call_ezYkFYLEU0c4MgioFOGr13L5",
+  "tool_input": {
+    "command": "Write-Output 'dos-hook-7212-envelope-capture'"
+  },
+  "tool_response": "dos-hook-7212-envelope-capture\r\n"
+}

@@ -95,10 +95,10 @@ SHARED_FILES = ("EXAMPLES.md",)
 # allowlist of manual-integration helpers. The allowlist is DATA (not a parsed
 # comment): a launcher is intentionally-unwired iff its basename is listed here.
 #
-#   * dos-hook.ps1 — the PowerShell launcher. hooks.json declares `shell: bash`,
-#     which Claude Code runs through Git Bash even on Windows, so the POSIX
-#     `dos-hook` already serves Windows. This .ps1 is for a hand-wired
-#     `shell: powershell` hook; it is deliberately not referenced by the bundle.
+#   * dos-hook.ps1 — the general PowerShell launcher. The bundle's native Codex
+#     Pre/Post hooks use the narrower dos-hook-codex.ps1 adapter instead, while
+#     Claude Code keeps using the POSIX dos-hook launcher. This general helper is
+#     still for a hand-wired `shell: powershell` integration.
 _MANUAL_LAUNCHERS = frozenset({"dos-hook.ps1"})
 
 # What makes a bin/ file a "launcher" (a script hooks.json could invoke) rather
@@ -430,8 +430,10 @@ def _tracked_bin_launchers(root: Path) -> list[str]:
 
 def _hooks_command_text(root: Path) -> str:
     """All hooks.json command strings concatenated — the surface a launcher is
-    'reached' from. Returns '' if the manifest is absent or unparseable (then no
-    launcher is reachable, which the reachability check will flag — fail-loud)."""
+    'reached' from. Both the portable ``command`` and Windows-only
+    ``commandWindows`` fields count. Returns '' if the manifest is absent or
+    unparseable (then no launcher is reachable, which the reachability check
+    will flag — fail-loud)."""
     hooks_path = root / PLUGIN_HOOKS_REL
     if not hooks_path.is_file():
         return ""
@@ -443,9 +445,10 @@ def _hooks_command_text(root: Path) -> str:
     for event_groups in obj.get("hooks", {}).values():
         for group in event_groups:
             for h in group.get("hooks", []):
-                c = h.get("command")
-                if isinstance(c, str):
-                    parts.append(c)
+                for field in ("command", "commandWindows"):
+                    command = h.get(field)
+                    if isinstance(command, str):
+                        parts.append(command)
     return "\n".join(parts)
 
 

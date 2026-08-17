@@ -6,7 +6,8 @@
           {
             "type": "command",
             "shell": "bash",
-            "command": "root=\"${CLAUDE_PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT:-}}\"; if [ -n \"$root\" ] && [ -f \"$root/bin/dos-hook\" ]; then command -p sh \"$root/bin/dos-hook\" pretool --workspace .; rc=$?; [ \"$rc\" -eq 0 ] && exit 0; fi; python -m dos.cli hook pretool --workspace . 2>/dev/null || python3 -m dos.cli hook pretool --workspace . 2>/dev/null || powershell.exe -NoProfile -ExecutionPolicy Bypass -Command 'python -m dos.cli hook pretool --workspace .' 2>/dev/null || { [ -z \"$root\" ] || echo \"dos-hook: warning: no DOS hook backend could run; live DOS enforcement is fail-open. Install dos-kernel or restore claude-plugin/bin/dos-hook.\" >&2; true; }"
+            "command": "root=\"${CLAUDE_PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT:-}}\"; if [ -n \"$root\" ] && [ -f \"$root/bin/dos-hook\" ]; then command -p sh \"$root/bin/dos-hook\" pretool --workspace .; rc=$?; [ \"$rc\" -eq 0 ] && exit 0; fi; python -m dos.cli hook pretool --workspace . 2>/dev/null || python3 -m dos.cli hook pretool --workspace . 2>/dev/null || powershell.exe -NoProfile -ExecutionPolicy Bypass -Command 'python -m dos.cli hook pretool --workspace .' 2>/dev/null || { [ -z \"$root\" ] || echo \"dos-hook: warning: no DOS hook backend could run; live DOS enforcement is fail-open. Install dos-kernel or restore claude-plugin/bin/dos-hook.\" >&2; true; }",
+            "commandWindows": "& (Join-Path $env:PLUGIN_ROOT 'bin\\dos-hook-codex.ps1') pretool --workspace .; exit $LASTEXITCODE"
           }
         ]
       }
@@ -18,7 +19,8 @@
           {
             "type": "command",
             "shell": "bash",
-            "command": "root=\"${CLAUDE_PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT:-}}\"; if [ -n \"$root\" ] && [ -f \"$root/bin/dos-hook\" ]; then command -p sh \"$root/bin/dos-hook\" posttool --workspace .; rc=$?; [ \"$rc\" -eq 0 ] && exit 0; fi; python -m dos.cli hook posttool --workspace . 2>/dev/null || python3 -m dos.cli hook posttool --workspace . 2>/dev/null || powershell.exe -NoProfile -ExecutionPolicy Bypass -Command 'python -m dos.cli hook posttool --workspace .' 2>/dev/null || { [ -z \"$root\" ] || echo \"dos-hook: warning: no DOS hook backend could run; live DOS enforcement is fail-open. Install dos-kernel or restore claude-plugin/bin/dos-hook.\" >&2; true; }"
+            "command": "root=\"${CLAUDE_PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT:-}}\"; if [ -n \"$root\" ] && [ -f \"$root/bin/dos-hook\" ]; then command -p sh \"$root/bin/dos-hook\" posttool --workspace .; rc=$?; [ \"$rc\" -eq 0 ] && exit 0; fi; python -m dos.cli hook posttool --workspace . 2>/dev/null || python3 -m dos.cli hook posttool --workspace . 2>/dev/null || powershell.exe -NoProfile -ExecutionPolicy Bypass -Command 'python -m dos.cli hook posttool --workspace .' 2>/dev/null || { [ -z \"$root\" ] || echo \"dos-hook: warning: no DOS hook backend could run; live DOS enforcement is fail-open. Install dos-kernel or restore claude-plugin/bin/dos-hook.\" >&2; true; }",
+            "commandWindows": "& (Join-Path $env:PLUGIN_ROOT 'bin\\dos-hook-codex.ps1') posttool --workspace .; exit $LASTEXITCODE"
           }
         ]
       }
