@@ -1,0 +1,40 @@
+{
+  "schema": "dos.codex-hook-live-smoke.v1",
+  "captured_at": "2026-08-17T17:06:55-07:00",
+  "codex_cli": "0.147.0",
+  "profile": "$CODEX_HOME active profile",
+  "thread_id": "01a01231-19cd-7662-8079-3e5f5c3fb9c4",
+  "turn_id": "01a01231-1a27-7c12-888d-9cca83dba4f4",
+  "plugin": {
+    "id": "dos-kernel@dos-7212-smoke",
+    "version": "0.30.0",
+    "marketplace": "dos-7212-smoke",
+    "source_revision": "ea5a9dde58051cdeb1075c86740e143710947056",
+    "installed_manifest_sha256": "b900587b713c8927ddcf38d29ad8a118c25887035846f67f30a1b62dd160c728",
+    "installed_adapter_sha256": "dc34a6fc2149017206f9db7ed031e6a759f711a98384d1dd79f991bc7dca0cfe",
+    "trust_status": "trusted",
+    "hook_trust_bypass": false
+  },
+  "command": "Write-Output 'dos-hook-7212-appserver-smoke'",
+  "command_output": "dos-hook-7212-appserver-smoke",
+  "command_exit_code": 0,
+  "sequence": [
+    {
+      "kind": "hook",
+      "event": "preToolUse",
+      "status": "completed",
+      "source": "plugin"
+    },
+    {
+      "kind": "commandExecution",
+      "status": "completed",
+      "exit_code": 0
+    },
+    {
+      "kind": "hook",
+      "event": "postToolUse",
+      "status": "completed",
+      "source": "plugin"
+    }
+  ]
+}
