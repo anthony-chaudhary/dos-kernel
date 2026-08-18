@@ -34,6 +34,7 @@
 package main
 
 import (
+	"encoding/json"
 	"io"
 	"os"
 	"strconv"
@@ -137,6 +138,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int) {
 		// consuming stdin is exactly the bug the GHF1 native-journal port fixed.)
 		stdinBytes, _ := io.ReadAll(stdin)
 		res := hook.DecidePretool(stdinBytes, workspace, dialect, dbgW)
+		stampLifecycleIdentity(&res.Obs, stdinBytes, obsWorkspace)
 		obs = res.Obs
 		if res.Stdout != "" {
 			_, _ = io.WriteString(stdout, res.Stdout+"\n")
@@ -154,6 +156,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int) {
 		// delegates, so consuming stdin here is safe.
 		stdinBytes, _ := io.ReadAll(stdin)
 		res := hook.DecidePosttool(stdinBytes, workspace, sessionID, dialect, dbgW)
+		stampLifecycleIdentity(&res.Obs, stdinBytes, obsWorkspace)
 		obs = res.Obs
 		if res.Stdout != "" {
 			_, _ = io.WriteString(stdout, res.Stdout+"\n")
@@ -230,6 +233,23 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int) {
 	}
 }
 
+// stampLifecycleIdentity carries the host's stable join keys from the untouched
+// hook envelope into the terminal observation. Codex tool_use_id is the rollout
+// function_call call_id; preserving it makes parallel and out-of-order hooks
+// independently joinable without timestamp heuristics.
+func stampLifecycleIdentity(obs *hook.Observation, stdinBytes []byte, workspace string) {
+	var envelope struct {
+		ToolUseID string `json:"tool_use_id"`
+		SessionID string `json:"session_id"`
+	}
+	if json.Unmarshal(stdinBytes, &envelope) != nil {
+		return
+	}
+	obs.CallID = envelope.ToolUseID
+	obs.SessionID = envelope.SessionID
+	obs.Workspace = workspace
+}
+
 // finalizeObservation stamps the per-invocation fields the dispatcher owns (verb,
 // exit, latency, run_id) onto the decider's partial observation, counts the uniform
 // in-process dimensions (one invocation + one exit per call), and persists the
@@ -248,6 +268,15 @@ func finalizeObservation(verb, workspace string, start time.Time, code int, debu
 	obs.ExitCode = code
 	obs.LatencyMs = float64(elapsed.Microseconds()) / 1000.0
 	obs.RunID = os.Getenv("CID_RUN_ID")
+	obs.Workspace = workspace
+	obs.Profile = os.Getenv("CODEX_HOME")
+	if panicked || code != 0 {
+		obs.PhaseState = "failed"
+	} else if obs.CallID == "" && (verb == "pretool" || verb == "posttool") {
+		obs.PhaseState = "skipped"
+	} else if verb == "pretool" || verb == "posttool" {
+		obs.PhaseState = "succeeded"
+	}
 
 	// Uniform in-process counters: one invocation + one exit per call, plus the
 	// per-verb latency histogram. (The verdict-specific dimensions were already

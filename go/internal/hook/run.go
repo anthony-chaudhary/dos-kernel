@@ -299,6 +299,9 @@ func parseEvent(top map[string]any) *Event {
 	if s, ok := top["session_id"].(string); ok {
 		e.SessionID = s
 	}
+	if s, ok := top["tool_use_id"].(string); ok {
+		e.ToolUseID = s
+	}
 	if s, ok := top["cwd"].(string); ok {
 		e.Cwd = s
 	}

@@ -12,6 +12,7 @@ import (
 type Event struct {
 	HookEventName string
 	SessionID     string
+	ToolUseID     string
 	Cwd           string
 	ToolName      string
 	ToolInput     map[string]any

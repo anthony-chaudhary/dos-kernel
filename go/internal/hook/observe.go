@@ -44,6 +44,11 @@ type Observation struct {
 	ExitCode   int    // 0 OWNED / 3 DELEGATE
 	LatencyMs  float64
 	RunID      string // CID_RUN_ID join key (the correlation spine), "" when unset
+	CallID     string // host tool-use/call identifier
+	SessionID  string // host session/thread identifier
+	Workspace  string // resolved workspace that owns the observation store
+	Profile    string // active host profile (CODEX_HOME when present)
+	PhaseState string // succeeded|failed|skipped|disabled
 
 	// pretool
 	Rung        string
@@ -132,6 +137,21 @@ func (o Observation) toEntry() map[string]any {
 	e["latency_ms"] = o.LatencyMs
 	if o.RunID != "" {
 		e["run_id"] = o.RunID
+	}
+	if o.CallID != "" {
+		e["call_id"] = o.CallID
+	}
+	if o.SessionID != "" {
+		e["session_id"] = o.SessionID
+	}
+	if o.Workspace != "" {
+		e["workspace"] = o.Workspace
+	}
+	if o.Profile != "" {
+		e["profile"] = o.Profile
+	}
+	if o.PhaseState != "" {
+		e["phase_state"] = o.PhaseState
 	}
 	if o.Rung != "" {
 		e["rung"] = o.Rung
