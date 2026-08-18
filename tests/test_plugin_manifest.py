@@ -164,7 +164,7 @@ def _hook_commands(hooks_obj: dict, event: str) -> list[str]:
 
 
 def test_lifecycle_hooks_have_windows_fail_open_adapters():
-    """Codex on Windows executes commandWindows with cmd.exe, not bash."""
+    """Codex executes commandWindows with PowerShell, not POSIX bash."""
     hooks = _load(PLUGIN_HOOKS)
     expected = {
         "UserPromptSubmit": "hook marker",
@@ -180,15 +180,16 @@ def test_lifecycle_hooks_have_windows_fail_open_adapters():
         for entry in entries:
             command = entry.get("commandWindows")
             assert isinstance(command, str) and command, (
-                f"{event} needs a cmd.exe adapter; its POSIX command exits 1 on Windows"
+                f"{event} needs a PowerShell adapter; its POSIX command exits 1 on Windows"
             )
             assert ("dos " + verb) in command or ("dos.cli " + verb) in command
-            assert "exit /b 0" in command, (
+            assert command.endswith("exit 0"), (
                 f"{event} must fail open if no DOS backend is available: {command}"
             )
-            for token in ("/dev/null", " true", "${", "[ -"):
+            assert "$LASTEXITCODE" in command
+            for token in ("/dev/null", " true", "${", "[ -", "exit /b"):
                 assert token not in command, (
-                    f"{event} commandWindows contains POSIX-only syntax {token!r}: {command}"
+                    f"{event} commandWindows contains non-PowerShell syntax {token!r}: {command}"
                 )
 
 
