@@ -2,5 +2,6 @@
   "schemaVersion": 1,
   "label": "commit-claims",
   "message": "5 unwitnessed of 315 (as of 2026-06-16)",
-  "color": "orange"
+  "color": "orange",
+  "head_sha": "1ffdaff70a3282d6ad90940438f09b1f1705a44d"
 }

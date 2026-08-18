@@ -110,7 +110,7 @@ def test_verdict_refuses_a_malformed_repo(bad):
 
 def test_badge_envelope_is_the_shields_contract():
     b = ss.badge_payload(_verdict())
-    assert set(b) == {"schemaVersion", "label", "message", "color"}
+    assert set(b) == {"schemaVersion", "label", "message", "color", "head_sha"}
     assert b["schemaVersion"] == 1
     assert b["label"] == "commit-claims"
 

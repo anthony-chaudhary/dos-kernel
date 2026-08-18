@@ -1,0 +1,118 @@
+name: Refresh self scoreboard
+
+on:
+  schedule:
+    - cron: "23 7 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: self-scoreboard-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    if: github.repository == 'anthony-chaudhary/dos-kernel'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          # Ordinary push token: the refresh commit must trigger CI.
+          token: ${{ secrets.RELEASE_PAT }}
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install audit tooling
+        run: pip install -e .
+
+      - name: Sweep HEAD into runner scratch
+        id: gate
+        continue-on-error: true
+        env:
+          OUT: ${{ runner.temp }}/self-sweep.json
+        run: |
+          base=$(python - <<'PY'
+          import json
+          print(json.load(open('docs/scoreboard/anthony-chaudhary/dos-kernel/adjudications.json'))['range']['base_sha'])
+          PY
+          )
+          dos commit-audit --workspace . --sweep "$base..HEAD" --json > "$OUT"
+          python scripts/scoreboard_refresh_gate.py \
+            --sweep "$OUT" \
+            --adjudications docs/scoreboard/anthony-chaudhary/dos-kernel/adjudications.json \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Open or update adjudication issue
+        if: steps.gate.outputs.safe != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEW: ${{ steps.gate.outputs.new }}
+          RESOLVED: ${{ steps.gate.outputs.resolved }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="Self-scoreboard refresh needs adjudication"
+          body=$(printf 'The scheduled self-sweep changed the raw unwitnessed SHA set.\n\nNew: `%s`\nResolved: `%s`\n\nRun: %s\n\nThe badge was not modified.' "$NEW" "$RESOLVED" "$RUN_URL")
+          existing=$(gh issue list --state open --search "$title in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+          exit 1
+
+      - name: Regenerate published surfaces
+        if: steps.gate.outputs.safe == 'true'
+        env:
+          SWEEP: ${{ runner.temp }}/self-sweep.json
+        run: |
+          target=docs/scoreboard/anthony-chaudhary/dos-kernel
+          cp "$SWEEP" "$target/sweep.json"
+          python - <<'PY'
+          import datetime, json, pathlib, subprocess
+          path = pathlib.Path('docs/scoreboard/anthony-chaudhary/dos-kernel/adjudications.json')
+          data = json.loads(path.read_text())
+          data['range']['head_sha'] = subprocess.check_output(
+              ['git', 'rev-parse', 'HEAD'], text=True
+          ).strip()
+          stamp = datetime.datetime.now(datetime.UTC).date().isoformat()
+          data['rendered'] = stamp
+          data['range']['commits_note'] = f"the full visible history through {stamp}"
+          path.write_text(json.dumps(data, indent=2) + '\n')
+          PY
+          python scripts/scoreboard_surfaces.py \
+            --summary "$target/sweep.json" --repo anthony-chaudhary/dos-kernel \
+            --out docs/scoreboard --range "public history through HEAD" \
+            --head-sha "$(git rev-parse HEAD)" --stamp "$(date -u +%F)"
+          python scripts/scoreboard_page.py \
+            --sweep "$target/sweep.json" --adjudications "$target/adjudications.json" \
+            --out docs/scoreboard/anthony-chaudhary/dos-kernel.md
+          python scripts/scoreboard_rollup.py --stamp "$(date -u +%F)"
+          python scripts/scoreboard_page.py \
+            --sweep "$target/sweep.json" --adjudications "$target/adjudications.json" \
+            --out docs/scoreboard/anthony-chaudhary/dos-kernel.md --check
+          python scripts/scoreboard_rollup.py --stamp "$(date -u +%F)" --check
+
+      - name: Commit safe refresh
+        if: steps.gate.outputs.safe == 'true'
+        run: |
+          if git diff --quiet -- docs/scoreboard; then
+            echo "Scoreboard already current."
+            exit 0
+          fi
+          git config user.name "dos-scoreboard[bot]"
+          git config user.email "dos-scoreboard[bot]@users.noreply.github.com"
+          git add -- \
+            docs/scoreboard/anthony-chaudhary/dos-kernel/sweep.json \
+            docs/scoreboard/anthony-chaudhary/dos-kernel/adjudications.json \
+            docs/scoreboard/anthony-chaudhary/dos-kernel/verdict.json \
+            docs/scoreboard/anthony-chaudhary/dos-kernel/badge.json \
+            docs/scoreboard/anthony-chaudhary/dos-kernel.md \
+            docs/scoreboard/rollup.md
+          git commit -m "docs(scoreboard): refresh self-audit at HEAD"
+          git push origin HEAD:master

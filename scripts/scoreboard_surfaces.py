@@ -121,6 +121,7 @@ def badge_payload(verdict: dict) -> dict:
         "label": BADGE_LABEL,
         "message": message,
         "color": color,
+        "head_sha": verdict["range"]["head_sha"],
     }
 
 
