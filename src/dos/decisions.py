@@ -20,10 +20,10 @@ joins six sources that already persist their decisions —
     enforcement storms  <- lane_journal.jsonl `OP_ENFORCE` denies, folded through
                            the docs/223 breaker (issue #14 — a hook deny whose only
                            remedy is a human, recurring, IS an operator decision)
-    resume proposals    <- `RESUME_PROPOSED` ops in run-archive intent ledgers
-                           (issue #19 — a stalled run adjudicated RESUMABLE by
-                           `dos resume` has a minted re-entry point; surface it so
-                           the operator can re-dispatch instead of silently reaping)
+    resume outcomes     <- `RESUME_PROPOSED` / `RESUME_DIVERGED` ops in run-archive
+                           intent ledgers (issue #19 — a stalled run adjudicated
+                           by `dos resume` is surfaced to the operator instead of
+                           silently reaped)
 
 — normalizes each into one `Decision`, and renders. The detail/action text is a
 projection of the active `ReasonRegistry` (`config.reasons`), exactly as
@@ -103,6 +103,9 @@ class DecisionKind(str, enum.Enum):
     RESUME_PROPOSAL = "RESUME_PROPOSAL"    # a stalled run adjudicated RESUMABLE by
                                            # `dos resume` — a minted re-entry point waiting
                                            # for operator re-dispatch (issue #19, docs/107)
+    RESUME_DIVERGED = "RESUME_DIVERGED"    # a stalled run adjudicated DIVERGED by
+                                           # `dos resume` — fresh work exists past the
+                                           # re-entry point, so a human must decide
 
     def __str__(self) -> str:  # pragma: no cover - trivial
         return self.value
@@ -1259,14 +1262,15 @@ def _from_soaks(config) -> list[Decision]:
 
 
 def _from_resume_proposals(config, *, now: dt.datetime | None = None) -> list[Decision]:
-    """Resume proposals — `RESUME_PROPOSED` entries in run-archive intent ledgers.
+    """Resume decisions — resume verdict entries in run-archive intent ledgers.
 
     When `dos resume` adjudicates a stalled run as RESUMABLE it records a
     `RESUME_PROPOSED` op on that run's intent ledger (idempotent — §5 req 4). This
     reader lifts each such entry into a Decision so the operator sees "this run can
     be re-dispatched" in the queue (issue #19: the wire from the resume verdict to
-    operator attention). A DIVERGED run surfaces here too when the supervisor has
-    recorded one. Degrades to [] on a missing/unreadable archive dir.
+    operator attention). A DIVERGED run records `RESUME_DIVERGED` instead: no
+    re-dispatch command is safe, but the conflict still needs a human decision.
+    Degrades to [] on a missing/unreadable archive dir.
     """
     runs_dir = getattr(config.paths, "fanout_runs", None)
     if not runs_dir or not Path(runs_dir).exists():
@@ -1324,6 +1328,35 @@ def _from_resume_proposals(config, *, now: dt.datetime | None = None) -> list[De
                     evidence=tuple(evidence_parts),
                     proposed_command=redispatch,
                 ))
+            elif op == getattr(_ledger, "OP_RESUME_DIVERGED", "RESUME_DIVERGED"):
+                predecessor = str(e.get("predecessor_run_id") or run_id)
+                resume_sha = str(e.get("resume_sha") or "")
+                residual = e.get("residual") or []
+                reason = str(e.get("reason") or "")
+                ts = str(e.get("ts") or "")
+                age = _age_seconds(ts, now=now)
+                residual_str = ", ".join(str(r) for r in residual) if residual else "(whole goal)"
+                lane = plan_str or phase_str or ""
+                sha_hint = resume_sha[:12] if resume_sha else "(start)"
+                evidence_parts = [f"resume_sha={sha_hint}"]
+                if residual_str != "(whole goal)":
+                    evidence_parts.append(f"residual={residual_str}")
+                if reason:
+                    evidence_parts.append(f"reason={reason[:120]}")
+                out.append(Decision(
+                    kind=DecisionKind.RESUME_DIVERGED,
+                    resolver_kind=ResolverKind.HUMAN,
+                    lane=lane,
+                    reason_token="",
+                    reason_text=(
+                        f"DIVERGED run {predecessor} — "
+                        f"{reason or 'ground truth advanced past the resume point'}"
+                    ),
+                    run_id=predecessor,
+                    age_seconds=age,
+                    source_path=str(run_dir / _ledger.INTENT_JSONL_NAME),
+                    evidence=tuple(evidence_parts),
+                ))
     return out
 
 
@@ -1353,6 +1386,7 @@ _KIND_RANK = {
     # A resume proposal is a stalled run waiting for re-dispatch — same urgency tier
     # as a WEDGE (a no-pick the loop reported). Neither is burning budget right now.
     DecisionKind.RESUME_PROPOSAL: 3,
+    DecisionKind.RESUME_DIVERGED: 3,
     DecisionKind.SOAK_GATE: 4,
 }
 
@@ -1554,6 +1588,15 @@ def next_steps(decision: Decision, config=None) -> list[tuple[str, str]]:
             steps.append(("d", decision.proposed_command))
         run_ref = decision.run_id or "?"
         steps.append(("s", f"dos resume --run-id {run_ref}  # re-inspect the proposal"))
+        steps.append(("c", "<copy selected command>"))
+        return steps
+
+    # A diverged resume is also a recovery decision, but intentionally has no
+    # re-dispatch command: the refusal says fresh lane work exists past the re-entry
+    # point. The safe action is to re-inspect the verdict and decide by hand.
+    if decision.kind is DecisionKind.RESUME_DIVERGED:
+        run_ref = decision.run_id or "?"
+        steps.append(("s", f"dos resume --run-id {run_ref} --diverged  # re-inspect divergence"))
         steps.append(("c", "<copy selected command>"))
         return steps
 

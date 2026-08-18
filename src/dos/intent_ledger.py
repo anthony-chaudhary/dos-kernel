@@ -83,13 +83,15 @@ OP_STEP_CLAIMED = "STEP_CLAIMED"        # the agent SAYS it finished a unit of w
 OP_STEP_VERIFIED = "STEP_VERIFIED"      # the kernel CONFIRMED a claimed step against ancestry
 OP_SUSPEND = "SUSPEND"                  # a run voluntarily yields (pause; §4)
 OP_RESUME_PROPOSED = "RESUME_PROPOSED"  # a successor minted a resume point + proposed continuation
+OP_RESUME_DIVERGED = "RESUME_DIVERGED"  # resume refused: lane advanced past the resume point
 OP_CORRUPT = "_CORRUPT"                 # replay hit an unparseable non-trailing line (sentinel)
 
 # The ops `replay` folds into the LedgerState. `_CORRUPT` and any unknown op are
 # recorded-but-not-folded (the lane-journal `_STATE_MUTATING_OPS` posture): a
 # torn/foreign line must never silently mutate the reconstructed intent.
 _FOLDED_OPS = frozenset(
-    {OP_INTENT, OP_STEP_CLAIMED, OP_STEP_VERIFIED, OP_SUSPEND, OP_RESUME_PROPOSED}
+    {OP_INTENT, OP_STEP_CLAIMED, OP_STEP_VERIFIED, OP_SUSPEND,
+     OP_RESUME_PROPOSED, OP_RESUME_DIVERGED}
 )
 
 
@@ -339,6 +341,9 @@ class LedgerState:
       resume_proposed   — predecessor run_ids a RESUME_PROPOSED was already minted
                           for (idempotence; §5 req 4): a second resume sees these and
                           does not double-propose.
+      resume_diverged   — predecessor run_ids whose resume was adjudicated DIVERGED
+                          and recorded for `dos decisions`: a second supervisor tick
+                          does not keep appending the same human decision.
       corrupt_lines     — count of `_CORRUPT`/`_UNREADABLE` sentinels seen (a
                           non-zero count is an integrity signal the resume verdict
                           degrades on — UNRESUMABLE when the fold isn't sound).
@@ -360,6 +365,7 @@ class LedgerState:
     suspend_resume_sha: str = ""
     suspend_checkpoint: SuspendCheckpoint = field(default_factory=SuspendCheckpoint.absent)
     resume_proposed: tuple[str, ...] = ()
+    resume_diverged: tuple[str, ...] = ()
     corrupt_lines: int = 0
     unreadable_newer: bool = False
 
@@ -424,6 +430,7 @@ def replay(entries: Iterable[dict]) -> LedgerState:
     suspend_resume_sha = ""
     suspend_checkpoint = SuspendCheckpoint.absent()
     resume_proposed: list[str] = []
+    resume_diverged: list[str] = []
     corrupt = 0
     unreadable_newer = False
 
@@ -483,6 +490,10 @@ def replay(entries: Iterable[dict]) -> LedgerState:
             pred = str(e.get("predecessor_run_id") or e.get("predecessor") or "")
             if pred and pred not in resume_proposed:
                 resume_proposed.append(pred)
+        elif op == OP_RESUME_DIVERGED:
+            pred = str(e.get("predecessor_run_id") or e.get("predecessor") or "")
+            if pred and pred not in resume_diverged:
+                resume_diverged.append(pred)
 
     return LedgerState(
         run_id=run_id,
@@ -498,6 +509,7 @@ def replay(entries: Iterable[dict]) -> LedgerState:
         suspend_resume_sha=suspend_resume_sha,
         suspend_checkpoint=suspend_checkpoint,
         resume_proposed=tuple(resume_proposed),
+        resume_diverged=tuple(resume_diverged),
         corrupt_lines=corrupt,
         unreadable_newer=unreadable_newer,
     )
@@ -644,6 +656,29 @@ def resume_proposed_entry(*, predecessor_run_id: str, resume_sha: str = "",
         "op": OP_RESUME_PROPOSED,
         "predecessor_run_id": str(predecessor_run_id),
         "resume_sha": str(resume_sha or ""),
+    }
+    if residual is not None:
+        e["residual"] = [str(s) for s in residual]
+    return e
+
+
+def resume_diverged_entry(*, predecessor_run_id: str, resume_sha: str = "",
+                          residual: Iterable[str] | None = None,
+                          reason: str = "") -> dict:
+    """Build a RESUME_DIVERGED entry — a resume refusal that needs a human (§5).
+
+    Recorded on the run's ledger when `dos resume` returns DIVERGED: the kernel
+    found a resume point and residual, but ground truth advanced past that point
+    on the lane. There is no safe re-dispatch command; the durable effect is the
+    human decision row, so the supervisor can leave the lease un-scavenged without
+    making the divergence invisible.
+    """
+    e = {
+        **_schema.tag(SCHEMA_FAMILY, INTENT_LEDGER_SCHEMA),
+        "op": OP_RESUME_DIVERGED,
+        "predecessor_run_id": str(predecessor_run_id),
+        "resume_sha": str(resume_sha or ""),
+        "reason": str(reason or ""),
     }
     if residual is not None:
         e["residual"] = [str(s) for s in residual]

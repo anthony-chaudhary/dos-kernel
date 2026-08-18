@@ -80,8 +80,21 @@ def test_resume_diverged_flag_refuses(tmp_path: Path, capsys):
     assert rc == cli._RESUME_EXIT_CODES["DIVERGED"]
     out = json.loads(capsys.readouterr().out)
     assert out["verdict"] == "DIVERGED"
-    # A DIVERGED verdict does NOT record a proposal (it refuses, raises a decision).
-    assert all(e.get("op") != "RESUME_PROPOSED" for e in il.read_all("RID-R", cfg=cfg))
+    assert out["diverged_recorded_now"] is True
+    # A DIVERGED verdict does NOT record a proposal; it records a human decision.
+    entries = il.read_all("RID-R", cfg=cfg)
+    assert all(e.get("op") != "RESUME_PROPOSED" for e in entries)
+    assert [e.get("op") for e in entries].count("RESUME_DIVERGED") == 1
+    assert il.replay(entries).resume_diverged == ("RID-R",)
+
+    # A SECOND diverged read does not append another decision row.
+    rc2 = cli.cmd_resume(_resume_args(tmp_path, diverged=True))
+    assert rc2 == cli._RESUME_EXIT_CODES["DIVERGED"]
+    out2 = json.loads(capsys.readouterr().out)
+    assert out2["diverged_recorded_now"] is False
+    assert out2["already_diverged"] is True
+    entries2 = il.read_all("RID-R", cfg=cfg)
+    assert [e.get("op") for e in entries2].count("RESUME_DIVERGED") == 1
 
 
 def test_resume_text_output_prints_residual_and_proposal(tmp_path: Path, capsys):

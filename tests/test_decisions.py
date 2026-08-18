@@ -1601,7 +1601,8 @@ class TestResumeProposalsSurface:
     ledger op to the operator queue (issue #19). A stalled run adjudicated
     RESUMABLE records a RESUME_PROPOSED entry on a successor's intent ledger; this
     reader lifts it into a HUMAN decision so the run is re-dispatched, not silently
-    reaped."""
+    reaped. A DIVERGED run records RESUME_DIVERGED instead: no re-dispatch is safe,
+    but the human decision still surfaces."""
 
     def _seed_resume_proposed(self, cfg, *, successor: str, predecessor: str,
                               resume_sha: str = "abc123def456",
@@ -1611,6 +1612,17 @@ class TestResumeProposalsSurface:
         L.append(successor, L.resume_proposed_entry(
             predecessor_run_id=predecessor, resume_sha=resume_sha,
             residual=list(residual)), cfg=cfg)
+
+    def _seed_resume_diverged(self, cfg, *, successor: str, predecessor: str,
+                              resume_sha: str = "abc123def456",
+                              residual=("P2",),
+                              reason: str = "ground truth moved") -> None:
+        from dos import intent_ledger as L
+        L.append(successor, L.intent_entry(goal="ship the thing", plan="P", phase="P1"),
+                 cfg=cfg)
+        L.append(successor, L.resume_diverged_entry(
+            predecessor_run_id=predecessor, resume_sha=resume_sha,
+            residual=list(residual), reason=reason), cfg=cfg)
 
     def test_resume_proposed_surfaces_as_human_decision(self, tmp_path: Path):
         cfg = default_config(tmp_path)
@@ -1631,9 +1643,30 @@ class TestResumeProposalsSurface:
         cfg = default_config(tmp_path)
         assert D._from_resume_proposals(cfg) == []
 
+    def test_resume_diverged_surfaces_as_human_decision(self, tmp_path: Path):
+        cfg = default_config(tmp_path)
+        self._seed_resume_diverged(cfg, successor="succ-run", predecessor="dead-run")
+        rows = D._from_resume_proposals(cfg)
+        assert len(rows) == 1
+        r = rows[0]
+        assert r.kind is D.DecisionKind.RESUME_DIVERGED
+        assert r.resolver_kind is D.ResolverKind.HUMAN
+        assert r.run_id == "dead-run"
+        assert "DIVERGED run dead-run" in r.reason_text
+        assert "ground truth moved" in r.reason_text
+        assert r.proposed_command == ""
+        steps = D.next_steps(r, cfg)
+        assert any("--diverged" in cmd for _, cmd in steps)
+
     def test_resume_proposal_joins_the_collected_queue(self, tmp_path: Path):
         # End-to-end through collect_decisions: the #19 reader is actually wired in.
         cfg = default_config(tmp_path)
         self._seed_resume_proposed(cfg, successor="s1", predecessor="dead-1")
         kinds = [d.kind.value for d in D.collect_decisions(cfg)]
         assert "RESUME_PROPOSAL" in kinds
+
+    def test_resume_diverged_joins_the_collected_queue(self, tmp_path: Path):
+        cfg = default_config(tmp_path)
+        self._seed_resume_diverged(cfg, successor="s1", predecessor="dead-1")
+        kinds = [d.kind.value for d in D.collect_decisions(cfg)]
+        assert "RESUME_DIVERGED" in kinds

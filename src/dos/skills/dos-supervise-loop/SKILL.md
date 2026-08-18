@@ -94,16 +94,17 @@ The verdict shapes the action:
   remains held until the operator acts.
 - **DIVERGED** — ground truth advanced past the resume point; re-dispatch would
   overwrite fresh work. **Do NOT scavenge**; surface the decision to the operator
-  the same way (the RESUME_PROPOSAL row in `dos decisions` carries the DIVERGED
-  context). A human must decide.
+  through the `RESUME_DIVERGED` row in `dos decisions`. There is no safe
+  re-dispatch command for this case; a human must decide how to merge or retire
+  the stale residual.
 - **UNRESUMABLE** or **COMPLETE** — no viable continuation (no intent, corrupt
   ledger, or all steps already verified). **Scavenge** as before: release the
   lease so the lane is free to refill on the next tick.
 
-`dos resume` is **inspect-only for DIVERGED** (it never records a proposal for a
-diverged run); the decision surfaces because the supervisor logs the verdict as
-context when it leaves the lease in place. For COMPLETE/UNRESUMABLE the
-scavenge path is unchanged — only the RESUMABLE/DIVERGED branch is new.
+`dos resume` records DIVERGED as a decision, not as a proposal: it does not print a
+re-dispatch command, but it does leave a durable `RESUME_DIVERGED` row for
+`dos decisions` to project. For COMPLETE/UNRESUMABLE the scavenge path is
+unchanged — only the RESUMABLE/DIVERGED branch is new.
 
 For each lane in the plan's `flag` list (a SPINNING worker, or an excess over
 target): **surface it to the operator and move on.** Do NOT kill a SPINNING

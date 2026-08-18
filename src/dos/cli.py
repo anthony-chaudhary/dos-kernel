@@ -4626,6 +4626,7 @@ def cmd_resume(args: argparse.Namespace) -> int:
 
     # Replay the ledger (schema-gated, torn-tail tolerant) → the folded intent.
     entries = intent_ledger.read_all(rid, cfg=cfg)
+    state = None
     if not entries:
         # No ledger at all: nothing to resume, the honest floor (not a crash).
         plan = _resume.ResumePlan(
@@ -4666,6 +4667,34 @@ def cmd_resume(args: argparse.Namespace) -> int:
         except OSError:
             proposed_now = False
 
+    # On DIVERGED, record the refusal as a human decision source. There is no
+    # re-dispatch command to propose here: ground truth moved past the resume point,
+    # so the safe action is to surface the conflict and leave actuation to the
+    # operator. The record is idempotent so a supervisor tick does not grow the
+    # ledger each time it checks the same wedged run.
+    already_diverged = bool(
+        state is not None and rid in getattr(state, "resume_diverged", ())
+    )
+    diverged_recorded_now = False
+    if (plan.verdict is _resume.Resume.DIVERGED
+            and not getattr(args, "no_record", False)
+            and not already_diverged):
+        _ensure_home_if_persisting()
+        try:
+            intent_ledger.append(
+                rid,
+                intent_ledger.resume_diverged_entry(
+                    predecessor_run_id=rid,
+                    resume_sha=plan.resume_sha,
+                    residual=plan.residual,
+                    reason=plan.reason,
+                ),
+                cfg=cfg,
+            )
+            diverged_recorded_now = True
+        except OSError:
+            diverged_recorded_now = False
+
     # The proposed re-dispatch command — DATA the kernel prints for a driver/operator
     # to run; the kernel never runs it (the §8 non-goal / docs/99 advisory floor).
     redispatch = (
@@ -4675,6 +4704,8 @@ def cmd_resume(args: argparse.Namespace) -> int:
 
     out = plan.to_dict()
     out["proposed_now"] = proposed_now
+    out["diverged_recorded_now"] = diverged_recorded_now
+    out["already_diverged"] = already_diverged
     if redispatch:
         out["proposed_command"] = redispatch
 
@@ -4692,6 +4723,11 @@ def cmd_resume(args: argparse.Namespace) -> int:
                 print(f"  (recorded RESUME_PROPOSED on run {rid}'s ledger — idempotent)")
             elif plan.already_proposed:
                 print(f"  (a resume was already proposed for {rid} — not re-proposing)")
+        elif plan.verdict is _resume.Resume.DIVERGED:
+            if diverged_recorded_now:
+                print(f"  (recorded RESUME_DIVERGED on run {rid}'s ledger — operator decision)")
+            elif already_diverged:
+                print(f"  (DIVERGED was already recorded for {rid} — not re-recording)")
     return _RESUME_EXIT_CODES.get(plan.verdict.value, _RESUME_EXIT_UNKNOWN)
 
 

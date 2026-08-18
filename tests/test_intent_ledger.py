@@ -17,8 +17,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from dos import config as _config
 from dos import durable_schema as _ds
 from dos import intent_ledger as il
@@ -158,6 +156,17 @@ def test_replay_records_resume_proposed_for_idempotence():
         il.resume_proposed_entry(predecessor_run_id="RID-DEAD", resume_sha="X"),
     ]
     assert il.replay(entries).resume_proposed == ("RID-DEAD",)
+
+
+def test_replay_records_resume_diverged_for_idempotence():
+    entries = [
+        il.intent_entry(goal="g", declared_steps=["s1"]),
+        il.resume_diverged_entry(
+            predecessor_run_id="RID-DEAD", resume_sha="X", residual=["s1"],
+            reason="fresh lane work exists",
+        ),
+    ]
+    assert il.replay(entries).resume_diverged == ("RID-DEAD",)
 
 
 # ==========================================================================
