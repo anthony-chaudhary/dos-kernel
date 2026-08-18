@@ -90,3 +90,24 @@ def test_keeps_tag_after_green_discipline():
     )
     # the tag is minted only after the wait (git tag appears after the poll loop)
     assert "git tag -a" in body, "no annotated tag step"
+
+
+def test_tag_push_uses_non_default_token_to_trigger_publish():
+    """GITHUB_TOKEN-created pushes cannot recursively start publish.yml."""
+    doc = _load()
+    steps = doc["jobs"]["cadence"]["steps"]
+    checkout = next(
+        step for step in steps if str(step.get("uses", "")).startswith("actions/checkout@")
+    )
+    token = (checkout.get("with") or {}).get("token", "")
+    assert token == "${{ secrets.RELEASE_PAT }}", (
+        "cadence tags pushed with the default GITHUB_TOKEN do not trigger publish.yml; "
+        "checkout must persist RELEASE_PAT for the commit/tag push"
+    )
+
+    publish = yaml.safe_load(
+        (_WF.parent / "publish.yml").read_text(encoding="utf-8")
+    )
+    triggers = publish.get("on", publish.get(True)) or {}
+    tags = ((triggers.get("push") or {}).get("tags") or [])
+    assert "v*" in tags, "publish.yml no longer receives the cadence's vX.Y.Z tag push"

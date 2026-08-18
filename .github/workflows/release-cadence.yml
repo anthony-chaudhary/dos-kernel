@@ -100,6 +100,11 @@ jobs:
           # release_cut's notes cluster the whole range; a shallow clone would
           # miss the base tag.
           fetch-depth: 0
+          # A tag pushed with the default GITHUB_TOKEN cannot trigger
+          # publish.yml (GitHub's workflow-recursion guard). RELEASE_PAT must
+          # be a fine-grained token/GitHub App token with Contents: write so
+          # cadence-cut tags arrive as ordinary pushes and hand off to PyPI.
+          token: ${{ secrets.RELEASE_PAT }}
 
       - uses: actions/setup-python@v6
         with:
