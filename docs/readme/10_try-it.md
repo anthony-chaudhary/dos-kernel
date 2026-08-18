@@ -1,4 +1,4 @@
-## Try it in 60 seconds
+## Optional demo — try it in 60 seconds
 
 Got a terminal? This runs the whole thing in a throwaway repo — one command
 scaffolds it, makes a real commit, verifies it, and cleans up after itself:

@@ -58,21 +58,31 @@ file tree, the clock), never the narration. It works on a plain `git` repo with
 zero config and gets smarter the more you tell it, and the only thing you ever
 install is one small Python package.
 
-> ⚡ **Just add it — two commands, zero decisions.** From the repo where your
-> agent works:
->
-> ```bash
-> pip install dos-kernel
-> dos init --hooks auto   # finds the agent runtime(s) you already use, wires in the checks
-> ```
->
-> From then on: your agent can't tell you **"done"** unless the work actually
-> landed, two agents can't silently overwrite each other's files, and a run
-> that stalls gets flagged instead of quietly spinning. Nothing about your
-> workflow changes, and you don't need to learn any of the vocabulary below to
-> be covered. It prints the one config file it wrote; deleting the `dos hook`
-> entries there undoes it. (No runtime detected? It says so and lists the
-> names to pick from — it never guesses.)
+## Setup — use DOS in your repo
+
+DOS is a Python package you install **into the existing git repo where your
+agents work**. You do not need to clone or fork the DOS source unless you plan
+to develop DOS itself.
+
+```bash
+cd path/to/your-repo
+pip install dos-kernel
+dos init --hooks auto   # detects the agent runtime(s) already in this repo
+dos doctor              # shows exactly what this workspace is using
+```
+
+From then on, your agent cannot tell you **"done"** unless the work actually
+landed, two agents cannot silently overwrite each other's files, and a run
+that stalls gets flagged instead of quietly spinning. `dos init` prints the
+config and hook entries it wrote; removing those generated entries undoes the
+setup. If no runtime is detected, it says so and lists the explicit choices —
+it never guesses.
+
+| What you want | Start here |
+|---|---|
+| **Use DOS in my repo** | Install the package, then run `dos init --hooks auto` in that repo (the setup above). |
+| **See the 60-second demo** | Run `uvx --from dos-kernel dos quickstart`; it creates and removes a throwaway repo. |
+| **Read or change DOS itself** | Clone this repository and use the contributor install; most users do not need the source clone. |
 
 <sub>**v0.30.0** · 5,600+ tests · CI: Python 3.11–3.13 on Linux + a Windows 3.13
 smoke run · the only runtime dependency is **PyYAML** · **MIT**.</sub>
@@ -125,7 +135,7 @@ lives on a focused page — find the question you arrived with and jump:
 | You're asking… | Go to |
 |---|---|
 | *"What is this in plain words, and why should my team care? Is it real?"* | [Why a referee](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/guide/why-a-referee.md) — the plain-words story, the 20-lines-of-bash / Temporal answers, and the full proven/bet evidence |
-| *"Show me it working, fast."* | [Try it in 60 seconds](#try-it-in-60-seconds), just below — one command |
+| *"Show me it working, fast."* | [Optional demo](#optional-demo--try-it-in-60-seconds), just below — one command in a throwaway repo |
 | *"I already run agents — how do I wire the verdict into **my** stack?"* | [Wire it in](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/guide/wire-it-in.md) — MCP, runtime hooks, the exit-code tier, fleet frameworks, and the install matrix |
 | *"What's the full command / syscall surface?"* | [The syscall ABI & CLI reference](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/guide/cli-reference.md) — every verb, the three live screens, the verdict journal |
 | *"I run a fleet every day — how do I watch it, triage it, debug it?"* | [Operating a fleet](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/guide/operating-a-fleet.md) + [Debug a stuck fleet](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/06_debug-a-stuck-fleet.md) |
@@ -134,7 +144,7 @@ lives on a focused page — find the question you arrived with and jump:
 | *"I'm an AI agent orienting in this repo."* | **[AGENTS.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/AGENTS.md)** — what DOS is in three lines, build/test/check, the ~5 files worth reading |
 | *"What surfaces are stable and what's the deprecation window?"* | **[docs/STABILITY.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/STABILITY.md)** — the compatibility promise, what the version number means, and what will never break |
 
-## Try it in 60 seconds
+## Optional demo — try it in 60 seconds
 
 Got a terminal? This runs the whole thing in a throwaway repo — one command
 scaffolds it, makes a real commit, verifies it, and cleans up after itself:
