@@ -194,6 +194,21 @@ ritual):
   tree.
 - **Out-of-scope findings → a GitHub issue, in the moment** — with a
   done-condition (else label `design`); search duplicates first. Issue text is
+
+**When the host Edit tool repeatedly loses a sibling-write race, use one atomic
+block edit rather than widening the read-to-write window.** Put the exact old
+and replacement bytes in temporary files outside the repo, then run:
+
+```bash
+python scripts/atomic_block_edit.py PATH --old-file OLD --new-file NEW
+```
+
+The helper refuses zero/multiple matches, preserves the file mode, detects a
+rewrite while preparing, and publishes with same-directory `os.replace`, so
+readers never see a torn truncate/write. For a previously read file, also pass
+`--expected-sha256 HASH`. This is a narrow recovery tool, not serialization: a
+non-cooperating writer can still race after the final check, so acquire the lane
+first and move sustained contended work to a dedicated worktree.
   public and skips the leak gate: pipe drafted bodies through
   `python scripts/leak_scan.py --stdin` before posting; a hit is a refusal.
   Never close an issue on your own say-so — `Fixes #N` in the commit BODY, or
