@@ -179,6 +179,47 @@ def test_native_codex_envelopes_replay_healthy(
     assert result.stderr == ""
 
 
+def test_installed_profile_live_smoke_witness_is_complete():
+    witness = json.loads((FIXTURES / "live-smoke.json").read_text(encoding="utf-8"))
+
+    assert witness["schema"] == "dos.codex-hook-live-smoke.v1"
+    assert witness["codex_cli"] == "0.147.0"
+    assert witness["plugin"] == {
+        "id": "dos-kernel@dos-7212-smoke",
+        "version": "0.30.0",
+        "marketplace": "dos-7212-smoke",
+        "source_revision": "ea5a9dde58051cdeb1075c86740e143710947056",
+        "installed_manifest_sha256": (
+            "b900587b713c8927ddcf38d29ad8a118c25887035846f67f30a1b62dd160c728"
+        ),
+        "installed_adapter_sha256": (
+            "dc34a6fc2149017206f9db7ed031e6a759f711a98384d1dd79f991bc7dca0cfe"
+        ),
+        "trust_status": "trusted",
+        "hook_trust_bypass": False,
+    }
+    assert witness["command_exit_code"] == 0
+    assert witness["sequence"] == [
+        {
+            "kind": "hook",
+            "event": "preToolUse",
+            "status": "completed",
+            "source": "plugin",
+        },
+        {
+            "kind": "commandExecution",
+            "status": "completed",
+            "exit_code": 0,
+        },
+        {
+            "kind": "hook",
+            "event": "postToolUse",
+            "status": "completed",
+            "source": "plugin",
+        },
+    ]
+
+
 def test_native_codex_pretool_structural_deny_is_host_json_before_effect(tmp_path: Path):
     payload, env = _structural_deny_fixture(tmp_path)
 

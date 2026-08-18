@@ -29,3 +29,18 @@ That evidence assigns the failure to exactly one stage: **shell launch**. The
 POSIX command string was selected on native Windows because PreToolUse and
 PostToolUse lacked `commandWindows`; trust validation, executable selection,
 stdin normalization, and backend policy were not the failing stage.
+
+## Installed-profile live witness
+
+`live-smoke.json` is a redacted projection of Codex app-server notifications
+captured from the active Windows profile on August 17, 2026. The plugin was
+installed through the Codex CLI from an ephemeral local marketplace whose
+`claude-plugin` tree was copied byte-for-byte from published revision
+`ea5a9dde58051cdeb1075c86740e143710947056`.
+
+The installed `hooks.json` and `dos-hook-codex.ps1` SHA-256 values matched that
+revision. Codex reported the plugin hooks as trusted without a trust bypass,
+then emitted `preToolUse: completed`, executed the harmless PowerShell command
+with exit 0, and emitted `postToolUse: completed`. Machine-specific paths and
+the profile directory are represented as `$CODEX_HOME`; no credentials or hook
+payload contents were retained.
