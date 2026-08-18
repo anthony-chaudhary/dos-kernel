@@ -81,3 +81,14 @@ def test_every_tracked_workflow_declares_runnable_jobs():
                 f"{rel}: job '{job_id}' has neither runs-on nor uses — "
                 "it can never be scheduled"
             )
+
+
+def test_trunk_ci_runs_are_not_cancelled_by_later_pushes():
+    """Release cadence needs a completed CI verdict for every master commit."""
+    ci = yaml.safe_load((REPO_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
+    concurrency = ci.get("concurrency") or {}
+    expression = concurrency.get("cancel-in-progress")
+    assert expression == "${{ github.ref != 'refs/heads/master' }}", (
+        "master CI must run to completion so release-cadence can observe a green base; "
+        "only superseded non-trunk runs may be cancelled"
+    )

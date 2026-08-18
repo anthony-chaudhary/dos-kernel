@@ -36,14 +36,10 @@ permissions:
   contents: read
 
 concurrency:
-  # Per-event groups: a master push burst supersedes itself (the newest commit
-  # is the one whose verdict matters), but the weekly schedule can never cancel
-  # a push run or vice versa. Cancelling intermediate master runs means SOME
-  # commits carry no CI verdict — that is safe to allow ONLY because publish.yml
-  # independently refuses to upload any SHA without a green CI run on it (the
-  # ci-green gate there); the two policies are a pair, change them together.
+  # Keep every master run alive: release-cadence tags only commits with a
+  # successful completed CI verdict. Superseded PR/branch runs still cancel.
   group: ci-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 jobs:
   # Classify the diff so the expensive jobs fire only when they can say something
