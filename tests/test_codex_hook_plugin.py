@@ -15,6 +15,7 @@ import platform
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 
 import pytest
 
@@ -111,9 +112,12 @@ def _run_manifest_windows_command(
     command = _manifest_hook(event)["commandWindows"]
     assert isinstance(command, str)
     command_env = os.environ.copy() if env is None else env.copy()
-    command_env["PLUGIN_ROOT"] = str(ROOT / "claude-plugin")
+    plugin_root = str(ROOT / "claude-plugin")
+    command_env["PLUGIN_ROOT"] = plugin_root
+    command_env["CODEX_PLUGIN_ROOT"] = plugin_root
+    expanded = command.replace("${CODEX_PLUGIN_ROOT}", plugin_root)
     return subprocess.run(
-        ["powershell.exe", "-NoProfile", "-Command", command],
+        ["powershell.exe", "-NoProfile", "-Command", expanded],
         input=json.dumps(payload),
         text=True,
         capture_output=True,
@@ -157,6 +161,24 @@ def test_windows_tool_hooks_use_versioned_codex_adapter(event: str, verb: str):
     assert "command -p sh" not in command
 
 
+def test_windows_stop_family_uses_versioned_codex_adapter():
+    manifest = json.loads(HOOKS.read_text(encoding="utf-8"))
+    expected = {
+        "Stop": ["stop --workspace . --dialect codex", "stop-failure --success", "live-rotate"],
+        "SubagentStop": ["stop --workspace . --dialect codex"],
+    }
+    for event, verbs in expected.items():
+        hooks = manifest["hooks"][event][0]["hooks"]
+        assert len(hooks) == len(verbs)
+        for hook, verb in zip(hooks, verbs):
+            command = hook.get("commandWindows")
+            assert isinstance(command, str) and command
+            assert "dos-hook-codex.ps1" in command
+            assert verb in command
+            assert "${" not in command
+            assert "command -p sh" not in command
+
+
 def test_launcher_reachability_counts_command_windows():
     build_plugin = _load_build_plugin()
     commands = build_plugin._hooks_command_text(ROOT)
@@ -165,7 +187,12 @@ def test_launcher_reachability_counts_command_windows():
 
 @pytest.mark.parametrize(
     ("fixture_name", "verb"),
-    [("pretool-shell.json", "pretool"), ("posttool-shell.json", "posttool")],
+    [
+        ("pretool-shell.json", "pretool"),
+        ("posttool-shell.json", "posttool"),
+        ("stop.json", "stop"),
+        ("subagent-stop.json", "stop"),
+    ],
 )
 def test_native_codex_envelopes_replay_healthy(
     fixture_name: str,
@@ -253,6 +280,8 @@ def test_windows_adapter_structural_deny_uses_codex_blocking_exit(tmp_path: Path
     [
         ("PreToolUse", "pretool-shell.json"),
         ("PostToolUse", "posttool-shell.json"),
+        ("Stop", "stop.json"),
+        ("SubagentStop", "subagent-stop.json"),
     ],
 )
 def test_manifest_command_windows_replays_healthy_native_envelopes(
@@ -316,7 +345,12 @@ def test_native_codex_malformed_or_unknown_input_is_explicit_fail_open(
 @pytest.mark.skipif(os.name != "nt", reason="PowerShell adapter is Windows-only")
 @pytest.mark.parametrize(
     ("fixture_name", "verb"),
-    [("pretool-shell.json", "pretool"), ("posttool-shell.json", "posttool")],
+    [
+        ("pretool-shell.json", "pretool"),
+        ("posttool-shell.json", "posttool"),
+        ("stop.json", "stop"),
+        ("subagent-stop.json", "stop"),
+    ],
 )
 def test_windows_adapter_replays_native_codex_envelopes(
     fixture_name: str,
@@ -331,7 +365,7 @@ def test_windows_adapter_replays_native_codex_envelopes(
 
 
 @pytest.mark.skipif(os.name != "nt", reason="PowerShell adapter is Windows-only")
-@pytest.mark.parametrize("verb", ["pretool", "posttool"])
+@pytest.mark.parametrize("verb", ["pretool", "posttool", "stop", "stop-failure", "live-rotate"])
 def test_windows_adapter_errors_are_typed_and_nonblocking(
     verb: str,
     tmp_path: Path,
@@ -347,7 +381,14 @@ def test_windows_adapter_errors_are_typed_and_nonblocking(
         / "v1.0"
         / "powershell.exe"
     )
-    payload = _fixture(f"{verb}-shell.json", tmp_path)
+    fixture_name = {
+        "pretool": "pretool-shell.json",
+        "posttool": "posttool-shell.json",
+        "stop": "stop.json",
+        "stop-failure": "stop-failure.json",
+        "live-rotate": "stop.json",
+    }[verb]
+    payload = _fixture(fixture_name, tmp_path)
     env = os.environ.copy()
     env["PATH"] = ""
 
@@ -382,3 +423,79 @@ def test_windows_adapter_errors_are_typed_and_nonblocking(
         "exit_code": 127,
         "posture": "fail_open",
     }
+
+
+@pytest.mark.skipif(os.name != "nt", reason="PowerShell adapter is Windows-only")
+@pytest.mark.parametrize(
+    ("backend_source", "expected_stage", "expected_exit", "expected_stdout"),
+    [
+        ('print("not-json")', "backend_output", 65, ""),
+        ('raise SystemExit(23)', "backend_policy", 23, ""),
+        (
+            'import json; print(json.dumps({"decision":"block","reason":"keep working"}))',
+            None,
+            0,
+            '{"decision":"block","reason":"keep working"}',
+        ),
+    ],
+)
+def test_windows_stop_adapter_preserves_only_valid_backend_protocol(
+    backend_source: str,
+    expected_stage: str | None,
+    expected_exit: int,
+    expected_stdout: str,
+    tmp_path: Path,
+):
+    isolated = tmp_path / "bin"
+    isolated.mkdir()
+    adapter = isolated / ADAPTER.name
+    shutil.copyfile(ADAPTER, adapter)
+
+    fake_site = tmp_path / "fake-site" / "dos"
+    fake_site.mkdir(parents=True)
+    (fake_site / "__init__.py").write_text("", encoding="utf-8")
+    (fake_site / "cli.py").write_text(backend_source + "\n", encoding="utf-8")
+    python_dir = Path(sys.executable).parent
+
+    powershell = (
+        Path(os.environ["SystemRoot"])
+        / "System32"
+        / "WindowsPowerShell"
+        / "v1.0"
+        / "powershell.exe"
+    )
+    env = os.environ.copy()
+    env["PATH"] = str(python_dir)
+    env["PYTHONPATH"] = str(tmp_path / "fake-site")
+    result = subprocess.run(
+        [
+            str(powershell),
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(adapter),
+            "stop",
+            "--workspace",
+            str(tmp_path),
+            "--dialect",
+            "codex",
+        ],
+        input=json.dumps(_fixture("stop.json", tmp_path)),
+        text=True,
+        capture_output=True,
+        check=False,
+        env=env,
+    )
+
+    assert result.returncode == 0
+    assert result.stdout == expected_stdout
+    if expected_stage is None:
+        assert result.stderr == ""
+    else:
+        diagnostic = json.loads(result.stderr)
+        assert diagnostic["schema"] == "dos.codex-hook-diagnostic.v1"
+        assert diagnostic["hook"] == "stop"
+        assert diagnostic["stage"] == expected_stage
+        assert diagnostic["exit_code"] == expected_exit
+        assert diagnostic["posture"] == "fail_open"

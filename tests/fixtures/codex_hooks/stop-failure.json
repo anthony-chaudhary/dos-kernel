@@ -1,0 +1,6 @@
+{
+  "session_id": "codex-stop-failure-healthy",
+  "hook_event_name": "StopFailure",
+  "cwd": "__WORKSPACE__",
+  "error": "fixture"
+}

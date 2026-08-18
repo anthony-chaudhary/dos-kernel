@@ -1,4 +1,4 @@
-# dos-hook-codex.ps1 — native Windows adapter for Codex Pre/Post tool hooks.
+# dos-hook-codex.ps1 — native Windows adapter for Codex tool and Stop-family hooks.
 #
 # Adapter contract v1:
 #   * pass the native Codex JSON envelope to the backend without mapping or
@@ -6,7 +6,8 @@
 #   * prefer the bundled native binary, then one installed Python interpreter;
 #   * translate a structured PreToolUse permissionDecision=deny into Codex's
 #     blocking exit 2, with the backend reason on stderr, before effect;
-#   * forward every non-deny backend stdout document to Codex;
+#   * forward valid protocol JSON only; empty success remains empty;
+#   * preserve a structured Stop block so Codex continues the session;
 #   * fail open on adapter/backend errors, with one typed, secret-free diagnostic
 #     on stderr. PostToolUse is therefore always non-blocking.
 
@@ -40,7 +41,7 @@ if ($hookArgs.Count -eq 0) {
 }
 
 $hook = [string]$hookArgs[0]
-if ($hook -notin @('pretool', 'posttool')) {
+if ($hook -notin @('pretool', 'posttool', 'stop', 'stop-failure', 'live-rotate')) {
   Write-AdapterDiagnostic -Hook $hook -Stage 'backend_policy' -Backend $null -ExitCode 64
   exit 0
 }
@@ -57,7 +58,7 @@ $native = Join-Path $selfDir "dos-hook-windows-$goarch.exe"
 $backend = $null
 $backendArgs = @()
 
-if (Test-Path -LiteralPath $native -PathType Leaf) {
+if ($hook -notin @('stop-failure', 'live-rotate') -and (Test-Path -LiteralPath $native -PathType Leaf)) {
   $backend = $native
   $backendName = "native-windows-$goarch"
   $backendArgs = $hookArgs
@@ -105,17 +106,28 @@ if ($backendExit -ne 0) {
 }
 
 $backendStdout = [string]::Join([Environment]::NewLine, [string[]]$stdoutLines)
-if ($hook -eq 'pretool' -and $backendStdout) {
-  $decision = $backendStdout | ConvertFrom-Json -ErrorAction SilentlyContinue
-  $hookOutput = $decision.hookSpecificOutput
-  if ($hookOutput.permissionDecision -eq 'deny') {
-    $reason = [string]$hookOutput.permissionDecisionReason
-    if ($reason) { [Console]::Error.WriteLine($reason) }
-    exit 2
-  }
+if ($hook -in @('stop-failure', 'live-rotate')) {
+  # StopFailure is a notification seam, not a decision protocol. Never allow a
+  # backend status message to become host JSON.
+  exit 0
 }
 
 if ($backendStdout) {
-  [Console]::Out.Write($backendStdout)
+  $decision = $backendStdout | ConvertFrom-Json -ErrorAction SilentlyContinue
+  if ($null -eq $decision) {
+    Write-AdapterDiagnostic -Hook $hook -Stage 'backend_output' -Backend $backendName -ExitCode 65
+    exit 0
+  }
+
+  if ($hook -eq 'pretool') {
+    $hookOutput = $decision.hookSpecificOutput
+    if ($hookOutput.permissionDecision -eq 'deny') {
+      $reason = [string]$hookOutput.permissionDecisionReason
+      if ($reason) { [Console]::Error.WriteLine($reason) }
+      exit 2
+    }
+  }
+
+  [Console]::Out.Write(($decision | ConvertTo-Json -Compress -Depth 32))
 }
 exit 0
