@@ -89,6 +89,27 @@ behavioral deny needs a ruling handler wired; out of the box the plugin only
 observes and re-surfaces, never silently blocks your work. (DOS is a PDP, not a PEP:
 it reports and proposes; the runtime acts.)
 
+
+### Multi-account/headless dispatch: prefer the project-skill fallback
+
+A namespaced invocation such as `/dos-kernel:dos-dispatch-loop` is resolved from
+the active account's plugin cache. When a fleet rotates `CLAUDE_CONFIG_DIR`, a
+fresh account can have the plugin registration but not its cached skill files;
+Claude Code currently reports `Unknown command` and may still exit 0. Do not use
+that exit code as evidence that a worker started.
+
+For unattended multi-account launchers, install the generic skills into the
+workspace (`dos init --skills`) and invoke the git-tracked project skill instead:
+
+```text
+/dos-dispatch-loop --lane <LANE>
+```
+
+This bare form resolves from `.claude/skills/dos-dispatch-loop/SKILL.md` in the
+repo, independent of each account's plugin cache. Before spawning a fleet, verify
+that file exists; treat `Unknown command` or a run with zero kernel decisions as
+a failed launch, even when the host process exits 0. Interactive single-account
+sessions with a healthy plugin cache can continue using the namespaced form.
 ## Maintenance — the skills are generated, not hand-edited
 
 The bundled `skills/` are a **faithful copy** of the single source under
