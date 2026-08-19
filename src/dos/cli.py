@@ -10057,6 +10057,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     wiring_rows: list[dict] = _wiring_drift_rows(cfg.paths.root) if wiring_requested else []
     wiring_regressed = any(r.get("regression") for r in wiring_rows)
     findings: list[str] = []
+    _journal_health = _lane_journal_health(cfg)
     # `info`-severity config-lint findings (a dead doc cross-ref) are surfaced but
     # do NOT gate the exit code (docs/227 §4: info is cosmetic). `gating` tracks
     # whether any error/warn finding was seen, so a clean-but-for-info report still
@@ -10085,6 +10086,9 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         # where doctor reported the path but never whether it was healthy).
         _state_findings = _state_health_findings(cfg)
         findings.extend(_state_findings)
+        if _journal_health.get("finding"):
+            findings.append(str(_journal_health["finding"]))
+            gating = True
         if _state_findings:
             gating = True
         # Skill-grounding rail (#201, docs/370): do THIS workspace's own skills
@@ -10219,6 +10223,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             # identity card, and each fossil's existence/row-count, so "what
             # does my .dos know?" is one doctor read (docs/DOT_DOS.md).
             "dot_dos": _dot_dos_facts(cfg),
+            "lane_journal_health": _journal_health,
             # docs/385 §8 — the truth-pointer: which kernel deciders have FLIPped to
             # Go-canonical (the strongly-typed mandate). Empty until the first flip;
             # populated by `dos.native_canonical` once a decider's spec is Go.
@@ -10239,6 +10244,12 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     print(f"DOS v{__import__('dos').__version__}")
     print(f"workspace root      {cfg.paths.root}")
     print(f"execution-state     {cfg.paths.execution_state}")
+    print(f"lane-journal health {_journal_health['status']} — "
+          f"{_journal_health['entries'] or 0} entries / "
+          f"{_journal_health['bytes'] or 0} bytes "
+          f"(threshold {_journal_health['threshold']})")
+    if _journal_health.get("finding"):
+        print(f"  WAL remedy        {_journal_health['finding']}")
     print(f"plans glob          {cfg.paths.plans_glob}")
     # SCV (3b) — name the ACTIVE ship-stamp grammar so an operator can see which
     # subject convention `verify`'s grep rung will use against THIS repo. Doctor
@@ -11204,6 +11215,40 @@ def _dead_lane_tree_glob_findings(cfg: _config.SubstrateConfig) -> list[str]:
                 f"this lane is vacuous - fix at least one glob or drop the lane"
             )
     return findings
+
+
+def _lane_journal_health(cfg: _config.SubstrateConfig) -> dict[str, object]:
+    """Read-only WAL size rung for doctor; mutation remains the operator's choice."""
+    from dos import lane_journal as _lj
+    from dos import state_health as _sh
+
+    path = cfg.paths.lane_journal
+    try:
+        entries = _lj.read_all(path)
+        total_bytes = path.stat().st_size if path.is_file() else 0
+    except OSError as exc:
+        return {
+            "path": str(path), "status": "UNREADABLE", "entries": None,
+            "bytes": None, "threshold": cfg.retention.journal_max_entries,
+            "finding": f"lane journal {path} is unreadable: {exc}",
+        }
+    count = len(entries)
+    threshold = cfg.retention.journal_max_entries
+    verdict = _sh.SizeVerdict.COMPACTABLE if (
+        threshold is not None and count > threshold
+    ) else _sh.SizeVerdict.OK
+    finding = None
+    if verdict is _sh.SizeVerdict.COMPACTABLE:
+        finding = (
+            f"lane journal {path} has {count} entries / {total_bytes} bytes, over "
+            f"the {threshold}-entry compaction threshold; "
+            "run `dos reap --journal --apply` in a quiet window"
+        )
+    return {
+        "path": str(path), "status": verdict.value, "entries": count,
+        "bytes": total_bytes, "threshold": threshold,
+        "finding": finding,
+    }
 
 
 def _state_health_findings(cfg: _config.SubstrateConfig) -> list[str]:

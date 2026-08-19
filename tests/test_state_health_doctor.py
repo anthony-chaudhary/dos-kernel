@@ -9,6 +9,7 @@ subprocess harness as `test_stamp_doctor`.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -110,3 +111,51 @@ def test_json_includes_state_findings_under_check(tmp_path):
     report = json.loads(proc.stdout)
     findings = report.get("findings", [])
     assert any("execution-state.yaml" in f and "over the size budget" in f for f in findings)
+
+
+
+def test_doctor_surfaces_compactable_lane_journal_without_execution_state(
+    tmp_path: Path,
+):
+    """The WAL rail is independent of the optional execution-state file."""
+    _repo(tmp_path)
+    (tmp_path / "dos.toml").write_text(
+        '[retention]\njournal_max_entries = 2\n', encoding="utf-8"
+    )
+    journal = tmp_path / ".dos" / "lane-journal.jsonl"
+    journal.parent.mkdir(parents=True)
+    journal.write_text(
+        ''.join('{"op":"REFUSE","seq":%d}\n' % i for i in range(3)),
+        encoding="utf-8",
+    )
+
+    proc = _doctor(tmp_path)
+
+    assert proc.returncode == 0
+    assert "lane-journal health COMPACTABLE" in proc.stdout
+    assert "3 entries" in proc.stdout
+    assert "dos reap --journal --apply" in proc.stdout
+
+
+def test_doctor_check_fails_and_json_names_wal_remedy(tmp_path: Path):
+    _repo(tmp_path)
+    (tmp_path / "dos.toml").write_text(
+        '[retention]\njournal_max_entries = 1\n', encoding="utf-8"
+    )
+    journal = tmp_path / ".dos" / "lane-journal.jsonl"
+    journal.parent.mkdir(parents=True)
+    journal.write_text(
+        '{"op":"REFUSE","seq":1}\n{"op":"REFUSE","seq":2}\n',
+        encoding="utf-8",
+    )
+
+    proc = _doctor(tmp_path, "--check", "--json")
+    report = json.loads(proc.stdout)
+
+    assert proc.returncode == 1
+    health = report["lane_journal_health"]
+    assert health["status"] == "COMPACTABLE"
+    assert health["entries"] == 2
+    assert health["threshold"] == 1
+    assert "dos reap --journal --apply" in health["finding"]
+    assert any("lane journal" in finding for finding in report["findings"])
