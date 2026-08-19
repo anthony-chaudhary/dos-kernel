@@ -2534,7 +2534,7 @@ def cmd_arbitrate(args: argparse.Namespace) -> int:
         # any `lease-lane acquire` has ever run.
         from dos import lane_lease as _lane_lease
         try:
-            live = _lane_lease.live_leases(cfg)
+            live = _lane_lease.live_leases(cfg, expire_dead=True)
         except Exception:  # noqa: BLE001 — a read of an append-only WAL is best-effort;
             live = []       # a corrupt log must not crash the verdict, only empty it.
     # ADM Phase 3 — resolve the FULL admission conjunction at the CALL BOUNDARY

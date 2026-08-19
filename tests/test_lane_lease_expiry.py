@@ -184,38 +184,18 @@ def test_live_leases_contention_keeps_a_fresh_live_lease(cfg):
     assert any(l["lane"] == "apply" for l in live), "a live lane must still gate"
 
 
-def test_acquire_uses_structural_fold_phantom_self_heals_in_hook_view(cfg):
-    """The docs/283 split, end to end. `acquire()` reads the STRUCTURAL fold (NOT
-    the dead-elision view): inside its serialization mutex it is already serialized
-    against concurrent acquirers, so eliding a dead-PID lease there would let a racing
-    acquirer DOUBLE-BOOK a region a short-lived process legitimately holds
-    (`test_coord_demo_k4_serializes_writes`). So a phantom on 'apply' DOES block a
-    new 'apply' acquire — and that is correct: the phantom self-heal docs/281 wants is
-    a property of the LONG-LIVED admission read, NOT of this lock-held acquire read.
-
-    The headline self-heal lives in the contention/hook view (`expire_dead=True`),
-    which the PRE-admission hook reads — there the same phantom is expired so the
-    session's tools are not phantom-refused. A disjoint-lane acquire is unaffected
-    either way (proves the block is real contention, not lease-presence)."""
+def test_acquire_expires_stale_orphan_but_preserves_fresh_ephemeral_holder(cfg):
+    """The acquisition gate converges stale WAL claims without double-booking fresh ones."""
     _seed_acquire(cfg, lane="apply", holder="orphan:1", pid=1, acquired_min_ago=180)
 
-    # acquire() (structural fold) SEES the un-released phantom → the overlapping
-    # 'apply' acquire is correctly refused (do NOT double-book a held region).
-    blocked = lane_lease.acquire(cfg, lane="apply", kind="keyword",
+    rescued = lane_lease.acquire(cfg, lane="apply", kind="keyword",
                                  tree=["apply/**"], owner="rescuer:2")
-    assert blocked.journaled is False, \
-        "acquire reads the structural fold — a phantom orphan on the lane must block it"
+    assert rescued.journaled is True, "a proven stale orphan must not wedge acquire"
 
-    # A DISJOINT lane is free regardless (the block above is contention, not presence).
-    disjoint = lane_lease.acquire(cfg, lane="tailor", kind="keyword",
-                                  tree=["tailor/**"], owner="rescuer:2")
-    assert disjoint.journaled is True, "a disjoint lane must still be acquirable"
-
-    # The hook/admission CONTENTION view (`expire_dead=True`) self-heals the same
-    # phantom so the session's tools are not phantom-refused (the docs/281 contract).
-    hook_view = lane_lease.live_leases(cfg, expire_dead=True)
-    assert not any(l["lane"] == "apply" for l in hook_view), \
-        "the long-lived admission read must expire the dead phantom (docs/281 self-heal)"
+    _seed_acquire(cfg, lane="fresh", holder="ephemeral:1", pid=1, acquired_min_ago=0)
+    blocked = lane_lease.acquire(cfg, lane="fresh", kind="keyword",
+                                 tree=["fresh/**"], owner="racer:2")
+    assert blocked.journaled is False,         "a fresh reservation survives its ephemeral acquire subprocess"
 
 
 def test_hook_live_leases_for_uses_contention_view(cfg, monkeypatch):

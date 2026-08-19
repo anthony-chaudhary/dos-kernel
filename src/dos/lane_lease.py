@@ -430,27 +430,13 @@ def acquire(
 
     with _Mutex(config, owner, retries=retries, retry_interval=retry_interval,
                 ttl_seconds=ttl_seconds):
-        # Read the durable lease set INSIDE the lock so a racing acquirer that
-        # already journaled its grant is visible to us — the serialization point.
-        #
-        # This is the STRUCTURAL fold (`expire_dead=False`), NOT the dead-elision
-        # the admission hook uses. The distinction is load-bearing (docs/283): a
-        # lease is held by a process that exits between ACQUIRE and RELEASE — its
-        # EFFECT (the booked region) outlives the short-lived process that took it.
-        # `expire_dead=True` runs the dead-PID rung (`_lease_is_dead` signal b),
-        # which probes the holder PID; for a fresh lease whose journaling subprocess
-        # has already exited (the `dos lease-lane acquire` shape — a child that
-        # journals then returns) that probe reports `alive=False`, so the
-        # still-held region is wrongly elided and a racing acquirer DOUBLE-BOOKS it
-        # (a lost update — the exact TOCTOU the lease exists to prevent). Inside
-        # this mutex we are already serialized against concurrent acquirers, so we
-        # do NOT need (and must not use) dead-elision here: the genuine live set is
-        # the right contention view. The phantom-orphan self-heal docs/281 wants is
-        # a property of the LONG-LIVED admission read (`pretool_sensor`, where a
-        # dead PID + no fresh tool activity really is abandonment), not of this
-        # short, lock-held acquire read. Coupling the two through one `expire_dead`
-        # flag is what regressed `test_coord_demo_k4_serializes_writes`.
-        live = live_leases(config) + extra
+        # Read the durable contention set INSIDE the lock so a racing acquirer
+        # that already journaled its grant is visible at the serialization point.
+        # The expiry view is safe here: `_lease_is_dead` preserves every fresh
+        # reservation even when the acquire subprocess PID has exited, while
+        # dropping only a silent/dead or TTL-expired orphan. Using the structural
+        # fold made those proven stale rows immortal at the actual acquire gate.
+        live = live_leases(config, expire_dead=True) + extra
         decision = arbiter.arbitrate(
             requested_lane=lane,
             requested_kind=kind,
