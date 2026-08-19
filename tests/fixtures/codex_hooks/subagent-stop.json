@@ -1,0 +1,6 @@
+{
+  "session_id": "codex-subagent-stop-healthy",
+  "hook_event_name": "SubagentStop",
+  "cwd": "__WORKSPACE__",
+  "stop_hook_active": false
+}

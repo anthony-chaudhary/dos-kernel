@@ -1,0 +1,6 @@
+{
+  "session_id": "codex-stop-healthy",
+  "hook_event_name": "Stop",
+  "cwd": "__WORKSPACE__",
+  "stop_hook_active": false
+}

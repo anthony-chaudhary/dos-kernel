@@ -1,4 +1,4 @@
-# dos-hook-codex.ps1 — native Windows adapter for Codex Pre/Post tool hooks.
+# dos-hook-codex.ps1 — native Windows adapter for Codex tool and Stop-family hooks.
 #
 # Adapter contract v1:
 #   * pass the native Codex JSON envelope to the backend without mapping or
@@ -6,7 +6,8 @@
 #   * prefer the bundled native binary, then one installed Python interpreter;
 #   * translate a structured PreToolUse permissionDecision=deny into Codex's
 #     blocking exit 2, with the backend reason on stderr, before effect;
-#   * forward every non-deny backend stdout document to Codex;
+#   * forward valid protocol JSON only; empty success remains empty;
+#   * preserve a structured Stop block so Codex continues the session;
 #   * fail open on adapter/backend errors, with one typed, secret-free diagnostic
 #     on stderr. PostToolUse is therefore always non-blocking.
 
@@ -40,9 +41,16 @@ if ($hookArgs.Count -eq 0) {
 }
 
 $hook = [string]$hookArgs[0]
-if ($hook -notin @('pretool', 'posttool')) {
-  Write-AdapterDiagnostic -Hook $hook -Stage 'backend_policy' -Backend $null -ExitCode 64
+$backendHook = $hook
+if ($hook -notin @('pretool', 'posttool', 'stop', 'stop-transaction', 'stop-failure', 'live-rotate')) {
+  Write-AdapterDiagnostic -Hook $backendHook -Stage 'backend_policy' -Backend $null -ExitCode 64
   exit 0
+}
+
+$transactionalStop = $hook -eq 'stop-transaction'
+if ($transactionalStop) {
+  $backendHook = 'stop'
+  $hookArgs[0] = 'stop'
 }
 
 $selfDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -57,10 +65,10 @@ $native = Join-Path $selfDir "dos-hook-windows-$goarch.exe"
 $backend = $null
 $backendArgs = @()
 
-if (Test-Path -LiteralPath $native -PathType Leaf) {
+if ($hook -notin @('stop-failure', 'live-rotate') -and (Test-Path -LiteralPath $native -PathType Leaf)) {
   $backend = $native
   $backendName = "native-windows-$goarch"
-  $backendArgs = $hookArgs
+  $backendArgs = @($hookArgs)
 } else {
   $python = Get-Command python -CommandType Application -ErrorAction SilentlyContinue |
     Select-Object -First 1
@@ -99,23 +107,84 @@ if ($backendStderr) {
 }
 
 if ($null -eq $backendExit) { $backendExit = 1 }
+if ($backendExit -eq 3 -and $backendName -like 'native-windows-*') {
+  # The native hook uses exit 3 as a typed DELEGATE result. Re-run the preserved
+  # payload through Python so advanced/abstained Stop decisions are not mistaken
+  # for backend failures and silently fail-open.
+  $python = Get-Command python -CommandType Application -ErrorAction SilentlyContinue |
+    Select-Object -First 1
+  $delegateArgs = @()
+  if ($python) {
+    $backend = $python.Source
+    $backendName = 'python'
+    $delegateArgs = @('-m', 'dos.cli', 'hook') + $hookArgs
+  } else {
+    $py = Get-Command py -CommandType Application -ErrorAction SilentlyContinue |
+      Select-Object -First 1
+    if ($py) {
+      $backend = $py.Source
+      $backendName = 'py-3'
+      $delegateArgs = @('-3', '-m', 'dos.cli', 'hook') + $hookArgs
+    }
+  }
+  if ($delegateArgs.Count -gt 0) {
+    $delegateStderrPath = [IO.Path]::GetTempFileName()
+    try {
+      $stdoutLines = @($stdinPayload | & $backend @delegateArgs 2> $delegateStderrPath)
+      $backendExit = $LASTEXITCODE
+      $backendStderr = [IO.File]::ReadAllText($delegateStderrPath)
+    } finally {
+      Remove-Item -LiteralPath $delegateStderrPath -Force -ErrorAction SilentlyContinue
+    }
+    if ($backendStderr) { [Console]::Error.Write($backendStderr) }
+  }
+}
 if ($backendExit -ne 0) {
-  Write-AdapterDiagnostic -Hook $hook -Stage 'backend_policy' -Backend $backendName -ExitCode $backendExit
+  Write-AdapterDiagnostic -Hook $backendHook -Stage 'backend_policy' -Backend $backendName -ExitCode $backendExit
   exit 0
 }
 
-$backendStdout = [string]::Join([Environment]::NewLine, [string[]]$stdoutLines)
-if ($hook -eq 'pretool' -and $backendStdout) {
-  $decision = $backendStdout | ConvertFrom-Json -ErrorAction SilentlyContinue
-  $hookOutput = $decision.hookSpecificOutput
-  if ($hookOutput.permissionDecision -eq 'deny') {
-    $reason = [string]$hookOutput.permissionDecisionReason
-    if ($reason) { [Console]::Error.WriteLine($reason) }
-    exit 2
+if ($transactionalStop) {
+  # Codex runs sibling hooks concurrently. Keep policy as the sole host-visible
+  # decision, then sequence best-effort bookkeeping behind that verdict.
+  foreach ($notificationArgs in @(
+    @('-m', 'dos.cli', 'hook', 'stop-failure', '--success', '--workspace', '.'),
+    @('-m', 'dos.cli', 'hook', 'live-rotate', '--workspace', '.')
+  )) {
+    try {
+      $stdinPayload | & python @notificationArgs 1> $null 2> $null
+      if ($LASTEXITCODE -ne 0) {
+        Write-AdapterDiagnostic -Hook $backendHook -Stage 'notification_nonzero' -Backend 'python' -ExitCode $LASTEXITCODE
+      }
+    } catch {
+      Write-AdapterDiagnostic -Hook $backendHook -Stage 'notification_unavailable' -Backend 'python' -ExitCode 127
+    }
   }
 }
 
+$backendStdout = [string]::Join([Environment]::NewLine, [string[]]$stdoutLines)
+if ($backendHook -in @('stop-failure', 'live-rotate')) {
+  # StopFailure is a notification seam, not a decision protocol. Never allow a
+  # backend status message to become host JSON.
+  exit 0
+}
+
 if ($backendStdout) {
-  [Console]::Out.Write($backendStdout)
+  $decision = $backendStdout | ConvertFrom-Json -ErrorAction SilentlyContinue
+  if ($null -eq $decision) {
+    Write-AdapterDiagnostic -Hook $hook -Stage 'backend_output' -Backend $backendName -ExitCode 65
+    exit 0
+  }
+
+  if ($hook -eq 'pretool') {
+    $hookOutput = $decision.hookSpecificOutput
+    if ($hookOutput.permissionDecision -eq 'deny') {
+      $reason = [string]$hookOutput.permissionDecisionReason
+      if ($reason) { [Console]::Error.WriteLine($reason) }
+      exit 2
+    }
+  }
+
+  [Console]::Out.Write(($decision | ConvertTo-Json -Compress -Depth 32))
 }
 exit 0

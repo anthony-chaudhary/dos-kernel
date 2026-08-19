@@ -1,4 +1,4 @@
-# Native Codex tool-hook fixtures
+# Native Codex hook fixtures
 
 These fixtures preserve the native Windows Codex `PreToolUse` and `PostToolUse`
 stdin envelopes captured on August 17, 2026 with Codex CLI `0.147.0`
@@ -44,3 +44,14 @@ then emitted `preToolUse: completed`, executed the harmless PowerShell command
 with exit 0, and emitted `postToolUse: completed`. Machine-specific paths and
 the profile directory are represented as `$CODEX_HOME`; no credentials or hook
 payload contents were retained.
+
+## Stop-family regression fixtures for fak#7340
+
+`stop.json`, `subagent-stop.json`, and `stop-failure.json` freeze the native
+Codex lifecycle field names consumed by the Windows adapter. They are synthetic,
+secret-free fixtures because the observed failure occurred at shell launch before
+the DOS backend could capture stdin. Exact manifest-command tests replay Stop and
+SubagentStop through PowerShell and assert empty-success stdout. Adapter tests also
+force malformed backend output, backend exit 23, and a valid structured block to
+prove that protocol noise fails open on stderr while `{"decision":"block",...}`
+remains valid JSON on stdout.
