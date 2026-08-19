@@ -11568,7 +11568,10 @@ def cmd_reap(args: argparse.Namespace) -> int:
 
     mode = "APPLIED" if args.apply else "DRY-RUN (nothing deleted — pass --apply)"
     print(f"# dos reap — {mode}")
-    for key in ("audits", "verdicts", "runs"):
+    for key in (
+        "audits", "verdicts", "runs", "streams", "session_digests",
+        "help_digests",
+    ):
         cls = report.get(key)
         if cls is None:
             continue
@@ -11580,11 +11583,36 @@ def cmd_reap(args: argparse.Namespace) -> int:
         n_drop = len(cls["dropped"])
         note = "  [liveness-gate not yet wired — recency fallback]" if cls.get("liveness_unwired") else ""
         verb = "reaped" if args.apply else "would reap"
-        print(f"  {key:<9} {dc_tag}cap={cls['cap']}  kept={cls['kept']}  {verb}={n_drop}{note}")
+        print(
+            f"  {key:<16} {dc_tag}cap={cls['cap']}  "
+            f"domain={cls.get('domain_files', cls['kept'] + n_drop)} files / "
+            f"{cls.get('domain_bytes', 0)} bytes  kept={cls['kept']}  "
+            f"{verb}={n_drop}{note}"
+        )
         for name in cls["dropped"][:10]:
             print(f"      - {name}")
         if n_drop > 10:
             print(f"      … and {n_drop - 10} more")
+    metrics = report.get("metrics")
+    if metrics is not None:
+        if metrics.get("unbounded"):
+            print("  metrics          cap=none (unbounded — kept all)")
+        elif metrics.get("compacted"):
+            print(
+                f"  metrics          compacted {metrics['bytes']}→"
+                f"{metrics['bytes_after']} bytes "
+                f"({metrics['bytes_reclaimed']} bytes reclaimed)"
+            )
+        elif metrics.get("would_compact"):
+            print(
+                f"  metrics          would compact ({metrics['bytes']} bytes > "
+                f"{metrics['cap_bytes']} cap; apply only in a quiet window)"
+            )
+        else:
+            print(
+                f"  metrics          under cap ({metrics['bytes']} / "
+                f"{metrics['cap_bytes']} bytes)"
+            )
     if journal_summary is not None:
         if journal_summary.get("compacted"):
             print(f"  journal   compacted {journal_summary['entries_before']}"
@@ -15758,8 +15786,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     prp = sub.add_parser(
         "reap",
-        help="bound .dos/ scratch to the [retention] caps (audits/verdicts/runs "
-             "by recency; WAL by threshold) — DRY-RUN unless --apply")
+        help="bound .dos/ scratch to the [retention] caps (scratch classes by "
+             "recency; metrics by bytes; WAL by threshold) — DRY-RUN unless --apply")
     prp.add_argument("--apply", action="store_true",
                      help="actually delete (default: preview what would be reaped)")
     prp.add_argument("--journal", action="store_true",

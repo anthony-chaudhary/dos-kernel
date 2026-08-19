@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -381,3 +382,153 @@ def test_cli_reap_human_output_lists_drops(tmp_path: Path):
     assert "would reap=4" in r.stdout
     # liveness note shows for runs
     assert "liveness-gate not yet wired" in r.stdout
+
+
+
+def test_reap_covers_hook_written_stream_and_digest_directories(tmp_path: Path):
+    cfg = dataclasses.replace(
+        _config.load_workspace_config(tmp_path, gather_env=False),
+        retention=GENERIC_RETENTION.with_overrides(
+            streams_keep_last=2,
+            session_digests_keep_last=1,
+            help_digests_keep_last=1,
+        ),
+    )
+    classes = {
+        "streams": (cfg.paths.dot_dos / "streams", ".jsonl", 4),
+        "session_digests": (cfg.paths.dot_dos / "session-digest", ".txt", 3),
+        "help_digests": (cfg.paths.dot_dos / "help-digest", ".txt", 2),
+    }
+    for _name, (directory, suffix, count) in classes.items():
+        directory.mkdir(parents=True)
+        for i in range(count):
+            path = directory / f"{i}{suffix}"
+            path.write_text("x" * (i + 1), encoding="utf-8")
+            os.utime(path, (100 + i, 100 + i))
+
+    report = _retention_reap(cfg, apply=False)
+
+    assert report["streams"]["kept"] == 2
+    assert len(report["streams"]["dropped"]) == 2
+    assert report["session_digests"]["kept"] == 1
+    assert len(report["session_digests"]["dropped"]) == 2
+    assert report["help_digests"]["kept"] == 1
+    assert len(report["help_digests"]["dropped"]) == 1
+    for name in classes:
+        assert report[name]["domain_files"] == classes[name][2]
+        assert report[name]["domain_bytes"] > 0
+
+
+def test_hot_scratch_caps_load_from_retention_toml(tmp_path: Path):
+    _write_toml(
+        tmp_path,
+        "[retention]\n"
+        "streams_keep_last = 12\n"
+        "session_digests_keep_last = 13\n"
+        "help_digests_keep_last = 14\n",
+    )
+    pol = _retention.load_from_toml(tmp_path / "dos.toml")
+    assert pol.streams_keep_last == 12
+    assert pol.session_digests_keep_last == 13
+    assert pol.help_digests_keep_last == 14
+
+
+
+def test_metrics_log_dry_run_and_apply_preserve_complete_newest_lines(tmp_path: Path):
+    cfg = dataclasses.replace(
+        _config.load_workspace_config(tmp_path, gather_env=False),
+        retention=GENERIC_RETENTION.with_overrides(metrics_max_bytes=18),
+    )
+    log = cfg.paths.dot_dos / "metrics" / "observations.jsonl"
+    log.parent.mkdir(parents=True)
+    original = b'{"n":1}\n{"n":2}\n{"n":3}\n'
+    log.write_bytes(original)
+
+    dry = _retention_reap(cfg, apply=False)["metrics"]
+    assert dry["would_compact"] is True
+    assert dry["compacted"] is False
+    assert log.read_bytes() == original
+
+    applied = _retention_reap(cfg, apply=True)["metrics"]
+    assert applied["compacted"] is True
+    assert applied["bytes_reclaimed"] > 0
+    assert log.read_bytes().endswith(b'{"n":3}\n')
+    assert not log.read_bytes().startswith(b'n":')
+
+
+def test_metrics_byte_cap_loads_from_toml(tmp_path: Path):
+    _write_toml(tmp_path, "[retention]\nmetrics_max_bytes = 1234\n")
+    assert _retention.load_from_toml(
+        tmp_path / "dos.toml"
+    ).metrics_max_bytes == 1234
+
+
+
+def test_reap_reports_zero_domain_for_absent_hot_directories(tmp_path: Path):
+    cfg = _config.load_workspace_config(tmp_path, gather_env=False)
+
+    report = _retention_reap(cfg, apply=False)
+
+    for name in ("streams", "session_digests", "help_digests"):
+        assert report[name]["domain_files"] == 0
+        assert report[name]["domain_bytes"] == 0
+
+
+def test_reap_apply_removes_old_hook_written_artifacts(tmp_path: Path):
+    cfg = dataclasses.replace(
+        _config.load_workspace_config(tmp_path, gather_env=False),
+        retention=GENERIC_RETENTION.with_overrides(
+            streams_keep_last=1,
+            session_digests_keep_last=1,
+            help_digests_keep_last=1,
+        ),
+    )
+    directories = (
+        (cfg.paths.dot_dos / "streams", ".jsonl"),
+        (cfg.paths.dot_dos / "session-digest", ".txt"),
+        (cfg.paths.dot_dos / "help-digest", ".txt"),
+    )
+    for directory, suffix in directories:
+        directory.mkdir(parents=True)
+        for i in range(3):
+            path = directory / f"{i}{suffix}"
+            path.write_text(str(i), encoding="utf-8")
+            os.utime(path, (100 + i, 100 + i))
+
+    report = _retention_reap(cfg, apply=True)
+
+    for name, (directory, suffix) in zip(
+        ("streams", "session_digests", "help_digests"), directories,
+    ):
+        assert len(report[name]["dropped"]) == 2
+        assert sorted(path.name for path in directory.iterdir()) == [f"2{suffix}"]
+
+
+def test_metrics_compaction_discards_torn_final_line_and_preserves_mode(tmp_path: Path):
+    cfg = dataclasses.replace(
+        _config.load_workspace_config(tmp_path, gather_env=False),
+        retention=GENERIC_RETENTION.with_overrides(metrics_max_bytes=20),
+    )
+    log = cfg.paths.dot_dos / "metrics" / "observations.jsonl"
+    log.parent.mkdir(parents=True)
+    log.write_bytes(b'{"n":1}\n{"n":2}\n{"n":3}\n{"torn":')
+    os.chmod(log, 0o640)
+    original_mode = log.stat().st_mode
+
+    report = _retention_reap(cfg, apply=True)["metrics"]
+
+    assert report["apply_precondition"] == "quiet-window"
+    assert log.read_bytes() == b'{"n":2}\n{"n":3}\n'
+    assert log.stat().st_mode == original_mode
+
+
+def test_reap_reports_recursive_run_domain_bytes(tmp_path: Path):
+    cfg = _config.load_workspace_config(tmp_path, gather_env=False)
+    payload = cfg.paths.fanout_runs / "run-1" / "nested" / "payload.txt"
+    payload.parent.mkdir(parents=True)
+    payload.write_bytes(b"payload")
+
+    report = _retention_reap(cfg, apply=False)
+
+    assert report["runs"]["domain_files"] == 1
+    assert report["runs"]["domain_bytes"] == len(b"payload")

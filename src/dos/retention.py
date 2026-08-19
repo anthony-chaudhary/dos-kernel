@@ -112,6 +112,12 @@ class RetentionPolicy:
         in docs/106 §1.2's original table — the audit's own output is itself an
         unbounded-growth source). Same recency rule as verdicts. ``None`` = keep
         all audit reports.
+      * ``streams_keep_last`` / ``session_digests_keep_last`` /
+        ``help_digests_keep_last`` — retain the newest N hook-written stream and
+        digest artifacts. ``None`` = keep every artifact in that class.
+      * ``metrics_max_bytes`` — compact the hot observation JSONL log to at most
+        this many bytes of complete newest records. ``None`` = never compact it.
+        Applying this manual cap requires an operator-selected quiet window.
       * ``projections_compact`` — when ``True``, let `dos reindex` *rewrite* the
         central `~/.dos` projections to their live digest, not only append/prune.
         (docs/106 §3.4)
@@ -122,6 +128,10 @@ class RetentionPolicy:
     runs_keep_last: int | None = 200
     verdicts_keep_last: int | None = 500
     audits_keep_last: int | None = 200
+    streams_keep_last: int | None = 1000
+    session_digests_keep_last: int | None = 1000
+    help_digests_keep_last: int | None = 1000
+    metrics_max_bytes: int | None = 50_000_000
     projections_compact: bool = True
 
     def with_overrides(self, **changes: Any) -> "RetentionPolicy":
@@ -145,6 +155,10 @@ UNBOUNDED_RETENTION = RetentionPolicy(
     runs_keep_last=NO_CAP,
     verdicts_keep_last=NO_CAP,
     audits_keep_last=NO_CAP,
+    streams_keep_last=NO_CAP,
+    session_digests_keep_last=NO_CAP,
+    help_digests_keep_last=NO_CAP,
+    metrics_max_bytes=NO_CAP,
     projections_compact=False,
 )
 
@@ -250,6 +264,8 @@ def _oldest_non_checkpoint_ms(entries: list[Mapping[str, Any]]) -> int | None:
 # per-field coercion honest (an int cap rejects 1.5; the age accepts it).
 _INT_CAP_KEYS = frozenset({
     "journal_max_entries", "runs_keep_last", "verdicts_keep_last", "audits_keep_last",
+    "streams_keep_last", "session_digests_keep_last", "help_digests_keep_last",
+    "metrics_max_bytes",
 })
 _FLOAT_CAP_KEYS = frozenset({"journal_max_age_days"})
 _BOOL_KEYS = frozenset({"projections_compact"})

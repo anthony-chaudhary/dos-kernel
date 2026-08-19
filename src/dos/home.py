@@ -837,7 +837,92 @@ def _scratch_classes(cfg):
         ("runs", p.fanout_runs,
          lambda e: e.is_dir(),
          "runs_keep_last", True),
+        ("streams", p.dot_dos / "streams",
+         lambda e: e.is_file() and e.name.endswith(".jsonl"),
+         "streams_keep_last", False),
+        ("session_digests", p.dot_dos / "session-digest",
+         lambda e: e.is_file() and not e.name.startswith("."),
+         "session_digests_keep_last", False),
+        ("help_digests", p.dot_dos / "help-digest",
+         lambda e: e.is_file() and not e.name.startswith("."),
+         "help_digests_keep_last", False),
     ]
+
+
+
+def _plan_metrics_log(cfg, *, apply: bool) -> dict:
+    """Bound the hot observation log by bytes, preserving complete newest lines.
+
+    Observation writers append without a shared lock, so replacement is safe only
+    during an operator-selected quiet window.  Reaping is manual and the report
+    makes that precondition explicit rather than pretending concurrent appends can
+    be serialized here.
+    """
+    import stat
+    import tempfile
+
+    path = cfg.paths.dot_dos / "metrics" / "observations.jsonl"
+    cap = cfg.retention.metrics_max_bytes
+    source_stat = path.stat() if path.is_file() else None
+    size = source_stat.st_size if source_stat is not None else 0
+    report = {
+        "path": str(path), "cap_bytes": cap, "bytes": size,
+        "would_compact": bool(cap is not None and size > cap),
+        "compacted": False, "bytes_reclaimed": 0,
+        "apply_precondition": "quiet-window",
+    }
+    if cap is None:
+        report["unbounded"] = True
+        return report
+    if not report["would_compact"] or not apply:
+        return report
+
+    data = path.read_bytes()
+    # Ignore a torn final append, then take at most ``cap`` bytes.  If the byte
+    # window starts inside a record, advance to the next newline; if it starts
+    # exactly after one, retain that complete first record.
+    final_newline = data.rfind(b"\n")
+    complete_end = final_newline + 1 if final_newline >= 0 else 0
+    start = max(0, complete_end - cap)
+    if start and data[start - 1:start] != b"\n":
+        newline = data.find(b"\n", start, complete_end)
+        start = newline + 1 if newline >= 0 else complete_end
+    tail = data[start:complete_end]
+
+    with tempfile.NamedTemporaryFile(
+        mode="wb", prefix=f".{path.name}.", suffix=".reap",
+        dir=path.parent, delete=False,
+    ) as handle:
+        temp = Path(handle.name)
+        if source_stat is not None:
+            os.chmod(temp, stat.S_IMODE(source_stat.st_mode))
+        handle.write(tail)
+        handle.flush()
+        os.fsync(handle.fileno())
+    try:
+        os.replace(temp, path)
+    finally:
+        try:
+            temp.unlink()
+        except FileNotFoundError:
+            pass
+    report["compacted"] = True
+    report["bytes_after"] = len(tail)
+    report["bytes_reclaimed"] = size - len(tail)
+    return report
+
+def _scratch_entry_bytes(entry: os.DirEntry) -> int:
+    """Bytes covered by one retention-domain entry (recursive for run dirs)."""
+    if not entry.is_dir(follow_symlinks=False):
+        return entry.stat(follow_symlinks=False).st_size
+    total = 0
+    for root, _dirs, files in os.walk(entry.path, followlinks=False):
+        for name in files:
+            try:
+                total += (Path(root) / name).stat().st_size
+            except OSError:
+                continue  # vanished mid-scan; the report is a boundary snapshot
+    return total
 
 
 def reap_scratch(cfg, *, apply: bool = False) -> dict:
@@ -858,7 +943,10 @@ def reap_scratch(cfg, *, apply: bool = False) -> dict:
     a host's working tree, only DOS's own `.dos/` scratch (docs/106 §5 non-goal).
 
     The caps live on ``cfg.retention``; a ``None`` cap means "keep everything on
-    this axis" and the class is reported as ``unbounded`` (nothing scanned-to-drop).
+    this axis" and the class is reported as ``unbounded``.  Every class is still
+    scanned to quantify the retention domain in ``domain_files`` / ``domain_bytes``.
+    The metrics observation log is reported separately and compacted to complete
+    newest lines only on explicit apply during an operator-selected quiet window.
     The "never reap a live lease" floor is honored structurally here for the only
     class that HAS a lease (runs) by *not yet* reaping on liveness at all — the
     recency fallback can only ever keep MORE than a liveness gate would, never less,
@@ -886,37 +974,49 @@ def reap_scratch(cfg, *, apply: bool = False) -> dict:
     for key, d, pred, cap_attr, liveness_unwired in _scratch_classes(cfg):
         cap = getattr(cfg.retention, cap_attr)
         cls: dict = {"dir": str(d), "data_class": _class_of(d),
-                     "cap": cap, "kept": 0, "dropped": []}
+                     "cap": cap, "domain_files": 0, "domain_bytes": 0,
+                     "kept": 0, "dropped": []}
         if liveness_unwired:
             cls["liveness_unwired"] = True
-        if cap is None:
-            cls["unbounded"] = True
-            report[key] = cls
-            continue
         if not d.is_dir():
+            if cap is None:
+                cls["unbounded"] = True
             report[key] = cls  # nothing to reap (dir not created yet)
             continue
         # Gather (identifier, mtime) at the I/O boundary; the identifier is the
         # entry NAME (unique within the dir), mtime drives recency.
         entries: list[tuple[str, float]] = []
+        domain_bytes = 0
         by_name: dict[str, os.DirEntry] = {}
         with os.scandir(d) as it:
             for e in it:
                 if not pred(e):
                     continue
                 try:
-                    mtime = e.stat().st_mtime
+                    stat_row = e.stat(follow_symlinks=False)
+                    mtime = stat_row.st_mtime
+                    domain_bytes += _scratch_entry_bytes(e)
                 except OSError:
                     continue  # vanished mid-scan; skip
                 entries.append((e.name, mtime))
                 by_name[e.name] = e
+        if cap is None:
+            cls["unbounded"] = True
+            cls["domain_files"] = len(entries)
+            cls["domain_bytes"] = domain_bytes
+            cls["kept"] = len(entries)
+            report[key] = cls
+            continue
         drop = _retention.plan_reap(entries, cap)
+        cls["domain_files"] = len(entries)
+        cls["domain_bytes"] = domain_bytes
         cls["kept"] = len(entries) - len(drop)
         for name in sorted(drop):
             cls["dropped"].append(name)
             if apply:
                 _reap_one(Path(by_name[name].path), is_dir=by_name[name].is_dir())
         report[key] = cls
+    report["metrics"] = _plan_metrics_log(cfg, apply=apply)
     report["_applied"] = apply
     return report
 
