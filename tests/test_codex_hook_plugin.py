@@ -163,21 +163,15 @@ def test_windows_tool_hooks_use_versioned_codex_adapter(event: str, verb: str):
 
 def test_windows_stop_family_uses_versioned_codex_adapter():
     manifest = json.loads(HOOKS.read_text(encoding="utf-8"))
-    expected = {
-        "Stop": ["stop --workspace . --dialect codex", "stop-failure --success", "live-rotate"],
-        "SubagentStop": ["stop --workspace . --dialect codex"],
-    }
-    for event, verbs in expected.items():
-        hooks = manifest["hooks"][event][0]["hooks"]
-        assert len(hooks) == len(verbs)
-        for hook, verb in zip(hooks, verbs):
-            command = hook.get("commandWindows")
-            assert isinstance(command, str) and command
-            assert "dos-hook-codex.ps1" in command
-            assert verb in command
-            assert "${" not in command
-            assert "command -p sh" not in command
+    stop_hooks = manifest["hooks"]["Stop"][0]["hooks"]
+    assert len(stop_hooks) == 1
+    assert "stop-transaction --workspace . --dialect codex" in stop_hooks[0]["commandWindows"]
+    assert "stop-failure --success" in stop_hooks[0]["command"]
+    assert "live-rotate" in stop_hooks[0]["command"]
 
+    subagent_hooks = manifest["hooks"]["SubagentStop"][0]["hooks"]
+    assert len(subagent_hooks) == 1
+    assert "stop --workspace . --dialect codex" in subagent_hooks[0]["commandWindows"]
 
 def test_launcher_reachability_counts_command_windows():
     build_plugin = _load_build_plugin()

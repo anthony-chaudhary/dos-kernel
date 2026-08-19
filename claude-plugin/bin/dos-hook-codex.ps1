@@ -41,9 +41,16 @@ if ($hookArgs.Count -eq 0) {
 }
 
 $hook = [string]$hookArgs[0]
-if ($hook -notin @('pretool', 'posttool', 'stop', 'stop-failure', 'live-rotate')) {
-  Write-AdapterDiagnostic -Hook $hook -Stage 'backend_policy' -Backend $null -ExitCode 64
+$backendHook = $hook
+if ($hook -notin @('pretool', 'posttool', 'stop', 'stop-transaction', 'stop-failure', 'live-rotate')) {
+  Write-AdapterDiagnostic -Hook $backendHook -Stage 'backend_policy' -Backend $null -ExitCode 64
   exit 0
+}
+
+$transactionalStop = $hook -eq 'stop-transaction'
+if ($transactionalStop) {
+  $backendHook = 'stop'
+  $hookArgs[0] = 'stop'
 }
 
 $selfDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -61,7 +68,7 @@ $backendArgs = @()
 if ($hook -notin @('stop-failure', 'live-rotate') -and (Test-Path -LiteralPath $native -PathType Leaf)) {
   $backend = $native
   $backendName = "native-windows-$goarch"
-  $backendArgs = $hookArgs
+  $backendArgs = @($hookArgs)
 } else {
   $python = Get-Command python -CommandType Application -ErrorAction SilentlyContinue |
     Select-Object -First 1
@@ -101,12 +108,30 @@ if ($backendStderr) {
 
 if ($null -eq $backendExit) { $backendExit = 1 }
 if ($backendExit -ne 0) {
-  Write-AdapterDiagnostic -Hook $hook -Stage 'backend_policy' -Backend $backendName -ExitCode $backendExit
+  Write-AdapterDiagnostic -Hook $backendHook -Stage 'backend_policy' -Backend $backendName -ExitCode $backendExit
   exit 0
 }
 
+if ($transactionalStop) {
+  # Codex runs sibling hooks concurrently. Keep policy as the sole host-visible
+  # decision, then sequence best-effort bookkeeping behind that verdict.
+  foreach ($notificationArgs in @(
+    @('-m', 'dos.cli', 'hook', 'stop-failure', '--success', '--workspace', '.'),
+    @('-m', 'dos.cli', 'hook', 'live-rotate', '--workspace', '.')
+  )) {
+    try {
+      $stdinPayload | & python @notificationArgs 1> $null 2> $null
+      if ($LASTEXITCODE -ne 0) {
+        Write-AdapterDiagnostic -Hook $backendHook -Stage 'notification_nonzero' -Backend 'python' -ExitCode $LASTEXITCODE
+      }
+    } catch {
+      Write-AdapterDiagnostic -Hook $backendHook -Stage 'notification_unavailable' -Backend 'python' -ExitCode 127
+    }
+  }
+}
+
 $backendStdout = [string]::Join([Environment]::NewLine, [string[]]$stdoutLines)
-if ($hook -in @('stop-failure', 'live-rotate')) {
+if ($backendHook -in @('stop-failure', 'live-rotate')) {
   # StopFailure is a notification seam, not a decision protocol. Never allow a
   # backend status message to become host JSON.
   exit 0
