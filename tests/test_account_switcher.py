@@ -980,6 +980,32 @@ def test_dedupe_collapses_same_creds_access_token(tmp_path):
     assert [x.name for x in out] == ["a"]
 
 
+def test_dedupe_collapses_same_email_with_different_access_tokens(tmp_path):
+    a_dir, b_dir = tmp_path / "acct-a", tmp_path / "acct-b"
+    _enroll(a_dir)
+    _enroll(b_dir)
+    out = sw.dedupe_by_identity([
+        sw.Account("acct-a", str(a_dir), email="[redacted:pii:16B]"),
+        sw.Account("acct-b", str(b_dir), email="[redacted:pii:16B]"),
+    ])
+    assert [x.name for x in out] == ["acct-a"]
+
+
+def test_dedupe_keeps_distinct_emails_with_same_access_token(tmp_path):
+    a_dir, b_dir = tmp_path / "acct-a", tmp_path / "acct-b"
+    for directory in (a_dir, b_dir):
+        directory.mkdir(parents=True)
+        (directory / ".credentials.json").write_text(
+            json.dumps({"claudeAiOauth": {"accessToken": "AT-same"}}),
+            encoding="utf-8",
+        )
+    out = sw.dedupe_by_identity([
+        sw.Account("acct-a", str(a_dir), email="acct-a"),
+        sw.Account("acct-b", str(b_dir), email="acct-b"),
+    ])
+    assert [x.name for x in out] == ["acct-a", "acct-b"]
+
+
 def test_dedupe_keeps_distinct_logins(tmp_path):
     a_dir, b_dir = tmp_path / "a", tmp_path / "b"
     _enroll_token(a_dir, token="sk-ant-oat01-aaaaaaaa")

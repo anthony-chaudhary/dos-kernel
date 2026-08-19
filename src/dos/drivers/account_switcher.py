@@ -947,24 +947,18 @@ def pick_account_spread(
 
 
 def _account_identity_key(account: Account) -> Optional[str]:
-    """A stable per-LOGIN fingerprint for an account, read from disk (no network).
+    """Best-effort login identity key for phantom-seat deduplication.
 
-    Two roster seats that point at the SAME Anthropic login share ONE rate-limit
-    bucket — so treating them as independent windows is the bug that hands out a
-    dead "serving" seat (a copied-login phantom).
-
-    PRIORITY MATTERS. A seat's ``.credentials.json`` login is its TRUE identity, so
-    it wins. The ``.oauth-token`` setup-token sibling is only a fallback for a
-    token-ONLY seat (no creds), because that file is the artifact most often
-    stale-COPIED across config dirs: two genuinely DISTINCT logins (different
-    ``.credentials.json``) can end up carrying the same copied ``.oauth-token``. Keying on the token first would
-    wrongly fuse two real accounts; keying on creds first keeps them distinct and
-    still collapses a true duplicate (same login → same creds access token).
-
-    Returns ``None`` when neither is readable — an unidentifiable seat is NEVER
-    collapsed (each stays distinct), so dedup can only ever drop a PROVEN duplicate,
-    never a seat it merely failed to read.
+    The roster's resolved login email is the true rate-limit bucket identity and
+    wins over independently issued or copied credential tokens. Credential access
+    tokens remain the fallback for older rosters; the copy-prone setup token is
+    last. An unreadable identity returns None so absent evidence never shrinks the
+    pool.
     """
+    email = account.email.strip().casefold()
+    if email:
+        return f"login:{email}"
+
     creds = account_creds_path(account)
     try:
         data = json.loads(creds.read_text(encoding="utf-8"))
@@ -973,7 +967,7 @@ def _account_identity_key(account: Account) -> Optional[str]:
         at = ""
     if at:
         return f"cred:{at}"
-    # No login creds → a setup-token-only seat. The token IS its identity then.
+
     tok = read_account_token(account)
     if tok:
         return f"oat:{tok.strip()}"
