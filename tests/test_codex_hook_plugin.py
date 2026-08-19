@@ -426,6 +426,42 @@ def test_windows_adapter_errors_are_typed_and_nonblocking(
 
 
 @pytest.mark.skipif(os.name != "nt", reason="PowerShell adapter is Windows-only")
+def test_windows_stop_adapter_delegates_native_exit_three_to_python(
+    tmp_path: Path,
+):
+    isolated = tmp_path / "bin"
+    isolated.mkdir()
+    adapter = isolated / ADAPTER.name
+    shutil.copyfile(ADAPTER, adapter)
+
+    fake_native = tmp_path / "fake-native.ps1"
+    fake_native.write_text("exit 3\n", encoding="utf-8")
+    fake_site = tmp_path / "fake-site" / "dos"
+    fake_site.mkdir(parents=True)
+    (fake_site / "__init__.py").write_text("", encoding="utf-8")
+    (fake_site / "cli.py").write_text(
+        'import json; print(json.dumps({"decision":"block","reason":"keep working"}))\n',
+        encoding="utf-8",
+    )
+    adapter.write_text(
+        adapter.read_text(encoding="utf-8").replace(
+            '$native = Join-Path $selfDir "dos-hook-windows-$goarch.exe"',
+            f"$native = '{fake_native}'",
+        ),
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env["PATH"] = str(Path(sys.executable).parent)
+    env["PYTHONPATH"] = str(tmp_path / "fake-site")
+    result = _run_windows_adapter(
+        "stop", _fixture("stop.json", tmp_path), tmp_path, adapter=adapter, env=env
+    )
+
+    assert result.returncode == 0
+    assert json.loads(result.stdout) == {"decision": "block", "reason": "keep working"}
+    assert result.stderr == ""
+
+@pytest.mark.skipif(os.name != "nt", reason="PowerShell adapter is Windows-only")
 @pytest.mark.parametrize(
     ("backend_source", "expected_stage", "expected_exit", "expected_stdout"),
     [
