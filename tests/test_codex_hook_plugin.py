@@ -434,7 +434,7 @@ def test_windows_stop_adapter_delegates_native_exit_three_to_python(
     fake_site.mkdir(parents=True)
     (fake_site / "__init__.py").write_text("", encoding="utf-8")
     (fake_site / "cli.py").write_text(
-        'import json; print(json.dumps({"decision":"block","reason":"keep working"}))\n',
+        'import json; print(json.dumps({"hookSpecificOutput":{"hookEventName":"Stop","permissionDecision":"deny","permissionDecisionReason":"keep working"}}))\n',
         encoding="utf-8",
     )
     adapter.write_text(

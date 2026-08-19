@@ -176,12 +176,16 @@ if ($backendStdout) {
     exit 0
   }
 
-  if ($hook -eq 'pretool') {
-    $hookOutput = $decision.hookSpecificOutput
-    if ($hookOutput.permissionDecision -eq 'deny') {
-      $reason = [string]$hookOutput.permissionDecisionReason
-      if ($reason) { [Console]::Error.WriteLine($reason) }
-      exit 2
+  $hookOutput = $decision.hookSpecificOutput
+  if ($hook -eq 'pretool' -and $hookOutput.permissionDecision -eq 'deny') {
+    $reason = [string]$hookOutput.permissionDecisionReason
+    if ($reason) { [Console]::Error.WriteLine($reason) }
+    exit 2
+  }
+  if ($hook -eq 'stop' -and $hookOutput.permissionDecision -eq 'deny') {
+    $decision = [ordered]@{
+      decision = 'block'
+      reason = [string]$hookOutput.permissionDecisionReason
     }
   }
 
