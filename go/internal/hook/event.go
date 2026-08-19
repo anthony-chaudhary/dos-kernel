@@ -131,6 +131,13 @@ func (e *Event) repoRelative(path string) string {
 var noWriteFootprintPrefixes = func() map[string]struct{} {
 	out := map[string]struct{}{}
 	for _, p := range []string{
+		// Codex reports PowerShell shell calls as tool_name=Bash. Keep this
+		// list to cmdlets whose command body cannot write; scriptblock cmdlets
+		// remain unknown because their blocks may contain effects.
+		"compare-object", "get-childitem", "get-command", "get-content",
+		"get-item", "get-location", "get-process", "group-object",
+		"measure-object", "resolve-path", "select-object", "select-string",
+		"sort-object", "test-path",
 		// stdout-only filters/reporters.
 		"cat", "grep", "rg", "head", "tail", "wc", "ls",
 		"stat", "du", "df", "pwd", "echo", "printf", "which",

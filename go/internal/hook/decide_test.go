@@ -282,6 +282,16 @@ func TestSelfModifySoftensForOperatorSessionButNotForLoop(t *testing.T) {
 	}
 }
 
+func TestPowerShellReadPipelinePassesCleanAgainstContendedLane(t *testing.T) {
+	e := eventFor("Bash", "/work/workspace", map[string]any{
+		"command": `Get-ChildItem -Recurse -File | Select-String -Pattern TODO | Select-Object -First 20`,
+	})
+	d := Decide(e, Inputs{LiveLeases: []lease{{lane: "fleetaccounts", tree: []string{"internal/fleetaccounts/**"}}}})
+	if d.DecisionTag != "passthrough" || !d.TreeKnown || d.Render() != "" {
+		t.Fatalf("PowerShell read pipeline must pass clean, got %#v render=%q", d, d.Render())
+	}
+}
+
 func TestReadAgainstContendedLanePassesClean(t *testing.T) {
 	// A proven no-footprint READ passes CLEAN against a contended lane (issue #46).
 	// A read-only tool has a KNOWN but EMPTY tree — it provably touches nothing, so
@@ -319,6 +329,9 @@ func TestUnknownTreeContendedWarns(t *testing.T) {
 		RuntimeFiles: dosRuntimeFiles,
 	}
 	d := Decide(e, in)
+	if d.ReasonClass != "UNRESOLVED_WRITE_FOOTPRINT" {
+		t.Fatalf("unknown footprints need a trajectory-visible reason class, got %q", d.ReasonClass)
+	}
 	if d.DecisionTag != "warn" {
 		t.Fatalf("want warn, got %q (%s)", d.DecisionTag, d.Render())
 	}

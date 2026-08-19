@@ -248,6 +248,7 @@ def test_unknown_tree_vs_live_lease_warns_not_denies(monkeypatch, tool, tool_inp
     dialect, outcome = prt.decide(_event(tool, tool_input, cwd="/repo"), cfg)
     assert outcome["decision"] == "warn", outcome
     assert outcome["tree_known"] is False
+    assert outcome["reason_class"] == "UNRESOLVED_WRITE_FOOTPRINT"
     hso = dialect["hookSpecificOutput"]
     assert hso["hookEventName"] == "PreToolUse"
     # The load-bearing assertion: NO permissionDecision → CC's normal flow proceeds (passthrough),
@@ -639,6 +640,8 @@ def test_no_footprint_tool_passes_clean_no_advisory(monkeypatch, tool, tool_inpu
     "git log --oneline -5 -- src/dos/arbiter.py",       # git read-only subcommand
     "git --no-pager diff src/dos/arbiter.py",           # flags before the subcommand
     "ls -la",                                            # bare read-only program
+    "Get-Content README.md",                              # PowerShell read
+    "Get-ChildItem -Recurse -File | Select-String TODO",  # PowerShell read pipeline
     "git status",
     "git log | grep fix",                                # every pipe segment qualifies
     "gh pr view 12 && gh issue list",                    # every chain segment qualifies

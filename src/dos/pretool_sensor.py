@@ -339,6 +339,13 @@ def _repo_relative(path: str, event: dict) -> str:
 _NO_WRITE_FOOTPRINT_PREFIXES: frozenset[tuple[str, ...]] = frozenset(
     [
         # stdout-only filters/reporters — no flag or positional writes a file.
+        # Codex reports PowerShell shell calls as tool_name=Bash. Keep
+        # scriptblock cmdlets unknown because their blocks may contain effects.
+        ("compare-object",), ("get-childitem",), ("get-command",),
+        ("get-content",), ("get-item",), ("get-location",),
+        ("get-process",), ("group-object",), ("measure-object",),
+        ("resolve-path",), ("select-object",), ("select-string",),
+        ("sort-object",), ("test-path",),
         ("cat",), ("grep",), ("rg",), ("head",), ("tail",), ("wc",), ("ls",),
         ("stat",), ("du",), ("df",), ("pwd",), ("echo",), ("printf",), ("which",),
         ("diff",), ("cmp",), ("cut",), ("tr",), ("nl",), ("basename",), ("dirname",),
@@ -1241,7 +1248,7 @@ def decide(
         outcome = {
             "rung": "admission",
             "decision": "warn",
-            "reason_class": averdict.reason_class or "",
+            "reason_class": averdict.reason_class or "UNRESOLVED_WRITE_FOOTPRINT",
             "reason": reason,
             "tree_known": tree_known,
         }

@@ -286,7 +286,7 @@ func Decide(e *Event, in Inputs) Decision {
 			Dialect:     warnPayload(warn),
 			Rung:        "admission",
 			DecisionTag: "warn",
-			ReasonClass: av.reasonClass,
+			ReasonClass: nonEmpty(av.reasonClass, "UNRESOLVED_WRITE_FOOTPRINT"),
 			Reason:      reason,
 			TreeKnown:   treeKnown,
 		}
