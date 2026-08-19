@@ -156,6 +156,88 @@ def test_arbitrate_tool_admits_a_free_lane(tmp_path: Path):
     assert out["lane"] == "main"
 
 
+def test_arbitrate_default_agrees_with_lane_authority(tmp_path: Path, monkeypatch):
+    """The advisory and authority must not disagree about a held lane."""
+    from dos import config as dos_config
+    from dos import lane_lease
+
+    monkeypatch.delenv("DISPATCH_LANE_JOURNAL_PATH", raising=False)
+    monkeypatch.delenv("JOB_LANE_JOURNAL_PATH", raising=False)
+    _plain_repo(tmp_path)
+    (tmp_path / "dos.toml").write_text(
+        "[lanes]\nconcurrent = ['api']\nautopick = ['api']\n"
+        "[lanes.trees]\napi = ['src/**']\n",
+        encoding="utf-8",
+    )
+    cfg = dos_config.load_workspace_config(tmp_path, gather_env=False)
+    first = lane_lease.acquire(
+        cfg, lane="api", kind="cluster", tree=["src/**"], owner="peer"
+    )
+    assert first.journaled
+    second = lane_lease.acquire(
+        cfg, lane="api", kind="cluster", tree=["src/**"], owner="me"
+    )
+    assert second.decision.outcome == "refuse"
+
+    arb = _tools(build_server())["dos_arbitrate"]
+    result = arb(lane="api", kind="cluster", workspace=str(tmp_path))
+
+    assert result["outcome"] == "refuse"
+    assert result["lease_source"] == "lane-journal"
+
+
+def test_arbitrate_tool_explicit_empty_leases_overrides_journal(
+    tmp_path: Path, monkeypatch,
+):
+    """An injected [] preserves the pure/testing empty-world seam."""
+    from dos import config as dos_config
+    from dos import lane_lease
+
+    monkeypatch.delenv("DISPATCH_LANE_JOURNAL_PATH", raising=False)
+    monkeypatch.delenv("JOB_LANE_JOURNAL_PATH", raising=False)
+    _plain_repo(tmp_path)
+    (tmp_path / "dos.toml").write_text(
+        "[lanes]\nconcurrent = ['api']\nautopick = ['api']\n"
+        "[lanes.trees]\napi = ['src/**']\n",
+        encoding="utf-8",
+    )
+    cfg = dos_config.load_workspace_config(tmp_path, gather_env=False)
+    assert lane_lease.acquire(
+        cfg, lane="api", kind="cluster", tree=["src/**"], owner="peer"
+    ).journaled
+
+    arb = _tools(build_server())["dos_arbitrate"]
+    result = arb(
+        lane="api", kind="cluster", live_leases=[], workspace=str(tmp_path)
+    )
+
+    assert result["outcome"] == "acquire"
+    assert result["lease_source"] == "caller"
+
+
+def test_arbitrate_tool_unreadable_journal_fails_closed(tmp_path: Path, monkeypatch):
+    """An advisory must not call an unknown lease world free."""
+    from dos import lane_lease
+
+    _plain_repo(tmp_path)
+    (tmp_path / "dos.toml").write_text(
+        "[lanes]\nconcurrent = ['api']\nautopick = ['api']\n"
+        "[lanes.trees]\napi = ['src/**']\n",
+        encoding="utf-8",
+    )
+
+    def unreadable(_cfg):
+        raise OSError("injected unreadable WAL")
+
+    monkeypatch.setattr(lane_lease, "live_leases", unreadable)
+    arb = _tools(build_server())["dos_arbitrate"]
+    result = arb(lane="api", kind="cluster", workspace=str(tmp_path))
+
+    assert result["outcome"] == "refuse"
+    assert result["lease_source"] == "unreadable"
+    assert "<unreadable-lane-journal>" in result["reason"]
+
+
 def test_arbitrate_tool_refuses_a_colliding_lease(tmp_path: Path):
     """Two workers wanting the same file tree collide → refuse (no I/O)."""
     _plain_repo(tmp_path)

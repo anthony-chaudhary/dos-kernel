@@ -56,6 +56,33 @@ from dos_mcp import answers as _answers  # noqa: E402 — the answer-corpus retr
 # process-global. A malformed table is routed to stderr as a server log line
 # (MCP hosts capture stderr), never crashing a tool that doesn't touch that axis.
 # ---------------------------------------------------------------------------
+_UNKNOWN_WORLD_LEASE = {
+    "lane": "<unreadable-lane-journal>",
+    "lane_kind": "",
+    "tree": ["**/*"],
+    "mode": "exclusive",
+    "holder": "<unknown>",
+}
+
+
+def _live_lease_set(
+    cfg: "_config.SubstrateConfig", supplied: list[dict[str, Any]] | None,
+) -> tuple[list[dict[str, Any]], str]:
+    """Return the arbitration world and its provenance; journal faults fail closed."""
+    if supplied is not None:
+        return list(supplied), "caller"
+    from dos import lane_lease
+    try:
+        return list(lane_lease.live_leases(cfg)), "lane-journal"
+    except Exception as exc:
+        print(
+            f"[dos-mcp] lane journal unreadable ({exc!r}); arbitrating "
+            "fail-closed against an unknown world",
+            file=sys.stderr,
+        )
+        return [dict(_UNKNOWN_WORLD_LEASE)], "unreadable"
+
+
 def _load_workspace_config(workspace: str | None) -> "_config.SubstrateConfig":
     """Build the config for ``workspace`` (None/"." → cwd), folding in dos.toml.
 
@@ -475,10 +502,11 @@ def build_server() -> FastMCP:
         collides with work already in flight. It is the mechanism that stops two
         agents editing the same files at once.
 
-        State in, decision out, no I/O. Decides whether a new worker may acquire
-        `lane` given the `live_leases` already held, using the workspace's lane
-        taxonomy and a lock-mode tree rule (shared/shared may overlap; anything
-        with an exclusive holder must be tree-disjoint).
+        State in, decision out. By default the MCP boundary reconstructs live
+        leases from the workspace lane journal, matching the CLI; callers may
+        inject `live_leases` explicitly for a snapshot/pure test. The arbiter then
+        uses the workspace taxonomy and lock-mode tree rule (shared/shared may
+        overlap; anything with an exclusive holder must be tree-disjoint).
 
         Args:
             lane: the requested lane ("" = a bare auto-pick request — the arbiter
@@ -490,8 +518,9 @@ def build_server() -> FastMCP:
             tree: the requested file tree as repo-relative globs. If omitted and
                 a `lane` is named, the lane's canonical tree from `dos.toml` is
                 used.
-            live_leases: the leases currently held — a list of dicts each with at
-                least {lane, lane_kind, tree}. Empty/omitted = nothing live.
+            live_leases: optional explicit lease snapshot, a list of dicts each
+                with at least {lane, lane_kind, tree}. Omitted reads the workspace
+                lane journal; explicit [] means an intentionally empty world.
             force: operator override — honor an explicit `lane` literally, skip
                 the disjointness refuse (still respects a live exclusive lane).
             class_budgets: OPTIONAL per-kind concurrency-class budgets, a pure-data
@@ -548,18 +577,22 @@ def build_server() -> FastMCP:
         # workspaces (the explicit-config / no-global-mutation discipline). These
         # are the workspace-scoped BUILT-INS only (no `dos.predicates` plugin
         # discovery — this tool stays plugin-free, matching its prior behavior).
+        # Match `dos arbitrate` / `lease-lane acquire`: omission means the
+        # workspace's real live set. Explicit [] remains the pure/testing override.
+        live, lease_source = _live_lease_set(cfg, live_leases)
         decision = arbiter.arbitrate(
             requested_lane=lane or "",
             requested_kind=kind or "",
             requested_tree=req_tree,
             requested_mode=mode or "",
-            live_leases=list(live_leases or []),
+            live_leases=live,
             config=cfg,
             force=force,
             predicates=built_in_predicates(config=cfg),
             class_budgets=budgets or None,
         ).to_dict()
         decision["interpretation"] = _interpret.arbitrate(decision)
+        decision["lease_source"] = lease_source
         return decision
 
     @mcp.tool()
