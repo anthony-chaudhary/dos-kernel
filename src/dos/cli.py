@@ -2550,9 +2550,13 @@ def cmd_arbitrate(args: argparse.Namespace) -> int:
     except ValueError as e:
         print(f"error: {e}", file=sys.stderr)
         return _ARBITRATE_EXIT_CODES["contract_error"]
+    requested_lane = args.lane or ""
+    # A directly named lane is an assertion, not permission to lease an unrelated
+    # free lane. Bare requests retain auto-pick; --kind may still be explicit.
+    requested_kind = args.kind or ("keyword" if requested_lane else "")
     decision = arbiter.arbitrate(
-        requested_lane=args.lane or "",
-        requested_kind=args.kind or "",
+        requested_lane=requested_lane,
+        requested_kind=requested_kind,
         requested_tree=tree,
         requested_mode=args.mode or "",
         live_leases=live,

@@ -2627,6 +2627,16 @@ Exit codes a workflow stage branches on AFTER the parallel()/pipeline() barrier:
       degraded" signal as verify-result's DEAD, so a stage can branch identically.)
   2 = contract error (no --declared, an un-coercible state token, or nothing to fold).
 
+### § A named lane is an assertion; only a bare request auto-picks
+
+*(in `cmd_arbitrate`)*
+
+`dos arbitrate --lane X` treats `X` as an explicit keyword-lane assertion when
+`--kind` is omitted. If the workspace does not declare `X`, the verdict is
+`refuse` with `UNKNOWN_LANE`; it never returns `acquire` over an unrelated lane's
+tree. Invoke `dos arbitrate` with no `--lane` for the fungible bare auto-pick walk.
+An explicit `--kind` continues to select that kernel request kind.
+
 ### § `--leases` is a JSON array of live-lease dicts. A malformed value is operator
 
 *(in `cmd_arbitrate`)*

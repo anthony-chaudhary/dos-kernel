@@ -759,3 +759,39 @@ def test_unknown_driver_carries_a_hint_without_changing_exit_code(tmp_path: Path
     assert cp.returncode == 1, (cp.stdout, cp.stderr)    # the init refusal floor
     assert "could not be resolved" in cp.stderr
     assert "→" in cp.stderr and "workshop" in cp.stderr
+
+
+def test_arbitrate_named_unknown_lane_refuses_instead_of_auto_picking(tmp_path: Path):
+    _plain_repo(tmp_path)
+    (tmp_path / "dos.toml").write_text(
+        "[lanes]\nconcurrent = [\"known\"]\nautopick = [\"known\"]\n"
+        "[lanes.trees]\nknown = [\"known/**\"]\n",
+        encoding="utf-8",
+    )
+
+    result = _cli("arbitrate", "--workspace", str(tmp_path),
+                  "--lane", "undeclared", "--output", "json")
+
+    assert result.returncode != 0
+    verdict = json.loads(result.stdout)
+    assert verdict["outcome"] == "refuse"
+    assert verdict["auto_picked"] is False
+    assert verdict["lane"] in ("", "undeclared")
+    assert "UNKNOWN_LANE" in verdict["reason"]
+
+
+def test_arbitrate_bare_request_still_auto_picks(tmp_path: Path):
+    _plain_repo(tmp_path)
+    (tmp_path / "dos.toml").write_text(
+        "[lanes]\nconcurrent = [\"known\"]\nautopick = [\"known\"]\n"
+        "[lanes.trees]\nknown = [\"known/**\"]\n",
+        encoding="utf-8",
+    )
+
+    result = _cli("arbitrate", "--workspace", str(tmp_path), "--output", "json")
+
+    assert result.returncode == 0, result.stderr
+    verdict = json.loads(result.stdout)
+    assert verdict["outcome"] == "acquire"
+    assert verdict["lane"] == "known"
+    assert verdict["auto_picked"] is True
