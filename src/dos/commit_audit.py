@@ -268,6 +268,7 @@ class DiffFacts:
     is_empty: bool
     test_lines_added: int = -1
     test_lines_removed: int = -1
+    runner_test_command_added: bool = False
 
 
 @dataclasses.dataclass(frozen=True)
@@ -650,13 +651,20 @@ def classify(claim: CommitClaim, diff: DiffFacts,
                                 and diff.test_lines_removed >= 0)
         net_deleted = (net_test_delta_known
                        and diff.test_lines_removed > diff.test_lines_added)
-        if not test_files:
+        if not test_files and not diff.runner_test_command_added:
             return ClaimVerdict(
                 sha=claim.sha, verdict=Verdict.CLAIM_UNWITNESSED, claim_kind=kind,
                 witness=Witness.SUBJECT_ONLY,
                 reason="claims tests but the diff touches no test file",
                 source_files=source_files, test_files=test_files,
             ci_files=ci_files, data_files=data_files)
+        if diff.runner_test_command_added and not test_files:
+            return ClaimVerdict(
+                sha=claim.sha, verdict=Verdict.OK, claim_kind=kind,
+                witness=Witness.DIFF_WITNESSED,
+                reason="test claim witnessed by an added concrete runner command",
+                source_files=source_files, test_files=test_files,
+                ci_files=ci_files, data_files=data_files)
         if (net_deleted and _claims_tests_pass(claim.subject)
                 and not _is_pure_move_or_rename(claim.subject)):
             return ClaimVerdict(
@@ -778,6 +786,29 @@ def sweep_summary(verdicts: list[ClaimVerdict]) -> dict:
     }
 
 
+_RUNNER_FILES = frozenset({"Makefile", "makefile", "GNUmakefile"})
+_TEST_COMMAND_RE = re.compile(
+    r"(?:^|[;&|]\s*|@)"
+    r"(?:go\s+test\b|pytest\b|python(?:3)?\s+-m\s+pytest\b|"
+    r"npm\s+(?:run\s+)?test\b|pnpm\s+(?:run\s+)?test\b|"
+    r"yarn\s+test\b|cargo\s+test\b|dotnet\s+test\b)",
+    re.IGNORECASE,
+)
+
+
+def _runner_adds_test_command(backend, sha: str, path: str) -> bool:
+    """True only when this commit adds a concrete command in a known runner file."""
+    if Path(path).name not in _RUNNER_FILES:
+        return False
+    current = backend.read_blob(sha, path)
+    parent = backend.read_blob(f"{sha}^", path)
+    if current is None:
+        return False
+    before = set((parent or b"").decode("utf-8", errors="replace").splitlines())
+    added = current.decode("utf-8", errors="replace").splitlines()
+    return any(line not in before and _TEST_COMMAND_RE.search(line) for line in added)
+
+
 # ---------------------------------------------------------------------------
 # Boundary I/O — read a commit's subject + diff facts from the VCS backend. NOT pure.
 # ---------------------------------------------------------------------------
@@ -820,9 +851,12 @@ def read_commit(ref: str, *, root: Path | str) -> tuple[CommitClaim, DiffFacts] 
     files: list[str] = []
     test_add = test_rem = 0
     have_test_delta = False
+    runner_test_command_added = False
     if deltas is not None:
         for d in deltas:
             files.append(d.path)
+            if _runner_adds_test_command(backend, ref, d.path):
+                runner_test_command_added = True
             if _is_test(d.path) and d.added != -1 and d.removed != -1:
                 test_add += d.added
                 test_rem += d.removed
@@ -833,6 +867,7 @@ def read_commit(ref: str, *, root: Path | str) -> tuple[CommitClaim, DiffFacts] 
         is_empty=(len(files) == 0),
         test_lines_added=(test_add if have_test_delta else -1),
         test_lines_removed=(test_rem if have_test_delta else -1),
+        runner_test_command_added=runner_test_command_added,
     )
     return CommitClaim(sha=sha, subject=subject), diff
 

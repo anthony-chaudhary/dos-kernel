@@ -587,6 +587,43 @@ def test_reader_real_code_change(tmp_path: Path):
 
 
 @gitmark
+def test_reader_makefile_added_go_test_command_witnesses_ci_test_claim(tmp_path: Path):
+    _init_repo(tmp_path)
+    makefile = tmp_path / "Makefile"
+    makefile.write_text("hygiene:\n\t@echo clean\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "Makefile"], capture_output=True)
+    subprocess.run(["git", "-C", str(tmp_path), "commit", "-qm", "build: add hygiene"],
+                   capture_output=True)
+    makefile.write_text(
+        "hygiene:\n\t@echo clean\n"
+        "\t@go test ./internal/godfileceiling -run TestLiveTreeUnderCeiling\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "-C", str(tmp_path), "add", "Makefile"], capture_output=True)
+    subprocess.run(["git", "-C", str(tmp_path), "commit", "-qm",
+                    "test(ci): run the god-file ceiling gate"], capture_output=True)
+
+    v = ca.audit_commit("HEAD", root=tmp_path)
+
+    assert v is not None and v.verdict is Verdict.OK
+    assert "runner command" in v.reason
+
+
+@gitmark
+def test_reader_ordinary_makefile_edit_does_not_witness_test_claim(tmp_path: Path):
+    _init_repo(tmp_path)
+    makefile = tmp_path / "Makefile"
+    makefile.write_text("hygiene:\n\t@echo clean\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "Makefile"], capture_output=True)
+    subprocess.run(["git", "-C", str(tmp_path), "commit", "-qm",
+                    "test(ci): tune hygiene"], capture_output=True)
+
+    v = ca.audit_commit("HEAD", root=tmp_path)
+
+    assert v is not None and v.verdict is Verdict.CLAIM_UNWITNESSED
+
+
+@gitmark
 def test_reader_doc_only_fix_is_unwitnessed(tmp_path: Path):
     _init_repo(tmp_path)
     (tmp_path / "README.md").write_text("# hi\n", encoding="utf-8")
@@ -656,3 +693,22 @@ def test_audit_range_mixed(tmp_path: Path):
     assert Verdict.CLAIM_UNWITNESSED in kinds
     assert Verdict.OK in kinds
     assert Verdict.ABSTAIN in kinds
+
+
+def test_test_claim_accepts_concrete_runner_command_evidence():
+    v = classify(
+        _claim("test(ci): run the ceiling check"),
+        DiffFacts(files=("Makefile",), is_empty=False,
+                  runner_test_command_added=True),
+    )
+    assert v.verdict is Verdict.OK
+    assert v.witness is Witness.DIFF_WITNESSED
+    assert "runner command" in v.reason
+
+
+def test_makefile_without_added_test_command_does_not_witness_test_claim():
+    v = classify(
+        _claim("test(ci): tune hygiene"),
+        DiffFacts(files=("Makefile",), is_empty=False),
+    )
+    assert v.verdict is Verdict.CLAIM_UNWITNESSED
