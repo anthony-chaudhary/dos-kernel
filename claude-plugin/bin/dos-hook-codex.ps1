@@ -107,6 +107,38 @@ if ($backendStderr) {
 }
 
 if ($null -eq $backendExit) { $backendExit = 1 }
+if ($backendExit -eq 3 -and $backendName -like 'native-windows-*') {
+  # The native hook uses exit 3 as a typed DELEGATE result. Re-run the preserved
+  # payload through Python so advanced/abstained Stop decisions are not mistaken
+  # for backend failures and silently fail-open.
+  $python = Get-Command python -CommandType Application -ErrorAction SilentlyContinue |
+    Select-Object -First 1
+  $delegateArgs = @()
+  if ($python) {
+    $backend = $python.Source
+    $backendName = 'python'
+    $delegateArgs = @('-m', 'dos.cli', 'hook') + $hookArgs
+  } else {
+    $py = Get-Command py -CommandType Application -ErrorAction SilentlyContinue |
+      Select-Object -First 1
+    if ($py) {
+      $backend = $py.Source
+      $backendName = 'py-3'
+      $delegateArgs = @('-3', '-m', 'dos.cli', 'hook') + $hookArgs
+    }
+  }
+  if ($delegateArgs.Count -gt 0) {
+    $delegateStderrPath = [IO.Path]::GetTempFileName()
+    try {
+      $stdoutLines = @($stdinPayload | & $backend @delegateArgs 2> $delegateStderrPath)
+      $backendExit = $LASTEXITCODE
+      $backendStderr = [IO.File]::ReadAllText($delegateStderrPath)
+    } finally {
+      Remove-Item -LiteralPath $delegateStderrPath -Force -ErrorAction SilentlyContinue
+    }
+    if ($backendStderr) { [Console]::Error.Write($backendStderr) }
+  }
+}
 if ($backendExit -ne 0) {
   Write-AdapterDiagnostic -Hook $backendHook -Stage 'backend_policy' -Backend $backendName -ExitCode $backendExit
   exit 0
