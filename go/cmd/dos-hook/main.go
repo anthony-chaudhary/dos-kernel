@@ -61,6 +61,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int) {
 	// repetition. The decider fills obs.Outcome + its verb-specific fields; this
 	// finalizer adds verb/exit/latency/run_id and persists.
 	start := time.Now()
+	var setupFinished time.Time
 	var verb string
 	var obs hook.Observation
 	var obsWorkspace string
@@ -84,7 +85,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int) {
 				hook.RecordPanicRecovered(verb)
 			}
 		}
-		finalizeObservation(verb, obsWorkspace, start, code, debug, panicked, &obs)
+		finalizeObservation(verb, obsWorkspace, start, setupFinished, code, debug, panicked, &obs)
 	}()
 
 	if len(args) == 0 {
@@ -108,6 +109,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) (code int) {
 	// shell `||`). This is the docs/125 GHF4 "flag becomes default-on where the binary
 	// is present" — realized as default-on whenever the binary runs. (GHF1–GHF3 used
 	// opt-IN `=1`; both `1` and unset now select native, only `0` opts out.)
+	setupFinished = time.Now()
+
 	if os.Getenv("DOS_HOOK_NATIVE") == "0" {
 		if debug {
 			_, _ = io.WriteString(stderr, "[dos-hook] DOS_HOOK_NATIVE=0 — delegating to Python (opt-out)\n")
@@ -259,7 +262,7 @@ func stampLifecycleIdentity(obs *hook.Observation, stdinBytes []byte, workspace 
 // The `stats` verb is the one exclusion: it is a read-only fold over the log, so
 // logging it would grow the very log it reads (and count its own reads). An empty
 // verb (no args) is also skipped — there was no invocation to record.
-func finalizeObservation(verb, workspace string, start time.Time, code int, debug, panicked bool, obs *hook.Observation) {
+func finalizeObservation(verb, workspace string, start, setupFinished time.Time, code int, debug, panicked bool, obs *hook.Observation) {
 	if verb == "" || verb == "stats" {
 		return
 	}
@@ -267,6 +270,19 @@ func finalizeObservation(verb, workspace string, start time.Time, code int, debu
 	obs.Verb = verb
 	obs.ExitCode = code
 	obs.LatencyMs = float64(elapsed.Microseconds()) / 1000.0
+	if !setupFinished.IsZero() {
+		if obs.PhaseMS == nil {
+			obs.PhaseMS = map[string]float64{}
+		}
+		obs.PhaseMS["setup"] = float64(setupFinished.Sub(start).Microseconds()) / 1000.0
+		measured := 0.0
+		for _, value := range obs.PhaseMS {
+			measured += value
+		}
+		if residual := obs.LatencyMs - measured; residual > 0 {
+			obs.PhaseMS["runtime"] = residual
+		}
+	}
 	obs.RunID = os.Getenv("CID_RUN_ID")
 	obs.Workspace = workspace
 	obs.Profile = os.Getenv("CODEX_HOME")

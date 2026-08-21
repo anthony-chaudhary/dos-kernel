@@ -25,6 +25,22 @@ import (
 // field is kept for the dispatcher's symmetry and a future case that genuinely must
 // delegate. Any decline-to-passthrough failure mode (no stdin, bad JSON, not a PRE
 // event) is an empty passthrough — nothing to emit or journal.
+type phaseTimer struct {
+	last   time.Time
+	phases map[string]float64
+}
+
+func newPhaseTimer() *phaseTimer { return &phaseTimer{last: time.Now(), phases: map[string]float64{}} }
+func (t *phaseTimer) mark(name string) {
+	now := time.Now()
+	t.phases[name] += float64(now.Sub(t.last).Microseconds()) / 1000
+	t.last = now
+}
+func (t *phaseTimer) observation(obs Observation) Observation {
+	obs.PhaseMS = t.phases
+	return obs
+}
+
 type PretoolResult struct {
 	Handled     bool
 	Stdout      string
@@ -44,6 +60,7 @@ type PretoolResult struct {
 // {"decision":"deny"} instead of CC bytes the host ignores (the fail-OPEN this fixes).
 // An empty/`claude-code` dialect is byte-identical to before.
 func DecidePretool(stdinBytes []byte, workspaceFlag, dialect string, debug io.Writer) PretoolResult {
+	timing := newPhaseTimer()
 	dbg := func(format string, a ...any) {
 		if debug != nil {
 			fmt.Fprintf(debug, "[dos-hook pretool] "+format+"\n", a...)
@@ -60,6 +77,7 @@ func DecidePretool(stdinBytes []byte, workspaceFlag, dialect string, debug io.Wr
 		return PretoolResult{Handled: true}
 	}
 
+	timing.mark("parse")
 	ev := parseEvent(top)
 	if !ev.isPreEvent() {
 		dbg("not a PreToolUse event — passthrough")
@@ -120,26 +138,30 @@ func DecidePretool(stdinBytes []byte, workspaceFlag, dialect string, debug io.Wr
 	// at the boundary (it reads the env + the folded leases) and frozen into the pure
 	// decider, the same I/O-at-the-edge discipline as OperatorSession above.
 	in.SubagentInLane = subagentInLane(ev, in.LiveLeases)
+	timing.mark("inputs")
 	d := Decide(ev, in)
+	timing.mark("evaluate")
 	dbg("rung=%s decision=%s reason_class=%s dialect=%s", d.Rung, d.DecisionTag, d.ReasonClass, dialect)
 
 	// Count the verdict's dimensions in-process (the durable record + latency + exit
 	// are the dispatcher's). Build the observability projection off the same Decision.
 	recordPretool(d, dialect)
 	treeKnown := d.TreeKnown
+	stdout := d.RenderAs(dialect)
+	timing.mark("serialize")
 	return PretoolResult{
 		Handled:     true,
-		Stdout:      d.RenderAs(dialect),
+		Stdout:      stdout,
 		Decision:    d,
 		JournalPath: journalPath,
 		Event:       ev,
-		Obs: Observation{
+		Obs: timing.observation(Observation{
 			Outcome:     d.DecisionTag,
 			Rung:        d.Rung,
 			ReasonClass: d.ReasonClass,
 			Dialect:     nonEmpty(dialect, "claude-code"),
 			TreeKnown:   &treeKnown,
-		},
+		}),
 	}
 }
 
@@ -210,6 +232,7 @@ type PosttoolResult struct {
 // identical to re-reading the appended stream, so the verdict is unchanged — this
 // only makes the firing a durable fact.
 func DecidePosttool(stdinBytes []byte, workspaceFlag, sessionFlag, dialect string, debug io.Writer) PosttoolResult {
+	timing := newPhaseTimer()
 	dbg := func(format string, a ...any) {
 		if debug != nil {
 			fmt.Fprintf(debug, "[dos-hook posttool] "+format+"\n", a...)
@@ -224,6 +247,7 @@ func DecidePosttool(stdinBytes []byte, workspaceFlag, sessionFlag, dialect strin
 		return PosttoolResult{Handled: true}
 	}
 
+	timing.mark("parse")
 	step, ok := stepFromEvent(top)
 	if !ok {
 		dbg("event has no tool_name — nothing to record")
@@ -257,10 +281,12 @@ func DecidePosttool(stdinBytes []byte, workspaceFlag, sessionFlag, dialect strin
 		return PosttoolResult{Handled: true}
 	}
 
+	timing.mark("inputs")
 	prior := readStream(streamPath)
 	stepIndex := len(prior)
 	allSteps := append(append([]streamStep(nil), prior...), step)
 	verdict := classifyStream(allSteps)
+	timing.mark("evaluate")
 
 	fired := verdict.state == "REPEATING" || verdict.state == "STALLED"
 	runID := ""
@@ -275,7 +301,7 @@ func DecidePosttool(stdinBytes []byte, workspaceFlag, sessionFlag, dialect strin
 	payload := postWarnPayload(verdict)
 	if payload == nil {
 		recordPosttool(verdict.state, false)
-		return PosttoolResult{Handled: true, Obs: Observation{Outcome: "passthrough", StreamState: verdict.state}}
+		return PosttoolResult{Handled: true, Obs: timing.observation(Observation{Outcome: "passthrough", StreamState: verdict.state})}
 	}
 	// Transcode the canonical CC warn dict into the host's grammar (docs/268). A
 	// posttool WARN is advisory (never blocks), so for gemini/antigravity/cursor it
@@ -283,10 +309,12 @@ func DecidePosttool(stdinBytes []byte, workspaceFlag, sessionFlag, dialect strin
 	out := transcodeCC(payload, dialect)
 	if out == nil {
 		recordPosttool(verdict.state, false)
-		return PosttoolResult{Handled: true, Obs: Observation{Outcome: "passthrough", StreamState: verdict.state}}
+		return PosttoolResult{Handled: true, Obs: timing.observation(Observation{Outcome: "passthrough", StreamState: verdict.state})}
 	}
 	recordPosttool(verdict.state, true)
-	return PosttoolResult{Handled: true, Stdout: pyJSONDumps(out), Obs: Observation{Outcome: "warn", StreamState: verdict.state}}
+	stdout := pyJSONDumps(out)
+	timing.mark("serialize")
+	return PosttoolResult{Handled: true, Stdout: stdout, Obs: timing.observation(Observation{Outcome: "warn", StreamState: verdict.state})}
 }
 
 // parseEvent decodes the typed fields off the top-level event map, retaining the

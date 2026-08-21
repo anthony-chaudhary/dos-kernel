@@ -43,12 +43,13 @@ type Observation struct {
 	Outcome    string // a short verb-specific tag: deny|warn|passthrough|allow|refuse|block|let|delegate|…
 	ExitCode   int    // 0 OWNED / 3 DELEGATE
 	LatencyMs  float64
-	RunID      string // CID_RUN_ID join key (the correlation spine), "" when unset
-	CallID     string // host tool-use/call identifier
-	SessionID  string // host session/thread identifier
-	Workspace  string // resolved workspace that owns the observation store
-	Profile    string // active host profile (CODEX_HOME when present)
-	PhaseState string // succeeded|failed|skipped|disabled
+	RunID      string             // CID_RUN_ID join key (the correlation spine), "" when unset
+	CallID     string             // host tool-use/call identifier
+	SessionID  string             // host session/thread identifier
+	Workspace  string             // resolved workspace that owns the observation store
+	Profile    string             // active host profile (CODEX_HOME when present)
+	PhaseState string             // succeeded|failed|skipped|disabled
+	PhaseMS    map[string]float64 // bounded stage timings within the hook invocation
 
 	// pretool
 	Rung        string
@@ -152,6 +153,13 @@ func (o Observation) toEntry() map[string]any {
 	}
 	if o.PhaseState != "" {
 		e["phase_state"] = o.PhaseState
+	}
+	if len(o.PhaseMS) > 0 {
+		phases := make(map[string]any, len(o.PhaseMS))
+		for name, value := range o.PhaseMS {
+			phases[name] = value
+		}
+		e["phase_ms"] = phases
 	}
 	if o.Rung != "" {
 		e["rung"] = o.Rung
