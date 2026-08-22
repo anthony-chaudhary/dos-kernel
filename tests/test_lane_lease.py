@@ -114,6 +114,74 @@ def test_refuse_record_failure_does_not_change_decision(cfg, monkeypatch):
     assert refused.decision.outcome == "refuse"  # the decision is unchanged
 
 
+@pytest.mark.parametrize(
+    ("first_kind", "second_kind", "first_owner", "second_owner"),
+    [
+        ("cluster", "keyword", "root-issue-8195", "root-tui-settings-8213"),
+        ("keyword", "cluster", "root-tui-settings-8213", "root-issue-8195"),
+    ],
+)
+def test_acquire_refuses_later_exclusive_tree_overlap_across_lane_kinds(
+        cfg, first_kind, second_kind, first_owner, second_owner):
+    """The WAL mutex makes exact-tree ownership authoritative across lane kinds.
+
+    This is the #8239 production shape in both orders. The first holder owns two
+    shared paths plus one private path. The later holder asks for those same two
+    paths plus a different private path. Only the first grant may enter the WAL;
+    the refusal must identify who holds each intersecting path.
+    """
+    earlier_tree = [
+        "cmd/fak/tui.go",
+        "cmd/fak/tui_registry.go",
+        "cmd/fak/tui_issue_8195.go",
+    ]
+    later_tree = [
+        "cmd/fak/tui.go",
+        "cmd/fak/tui_registry.go",
+        "cmd/fak/tui_settings_8213.go",
+    ]
+    first = lane_lease.acquire(
+        cfg, lane="cmd", kind=first_kind, tree=earlier_tree,
+        owner=first_owner, mode="exclusive", loop_ts="20260820T173028Z",
+    )
+    assert first.decision.outcome == "acquire"
+
+    refused = lane_lease.acquire(
+        cfg, lane="cmd", kind=second_kind, tree=later_tree,
+        owner=second_owner, mode="exclusive", loop_ts="20260820T173652Z",
+    )
+    assert refused.decision.outcome == "refuse"
+    assert first_owner in refused.decision.reason
+    assert second_owner in refused.decision.reason
+    assert "cmd/fak/tui.go" in refused.decision.reason
+    assert "cmd/fak/tui_registry.go" in refused.decision.reason
+
+    entries = read_all(_journal(cfg))
+    assert [entry["op"] for entry in entries] == [OP_ACQUIRE, OP_REFUSE]
+    assert entries[1]["holder"] == second_owner
+    [held] = replay(entries)
+    assert held["holder"] == first_owner
+    assert held["tree"] == earlier_tree
+
+
+def test_acquire_allows_disjoint_exclusive_trees_in_same_named_lane(cfg):
+    """A lane name is metadata; disjoint exact trees remain independently leaseable."""
+    first = lane_lease.acquire(
+        cfg, lane="cmd", kind="cluster", tree=["cmd/fak/tui.go"],
+        owner="tui-owner", mode="exclusive", loop_ts="20260820T180000Z",
+    )
+    second = lane_lease.acquire(
+        cfg, lane="cmd", kind="keyword", tree=["cmd/fak/settings.go"],
+        owner="settings-owner", mode="exclusive", loop_ts="20260820T180001Z",
+    )
+
+    assert first.decision.outcome == "acquire"
+    assert second.decision.outcome == "acquire"
+    assert [lease["holder"] for lease in lane_lease.live_leases(cfg)] == [
+        "tui-owner", "settings-owner",
+    ]
+
+
 # ---------------------------------------------------------------------------
 # HEARTBEAT — beats only a live lease; the load-bearing false-revive guard.
 # ---------------------------------------------------------------------------

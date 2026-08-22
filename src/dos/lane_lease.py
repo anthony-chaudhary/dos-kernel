@@ -386,6 +386,60 @@ def live_generations(config: SubstrateConfig) -> dict[tuple[str, str], int]:
     return lane_journal.lease_generations(entries)
 
 
+def _tree_intersections(
+    requested_tree: list[str], lease_tree: list[str],
+) -> list[tuple[str, str]]:
+    """Return the original tree entries whose normalized regions intersect."""
+    from dos._tree import prefixes_collide
+    from dos.named_lock import normalize_entry
+
+    intersections: list[tuple[str, str]] = []
+    for requested in requested_tree:
+        if not requested:
+            continue
+        requested_prefix = normalize_entry(requested)
+        for held in lease_tree:
+            if held and prefixes_collide(requested_prefix, normalize_entry(held)):
+                intersections.append((requested, held))
+    return intersections
+
+
+def _lock_conflict_decision(
+    *, lane: str, kind: str, tree: list[str], mode: str, owner: str,
+    live: list[dict],
+) -> arbiter.LaneDecision | None:
+    """Name the first incompatible live region at the WAL serialization point."""
+    from dos.overlap_policy import lock_mode_decision
+
+    for lease in live:
+        lease_tree = list(lease.get("tree") or [])
+        verdict = lock_mode_decision(
+            tree,
+            lease_tree,
+            requested_mode=mode,
+            lease_mode=lease.get("mode", lease.get("lock_mode", "")),
+        )
+        if verdict.admissible:
+            continue
+        intersections = _tree_intersections(tree, lease_tree)
+        rendered = "; ".join(
+            f"requested {requested!r} intersects held {held!r}"
+            for requested, held in intersections
+        )
+        holder = str(lease.get("holder") or "<unknown>")
+        held_lane = str(lease.get("lane") or "<unknown>")
+        return arbiter.LaneDecision(
+            "refuse",
+            lane=lane,
+            lane_kind=kind,
+            tree=tree,
+            reason=(f"requester {owner!r} conflicts with live holder {holder!r} "
+                    f"on lane {held_lane!r}; intersecting paths: {rendered}. "
+                    f"{verdict.reason}."),
+        )
+    return None
+
+
 def acquire(
     config: SubstrateConfig,
     *,
@@ -437,15 +491,74 @@ def acquire(
         # dropping only a silent/dead or TTL-expired orphan. Using the structural
         # fold made those proven stale rows immortal at the actual acquire gate.
         live = live_leases(config, expire_dead=True) + extra
+        # A lane name is metadata over a region lock. Once the full predicate
+        # conjunction proves a same-named live region compatible, omit only that
+        # identity row from the legacy arbiter name gate. Other live rows remain
+        # visible, and a predicate refusal remains authoritative.
+        request = _admission.AdmissionRequest(
+            lane=lane, kind=kind, tree=tuple(tree), mode=mode_value,
+        )
+        arbitration_live: list[dict] = []
+        for lease in live:
+            same_lane = (
+                str(lease.get("lane") or "").strip().casefold()
+                == str(lane or "").strip().casefold()
+            )
+            known_trees = bool(tree) and bool(lease.get("tree"))
+            if same_lane and known_trees:
+                verdict = _admission.run_predicates(
+                    preds, request, [lease], config,
+                )
+                if verdict.admitted:
+                    continue
+            arbitration_live.append(lease)
         decision = arbiter.arbitrate(
             requested_lane=lane,
             requested_kind=kind,
             requested_tree=tree,
             requested_mode=mode_value,
-            live_leases=live,
+            live_leases=arbitration_live,
             config=config,
             predicates=preds,
         )
+        # Validate the tree the arbiter actually selected, not merely the tree the
+        # caller requested: a cluster redirect may legitimately choose a disjoint
+        # region. The check remains inside the WAL mutex, so no racing ACQUIRE can
+        # appear between this read and the append below.
+        if decision.outcome == "acquire":
+            conflict = _lock_conflict_decision(
+                lane=decision.lane or lane,
+                kind=decision.lane_kind or kind,
+                tree=list(decision.tree or tree),
+                mode=mode_value,
+                owner=owner,
+                live=live,
+            )
+            if conflict is not None:
+                decision = conflict
+        else:
+            # A refused exact request may have stopped at a legacy lane-identity
+            # branch. Prefer the concrete holder/path evidence when the normalized
+            # lock regions prove the same refusal.
+            conflict = _lock_conflict_decision(
+                lane=lane, kind=kind, tree=tree, mode=mode_value, owner=owner,
+                live=live,
+            )
+            live_lane_keys = {
+                str(lease.get("lane") or "").strip().casefold()
+                for lease in live
+            }
+            concurrent_lane_keys = {
+                str(name).strip().casefold() for name in config.lanes.concurrent
+            }
+            saturated_cluster = (
+                kind == "cluster"
+                and bool(concurrent_lane_keys)
+                and concurrent_lane_keys <= live_lane_keys
+            )
+            if conflict is not None and not saturated_cluster:
+                conflict.reason += f" Arbiter refusal: {decision.reason}"
+                decision = conflict
         journaled = False
         if decision.outcome == "acquire":
             _pid = os.getpid()
