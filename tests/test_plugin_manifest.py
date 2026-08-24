@@ -14,9 +14,9 @@ the bundle can't silently drift from the package it fronts:
     `pyproject.toml` ↔ `__init__.py`. A stale plugin version is the drift this
     catches.
   * **Hooks wire the REAL verbs** — the bundled hooks run the shipped `dos hook
-    {pretool,posttool,stop}` verbs (via `python -m dos.cli`, robust against the
+    {pretool,stop}` verbs (via `python -m dos.cli`, robust against the
     `dos` console script not being on PATH in the host's Python), in the verified
-    Claude Code settings shape. These are the same three moments `dos init --hooks`
+    Claude Code settings shape. These are the enforcement moments `dos init --hooks`
     wires; the plugin is just the pre-packaged form.
   * **The MCP server is launchable as configured** — the `.mcp.json` command
     (the `dos-mcp` console script, which resolves for both pip and pipx-isolated
@@ -203,7 +203,6 @@ def test_hooks_wire_the_dos_verbs():
     # SessionStart injects the ground-truth orientation digest.
     expected = {
         "PreToolUse": "hook pretool",
-        "PostToolUse": "hook posttool",
         "Stop": "hook stop",
         "SubagentStop": "hook stop",
         "UserPromptSubmit": "hook marker",
@@ -585,3 +584,22 @@ def test_bundled_generic_skills_name_no_host():
             assert not re.search(pat, text), (
                 f"{skill_md.relative_to(_REPO_ROOT)} names a host literal "
                 f"/{pat}/ — a shipped generic skill must name no host")
+
+
+def test_plugin_omits_advisory_posttool_from_host_visible_topology() -> None:
+    """Successful tools must not spend two visible Codex lifecycle rows.
+
+    PreToolUse and Stop remain the enforcement checkpoints. The old PostToolUse
+    handler was advisory/fail-open and only re-surfaced stalled streams, while
+    Codex renders every declared hook start and completion in the foreground.
+    """
+    manifest = json.loads(PLUGIN_HOOKS.read_text(encoding="utf-8"))
+    hooks = manifest["hooks"]
+    assert "PostToolUse" not in hooks
+    assert "PreToolUse" in hooks
+    assert "Stop" in hooks
+
+    serialized = json.dumps(hooks)
+    assert " pretool --workspace ." in serialized
+    assert " stop --workspace ." in serialized
+    assert " posttool --workspace ." not in serialized
