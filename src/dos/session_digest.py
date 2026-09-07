@@ -115,7 +115,7 @@ def _caught_phrase(summary: Any) -> Optional[str]:
 
 
 def _prior_refusals_phrase(recent_refusals: Any) -> Optional[str]:
-    """`a prior run refused 2 calls here recently` — or `None` when 0/absent.
+    """Label the cross-session count as history, never as a current restriction.
 
     The CROSS-SESSION leg: `caught_phrase` reports what THIS session caught, but a
     fresh agent waking COLD (the cron/unattended case) inherits none of that. This
@@ -123,7 +123,9 @@ def _prior_refusals_phrase(recent_refusals: Any) -> Optional[str]:
     records `lane_journal.read_all` carries), so a scheduled worker starting blind
     sees what its predecessors already refused — instead of re-attempting the exact
     move the last 3am run was denied, with nobody watching (docs/121 §4.1). An int
-    count in; 0/None ⇒ no line (the silence rule).
+    count in; 0/None ⇒ no line (the silence rule). The caller counts the retained
+    journal without an age cutoff or resolution check, so neither recency nor an
+    active blocker can be inferred from this count.
     """
     try:
         n = int(recent_refusals or 0)
@@ -132,11 +134,17 @@ def _prior_refusals_phrase(recent_refusals: Any) -> Optional[str]:
     if n <= 0:
         return None
     noun = "call" if n == 1 else "calls"
-    return f"a prior run was refused {n} {noun} here recently — don't re-attempt blindly"
+    return (f"history: {n} refused {noun} from prior runs in the retained lane journal "
+            "(age and resolution unchecked). This count alone is not a current blocker; "
+            "inspect the relevant refusal and current lease before retrying that operation. "
+            "Continue independent work; a pending tool call does not establish a denial "
+            "or a shell failure")
 
 
 _HEAD = "DOS session orientation"
-_RESTORED_HEAD = f"{_HEAD} (restored after compaction)"
+_RESTORED_PREFIX = f"{_HEAD} (restored after compaction)"
+_RESTORED_HEAD = (f"{_RESTORED_PREFIX} [historical snapshot; "
+                  "recheck current leases and tool access]")
 
 
 def mark_restored(digest: str) -> str:
@@ -144,13 +152,20 @@ def mark_restored(digest: str) -> str:
 
     The persisted digest was built BEFORE the compaction (so its head is the plain
     `DOS session orientation: …`); re-injecting it after a compact should note that
-    it survived. Rewrites only the head clause; a digest that already carries the
-    note (or one with an unexpected shape) is returned unchanged.
+    it survived. Rewrites only the head clause, including when a rotation note
+    precedes it. A digest with the current note (or an unexpected shape) is unchanged.
     """
     if not isinstance(digest, str) or not digest:
         return digest
+    if not digest.startswith(_HEAD):
+        prefix, separator, snapshot = digest.partition(f" · {_HEAD}")
+        if separator:
+            return prefix + " · " + mark_restored(_HEAD + snapshot)
+        return digest
     if digest.startswith(_RESTORED_HEAD):
         return digest
+    if digest.startswith(_RESTORED_PREFIX):
+        return _RESTORED_HEAD + digest[len(_RESTORED_PREFIX):]
     if digest.startswith(_HEAD):
         return _RESTORED_HEAD + digest[len(_HEAD):]
     return digest

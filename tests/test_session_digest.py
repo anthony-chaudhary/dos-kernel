@@ -110,12 +110,49 @@ def test_prior_run_refusals_orient_a_cold_wake():
     """
     out = sd.build_digest(recent_refusals=2)
     assert out is not None
-    assert "a prior run was refused 2 calls here recently" in out
-    assert "don't re-attempt blindly" in out
+    assert "history: 2 refused calls from prior runs" in out
+    assert "age and resolution unchecked" in out
+    assert "not a current blocker" in out
+    assert "current lease before retrying that operation" in out
+    assert "Continue independent work" in out
+    assert "pending tool call does not establish a denial" in out
+    assert "recently" not in out
     # singular + the silence floor
-    assert "refused 1 call here" in sd.build_digest(recent_refusals=1)
+    assert "history: 1 refused call from prior runs" in sd.build_digest(recent_refusals=1)
     assert sd.build_digest(recent_refusals=0) is None
     assert sd.build_digest(recent_refusals=None) is None
+
+
+@pytest.mark.parametrize("prefix", [
+    "DOS session orientation",
+    "DOS session orientation (restored after compaction)",
+])
+def test_restored_snapshot_requires_fresh_state_and_is_idempotent(prefix):
+    saved = prefix + ": 1 lane lease held (src)"
+    restored = sd.mark_restored(saved)
+    assert "historical snapshot; recheck current leases and tool access" in restored
+    assert restored.endswith(": 1 lane lease held (src)")
+    assert restored.count("(restored after compaction)") == 1
+    assert sd.mark_restored(restored) == restored
+
+
+def test_history_does_not_hide_current_enforcement():
+    out = sd.build_digest(recent_refusals=4, leases=[{"lane": "src"}],
+                          breaker_verdict=_Breaker(True, "HUMAN"))
+    assert "1 lane lease held (src)" in out
+    assert "breaker OPEN" in out
+    assert "history: 4 refused calls" in out
+
+
+def test_restored_snapshot_preserves_rotation_note():
+    prefix = "Serving seat rotated · "
+    saved = prefix + "DOS session orientation: 1 lane lease held (src)."
+    restored = sd.mark_restored(saved)
+    assert restored.startswith(prefix)
+    assert "historical snapshot; recheck current leases and tool access" in restored
+    assert restored.endswith(": 1 lane lease held (src).")
+    assert sd.mark_restored(restored) == restored
+    assert sd.mark_restored("unrecognized snapshot") == "unrecognized snapshot"
 
 
 # ---------------------------------------------------------------------------
@@ -160,6 +197,26 @@ def test_empty_workspace_emits_nothing(repo, monkeypatch, capsys):
                    "--workspace", str(repo))
     assert rc == 0
     assert out == ""
+
+
+def test_old_refusal_after_release_is_history_not_current_lease(repo, monkeypatch, capsys):
+    records = [
+        {"op": "REFUSE", "holder": "prior", "lane": "src",
+         "ts": "2000-01-01T00:00:00Z"},
+        {"op": "RELEASE", "holder": "prior", "lane": "src",
+         "ts": "2000-01-02T00:00:00Z"},
+    ]
+    (repo / "lane-journal.jsonl").write_text(
+        "\n".join(json.dumps(record) for record in records) + "\n", encoding="utf-8")
+    rc, out = _run(monkeypatch, capsys, {"session_id": "fresh", "cwd": str(repo)},
+                   "--workspace", str(repo))
+    assert rc == 0
+    digest = json.loads(out)["digest"]
+    assert "history: 1 refused call from prior runs" in digest
+    assert "age and resolution unchecked" in digest
+    assert "not a current blocker" in digest
+    assert "recently" not in digest
+    assert "lane lease held" not in digest
 
 
 def test_torn_config_load_emits_nothing_without_crashing(repo, monkeypatch, capsys):
@@ -265,6 +322,7 @@ def test_compact_reinjects_the_persisted_digest(repo, monkeypatch, capsys):
     obj = json.loads(out2)
     assert obj["restored"] is True
     assert "(restored after compaction)" in obj["digest"]
+    assert "historical snapshot; recheck current leases and tool access" in obj["digest"]
 
 
 def test_render_failsoft_on_unknown_dialect(repo, monkeypatch, capsys):
