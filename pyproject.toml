@@ -485,8 +485,8 @@ where = ["src"]
 # binary is a built release artifact, NOT committed — unlike the PLUGIN's binaries),
 # so a bare `pip install -e .` / sdist ships no binary and falls through to the Python
 # verb (the docs/100 fallback). The glob matching nothing is harmless.
-dos = ["py.typed", "skills/**/*.md", "skills/**/*.toml", "_bin/dos-hook", "_bin/dos-hook.exe"]
-dos_mcp = ["py.typed"]
+dos = ["py.typed", "skills/**/*.md", "skills/**/*.toml", "_bin/dos-hook", "_bin/dos-hook.exe", "data/*.json"]
+dos_mcp = ["py.typed", "data/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

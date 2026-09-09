@@ -182,3 +182,42 @@ def test_answer_tool_has_no_learn_more():
     answer = _tools(build_server())["dos_answer"]
     out = answer(query="how do I verify the work")
     assert "learn_more" not in out
+
+
+def test_answer_tool_fallback_when_docs_tree_absent(monkeypatch, tmp_path):
+    """When docs/ tree is absent, dos_answer falls back to the bundled package index."""
+    # Point _INDEX_PATH to a non-existent file in an isolated temporary directory
+    isolated_docs = tmp_path / "empty_workspace" / "docs" / "answers" / "index.jsonl"
+    monkeypatch.setattr(_answers, "_INDEX_PATH", isolated_docs)
+    _answers._ROWS_CACHE.clear()
+
+    # Verify fallback loading loads rows
+    rows = _answers.load_rows()
+    assert len(rows) >= 5, "bundled index must load rows even when docs/ tree is absent"
+
+    # Verify dos_answer returns non-empty ranked answers
+    answer = _tools(build_server())["dos_answer"]
+    out = answer(query="how do I verify an AI agent actually did the work")
+    assert out["count"] >= 1
+    assert len(out["results"]) >= 1
+    assert "note" not in out
+    top = out["results"][0]
+    assert top["slug"] == "how-to-verify-an-ai-agent-actually-did-the-work"
+    assert top["score"] > 0.0
+    assert top["answer"].strip()
+
+
+def test_answers_resource_fallback_when_docs_tree_absent(monkeypatch, tmp_path):
+    """dos://answers resource renders browsable answer list using bundled fallback."""
+    isolated_docs = tmp_path / "empty_workspace" / "docs" / "answers" / "index.jsonl"
+    monkeypatch.setattr(_answers, "_INDEX_PATH", isolated_docs)
+    _answers._ROWS_CACHE.clear()
+
+    server = build_server()
+    contents = asyncio.run(server.read_resource("dos://answers"))
+    body = contents[0].content if isinstance(contents, list) else contents
+    text = body if isinstance(body, str) else getattr(body, "text", str(body))
+    assert "not available in this deployment" not in text
+    rows = _answers.load_rows()
+    assert f"{len(rows)} sourced" in text
+

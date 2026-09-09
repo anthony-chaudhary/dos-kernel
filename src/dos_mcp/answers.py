@@ -29,8 +29,13 @@ from pathlib import Path
 
 # The index lives at <repo>/docs/answers/index.jsonl. From this module
 # (src/dos_mcp/answers.py) the repo root is parents[2]. In an installed wheel
-# there is no docs/ tree, so the file is simply absent and we fail soft.
+# there is no docs/ tree, so we fall back to the bundled precompiled package-data
+# index (dos/data/answers_index.json or dos_mcp/data/answers_index.json).
 _INDEX_PATH = Path(__file__).resolve().parents[2] / "docs" / "answers" / "index.jsonl"
+_BUNDLED_INDEX_PATHS = (
+    Path(__file__).resolve().parent / "data" / "answers_index.json",
+    Path(__file__).resolve().parents[1] / "dos" / "data" / "answers_index.json",
+)
 
 _WORD_RE = re.compile(r"[a-z0-9]+")
 # Tokens too generic to carry signal — every AEO query has them, so counting them
@@ -42,6 +47,17 @@ _STOP = frozenset(
 
 
 def _index_path() -> Path:
+    """Resolve the active answer-corpus index path.
+
+    Prefers the ambient repo docs index (<repo>/docs/answers/index.jsonl) when present.
+    In an installed wheel distribution where docs/ is omitted, falls back to the
+    bundled precompiled package-data index (e.g. dos/data/answers_index.json).
+    """
+    if _INDEX_PATH.is_file():
+        return _INDEX_PATH
+    for candidate in _BUNDLED_INDEX_PATHS:
+        if candidate.is_file():
+            return candidate
     return _INDEX_PATH
 
 
@@ -79,14 +95,23 @@ def load_rows() -> list[dict]:
     except OSError:
         return []
     rows: list[dict] = []
-    for line in text.splitlines():
-        line = line.strip()
-        if not line:
-            continue
+    stripped = text.strip()
+    if stripped.startswith("["):
         try:
-            rows.append(json.loads(line))
+            parsed = json.loads(stripped)
+            if isinstance(parsed, list):
+                rows = [r for r in parsed if isinstance(r, dict)]
         except json.JSONDecodeError:
-            continue  # a corrupt line never sinks the whole corpus
+            rows = []
+    else:
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue  # a corrupt line never sinks the whole corpus
     # Bound the cache: the index is a single file, so a couple of versions is plenty.
     if len(_ROWS_CACHE) >= 8:
         del _ROWS_CACHE[next(iter(_ROWS_CACHE))]

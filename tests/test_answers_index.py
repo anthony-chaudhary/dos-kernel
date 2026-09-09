@@ -61,6 +61,20 @@ def test_index_matches_assembly() -> None:
     )
 
 
+def test_bundled_json_matches_assembly() -> None:
+    """Bundled answers_index.json files in package data match the assembly of the corpus."""
+    mod = _load_builder()
+    expected = mod.assemble_json(_REPO)
+    for subpath in ("src/dos/data/answers_index.json", "src/dos_mcp/data/answers_index.json"):
+        target = _REPO / subpath
+        assert target.is_file(), f"missing bundled index {target}"
+        actual = target.read_text(encoding="utf-8")
+        assert actual == expected, (
+            f"{subpath} is out of sync with the corpus — run: "
+            "python scripts/build_answers_index.py"
+        )
+
+
 def test_row_count_matches_the_glob() -> None:
     """One row per answer page — the index covers the corpus, no more, no less."""
     pages = sorted(

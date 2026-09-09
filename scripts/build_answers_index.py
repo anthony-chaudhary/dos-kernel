@@ -66,6 +66,8 @@ import discoverability_inventory as _inv  # noqa: E402
 
 ANSWERS_DIR = Path("docs/answers")
 INDEX = ANSWERS_DIR / "index.jsonl"
+BUNDLED_DOS_JSON = Path("src/dos/data/answers_index.json")
+BUNDLED_MCP_JSON = Path("src/dos_mcp/data/answers_index.json")
 
 BLOB_URL = "https://github.com/anthony-chaudhary/dos-kernel/blob/master/{path}"
 
@@ -152,6 +154,16 @@ def assemble(repo_root: Path) -> str:
     return "".join(json.dumps(r, sort_keys=True) + "\n" for r in rows)
 
 
+def assemble_json(repo_root: Path) -> str:
+    """The answers_index.json text — sorted-keys JSON array of objects.
+
+    Lightweight standalone precompiled asset bundled in wheel distribution
+    package data so dos_answer succeeds even when no local docs/ tree exists.
+    """
+    rows = [_row(repo_root, page) for page in _pages(repo_root)]
+    return json.dumps(rows, sort_keys=True, indent=2) + "\n"
+
+
 def _repo_root() -> Path:
     """The repo top-level — git's answer, NOT __file__ relative math (matches the
     sibling build scripts; this tool ships with the repo it operates on)."""
@@ -168,7 +180,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--check", action="store_true",
-        help="verify index.jsonl matches the assembly (exit 1 if not); write nothing",
+        help="verify index files match the assembly (exit 1 if not); write nothing",
     )
     args = parser.parse_args(argv)
 
@@ -181,27 +193,58 @@ def main(argv: list[str] | None = None) -> int:
             pass
 
     root = _repo_root()
-    expected = assemble(root)
-    target = root / INDEX
-    actual = target.read_text(encoding="utf-8") if target.exists() else None
+    expected_jsonl = assemble(root)
+    expected_json = assemble_json(root)
+
+    target_jsonl = root / INDEX
+    target_dos_json = root / BUNDLED_DOS_JSON
+    target_mcp_json = root / BUNDLED_MCP_JSON
+
+    actual_jsonl = target_jsonl.read_text(encoding="utf-8") if target_jsonl.exists() else None
+    actual_dos_json = target_dos_json.read_text(encoding="utf-8") if target_dos_json.exists() else None
+    actual_mcp_json = target_mcp_json.read_text(encoding="utf-8") if target_mcp_json.exists() else None
 
     if args.check:
-        if actual != expected:
+        out_of_sync: list[str] = []
+        if actual_jsonl != expected_jsonl:
+            out_of_sync.append(str(INDEX))
+        if actual_dos_json != expected_json:
+            out_of_sync.append(str(BUNDLED_DOS_JSON))
+        if actual_mcp_json != expected_json:
+            out_of_sync.append(str(BUNDLED_MCP_JSON))
+
+        if out_of_sync:
             print(
-                "docs/answers/index.jsonl is out of sync with the corpus — "
+                f"answer corpus index files out of sync ({', '.join(out_of_sync)}) — "
                 "run: python scripts/build_answers_index.py",
                 file=sys.stderr,
             )
             return 1
-        print("docs/answers/index.jsonl is in sync with the corpus.")
+        print("answer corpus index files are in sync with the corpus.")
         return 0
 
-    if actual == expected:
-        print("docs/answers/index.jsonl already up to date.")
+    all_up_to_date = (
+        actual_jsonl == expected_jsonl
+        and actual_dos_json == expected_json
+        and actual_mcp_json == expected_json
+    )
+    if all_up_to_date:
+        print("answer corpus index files already up to date.")
         return 0
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(expected, encoding="utf-8", newline="\n")
-    print(f"wrote {target} ({len(_pages(root))} answer pages indexed).")
+
+    for target, content in [
+        (target_jsonl, expected_jsonl),
+        (target_dos_json, expected_json),
+        (target_mcp_json, expected_json),
+    ]:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8", newline="\n")
+
+    page_count = len(_pages(root))
+    print(
+        f"wrote {target_jsonl}, {target_dos_json}, {target_mcp_json} "
+        f"({page_count} answer pages indexed)."
+    )
     return 0
 
 
