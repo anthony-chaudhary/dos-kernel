@@ -56,6 +56,7 @@ type Observation struct {
 	ReasonClass string
 	Dialect     string
 	TreeKnown   *bool
+	EffectKind  EffectKind
 
 	// posttool
 	StreamState string
@@ -173,6 +174,9 @@ func (o Observation) toEntry() map[string]any {
 	if o.TreeKnown != nil {
 		e["tree_known"] = *o.TreeKnown
 	}
+	if o.EffectKind != EffectNone {
+		e["effect_kind"] = string(o.EffectKind)
+	}
 	if o.StreamState != "" {
 		e["stream_state"] = o.StreamState
 	}
@@ -227,6 +231,7 @@ func recordPretool(d Decision, dialect string) {
 	Count(MPretoolReasonCls, nonEmpty(d.ReasonClass, "none"))
 	Count(MPretoolTreeKnown, boolLabel(d.TreeKnown))
 	Count(MPretoolDialect, nonEmpty(dialect, "claude-code"))
+	Count(MPretoolEffectKind, string(d.EffectKind))
 }
 
 // recordPosttool counts the tool-stream verdict + whether a warn was emitted.

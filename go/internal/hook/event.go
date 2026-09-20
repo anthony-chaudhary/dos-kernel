@@ -74,14 +74,22 @@ func (e *Event) treeFromEvent() (tree []string, known bool) {
 	if _, ro := readOnlyTools[tn]; ro {
 		return nil, true // known-empty: a read takes no tree
 	}
+	if knownEmptyTool(tn) {
+		return nil, true // exact host mapping: no repository-file footprint
+	}
 	ti := e.ToolInput
-	// A direct path arg (Write/Edit/NotebookEdit and the like).
-	for _, k := range pathArgKeys {
-		if v, ok := ti[k]; ok {
-			if s, isStr := v.(string); isStr && strings.TrimSpace(s) != "" {
-				return []string{e.repoRelative(strings.TrimSpace(s))}, true
+	if _, w := writeTools[tn]; w {
+		// Only an explicitly recognized writer schema may promote a generic path
+		// field to a known write footprint. Unknown host tools remain UNKNOWN even
+		// when they happen to carry a field named path.
+		for _, k := range pathArgKeys {
+			if v, ok := ti[k]; ok {
+				if s, isStr := v.(string); isStr && strings.TrimSpace(s) != "" {
+					return []string{e.repoRelative(strings.TrimSpace(s))}, true
+				}
 			}
 		}
+		return nil, false // a known write tool with no resolvable path
 	}
 	if tn == "Bash" {
 		if v, ok := ti["command"]; ok {
@@ -100,9 +108,6 @@ func (e *Event) treeFromEvent() (tree []string, known bool) {
 			}
 		}
 		return nil, false // unknown command footprint
-	}
-	if _, w := writeTools[tn]; w {
-		return nil, false // a write tool with no resolvable path
 	}
 	// An unrecognized (possibly mutating MCP) tool -> unknown tree.
 	return nil, false
@@ -361,8 +366,10 @@ func (e *Event) isMutatingTool() bool {
 	if e.ToolName == "" {
 		return false
 	}
-	_, ro := readOnlyTools[e.ToolName]
-	return !ro
+	if _, ro := readOnlyTools[e.ToolName]; ro {
+		return false
+	}
+	return !knownEmptyTool(e.ToolName)
 }
 
 // sortedToolInputKeys returns the tool_input keys in a stable order — used only by

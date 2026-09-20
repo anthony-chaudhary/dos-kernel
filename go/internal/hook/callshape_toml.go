@@ -275,6 +275,7 @@ func callShapeConfigDeny(e *Event, err error) Decision {
 		ReasonClass: forbiddenCallShapeReason,
 		Reason:      reason,
 		TreeKnown:   treeKnown,
+		EffectKind:  e.effectKind(),
 	}
 }
 

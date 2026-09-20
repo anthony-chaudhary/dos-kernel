@@ -17,6 +17,7 @@ type Decision struct {
 	ReasonClass string
 	Reason      string
 	TreeKnown   bool
+	EffectKind  EffectKind
 }
 
 // Inputs is the gathered evidence the boundary hands the pure decider: the live
@@ -81,7 +82,9 @@ type Inputs struct {
 // through (the PDP-only floor: a behavioral deny needs a wired ruling handler,
 // which lives in a driver — GHF5 scope). So the default-install Go decider
 // reproduces Python's default-install bytes exactly.
-func Decide(e *Event, in Inputs) Decision {
+func Decide(e *Event, in Inputs) (decision Decision) {
+	effectKind := e.effectKind()
+	defer func() { decision.EffectKind = effectKind }()
 	// ---- Rung A: structural admission ----
 	tree, treeKnown := e.treeFromEvent()
 

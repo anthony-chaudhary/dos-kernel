@@ -108,6 +108,7 @@ func DecidePretool(stdinBytes []byte, workspaceFlag, dialect string, debug io.Wr
 				ReasonClass: d.ReasonClass,
 				Dialect:     nonEmpty(dialect, "claude-code"),
 				TreeKnown:   &treeKnown,
+				EffectKind:  d.EffectKind,
 			},
 		}
 	}
@@ -161,6 +162,7 @@ func DecidePretool(stdinBytes []byte, workspaceFlag, dialect string, debug io.Wr
 			ReasonClass: d.ReasonClass,
 			Dialect:     nonEmpty(dialect, "claude-code"),
 			TreeKnown:   &treeKnown,
+			EffectKind:  d.EffectKind,
 		}),
 	}
 }

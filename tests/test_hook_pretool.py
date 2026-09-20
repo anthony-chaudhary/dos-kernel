@@ -626,6 +626,44 @@ def test_no_footprint_tool_passes_clean_no_advisory(monkeypatch, tool, tool_inpu
     assert dialect is None, "a no-footprint orchestration call emits nothing — no advisory"
 
 
+@pytest.mark.parametrize("tool,effect", [
+    ("collaborationspawn_agent", "spawn"),
+    ("collaborationsend_message", "coordination"),
+    ("collaborationfollowup_task", "coordination"),
+    ("collaborationinterrupt_agent", "coordination"),
+    ("create_goal", "coordination"),
+    ("update_goal", "coordination"),
+    ("mcp__codex_app__send_message_to_thread", "coordination"),
+    ("collaborationwait_agent", "none"),
+    ("collaborationlist_agents", "none"),
+    ("get_goal", "none"),
+    ("clocksleep", "none"),
+    ("clockcurr_time", "none"),
+    ("mcp__codex_app__wait_threads", "none"),
+    ("mcp__codex_app__read_thread", "none"),
+    ("mcp__codex_app__list_threads", "none"),
+])
+def test_codex_non_file_tools_are_file_empty_with_typed_effect(tool, effect):
+    from dos.effect_kind import EffectKind
+
+    event = _event(tool, {})
+    assert prt._tree_from_event(event) == ((), True)
+    assert prt.is_mutating_tool(event) is False
+    assert prt.effect_from_event(event) is EffectKind(effect)
+
+
+@pytest.mark.parametrize("tool", [
+    "apply_patch",
+    "collaborationdelete_agent",
+    "mcp__codex_app__automation_update",
+    "webrun",
+    "mcp__dos__dos_arbitrate",
+    "mcp__unknown__mutate",
+])
+def test_unmapped_codex_tools_remain_unknown_file_footprints(tool):
+    assert prt._tree_from_event(_event(tool, {"path": "docs/x.md"})) == ((), False)
+
+
 # ==========================================================================
 # A mention is not a mutation (issue #12) — a Bash command whose invoked program
 # provably cannot write gets the read-only posture (known-EMPTY tree), so a kernel

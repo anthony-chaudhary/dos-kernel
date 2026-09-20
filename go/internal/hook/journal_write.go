@@ -89,7 +89,7 @@ func enforceBody(ev *Event, d Decision) map[string]any {
 	if reason == "" {
 		reason = rung
 	}
-	return map[string]any{
+	body := map[string]any{
 		"intervention":  intervention,
 		"dispatch_call": dispatchCall,
 		"handler":       rung, // outcome has no separate handler at the admission rung
@@ -98,6 +98,10 @@ func enforceBody(ev *Event, d Decision) map[string]any {
 		"decision":      d.DecisionTag,
 		"reason_class":  d.ReasonClass,
 	}
+	if d.EffectKind != EffectNone {
+		body["effect_kind"] = string(d.EffectKind)
+	}
+	return body
 }
 
 // enforceEntry wraps the body into the full OP_ENFORCE entry — the Go port of
@@ -113,7 +117,7 @@ func enforceEntry(ev *Event, d Decision, body map[string]any) map[string]any {
 	if lane == "" {
 		lane = "tool"
 	}
-	return map[string]any{
+	entry := map[string]any{
 		"op":            "ENFORCE",
 		"lane":          lane,
 		"loop_ts":       os.Getenv("DISPATCH_LOOP_TS"),
@@ -134,6 +138,10 @@ func enforceEntry(ev *Event, d Decision, body map[string]any) map[string]any {
 		"reason_class": strOr(body["reason_class"], ""),
 		"proposal":     body,
 	}
+	if d.EffectKind != EffectNone {
+		entry["effect_kind"] = string(d.EffectKind)
+	}
+	return entry
 }
 
 // nextSeq = max existing seq (and seq_watermark) + 1 — the Go port of

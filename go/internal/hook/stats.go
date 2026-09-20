@@ -35,20 +35,21 @@ type StatsResult struct {
 // statsAgg is the folded aggregate — every dimension the observation log carries,
 // counted. Maps are rendered sorted for byte-stability.
 type statsAgg struct {
-	Total      int            `json:"total_observations"`
-	ByVerb     map[string]int `json:"by_verb"`
-	ByOutcome  map[string]int `json:"by_outcome"`
-	ByExit     map[string]int `json:"by_exit"`
-	ByRung     map[string]int `json:"by_rung,omitempty"`
-	ByReason   map[string]int `json:"by_reason_class,omitempty"`
-	ByDialect  map[string]int `json:"by_dialect,omitempty"`
-	ByStream   map[string]int `json:"by_stream_state,omitempty"`
-	ByVerifySrc map[string]int `json:"by_verify_source,omitempty"`
-	Delegates  int            `json:"delegates"`
-	Panics     int            `json:"panics_recovered"`
-	StopBlocks int            `json:"stop_blocks"`
-	MarkerRefuse int          `json:"marker_refuse"`
-	MarkerAllow  int          `json:"marker_allow"`
+	Total        int            `json:"total_observations"`
+	ByVerb       map[string]int `json:"by_verb"`
+	ByOutcome    map[string]int `json:"by_outcome"`
+	ByExit       map[string]int `json:"by_exit"`
+	ByRung       map[string]int `json:"by_rung,omitempty"`
+	ByReason     map[string]int `json:"by_reason_class,omitempty"`
+	ByDialect    map[string]int `json:"by_dialect,omitempty"`
+	ByEffect     map[string]int `json:"by_effect_kind,omitempty"`
+	ByStream     map[string]int `json:"by_stream_state,omitempty"`
+	ByVerifySrc  map[string]int `json:"by_verify_source,omitempty"`
+	Delegates    int            `json:"delegates"`
+	Panics       int            `json:"panics_recovered"`
+	StopBlocks   int            `json:"stop_blocks"`
+	MarkerRefuse int            `json:"marker_refuse"`
+	MarkerAllow  int            `json:"marker_allow"`
 
 	// The pretool intervention rate — "what percent of tool calls did the kernel
 	// touch?" One pretool record = one tool call adjudicated, so this verb is the
@@ -123,7 +124,7 @@ func foldObservations(path string) statsAgg {
 func foldObservationsSince(path string, cutoff time.Time) statsAgg {
 	agg := statsAgg{
 		ByVerb: map[string]int{}, ByOutcome: map[string]int{}, ByExit: map[string]int{},
-		ByRung: map[string]int{}, ByReason: map[string]int{}, ByDialect: map[string]int{},
+		ByRung: map[string]int{}, ByReason: map[string]int{}, ByDialect: map[string]int{}, ByEffect: map[string]int{},
 		ByStream: map[string]int{}, ByVerifySrc: map[string]int{},
 		LatencyByVerb: map[string]latStat{}, latSamples: map[string][]float64{},
 	}
@@ -168,6 +169,7 @@ func foldObservationsSince(path string, cutoff time.Time) statsAgg {
 		bumpIf(agg.ByRung, strField(o, "rung"))
 		bumpIf(agg.ByReason, strField(o, "reason_class"))
 		bumpIf(agg.ByDialect, strField(o, "dialect"))
+		bumpIf(agg.ByEffect, strField(o, "effect_kind"))
 		bumpIf(agg.ByStream, strField(o, "stream_state"))
 		bumpIf(agg.ByVerifySrc, strField(o, "verify_source"))
 		if strField(o, "outcome") == "delegate" {
@@ -282,24 +284,25 @@ func renderStatsJSON(agg statsAgg) string {
 		intervenedPct = round2(float64(agg.pretoolIntervened()) * 100 / float64(agg.pretoolAdjudicated()))
 	}
 	m := map[string]any{
-		"total_observations": agg.Total,
-		"by_verb":            toAnyMap(agg.ByVerb),
-		"by_outcome":         toAnyMap(agg.ByOutcome),
-		"by_exit":            toAnyMap(agg.ByExit),
-		"delegates":          agg.Delegates,
-		"panics_recovered":   agg.Panics,
-		"stop_blocks":        agg.StopBlocks,
-		"marker_refuse":      agg.MarkerRefuse,
-		"marker_allow":       agg.MarkerAllow,
-		"pretool_calls":      agg.PretoolCalls,
-		"pretool_adjudicated": agg.pretoolAdjudicated(),
-		"pretool_passed":     agg.PretoolPassed,
-		"pretool_intervened": agg.pretoolIntervened(),
+		"total_observations":     agg.Total,
+		"by_verb":                toAnyMap(agg.ByVerb),
+		"by_outcome":             toAnyMap(agg.ByOutcome),
+		"by_exit":                toAnyMap(agg.ByExit),
+		"delegates":              agg.Delegates,
+		"panics_recovered":       agg.Panics,
+		"stop_blocks":            agg.StopBlocks,
+		"marker_refuse":          agg.MarkerRefuse,
+		"marker_allow":           agg.MarkerAllow,
+		"pretool_calls":          agg.PretoolCalls,
+		"pretool_adjudicated":    agg.pretoolAdjudicated(),
+		"pretool_passed":         agg.PretoolPassed,
+		"pretool_intervened":     agg.pretoolIntervened(),
 		"pretool_intervened_pct": intervenedPct,
 	}
 	addAnyMapIf(m, "by_rung", agg.ByRung)
 	addAnyMapIf(m, "by_reason_class", agg.ByReason)
 	addAnyMapIf(m, "by_dialect", agg.ByDialect)
+	addAnyMapIf(m, "by_effect_kind", agg.ByEffect)
 	addAnyMapIf(m, "by_stream_state", agg.ByStream)
 	addAnyMapIf(m, "by_verify_source", agg.ByVerifySrc)
 	if len(agg.LatencyByVerb) > 0 {
@@ -350,6 +353,9 @@ func renderStatsHuman(agg statsAgg, workspace, path string) string {
 	}
 	if len(agg.ByDialect) > 0 {
 		renderCountLine(&b, "  dialect       ", agg.ByDialect)
+	}
+	if len(agg.ByEffect) > 0 {
+		renderCountLine(&b, "  effect kind   ", agg.ByEffect)
 	}
 	if len(agg.ByStream) > 0 {
 		renderCountLine(&b, "  stream state  ", agg.ByStream)

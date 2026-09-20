@@ -55,6 +55,7 @@ const (
 	MPretoolReasonCls  Metric = "pretool_reason_cls"  // dim: SELF_MODIFY|LANE_COLLISION|… (or "none")
 	MPretoolTreeKnown  Metric = "pretool_tree_known"  // dim: true|false
 	MPretoolDialect    Metric = "pretool_dialect"     // dim: claude-code|gemini|cursor|…
+	MPretoolEffectKind Metric = "pretool_effect_kind" // dim: none|spawn|coordination|capability
 
 	// ---- posttool (the tool-stream repeat/stall warn) ----
 	MPosttoolVerdict Metric = "posttool_verdict"      // dim: PROCEEDING|REPEATING|STALLED|…
@@ -67,10 +68,10 @@ const (
 	MMarkerCountAt Metric = "marker_count_at" // SUM of the at-decision marker count (÷ allow+refuse = mean depth)
 
 	// ---- stop (verify-on-stop: refuse a false done) ----
-	MStopBlock    Metric = "stop_block"     // a confident NOT_SHIPPED claim → blocked the stop
-	MStopLet      Metric = "stop_let"       // dim: no-claims|all-verified
-	MStopClaims   Metric = "stop_claims"    // SUM of claims seen (÷ invocations = mean)
-	MStopFailure  Metric = "stop_failure"   // dim: source — a claim that failed verify (grep-subject|none|…)
+	MStopBlock   Metric = "stop_block"   // a confident NOT_SHIPPED claim → blocked the stop
+	MStopLet     Metric = "stop_let"     // dim: no-claims|all-verified
+	MStopClaims  Metric = "stop_claims"  // SUM of claims seen (÷ invocations = mean)
+	MStopFailure Metric = "stop_failure" // dim: source — a claim that failed verify (grep-subject|none|…)
 
 	// ---- verify (the truth syscall's grep rung, as exercised by stop) ----
 	MVerifyShipped    Metric = "verify_shipped"     // dim: source

@@ -129,7 +129,19 @@ _WRITE_TOOLS = frozenset({"Write", "Edit", "MultiEdit", "NotebookEdit"})
 # a read and clean-pass. Kept SEPARATE from `_READ_ONLY_TOOLS` because a read FEEDS the
 # provenance corpus and these do not — and because the non-file effect axis (#202) will
 # attach HERE, not to the read set.
-_NO_FOOTPRINT_TOOLS = frozenset({"Agent", "Task", "TaskCreate", "TaskUpdate", "ToolSearch"})
+# Host-shaped no-FILE-footprint tools. The first group is the Claude-shaped
+# vocabulary docs/371 shipped; the second is the exact normalized Codex vocabulary
+# observed by the native hook. A child/task may later write files, but that write is
+# a separate PRE event. Unknown names never inherit this classification.
+_NO_FOOTPRINT_TOOLS = frozenset({
+    "Agent", "Task", "TaskCreate", "TaskUpdate", "ToolSearch",
+    "collaborationspawn_agent", "collaborationsend_message",
+    "collaborationfollowup_task", "collaborationinterrupt_agent",
+    "collaborationwait_agent", "collaborationlist_agents",
+    "create_goal", "update_goal", "get_goal", "clocksleep", "clockcurr_time",
+    "mcp__codex_app__send_message_to_thread", "mcp__codex_app__wait_threads",
+    "mcp__codex_app__read_thread", "mcp__codex_app__list_threads",
+})
 
 # The typed NON-FILE blast-radius axis (#202, docs/371). The FILE axis above
 # (`_NO_FOOTPRINT_TOOLS` → known-empty tree → clean file-collision pass) is correct
@@ -151,6 +163,15 @@ def _effect_kinds_map() -> dict:
         "TaskCreate": EffectKind.COORDINATION,
         "TaskUpdate": EffectKind.COORDINATION,
         "ToolSearch": EffectKind.CAPABILITY,  # mutates the agent's own capability set
+        # Codex host vocabulary. Poll/list/read/wait calls stay EffectKind.NONE:
+        # they are known-empty on the file axis and do not mutate coordination state.
+        "collaborationspawn_agent": EffectKind.SPAWN,
+        "collaborationsend_message": EffectKind.COORDINATION,
+        "collaborationfollowup_task": EffectKind.COORDINATION,
+        "collaborationinterrupt_agent": EffectKind.COORDINATION,
+        "create_goal": EffectKind.COORDINATION,
+        "update_goal": EffectKind.COORDINATION,
+        "mcp__codex_app__send_message_to_thread": EffectKind.COORDINATION,
     }
 
 
@@ -238,11 +259,15 @@ def _tree_from_event(event: dict) -> tuple[tuple[str, ...], bool]:
     tool_input = event.get("tool_input")
     if not isinstance(tool_input, dict):
         tool_input = {}
-    # A direct path arg (Write/Edit/NotebookEdit and the like).
-    for k in _PATH_ARG_KEYS:
-        v = tool_input.get(k)
-        if isinstance(v, str) and v.strip():
-            return (_repo_relative(v.strip(), event),), True
+    if tool_name in _WRITE_TOOLS:
+        # Only an explicitly recognized writer schema may promote a generic path
+        # field to a known write footprint. Unknown host tools remain UNKNOWN even
+        # when they happen to carry a field named ``path``.
+        for k in _PATH_ARG_KEYS:
+            v = tool_input.get(k)
+            if isinstance(v, str) and v.strip():
+                return (_repo_relative(v.strip(), event),), True
+        return (), False  # a known write tool with no resolvable path
     # Bash: FIRST ask whether the invoked program can write at all (issue #12 — a mention
     # is not a mutation). A command whose every segment invokes a known no-write-footprint
     # program (`gh issue create`, `git log`, `grep`, …) and carries no shell write
@@ -260,8 +285,6 @@ def _tree_from_event(event: dict) -> tuple[tuple[str, ...], bool]:
             if paths:
                 return tuple(_repo_relative(p, event) for p in paths), True
         return (), False  # unknown command footprint → unknown tree
-    if tool_name in _WRITE_TOOLS:
-        return (), False  # a write tool with no resolvable path → unknown, conservative
     # An unrecognized tool: could be a mutating MCP tool. Unknown tree (conservative) — the
     # SELF_MODIFY rung sees unknown blast radius; but since the tree is empty AND we cannot
     # name a runtime-file collision, this degrades to admit at Rung A (no false deny) while
