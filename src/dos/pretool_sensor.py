@@ -73,6 +73,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from typing import Optional
 
@@ -389,6 +390,33 @@ _NO_WRITE_FOOTPRINT_PREFIXES: frozenset[tuple[str, ...]] = frozenset(
 # program that already cannot write, so they are not vetoed.
 _SHELL_WRITE_METACHARS: tuple[str, ...] = (">", "`", "$(", "<(")
 
+# Redirections to a null device or another stream cannot write a workspace file.
+# The trailing boundary is part of the match so device-name prefixes such as
+# `nul.txt` and `/dev/null.log` remain write-shaped. The captured boundary is
+# restored because it may separate two commands that must each classify cleanly.
+_BENIGN_REDIRECT_RE = re.compile(
+    r"(?:[0-9]*|&)\s*(?:>>|>)\s*(?:/dev/null|&[0-9]+|&-)($|[\s;|&}])",
+    re.IGNORECASE,
+)
+
+_POWERSHELL_NULL_REDIRECT_RE = re.compile(
+    r"(?:[0-9]*|&)\s*(?:>>|>)\s*\$null($|[\s;|&}])", re.IGNORECASE
+)
+
+_POWERSHELL_READ_PROGRAMS = frozenset({
+    "compare-object", "get-childitem", "get-command", "get-content",
+    "get-item", "get-location", "get-process", "group-object",
+    "measure-object", "resolve-path", "select-object", "select-string",
+    "sort-object", "test-path",
+})
+
+# Recognize only one terminal, non-nested PowerShell status block. The body still
+# passes through the closed-set classifier. Anything richer (else/elseif/nested
+# blocks/trailing statements) remains unknown rather than losing a branch.
+_POWERSHELL_IF_SUCCESS_BLOCK_RE = re.compile(
+    r"\bif\s*\(\s*\$\?\s*\)\s*\{([^{}]*)\}\s*$", re.IGNORECASE | re.DOTALL
+)
+
 # The shell operators that join command segments — each segment invokes its own program,
 # so each must independently classify as no-write-footprint. Order matters: the two-char
 # operators are replaced before their one-char prefixes.
@@ -439,16 +467,21 @@ def _command_has_no_write_footprint(cmd: str) -> bool:
     cannot prove — a path INSIDE an argument to a program that cannot write it is a
     mention, not a mutation.
     """
-    for meta in _SHELL_WRITE_METACHARS:
-        if meta in cmd:
-            return False
-    work = cmd
+    work = _BENIGN_REDIRECT_RE.sub(r"\1", cmd)
+    if _POWERSHELL_IF_SUCCESS_BLOCK_RE.search(work):
+        work = _POWERSHELL_IF_SUCCESS_BLOCK_RE.sub(r"\1", work)
     for sep in _SEGMENT_SEPARATORS:
         work = work.replace(sep, "\x00")
     segments = [s for s in (seg.strip() for seg in work.split("\x00")) if s]
     if not segments:
         return False
     for segment in segments:
+        lead = _segment_lead_tokens(segment, limit=1)
+        if lead and lead[0] in _POWERSHELL_READ_PROGRAMS:
+            segment = _POWERSHELL_NULL_REDIRECT_RE.sub(r"\1", segment)
+        for meta in _SHELL_WRITE_METACHARS:
+            if meta in segment:
+                return False
         toks = _segment_lead_tokens(segment)
         if not toks:
             return False

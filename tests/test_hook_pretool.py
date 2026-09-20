@@ -651,6 +651,32 @@ def test_tree_no_write_footprint_command_is_known_empty(cmd):
     assert prt._tree_from_event(_event("Bash", {"command": cmd})) == ((), True)
 
 
+@pytest.mark.parametrize("cmd", [
+    "Get-Content -Raw AGENTS.md 2>$null",
+    "rg -n TODO . 2>&1",
+    "git status 2>/dev/null",
+    "Get-Command git; if ($?) { git status }",
+])
+def test_tree_benign_shell_syntax_is_known_empty(cmd):
+    assert prt._tree_from_event(_event("Bash", {"command": cmd})) == ((), True)
+
+
+@pytest.mark.parametrize("cmd", [
+    "git status > nul.txt",
+    "git status > nul/out.txt",
+    "git status > /dev/null.log",
+    "git status > $null.log",
+    "git status 2>$null",
+    "git status 2>nul",
+    "git status; if ($?) { rm src/dos/arbiter.py }",
+    "git status; if ($?) { echo x > out.txt }",
+    "Get-Command missing; if ($?) { git status } else { rm victim.txt }",
+    "Get-Command missing; if ($?) { git status } elseif ($?) { rm victim.txt }",
+])
+def test_tree_null_device_prefixes_and_wrapped_writes_stay_write_shaped(cmd):
+    assert prt._command_has_no_write_footprint(cmd) is False
+
+
 @pytest.mark.parametrize("cmd,tree", [
     ("echo x > src/dos/arbiter.py", ("src/dos/arbiter.py",)),   # `>` defeats the allowance
     ("git log > src/dos/arbiter.py", ("src/dos/arbiter.py",)),  # even for an allowed program

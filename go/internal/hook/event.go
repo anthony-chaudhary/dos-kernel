@@ -1,6 +1,7 @@
 package hook
 
 import (
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -180,6 +181,54 @@ var noWriteFootprintPrefixes = func() map[string]struct{} {
 // the invoked program — port of `dos.pretool_sensor._SHELL_WRITE_METACHARS`.
 var shellWriteMetachars = []string{">", "`", "$(", "<("}
 
+// benignRedirectRE removes stream-to-stream and stream-to-null redirections
+// before the conservative shell metacharacter check. These forms cannot write
+// a repository file, but their `>` previously made an otherwise read-only
+// command look like an unknown writer (for example `Get-Content x 2>$null`).
+// Keep the targets closed: any other target retains `>` and stays write-shaped.
+var benignRedirectRE = regexp.MustCompile(
+	`(?i)(?:[0-9]*|&)\s*(?:>>|>)\s*(?:/dev/null|&[0-9]+|&-)($|[\s;|&}])`,
+)
+
+var powershellNullRedirectRE = regexp.MustCompile(
+	`(?i)(?:[0-9]*|&)\s*(?:>>|>)\s*\$null($|[\s;|&}])`,
+)
+
+var powershellReadPrograms = map[string]struct{}{
+	"compare-object": {}, "get-childitem": {}, "get-command": {},
+	"get-content": {}, "get-item": {}, "get-location": {},
+	"get-process": {}, "group-object": {}, "measure-object": {},
+	"resolve-path": {}, "select-object": {}, "select-string": {},
+	"sort-object": {}, "test-path": {},
+}
+
+// powershellIfSuccessBlockRE recognizes only one terminal, non-nested
+// PowerShell status block. The body is exposed to the normal closed-set segment
+// classifier. Anything richer (else/elseif/nested blocks/trailing statements)
+// remains unknown rather than losing a branch during normalization.
+var powershellIfSuccessBlockRE = regexp.MustCompile(`(?is)\bif\s*\(\s*\$\?\s*\)\s*\{([^{}]*)\}\s*$`)
+
+func scrubCommandForWriteCheck(cmd string) string {
+	// Retain the character after the target: it may be a segment separator that
+	// the closed-set classifier still needs to inspect. Requiring that tail also
+	// prevents prefix matches such as `nul.txt` and `/dev/null.log`.
+	work := benignRedirectRE.ReplaceAllString(cmd, "$1")
+	if powershellIfSuccessBlockRE.MatchString(work) {
+		work = powershellIfSuccessBlockRE.ReplaceAllString(work, "$1")
+	}
+	return work
+}
+
+func scrubSegmentForWriteCheck(segment string) string {
+	toks := segmentLeadTokens(segment, 1)
+	if len(toks) > 0 {
+		if _, ok := powershellReadPrograms[toks[0]]; ok {
+			return powershellNullRedirectRE.ReplaceAllString(segment, "$1")
+		}
+	}
+	return segment
+}
+
 // segmentSeparators join command segments; two-char operators replace before their
 // one-char prefixes — port of `dos.pretool_sensor._SEGMENT_SEPARATORS`.
 var segmentSeparators = []string{"&&", "||", ";", "|", "&", "\n"}
@@ -234,11 +283,7 @@ func segmentLeadTokens(segment string, limit int) []string {
 // only ADMIT-MORE for commands provably unable to write; one metacharacter or one
 // unrecognized segment and the caller falls back to the conservative scrape.
 func commandHasNoWriteFootprint(cmd string) bool {
-	for _, meta := range shellWriteMetachars {
-		if strings.Contains(cmd, meta) {
-			return false
-		}
-	}
+	cmd = scrubCommandForWriteCheck(cmd)
 	work := cmd
 	for _, sep := range segmentSeparators {
 		work = strings.ReplaceAll(work, sep, "\x00")
@@ -250,6 +295,12 @@ func commandHasNoWriteFootprint(cmd string) bool {
 			continue
 		}
 		any = true
+		seg = scrubSegmentForWriteCheck(seg)
+		for _, meta := range shellWriteMetachars {
+			if strings.Contains(seg, meta) {
+				return false
+			}
+		}
 		toks := segmentLeadTokens(seg, 3)
 		if len(toks) == 0 {
 			return false
