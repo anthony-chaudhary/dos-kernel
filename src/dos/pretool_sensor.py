@@ -141,6 +141,11 @@ _NO_FOOTPRINT_TOOLS = frozenset({
     "create_goal", "update_goal", "get_goal", "clocksleep", "clockcurr_time",
     "mcp__codex_app__send_message_to_thread", "mcp__codex_app__wait_threads",
     "mcp__codex_app__read_thread", "mcp__codex_app__list_threads",
+    "mcp__dos__dos_answer", "mcp__dos__dos_arbitrate",
+    "mcp__dos__dos_check_reason", "mcp__dos__dos_citation" "_resolve",
+    "mcp__dos__dos_commit_audit", "mcp__dos__dos_doctor", "mcp__dos__dos_recall",
+    "mcp__dos__dos_refuse_reasons", "mcp__dos__dos_review", "mcp__dos__dos_status",
+    "mcp__dos__dos_verify",
 })
 
 # The typed NON-FILE blast-radius axis (#202, docs/371). The FILE axis above

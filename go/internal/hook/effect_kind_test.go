@@ -21,6 +21,12 @@ func TestKnownEmptyHostToolsPreserveEffects(t *testing.T) {
 		"mcp__codex_app__wait_threads": EffectNone,
 		"mcp__codex_app__read_thread":  EffectNone,
 		"mcp__codex_app__list_threads": EffectNone,
+		"mcp__dos__dos_answer":         EffectNone,
+		"mcp__dos__dos_arbitrate":      EffectNone, "mcp__dos__dos_check_reason": EffectNone,
+		"mcp__dos__dos_citation_resolve": EffectNone, "mcp__dos__dos_commit_audit": EffectNone,
+		"mcp__dos__dos_doctor": EffectNone, "mcp__dos__dos_recall": EffectNone,
+		"mcp__dos__dos_refuse_reasons": EffectNone, "mcp__dos__dos_review": EffectNone,
+		"mcp__dos__dos_status": EffectNone, "mcp__dos__dos_verify": EffectNone,
 	}
 	for tool, want := range cases {
 		t.Run(tool, func(t *testing.T) {
@@ -39,7 +45,7 @@ func TestKnownEmptyHostToolsPreserveEffects(t *testing.T) {
 
 func TestUnsafeAndUnknownToolsKeepUnknownWriteFootprint(t *testing.T) {
 	for _, tool := range []string{
-		"apply_patch", "mcp__codex_app__automation_update", "webrun", "mcp__dos__dos_arbitrate", "mcp__unknown__mutate",
+		"apply_patch", "mcp__codex_app__automation_update", "webrun", "mcp__dos__unknown_mutate", "mcp__unknown__mutate",
 	} {
 		t.Run(tool, func(t *testing.T) {
 			e := eventFor(tool, "/work/workspace", map[string]any{"path": "docs/x.md"})

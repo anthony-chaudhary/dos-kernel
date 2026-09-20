@@ -642,6 +642,17 @@ def test_no_footprint_tool_passes_clean_no_advisory(monkeypatch, tool, tool_inpu
     ("mcp__codex_app__wait_threads", "none"),
     ("mcp__codex_app__read_thread", "none"),
     ("mcp__codex_app__list_threads", "none"),
+    ("mcp__dos__dos_answer", "none"),
+    ("mcp__dos__dos_arbitrate", "none"),
+    ("mcp__dos__dos_check_reason", "none"),
+    ("mcp__dos__dos_citation_resolve", "none"),
+    ("mcp__dos__dos_commit_audit", "none"),
+    ("mcp__dos__dos_doctor", "none"),
+    ("mcp__dos__dos_recall", "none"),
+    ("mcp__dos__dos_refuse_reasons", "none"),
+    ("mcp__dos__dos_review", "none"),
+    ("mcp__dos__dos_status", "none"),
+    ("mcp__dos__dos_verify", "none"),
 ])
 def test_codex_non_file_tools_are_file_empty_with_typed_effect(tool, effect):
     from dos.effect_kind import EffectKind
@@ -657,7 +668,7 @@ def test_codex_non_file_tools_are_file_empty_with_typed_effect(tool, effect):
     "collaborationdelete_agent",
     "mcp__codex_app__automation_update",
     "webrun",
-    "mcp__dos__dos_arbitrate",
+    "mcp__dos__unknown_mutate",
     "mcp__unknown__mutate",
 ])
 def test_unmapped_codex_tools_remain_unknown_file_footprints(tool):

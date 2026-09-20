@@ -36,6 +36,17 @@ var knownEmptyToolEffects = map[string]EffectKind{
 	"mcp__codex_app__wait_threads":           EffectNone,
 	"mcp__codex_app__read_thread":            EffectNone,
 	"mcp__codex_app__list_threads":           EffectNone,
+	"mcp__dos__dos_answer":                   EffectNone,
+	"mcp__dos__dos_arbitrate":                EffectNone,
+	"mcp__dos__dos_check_reason":             EffectNone,
+	"mcp__dos__dos_citation_resolve":         EffectNone,
+	"mcp__dos__dos_commit_audit":             EffectNone,
+	"mcp__dos__dos_doctor":                   EffectNone,
+	"mcp__dos__dos_recall":                   EffectNone,
+	"mcp__dos__dos_refuse_reasons":           EffectNone,
+	"mcp__dos__dos_review":                   EffectNone,
+	"mcp__dos__dos_status":                   EffectNone,
+	"mcp__dos__dos_verify":                   EffectNone,
 }
 
 func (e *Event) effectKind() EffectKind {
