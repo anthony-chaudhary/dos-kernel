@@ -6,7 +6,9 @@
 # it; if no binary is present for this OS/arch (or the build was skipped), it falls
 # through to the always-available Python verb — the docs/100 fallback discipline, so
 # no machine is ever blocked. A static no-cgo Go binary serves the decision in ~10 ms
-# vs ~0.3-0.8 s of Python interpreter cold-start.
+# vs ~0.3-0.8 s of Python interpreter cold-start. (Under Git Bash on Windows the
+# PreToolUse/SubagentStop rows run the windows `.exe` directly and skip this
+# launcher; every other shell still comes through here.)
 #
 # The FIRST arg is the hook verb (pretool|posttool|stop); the rest are flags
 # (--workspace ., etc.) passed through unchanged. The binary itself owns the
@@ -14,28 +16,61 @@
 # hooks.json fallback runs Python), so this launcher only has to find a binary for
 # THIS arch — it does not need to know which verbs are native.
 
-# Resolve the directory this launcher lives in (the plugin's bin/), POSIX-portable.
-SELF_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+# Resolution is FORK-FREE when the shell hands us the facts. This launcher runs on
+# every tool call, and under Git Bash on Windows each process creation (`dirname`,
+# a `$(...)` subshell, `uname`) costs seconds on a loaded host — more than the
+# native decision itself. So read the shell's own variables first and fork only
+# when they are missing or unrecognised (dash sets no OSTYPE/HOSTTYPE; bash does).
 
-os=$(uname -s 2>/dev/null || echo unknown)
-arch=$(uname -m 2>/dev/null || echo unknown)
+# The directory this launcher lives in (the plugin's bin/). `$0` carries a `/` when
+# hooks.json runs `sh "$root/bin/dos-hook"`, so strip the basename with parameter
+# expansion; otherwise fall back to the POSIX-portable `dirname`/`cd && pwd` form.
+case "$0" in
+  */*) SELF_DIR=${0%/*} ;;
+  *)   SELF_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd) ;;
+esac
 
-# Map uname's OS to the GOOS token the build_hook_binary.py matrix emits. Claude
-# Code runs a `shell: bash` hook through Git Bash on Windows, where `uname -s` is
-# `MINGW64_NT-…` (or `MSYS_NT-…`/`CYGWIN_NT-…`) — so the Windows case MUST be
-# recognised here, else the launcher misses the bundled `dos-hook-windows-amd64.exe`
-# and falls back to Python, defeating the whole native fast-path on Windows.
-case "$os" in
-  Linux)              goos=linux ;;
-  Darwin)             goos=darwin ;;
-  MINGW*|MSYS*|CYGWIN*) goos=windows ;;
-  *)                  goos=unknown ;;
+# Map the OS to the GOOS token the build_hook_binary.py matrix emits. Claude Code
+# runs a `shell: bash` hook through Git Bash on Windows, where OSTYPE is `msys` (or
+# `cygwin`) and `uname -s` is `MINGW64_NT-…` (or `MSYS_NT-…`/`CYGWIN_NT-…`) — so the
+# Windows case MUST be recognised here, else the launcher misses the bundled
+# `dos-hook-windows-amd64.exe` and falls back to Python, defeating the whole native
+# fast-path on Windows.
+case "${OSTYPE:-}" in
+  linux*)        goos=linux ;;
+  darwin*)       goos=darwin ;;
+  msys*|cygwin*) goos=windows ;;
+  *)             goos="" ;;
 esac
-case "$arch" in
-  x86_64|amd64)  goarch=amd64 ;;
-  arm64|aarch64) goarch=arm64 ;;
-  *)             goarch=unknown ;;
+if [ -z "$goos" ]; then
+  os=$(uname -s 2>/dev/null || echo unknown)
+  case "$os" in
+    Linux)              goos=linux ;;
+    Darwin)             goos=darwin ;;
+    MINGW*|MSYS*|CYGWIN*) goos=windows ;;
+    *)                  goos=unknown ;;
+  esac
+fi
+
+# The arch: the shell's HOSTTYPE (the arch the running shell was built for, so a
+# binary for it runs here too), or on Windows the process's PROCESSOR_ARCHITECTURE.
+hosttype=${HOSTTYPE:-}
+if [ "$goos" = windows ] && [ -n "${PROCESSOR_ARCHITECTURE:-}" ]; then
+  hosttype=$PROCESSOR_ARCHITECTURE
+fi
+case "$hosttype" in
+  x86_64|amd64|AMD64)  goarch=amd64 ;;
+  arm64|aarch64|ARM64) goarch=arm64 ;;
+  *)                   goarch="" ;;
 esac
+if [ -z "$goarch" ]; then
+  arch=$(uname -m 2>/dev/null || echo unknown)
+  case "$arch" in
+    x86_64|amd64)  goarch=amd64 ;;
+    arm64|aarch64) goarch=arm64 ;;
+    *)             goarch=unknown ;;
+  esac
+fi
 
 # Windows binaries carry the .exe suffix the build matrix gives them; POSIX do not.
 ext=""

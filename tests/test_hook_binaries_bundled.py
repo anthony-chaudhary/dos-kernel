@@ -169,6 +169,55 @@ def test_posix_launcher_repairs_stripped_native_execute_bit(tmp_path):
     assert os.access(native, os.X_OK), "launcher did not chmod the stripped native binary"
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX sh launcher probe is not meaningful on Windows")
+def test_posix_launcher_resolves_native_binary_without_forking(tmp_path):
+    """The launcher runs on every tool call, and under Git Bash on Windows each
+    process creation costs seconds on a loaded host. So when the shell provides
+    OSTYPE/HOSTTYPE and `$0` carries a `/`, resolution must need NO external
+    command: with a PATH holding no `uname`/`dirname` at all, it still execs the
+    per-arch binary for the host."""
+    sh = shutil.which("sh")
+    if sh is None:
+        pytest.skip("sh not available")
+
+    goos, goarch = build_hook_binary._host_arch().split("/", 1)
+    ostype = {"linux": "linux-gnu", "darwin": "darwin23"}.get(goos)
+    hosttype = {"amd64": "x86_64", "arm64": "aarch64"}.get(goarch)
+    if ostype is None or hosttype is None:
+        pytest.skip(f"host arch {goos}/{goarch} has no bundled POSIX binary")
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    launcher = bin_dir / "dos-hook"
+    shutil.copy2(_BIN_DIR / "dos-hook", launcher)
+    marker = tmp_path / "ran.log"
+    native = bin_dir / build_hook_binary._binary_name(goos, goarch)
+    native.write_text(
+        f'#!/bin/sh\necho "native $*" >> "{marker}"\nexit 0\n', encoding="utf-8"
+    )
+    native.chmod(0o755)
+    empty = tmp_path / "empty-path"
+    empty.mkdir()
+
+    proc = subprocess.run(
+        [sh, str(launcher), "pretool", "--workspace", "."],
+        cwd=tmp_path,
+        input="{}",
+        capture_output=True,
+        text=True,
+        env={
+            "PATH": str(empty),
+            "HOME": str(tmp_path),
+            "OSTYPE": ostype,
+            "HOSTTYPE": hosttype,
+        },
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert marker.read_text(encoding="utf-8").splitlines() == [
+        "native pretool --workspace ."
+    ], proc.stderr
+
+
 def test_gitignore_does_not_ignore_the_binaries():
     """Guard the reversal: bin/.gitignore must not re-ignore the bundled binaries.
 

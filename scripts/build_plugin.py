@@ -104,8 +104,10 @@ _MANUAL_LAUNCHERS = frozenset({"dos-hook.ps1"})
 # What makes a bin/ file a "launcher" (a script hooks.json could invoke) rather
 # than a compiled per-arch binary: the launchers are the extensionless POSIX
 # `dos-hook` and the `.ps1`. The per-arch `dos-hook-<os>-<arch>[.exe]` binaries
-# are dispatched-TO by a launcher, never named directly by hooks.json, so they
-# are not subject to the reachability rule (test_hook_binaries_bundled pins them).
+# are dispatched-TO (by a launcher, or by the Git Bash fast path in the
+# PreToolUse/SubagentStop rows, which runs the windows `.exe` directly to skip the
+# launcher's forks), never launchers themselves, so they are not subject to the
+# reachability rule (test_hook_binaries_bundled pins them).
 def _is_launcher(name: str) -> bool:
     return name == "dos-hook" or name.endswith(".ps1")
 

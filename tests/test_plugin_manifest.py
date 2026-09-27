@@ -372,6 +372,116 @@ def test_hook_commands_warn_when_plugin_root_backend_is_dead(tmp_path):
     assert "no DOS hook backend could run" in proc.stderr
 
 
+_NATIVE_FAST_PATH_EVENTS = (("PreToolUse", "pretool"), ("SubagentStop", "stop"))
+
+
+def test_windows_git_bash_fast_path_execs_native_binary_before_any_fork():
+    """Claude Code runs the bash `command` through Git Bash on Windows (it ignores
+    the Codex-only `commandWindows`). Every MSYS process creation costs seconds on a
+    loaded host, and the POSIX launcher forks `sh`, `dirname`, a `cd && pwd`
+    subshell and two `uname`s before it execs the native `.exe` (measured p50 per
+    PreToolUse: ~23 s via the launcher vs ~11 s exe-direct). So the native-served
+    rows carry a bash-builtin-only branch keyed on $OSTYPE/$PROCESSOR_ARCHITECTURE
+    that runs the bundled Windows binary first. A non-zero exit must not re-run the
+    same exe through the launcher; it falls to the unchanged fallback tail. Other
+    OSTYPEs (and a shell with none) keep today's launcher path byte-for-byte.
+    """
+    hooks = _load(PLUGIN_HOOKS)["hooks"]
+    for event, verb in _NATIVE_FAST_PATH_EVENTS:
+        entry = hooks[event][0]["hooks"][0]
+        cmd = entry["command"]
+        launcher = f'command -p sh "$root/bin/dos-hook" {verb} --workspace .'
+        assert launcher in cmd, f"{event} lost its POSIX launcher path: {cmd}"
+        exe_call = f'"$exe" {verb} --workspace .'
+        assert exe_call in cmd, f"{event} has no Windows native fast path: {cmd}"
+        before_exe = cmd[: cmd.index(exe_call)]
+        assert 'case "${OSTYPE:-}" in msys*|cygwin*)' in before_exe
+        assert '"$root/bin/dos-hook-windows-amd64.exe"' in before_exe
+        assert '"$root/bin/dos-hook-windows-arm64.exe"' in before_exe
+        assert '[ "${PROCESSOR_ARCHITECTURE:-}" = ARM64 ]' in before_exe
+        for forker in ("uname", "dirname", "sh ", "$(", "`", " | ", "python"):
+            assert forker not in before_exe, (
+                f"{event} forks {forker!r} before the native exe: {before_exe}"
+            )
+        # The launcher only runs when the fast path did not run the exe.
+        assert (
+            f'if [ "$native" -eq 0 ] && [ -n "$root" ] && [ -f "$root/bin/dos-hook" ]; '
+            f"then {launcher}"
+        ) in cmd
+        tail = cmd[cmd.index(launcher):]
+        assert f"python -m dos.cli hook {verb} --workspace ." in tail
+        assert "no DOS hook backend could run" in tail
+        # Codex's PowerShell adapter row is untouched.
+        assert "dos-hook-codex.ps1" in entry["commandWindows"]
+        assert "OSTYPE" not in entry["commandWindows"]
+
+
+def _fake_windows_plugin(tmp_path: Path, native_rc: int) -> tuple[Path, Path]:
+    """A plugin root whose Windows `.exe` is a fake that records its argv, and whose
+    POSIX launcher is a fake that records it was (wrongly) reached."""
+    fake_root = tmp_path / "plugin"
+    fake_bin = fake_root / "bin"
+    fake_bin.mkdir(parents=True)
+    marker = tmp_path / "ran.log"
+    exe = fake_bin / "dos-hook-windows-amd64.exe"
+    exe.write_text(
+        f'#!/bin/sh\necho "native $*" >> "{marker}"\nexit {native_rc}\n',
+        encoding="utf-8",
+    )
+    exe.chmod(0o755)
+    (fake_bin / "dos-hook").write_text(
+        f'echo "launcher $*" >> "{marker}"\nexit 0\n', encoding="utf-8"
+    )
+    return fake_root, marker
+
+
+def test_windows_git_bash_fast_path_runs_exe_with_no_external_command(tmp_path):
+    """Execute the real rows under bash posing as Git Bash (OSTYPE=msys) with an
+    EMPTY PATH: the exe must still run (so nothing before it needed PATH), rc 0
+    must end the hook, and a non-zero rc must skip the launcher (which would only
+    re-run the same exe) and reach the fail-open fallback tail."""
+    import os
+    import pytest
+
+    if os.name == "nt":
+        pytest.skip("the executable Git Bash pose is POSIX-bash only")
+    bash = shutil.which("bash")
+    if not bash:
+        pytest.skip("bash not available")
+
+    hooks = _load(PLUGIN_HOOKS)
+    for event, verb in _NATIVE_FAST_PATH_EVENTS:
+        cmd = _hook_commands(hooks, event)[0]
+        for native_rc in (0, 3):
+            case_dir = tmp_path / f"{event}-{native_rc}"
+            fake_root, marker = _fake_windows_plugin(case_dir, native_rc)
+            empty = case_dir / "empty-path"
+            empty.mkdir()
+            env = {
+                "PATH": str(empty),
+                "HOME": str(case_dir),
+                "OSTYPE": "msys",
+                "PROCESSOR_ARCHITECTURE": "AMD64",
+                "CLAUDE_PLUGIN_ROOT": str(fake_root),
+                "CODEX_PLUGIN_ROOT": "",
+            }
+            proc = subprocess.run(
+                [bash, "-c", cmd],
+                cwd=case_dir,
+                input="{}",
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            assert proc.returncode == 0, proc.stderr
+            ran = marker.read_text(encoding="utf-8").splitlines()
+            assert ran == [f"native {verb} --workspace ."], (event, native_rc, ran)
+            if native_rc == 0:
+                assert proc.stderr == ""
+            else:
+                assert "no DOS hook backend could run" in proc.stderr
+
+
 def test_hook_verbs_are_real_cli_subcommands():
     """Guard against a typo'd verb: each wired `hook <verb>` is a real `dos` command.
 
