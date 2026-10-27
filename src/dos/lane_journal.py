@@ -39,10 +39,10 @@ Design rules (the LJ scope boundary):
   append-only; `compact()` folds it to a single CHECKPOINT snapshot of the live
   set when an operator runs `dos journal compact`. It is **live-set-preserving**
   (`replay(compact(E)) == replay(E)` — the arbiter sees the identical leases), but
-  NOT liveness-fold-preserving: a CHECKPOINT carries no `ts`, so a mid-flight
-  compaction makes a still-live run read STALLED until its next beat (always the
-  safe direction — compaction can never fabricate a beat/event). Run it in a quiet
-  window. An automatic size/age trigger + a `[journal]` retention seam is deferred.
+  also retains genuine state/launch/halt evidence separately from lease replay.
+  Updated evidence readers preserve the original counters and beat ages without
+  inventing fresh timestamps. Online maintenance requires compatible mutation
+  and evidence consumers; legacy checkpoints cannot recover discarded history.
 
 Read::
 
@@ -208,6 +208,41 @@ OP_CHECKPOINT = "CHECKPOINT"  # LJ compaction (docs/82) — a SNAPSHOT of the li
 _STATE_MUTATING_OPS = frozenset(
     {OP_ACQUIRE, OP_RELEASE, OP_HEARTBEAT, OP_SCAVENGE, OP_RECONCILE, OP_ADOPT}
 )
+def _retired_observation(entry: dict) -> bool:
+    """Only this passing WARN shape is outside operational evidence folds."""
+    proposal = entry.get("proposal")
+    return (entry.get("op") == OP_ENFORCE
+            and entry.get("dispatch_call") is True
+            and entry.get("withheld") is False
+            and entry.get("intervention") == "WARN"
+            and isinstance(proposal, dict)
+            and proposal.get("decision") == "warn")
+
+
+def _protected_evidence(entry: dict) -> bool:
+    return (str(entry.get("op") or "") not in (OP_CHECKPOINT, "_CORRUPT")
+            and not _retired_observation(entry))
+
+
+def evidence_entries(entries: Iterable[dict]) -> Iterable[dict]:
+    """Project the latest checkpoint's genuine history and its raw tail.
+
+    A later checkpoint replaces earlier history, matching lease replay. This is
+    never an input to replay: historical mutations must not be applied twice.
+    """
+    history: list[dict] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("op") == OP_CHECKPOINT:
+            history[:] = [row for row in history if row.get("op") == "_CORRUPT"]
+            rows = entry.get("evidence_records")
+            if isinstance(rows, list):
+                history.extend(row for row in rows
+                               if isinstance(row, dict) and _protected_evidence(row))
+        else:
+            history.append(entry)
+    yield from history
 
 
 def journal_now_iso() -> str:
@@ -540,6 +575,10 @@ def lease_generations(entries: Iterable[dict]) -> dict[tuple[str, str], int]:
     Returns ONLY the generations of leases that are still live in the fold (a dropped
     lease has no entry), so a caller can join it to `replay`'s live set by identity.
     """
+    return _generation_state(entries)[0]
+
+
+def _generation_state(entries: Iterable[dict]) -> tuple[dict[tuple[str, str], int], int]:
     gens: dict[tuple[str, str], int] = {}
     counter = 0
     for e in entries:
@@ -551,6 +590,9 @@ def lease_generations(entries: Iterable[dict]) -> dict[tuple[str, str], int]:
             # monotonic (no reused number after the lines that held the prior max were
             # discarded — the `seq_watermark` discipline, here for generations).
             gens.clear()
+            watermark = e.get("generation_watermark")
+            if isinstance(watermark, int) and not isinstance(watermark, bool):
+                counter = max(counter, watermark)
             payload = e.get("generations")
             if isinstance(payload, list):
                 for row in payload:
@@ -575,7 +617,7 @@ def lease_generations(entries: Iterable[dict]) -> dict[tuple[str, str], int]:
         elif op in (OP_RELEASE, OP_SCAVENGE):
             gens.pop(key, None)
         # HEARTBEAT / ADOPT: no new grant — the generation is unchanged.
-    return gens
+    return gens, counter
 
 
 # --------------------------------------------------------------------------
@@ -1068,6 +1110,8 @@ def checkpoint_entry(
     *,
     seq_watermark: int,
     generations: dict[tuple[str, str], int] | None = None,
+    evidence_records: Iterable[dict] | None = None,
+    generation_watermark: int | None = None,
 ) -> dict:
     """Build an OP_CHECKPOINT snapshot of the authoritative live-lease set.
 
@@ -1076,6 +1120,9 @@ def checkpoint_entry(
     without the original ACQUIRE lines, plus `seq_watermark` (the max `seq` seen
     in the discarded history) so `next_seq` stays monotonic across a rewrite that
     deleted the lines holding the prior high-water mark. Pure constructor.
+
+    Optional evidence records retain original operation rows for evidence readers.
+    They are metadata, never mutations to apply again to the lease snapshot.
 
     `generations` (OPTIONAL, docs/342 M2) is the per-lease fencing generation of the
     surviving leases (`lease_generations` over the discarded history). It rides in a
@@ -1100,6 +1147,10 @@ def checkpoint_entry(
             {"loop_ts": k[0], "lane": k[1], "generation": int(g)}
             for k, g in generations.items()
         ]
+    if generation_watermark is not None:
+        e["generation_watermark"] = int(generation_watermark)
+    if evidence_records is not None:
+        e["evidence_records"] = [dict(row) for row in evidence_records]
     return e
 
 
@@ -1119,13 +1170,11 @@ def compact(entries: Iterable[dict]) -> list[dict]:
         replay(compact(E)) == replay(E)
     holds because `replay`'s CHECKPOINT branch RESETS its live set to exactly the
     payload this writes — the leases `replay(E)` would itself reconstruct. This is
-    equivalence for the ARBITER's live set, NOT for the liveness fold: a CHECKPOINT
-    carries no `ts` and is in neither `journal_delta._EVENT_OPS` nor
-    `_HEARTBEAT_OPS`, so a still-live run's beat anchor is dropped by compaction and
-    it reads STALLED to the liveness oracle until its next ACQUIRE/HEARTBEAT. That
-    is always the SAFE direction — compaction can never fabricate an event or beat,
-    so it can never cause a false-ADVANCING/SPINNING — but it is why compaction is
-    an operator verb for a quiet window, not an automatic per-append rotation.
+    also preserves the original state/launch/halt evidence in checkpoint metadata.
+    Evidence readers project those records without applying their mutations to
+    lease replay. Original timestamps and counters survive; the checkpoint itself
+    never becomes a new event or a fresh heartbeat. Older checkpoints without the
+    metadata cannot recover already-discarded evidence.
 
     `seq_watermark` is derived from the input only (max existing `seq`), so the
     fold reads no clock and `next_seq` over the compacted journal is `>=`
@@ -1141,7 +1190,9 @@ def compact(entries: Iterable[dict]) -> list[dict]:
     # generation below a still-live holder's. Folded from the same discarded history as
     # `live`, so a surviving lease keeps the generation it was granted at; `replay`
     # never sees this field, so the live-set equivalence is untouched.
-    gens = lease_generations(materialized)
+    gens, generation_watermark = _generation_state(materialized)
+    evidence = [row for row in evidence_entries(materialized)
+                if _protected_evidence(row)]
     watermark = 0
     corrupt: list[dict] = []
     for e in materialized:
@@ -1158,7 +1209,9 @@ def compact(entries: Iterable[dict]) -> list[dict]:
         if str(e.get("op") or "") == "_CORRUPT":
             corrupt.append(dict(e))
     return [
-        checkpoint_entry(live, seq_watermark=watermark, generations=gens)
+        checkpoint_entry(live, seq_watermark=watermark, generations=gens,
+                         evidence_records=evidence,
+                         generation_watermark=generation_watermark)
     ] + corrupt
 
 

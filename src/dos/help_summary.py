@@ -416,7 +416,9 @@ def summarize(
     first_ts = ""
     last_ts = ""
 
-    for rec in records:
+    from dos.lane_journal import evidence_entries
+
+    for rec in evidence_entries(records):
         if rec.get("op") != "ENFORCE":
             continue
         if holder and str(rec.get("holder") or "") != holder:

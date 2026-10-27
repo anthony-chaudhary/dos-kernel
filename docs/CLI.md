@@ -3190,9 +3190,26 @@ replaying the WAL. Above it, compaction holds the lease mutex followed by the
 cross-runtime append mutex, retains a byte-exact fsync'd audit archive, and returns
 its `archive_path`. Python appenders and native hooks must both support that mutex
 before online maintenance. Admission readers must also understand CHECKPOINT
-snapshots before any journal is compacted. Replay, generations, corruption sentinels and sequence
-watermarks survive; a live run still needs its next heartbeat to restore its
-liveness-fold anchor after compaction.
+snapshots before any journal is compacted. Genuine state and operational history
+survives in optional `evidence_records` metadata with original timestamps; updated
+evidence readers preserve counters, heartbeat ages and pending-launch decisions.
+That metadata is never replayed as lease mutations. Replay, generations,
+corruption sentinels and sequence watermarks survive. Upgrade mutating evidence
+consumers before online maintenance; older checkpoints cannot recover evidence
+that an earlier compaction discarded. Hot storage remains proportional to genuine
+protected evidence; this is not a hard history cap. Only ENFORCE records whose
+`dispatch_call` is true, `withheld` is false, `intervention` is exactly `WARN` and
+`proposal.decision` is exactly `warn` are retired from hot storage. Other shapes,
+including unknown decisions, remain. Hot helped/advisory totals describe retained
+history; the byte-exact archive preserves retired WARN records for full audit.
+
+Threshold maintenance returns `NO_BENEFIT` without an archive or replacement if
+the protected checkpoint cannot shrink the WAL; identical output returns
+`UNCHANGED`. A checkpoint line exceeding 15 MiB of encoded UTF-8 returns
+`CHECKPOINT_TOO_LARGE` (exit 2), preserving the old WAL without an archive. The
+margin stays below the native reader's 16 MiB token ceiling. An empty or missing
+WAL returns `EMPTY` without creating a WAL or archive. Explicit compaction without
+`--max-bytes` can normalize a small journal once even when it cannot shrink.
 
 ### § `--explain` (off by default): append the same next-action gloss the MCP
 

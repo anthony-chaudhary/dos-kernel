@@ -146,7 +146,7 @@ def fold_child_refusals(
     # (child_run_id, reason_class, tool) -> accumulated [parent_id, count, latest_ts].
     groups: dict[tuple[str, str, str], list] = {}
     try:
-        ordered = list(entries)
+        ordered = list(lane_journal.evidence_entries(entries))
     except TypeError:
         return ()
     for e in ordered:

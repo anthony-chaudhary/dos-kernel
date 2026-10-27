@@ -212,10 +212,15 @@ def test_threshold_cli_compacts_only_journal_and_reports_archive(tmp_path, monke
     metrics = tmp_path / "metrics.jsonl"
     metrics.write_bytes(b"retained metrics\n")
     lane_journal.append({"op": "ACQUIRE", "lane": "keep", "loop_ts": "old"}, journal)
+    for _ in range(10):
+        lane_journal.append({"op": "ENFORCE", "dispatch_call": True, "withheld": False,
+                             "intervention": "WARN", "proposal": {"decision": "warn"}}, journal)
     original = journal.read_bytes()
     assert cli.main(["journal", "compact", "--max-bytes", "0"]) == 0
     receipt = json.loads(capsys.readouterr().out)
-    assert receipt["entries_before"] == receipt["entries_after"] == 1
+    assert receipt["entries_before"] == 11
+    assert receipt["entries_after"] == 1
+    assert receipt["reason"] == "COMPACTED"
     assert Path(receipt["archive_path"]).read_bytes() == original
     assert lane_journal.read_all(journal)[0]["op"] == "CHECKPOINT"
     assert metrics.read_bytes() == b"retained metrics\n"

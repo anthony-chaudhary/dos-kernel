@@ -6487,7 +6487,7 @@ def cmd_hook_session_start(args: argparse.Namespace) -> int:
             # channel. Scoped to "not this session" so it complements (never
             # double-counts) the this-session `summary` caught leg.
             recent_refusals = sum(
-                1 for r in records
+                1 for r in _lane_journal.evidence_entries(records)
                 if isinstance(r, dict) and r.get("op") == _lane_journal.OP_REFUSE
                 and (not session_id or str(r.get("holder") or "") != session_id))
         except Exception as exc:  # noqa: BLE001 — advisory fail-safe
@@ -7402,13 +7402,16 @@ def cmd_journal(args: argparse.Namespace) -> int:
                                   "bytes": size, "max_bytes": args.max_bytes}, sort_keys=True))
                 return 0
         _ensure_home_if_persisting()
-        res = lane_lease.compact_journal(_config.active())
+        res = lane_lease.compact_journal(_config.active(),
+                                         reclaim_only=args.max_bytes is not None)
         print(json.dumps({"entries_before": res.entries_before,
                           "entries_after": res.entries_after,
                           "bytes_reclaimed": res.bytes_reclaimed,
-                          "archive_path": res.archive_path},
+                          "archive_path": res.archive_path,
+                          "compacted": res.reason is lane_lease.CompactReason.COMPACTED,
+                          "reason": res.reason.value},
                          sort_keys=True))
-        return 0
+        return 2 if res.reason is lane_lease.CompactReason.CHECKPOINT_TOO_LARGE else 0
     for e in lane_journal.tail(args.n):
         print(json.dumps(e, sort_keys=True, default=str))
     return 0
@@ -8945,7 +8948,7 @@ def _gather_queue_evidence(cfg, *, now_ms: int, window_seconds: int):
         import datetime as _dt
         from dos import lane_journal as _lj
         cutoff_ms = now_ms - window_seconds * 1000 if window_seconds else None
-        for e in _lj.read_all():
+        for e in _lj.evidence_entries(_lj.read_all()):
             op = str(e.get("op") or "").upper()
             if op not in _QUEUE_DRAIN_OPS:
                 continue
@@ -11566,8 +11569,9 @@ def cmd_reap(args: argparse.Namespace) -> int:
                                      now_ms=int(time.time() * 1000)):
             if args.apply:
                 _ensure_home_if_persisting()
-                res = lane_lease.compact_journal(cfg)
-                journal_summary = {"compacted": True,
+                res = lane_lease.compact_journal(cfg, reclaim_only=True)
+                journal_summary = {"compacted": res.reason is lane_lease.CompactReason.COMPACTED,
+                                   "reason": res.reason.value,
                                    "entries_before": res.entries_before,
                                    "entries_after": res.entries_after,
                                    "bytes_reclaimed": res.bytes_reclaimed}
@@ -11962,7 +11966,7 @@ def cmd_cooldown(args: argparse.Namespace) -> int:
     else:
         # Gather the ATTEMPT history from the lane journal at this boundary. Derive
         # each record's `attempted_at_ms` from its journal `ts` (the fold reads ms).
-        for rec in _lj.read_all():
+        for rec in _lj.evidence_entries(_lj.read_all()):
             if str(rec.get("op") or "") != "ATTEMPT":
                 continue
             if "attempted_at_ms" not in rec:
@@ -12022,7 +12026,7 @@ def cmd_pick_priority(args: argparse.Namespace) -> int:
     else:
         # Gather the ATTEMPT history from the lane journal at this boundary, exactly
         # as `cmd_cooldown` does (derive `attempted_at_ms` from the journal `ts`).
-        for rec in _lj.read_all():
+        for rec in _lj.evidence_entries(_lj.read_all()):
             if str(rec.get("op") or "") != "ATTEMPT":
                 continue
             if "attempted_at_ms" not in rec:

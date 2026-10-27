@@ -744,7 +744,7 @@ def _from_enforce_storms(
     """
     path = config.paths.lane_journal
     try:
-        entries = lane_journal.read_all(path)
+        entries = list(lane_journal.evidence_entries(lane_journal.read_all(path)))
     except Exception:
         return []
     if quiet_seconds is None:
@@ -1001,7 +1001,7 @@ def _from_lane_journal(config, *, now: dt.datetime | None = None) -> list[Decisi
     """
     path = config.paths.lane_journal
     try:
-        entries = lane_journal.read_all(path)
+        entries = list(lane_journal.evidence_entries(lane_journal.read_all(path)))
     except Exception:
         return []
     superseded = _superseded_refuse_seqs(entries)

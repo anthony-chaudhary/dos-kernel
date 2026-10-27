@@ -86,6 +86,7 @@ from dos.lane_journal import (  # sibling-kernel constants/helper (one-way impor
     OP_RELEASE,
     OP_SCAVENGE,
     _lease_identity,
+    evidence_entries,
 )
 
 # Ops that prove the lease is alive — a fresh ACQUIRE or HEARTBEAT for THIS
@@ -231,7 +232,7 @@ def fold_since(
     # RELEASE) counts as real progress. See `_LEASE_BIRTH_OP`.
     seen_lease_birth = False
 
-    for e in entries:
+    for e in evidence_entries(entries):
         op = str(e.get("op") or "")
         if op == "_CORRUPT":
             saw_corrupt = True

@@ -370,19 +370,17 @@ def test_fold_is_pure(monkeypatch):
 
 # ---------------------------------------------------------------------------
 # 9. OP_CHECKPOINT is invisible to the liveness fold — it can never FABRICATE an
-#    event or a beat, so compaction always fails SAFE toward STALLED (it can only
-#    ever LOSE the beat anchor for an in-flight run, never invent liveness).
+#    event or a beat. Genuine evidence is carried separately in metadata.
 # ---------------------------------------------------------------------------
 
 
 def test_checkpoint_is_neither_event_nor_beat():
     """OP_CHECKPOINT is in NEITHER _EVENT_OPS nor _HEARTBEAT_OPS, so a compaction
     snapshot can never FABRICATE an ADVANCING event or a proof-of-life beat — the
-    one direction that matters for the false-SPINNING catastrophe. (It is NOT
-    liveness-verdict-preserving in the other direction: a mid-flight compaction
-    drops the surviving lease's beat anchor — the CHECKPOINT carries no ts — so a
-    live run reads STALLED until its next ACQUIRE/HEARTBEAT lands. That is the
-    safe direction, and `dos journal compact` is meant for a quiet window.)"""
+    one direction that matters for the false-SPINNING catastrophe. A legacy bare
+    checkpoint has no historical evidence; its own timestamp must still contribute
+    nothing. New evidence metadata retains original rows rather than refreshing
+    their timestamps."""
     from dos.journal_delta import _EVENT_OPS, _HEARTBEAT_OPS
     from dos.lane_journal import OP_CHECKPOINT
 

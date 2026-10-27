@@ -253,7 +253,9 @@ def fold_enforce_outcomes(entries: list[dict]) -> list[EnforceOutcome]:
     # last rung, reason_class.
     acc: dict[str, dict] = {}
     order: list[str] = []
-    for e in entries:
+    from dos.lane_journal import evidence_entries
+
+    for e in evidence_entries(entries):
         if e.get("op") != lane_journal.OP_ENFORCE:
             continue
         tag = _enforce_decision_tag(e)

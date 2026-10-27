@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import dataclasses
 import datetime as dt
+import enum
 import json
 import os
 import time
@@ -996,6 +997,14 @@ def spawn(
         )
 
 
+class CompactReason(str, enum.Enum):
+    COMPACTED = "COMPACTED"
+    EMPTY = "EMPTY"
+    UNCHANGED = "UNCHANGED"
+    NO_BENEFIT = "NO_BENEFIT"
+    CHECKPOINT_TOO_LARGE = "CHECKPOINT_TOO_LARGE"
+
+
 @dataclasses.dataclass(frozen=True)
 class CompactResult:
     """The outcome of a `compact_journal`: the before/after size of the WAL.
@@ -1006,24 +1015,24 @@ class CompactResult:
     `replay` over the compacted journal reconstructs a byte-identical live-lease
     set (the differential invariant), so admission decisions are unchanged.
 
-    It is NOT, however, liveness-fold-preserving: a CHECKPOINT carries no `ts` and
-    is in neither `journal_delta._EVENT_OPS` nor `_HEARTBEAT_OPS`, so a mid-flight
-    compaction drops the beat anchor of a still-live run — that run reads STALLED
-    to the liveness oracle until its next ACQUIRE/HEARTBEAT lands. The direction is
-    always toward less-alive (compaction can never FABRICATE an event or beat), so
-    no false-ADVANCING/SPINNING can result; but for that reason `dos journal
-    compact` still requires care around a run's heartbeat/liveness evaluation.
+    Genuine progress and launch evidence survives in checkpoint metadata, separate
+    from lease replay. Updated evidence readers retain the original timestamps and
+    counts without manufacturing a new beat. All mutating evidence consumers must
+    support that metadata before online maintenance.
     """
     entries_before: int
     entries_after: int
     bytes_reclaimed: int
     archive_path: str | None = None
+    reason: CompactReason = CompactReason.COMPACTED
 
 
 def compact_journal(
     config: SubstrateConfig,
     *,
     owner: str = "journal-compact",
+    reclaim_only: bool = False,
+    max_checkpoint_bytes: int = 15 * 1024 * 1024,
 ) -> CompactResult:
     """Compact the lane-journal WAL in place, crash-safely, under the lease mutex.
 
@@ -1064,12 +1073,20 @@ def compact_journal(
             # (a bare `compact` would otherwise materialize a spurious 1-line
             # CHECKPOINT of an empty live set, "growing" a 0-byte file).
             return CompactResult(entries_before=0, entries_after=0,
-                                 bytes_reclaimed=0)
+                                 bytes_reclaimed=0, reason=CompactReason.EMPTY)
         compacted = lane_journal.compact(entries)
         body = "".join(
             json.dumps(e, sort_keys=True, default=str, ensure_ascii=False) + "\n"
             for e in compacted
         )
+        encoded = body.encode("utf-8")
+        if any(len(line) > max_checkpoint_bytes for line in encoded.splitlines()):
+            return CompactResult(before, before, 0,
+                                 reason=CompactReason.CHECKPOINT_TOO_LARGE)
+        if encoded == jp.read_bytes():
+            return CompactResult(before, before, 0, reason=CompactReason.UNCHANGED)
+        if reclaim_only and len(encoded) >= size_before:
+            return CompactResult(before, before, 0, reason=CompactReason.NO_BENEFIT)
         import shutil
         import stat
         import uuid
@@ -1082,10 +1099,16 @@ def compact_journal(
             os.fsync(backup.fileno())
         jp.parent.mkdir(parents=True, exist_ok=True)
         tmp = jp.with_suffix(jp.suffix + ".compact.tmp")
-        fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+        fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+                     | getattr(os, "O_BINARY", 0),
                      stat.S_IMODE(jp.stat().st_mode))
         try:
-            os.write(fd, body.encode("utf-8"))
+            pending = memoryview(encoded)
+            while pending:
+                written = os.write(fd, pending)
+                if written <= 0:
+                    raise OSError("journal compaction write made no progress")
+                pending = pending[written:]
             os.fsync(fd)
         finally:
             os.close(fd)

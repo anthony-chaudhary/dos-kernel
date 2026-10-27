@@ -563,7 +563,7 @@ def _events_by_lane(entries: list[dict], live_by_lane: dict[str, dict]) -> dict[
     """
     out: dict[str, int] = {}
     seen_birth: set[str] = set()  # lanes whose establishing ACQUIRE we've skipped
-    for e in entries:
+    for e in lane_journal.evidence_entries(entries):
         op = str(e.get("op") or "")
         if op not in _WORK_OPS:
             continue
@@ -654,7 +654,7 @@ def _spawning_lanes(
     """
     # Most-recent SPAWN per lane (append order ⇒ last wins), with its age.
     latest: dict[str, dict] = {}
-    for e in entries:
+    for e in lane_journal.evidence_entries(entries):
         if str(e.get("op") or "") != lane_journal.OP_SPAWN:
             continue
         lane = str(e.get("lane") or "")
@@ -739,7 +739,7 @@ def recent_background_events(
     already-read entries; the journal read is the caller's (snapshot's) boundary I/O.
     """
     rows: list[tuple[str, BackgroundEvent]] = []
-    for e in entries:
+    for e in lane_journal.evidence_entries(entries):
         op = str(e.get("op") or "")
         if op not in _BG_OPS:
             continue
