@@ -1012,11 +1012,12 @@ class CompactResult:
     to the liveness oracle until its next ACQUIRE/HEARTBEAT lands. The direction is
     always toward less-alive (compaction can never FABRICATE an event or beat), so
     no false-ADVANCING/SPINNING can result; but for that reason `dos journal
-    compact` is meant for a quiet window, like the supervisor-lock caveat below.
+    compact` still requires care around a run's heartbeat/liveness evaluation.
     """
     entries_before: int
     entries_after: int
     bytes_reclaimed: int
+    archive_path: str | None = None
 
 
 def compact_journal(
@@ -1043,14 +1044,15 @@ def compact_journal(
     then `_filelock.atomic_replace`'d over the journal (the same win32-hardened
     primitive `home` uses) — a crash leaves either the full old WAL or the full new
     one, NEVER a torn rewrite. The whole read-fold-rewrite runs under the same
-    `_Mutex` that acquire/release/heartbeat take, so no concurrent lease append
-    races the rewrite. (NOTE: `drivers/supervisor` serializes its SCAVENGE appends
-    under its OWN `.supervisor.lock`, not this mutex — so compaction does not
-    serialize against a concurrent supervisor reap; run compaction in a quiet
-    window. Unifying the two write-locks is a noted hardening follow-on.)
+    `_Mutex` that acquire/release/heartbeat take, followed by the cross-runtime
+    append mutex shared by Python appenders and native ENFORCE writers. This
+    also serializes supervisor SCAVENGE and forensic appends with replacement.
+    Before replacement, retain an fsync'd byte-exact audit archive beside the WAL.
     """
+    from dos._journal_mutex import locked
+
     jp = _journal_path(config)
-    with _Mutex(config, owner):
+    with _Mutex(config, owner), locked(jp):
         entries = lane_journal.read_all(jp)
         before = len(entries)
         try:
@@ -1068,9 +1070,20 @@ def compact_journal(
             json.dumps(e, sort_keys=True, default=str, ensure_ascii=False) + "\n"
             for e in compacted
         )
+        import shutil
+        import stat
+        import uuid
+
+        archive = jp.with_name(jp.name + ".archive." + uuid.uuid4().hex)
+        with jp.open("rb") as source, archive.open("xb") as backup:
+            shutil.copymode(jp, archive)
+            shutil.copyfileobj(source, backup, 1024 * 1024)
+            backup.flush()
+            os.fsync(backup.fileno())
         jp.parent.mkdir(parents=True, exist_ok=True)
         tmp = jp.with_suffix(jp.suffix + ".compact.tmp")
-        fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+        fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+                     stat.S_IMODE(jp.stat().st_mode))
         try:
             os.write(fd, body.encode("utf-8"))
             os.fsync(fd)
@@ -1085,6 +1098,7 @@ def compact_journal(
             entries_before=before,
             entries_after=len(compacted),
             bytes_reclaimed=max(0, size_before - size_after),
+            archive_path=str(archive),
         )
 
 

@@ -23,15 +23,20 @@ import (
 // path, where `_journal_pretool_outcome` is wrapped in a try/except that only logs).
 //
 // OP_ENFORCE is NOT a state-mutating op (`replay` ignores it for lease state), so
-// appending it can never invent or lose a live lease — it only adds history. That
-// is why writing it from the binary (outside the lane-lease mutex Python's ACQUIRE
-// path uses) is safe: there is no lease-state race, only an append to the log.
+// appending it can never invent or lose a live lease — it only adds history and
+// does not need the lease-state mutex. The shared append mutex still protects
+// its record and sequence allocation against concurrent journal compaction.
 func AppendEnforceRecord(journalPath string, ev *Event, d Decision) {
 	defer func() { _ = recover() }() // best-effort: a write fault never alters the verdict
 
 	if d.DecisionTag == "passthrough" {
 		return
 	}
+	unlock, err := lockJournal(journalPath)
+	if err != nil {
+		return
+	}
+	defer unlock()
 	body := enforceBody(ev, d)
 	entry := enforceEntry(ev, d, body)
 

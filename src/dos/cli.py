@@ -7386,12 +7386,27 @@ def cmd_journal(args: argparse.Namespace) -> int:
     if args.journal_cmd == "compact":
         # Bound an unbounded WAL: fold the whole journal to a single CHECKPOINT
         #   (full prose: docs/CLI.md § "Bound an unbounded WAL: fold the whole journal to a single C")
-        _ensure_home_if_persisting()
         from dos import lane_lease
+
+        if args.max_bytes is not None:
+            if args.max_bytes < 0:
+                print("error: --max-bytes must be non-negative", file=sys.stderr)
+                return 2
+            path = lane_lease._journal_path(_config.active())
+            try:
+                size = path.stat().st_size
+            except FileNotFoundError:
+                size = 0
+            if size <= args.max_bytes:
+                print(json.dumps({"compacted": False, "reason": "BELOW_SIZE_THRESHOLD",
+                                  "bytes": size, "max_bytes": args.max_bytes}, sort_keys=True))
+                return 0
+        _ensure_home_if_persisting()
         res = lane_lease.compact_journal(_config.active())
         print(json.dumps({"entries_before": res.entries_before,
                           "entries_after": res.entries_after,
-                          "bytes_reclaimed": res.bytes_reclaimed},
+                          "bytes_reclaimed": res.bytes_reclaimed,
+                          "archive_path": res.archive_path},
                          sort_keys=True))
         return 0
     for e in lane_journal.tail(args.n):
@@ -15018,10 +15033,12 @@ def build_parser() -> argparse.ArgumentParser:
     jt.add_argument("n", nargs="?", type=int, default=20)
     jsub.add_parser("replay")
     jsub.add_parser("seq")
-    jsub.add_parser(
+    jc = jsub.add_parser(
         "compact",
         help="fold the WAL to a single CHECKPOINT snapshot of the live set and "
              "rewrite it (bounds an unbounded journal; verdict-preserving)")
+    jc.add_argument("--max-bytes", type=int, default=None,
+                    help="compact only above this byte size; below it, stat only (no replay)")
     pj.set_defaults(func=cmd_journal)
 
     pm = sub.add_parser("man", help="the self-describing manual over the registries",

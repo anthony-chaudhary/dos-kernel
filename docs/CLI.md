@@ -3183,6 +3183,17 @@ journal is byte-identical) — this is purely a SIZE op, so it is the one
 journal verb that WRITES, and only this branch ensures DOS_HOME (a
 rewrite is an emission); tail/replay/seq above stay read-only.
 
+`dos journal --workspace <root> compact --max-bytes 8000000` supports periodic
+journal-only maintenance without reaping metrics or other scratch classes. At or
+below the threshold it stats the file and returns `BELOW_SIZE_THRESHOLD`, without
+replaying the WAL. Above it, compaction holds the lease mutex followed by the
+cross-runtime append mutex, retains a byte-exact fsync'd audit archive, and returns
+its `archive_path`. Python appenders and native hooks must both support that mutex
+before online maintenance. Admission readers must also understand CHECKPOINT
+snapshots before any journal is compacted. Replay, generations, corruption sentinels and sequence
+watermarks survive; a live run still needs its next heartbeat to restore its
+liveness-fold anchor after compaction.
+
 ### § `--explain` (off by default): append the same next-action gloss the MCP
 
 *(in `cmd_man`)*

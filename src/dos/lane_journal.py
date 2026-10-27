@@ -17,7 +17,8 @@ Layer-3 `lane_lease` shell (`acquire`/`release`/`heartbeat`/`halt`) plus the
 supervisor driver's `scavenge`; each appends inside its own `_Mutex`, so journal
 append order equals decision order — the WAL invariant. `replay` folds by append
 order and ignores `seq` (which is cosmetic), so an `O_APPEND` write under that
-mutex is sufficient.
+mutex is sufficient for decision order. A shared append/replace mutex additionally
+protects every Python/native writer against concurrent compaction.
 
 Design rules (the LJ scope boundary):
 
@@ -315,11 +316,17 @@ def append(entry: dict, path: Path | None = None) -> dict:
     the function returns (and thus before the caller mutates the registry).
 
     Returns the stamped entry (with seq/ts filled in) so the caller can log
-    it. The caller is responsible for holding the state lock — `append` does
-    NOT lock, because journal order must equal registry-mutation order and
-    only the caller knows the surrounding critical section.
+    it. The caller still holds its state/lease lock for decision order. The
+    append mutex additionally serializes every writer with journal replacement.
     """
     p = path or _journal_path()
+    from dos._journal_mutex import locked
+
+    with locked(p):
+        return _append_locked(entry, p)
+
+
+def _append_locked(entry: dict, p: Path) -> dict:
     e = dict(entry)
     e.setdefault("seq", next_seq(p))
     e.setdefault("ts", journal_now_iso())
