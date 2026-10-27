@@ -7402,8 +7402,10 @@ def cmd_journal(args: argparse.Namespace) -> int:
                                   "bytes": size, "max_bytes": args.max_bytes}, sort_keys=True))
                 return 0
         _ensure_home_if_persisting()
-        res = lane_lease.compact_journal(_config.active(),
-                                         reclaim_only=args.max_bytes is not None)
+        res = lane_lease.compact_journal(
+            _config.active(), reclaim_only=args.max_bytes is not None,
+            reclaim_target_bytes=args.max_bytes if args.max_bytes else None,
+        )
         print(json.dumps({"entries_before": res.entries_before,
                           "entries_after": res.entries_after,
                           "bytes_reclaimed": res.bytes_reclaimed,

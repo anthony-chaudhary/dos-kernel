@@ -1032,6 +1032,7 @@ def compact_journal(
     *,
     owner: str = "journal-compact",
     reclaim_only: bool = False,
+    reclaim_target_bytes: int | None = None,
     max_checkpoint_bytes: int = 15 * 1024 * 1024,
 ) -> CompactResult:
     """Compact the lane-journal WAL in place, crash-safely, under the lease mutex.
@@ -1085,7 +1086,10 @@ def compact_journal(
                                  reason=CompactReason.CHECKPOINT_TOO_LARGE)
         if encoded == jp.read_bytes():
             return CompactResult(before, before, 0, reason=CompactReason.UNCHANGED)
-        if reclaim_only and len(encoded) >= size_before:
+        if reclaim_only and (
+            len(encoded) >= size_before
+            or (reclaim_target_bytes is not None and len(encoded) > reclaim_target_bytes)
+        ):
             return CompactResult(before, before, 0, reason=CompactReason.NO_BENEFIT)
         import shutil
         import stat

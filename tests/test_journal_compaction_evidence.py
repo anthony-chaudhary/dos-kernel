@@ -300,3 +300,40 @@ def test_actual_cooldown_breaker_refusal_and_watchdog_consumers(tmp_path, monkey
     assert before[1] == []  # A genuine later release supersedes the refusal.
     assert before[2] == []  # The genuine override still resets the deny breaker.
     assert before[5] == []
+
+
+@pytest.mark.parametrize("mode", ["below-protected", "above-protected", "zero"])
+def test_periodic_target_avoids_repeated_archives_above_trigger(tmp_path, monkeypatch, capsys, mode):
+    from dos import cli
+    cfg = config.default_config(str(tmp_path))
+    wal = cfg.paths.lane_journal
+    monkeypatch.setenv("DISPATCH_LANE_JOURNAL_PATH", str(wal))
+    monkeypatch.setenv("DISPATCH_LANE_LEASE_LOCK_PATH", str(tmp_path / "lease.lock"))
+    monkeypatch.setattr(cli, "_apply_workspace", lambda args: None)
+    monkeypatch.setattr(cli._config, "active", lambda: cfg)
+    monkeypatch.setattr(cli, "_ensure_home_if_persisting", lambda: None)
+    lane_journal.append(_acquire(), wal)
+    lane_lease.compact_journal(cfg)
+    protected_bytes = wal.stat().st_size
+    trigger = {"below-protected": 64, "above-protected": protected_bytes + 10,
+               "zero": 0}[mode]
+    initial_archives = len(list(wal.parent.glob(wal.name + ".archive.*")))
+    for tick in range(2):
+        lane_journal.append({"op": "ENFORCE", "dispatch_call": True, "withheld": False,
+                             "intervention": "WARN", "proposal": {"decision": "warn"}}, wal)
+        before = wal.read_bytes()
+        assert cli.main(["journal", "compact", "--max-bytes", str(trigger)]) == 0
+        result = json.loads(capsys.readouterr().out)
+        archives = len(list(wal.parent.glob(wal.name + ".archive.*")))
+        if mode == "below-protected":
+            assert result["reason"] == "NO_BENEFIT"
+            assert result["compacted"] is False
+            assert result["archive_path"] is None
+            assert result["bytes_reclaimed"] == 0
+            assert wal.read_bytes() == before
+            assert archives == initial_archives
+        else:
+            assert result["reason"] == "COMPACTED"
+            assert result["compacted"] is True
+            assert archives == initial_archives + tick + 1
+            assert wal.stat().st_size == protected_bytes

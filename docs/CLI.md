@@ -3204,8 +3204,11 @@ including unknown decisions, remain. Hot helped/advisory totals describe retaine
 history; the byte-exact archive preserves retired WARN records for full audit.
 
 Threshold maintenance returns `NO_BENEFIT` without an archive or replacement if
-the protected checkpoint cannot shrink the WAL; identical output returns
-`UNCHANGED`. A checkpoint line exceeding 15 MiB of encoded UTF-8 returns
+the protected checkpoint cannot shrink the WAL or cannot fit at or below a positive
+`--max-bytes` target. This prevents repeated large archives when protected history
+already exceeds the trigger and only a small WARN tail arrives. Zero triggers a
+reclaim attempt without a positive output target; it still requires a byte saving.
+Identical output returns `UNCHANGED`. A checkpoint line exceeding 15 MiB of encoded UTF-8 returns
 `CHECKPOINT_TOO_LARGE` (exit 2), preserving the old WAL without an archive. The
 margin stays below the native reader's 16 MiB token ceiling. An empty or missing
 WAL returns `EMPTY` without creating a WAL or archive. Explicit compaction without
