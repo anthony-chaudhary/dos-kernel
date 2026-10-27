@@ -15,6 +15,7 @@ import ast
 from pathlib import Path
 
 import dos
+import pytest
 
 
 _ALLOWED_DOS_IMPORTS = {"dos.config", "dos.archive_lock", "dos"}
@@ -56,9 +57,55 @@ def test_no_kernel_module_imports_home():
     assert offenders == [], f"kernel modules import dos.home: {offenders}"
 
 
+def _mask_maintenance_key(source: str) -> str:
+    lines = source.splitlines(keepends=True)
+    offsets = [0]
+    for line in lines:
+        offsets.append(offsets[-1] + len(line))
+
+    def position(line: int, byte_column: int) -> int:
+        column = len(lines[line - 1].encode("utf-8")[:byte_column].decode("utf-8"))
+        return offsets[line - 1] + column
+
+    masked = list(source)
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.Dict):
+            continue
+        for key in node.keys:
+            if not isinstance(key, ast.Constant) or key.value != "apply_precondition":
+                continue
+            # Only this generic data key is exempt; identifiers and values remain checked.
+            start = position(key.lineno, key.col_offset)
+            end = position(key.end_lineno, key.end_col_offset)
+            masked[start:end] = " " * (end - start)
+    return "".join(masked)
+
+
 def test_home_names_no_host():
     """home.py names no host (Law 2) — generic `.dos`/main/global vocabulary only."""
     home_py = (Path(dos.__file__).parent / "home.py").read_text(encoding="utf-8")
+    home_py = _mask_maintenance_key(home_py)
     # Word-boundary-ish check: the host tokens must not appear as identifiers.
     for host_token in ("import job", "drivers.job", "apply_", "tailor_"):
         assert host_token not in home_py, f"home.py names a host: {host_token!r}"
+
+
+@pytest.mark.parametrize(("source", "token"), [
+    ("import job", "import job"),
+    ("from dos.drivers.job import config", "drivers.job"),
+    ("def apply_private(): pass", "apply_"),
+    ("def tailor_private(): pass", "tailor_"),
+    ("data = {'apply_private': 1}", "apply_"),
+    ("data = {'other': 'tailor_private'}", "tailor_"),
+    ("data = {'apply_precondition': 'drivers.job'}", "drivers.job"),
+    ("data = {'apply_precondition': 'apply_private'}", "apply_"),
+    ("apply_precondition = 'quiet-window'", "apply_"),
+    ("data = 'apply_precondition'", "apply_"),
+])
+def test_maintenance_key_exception_preserves_host_checks(source: str, token: str):
+    assert token in _mask_maintenance_key(source)
+
+
+def test_maintenance_key_is_generic_data():
+    assert "apply_" not in _mask_maintenance_key(
+        "data = {'apply_precondition': 'quiet-window'}")

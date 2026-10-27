@@ -75,21 +75,31 @@ file tree, the clock), never the narration. It works on a plain `git` repo with
 zero config and gets smarter the more you tell it, and the only thing you ever
 install is one small Python package.
 
-> ⚡ **Just add it — two commands, zero decisions.** From the repo where your
-> agent works:
->
-> ```bash
-> pip install dos-kernel
-> dos init --hooks auto   # finds the agent runtime(s) you already use, wires in the checks
-> ```
->
-> From then on: your agent can't tell you **"done"** unless the work actually
-> landed, two agents can't silently overwrite each other's files, and a run
-> that stalls gets flagged instead of quietly spinning. Nothing about your
-> workflow changes, and you don't need to learn any of the vocabulary below to
-> be covered. It prints the one config file it wrote; deleting the `dos hook`
-> entries there undoes it. (No runtime detected? It says so and lists the
-> names to pick from — it never guesses.)
+## Setup — use DOS in your repo
+
+DOS is a Python package you install **into the existing git repo where your
+agents work**. You do not need to clone or fork the DOS source unless you plan
+to develop DOS itself.
+
+```bash
+cd path/to/your-repo
+pip install dos-kernel
+dos init --hooks auto   # detects the agent runtime(s) already in this repo
+dos doctor              # shows exactly what this workspace is using
+```
+
+From then on, your agent cannot tell you **"done"** unless the work actually
+landed, two agents cannot silently overwrite each other's files, and a run
+that stalls gets flagged instead of quietly spinning. `dos init` prints the
+config and hook entries it wrote; removing those generated entries undoes the
+setup. If no runtime is detected, it says so and lists the explicit choices —
+it never guesses.
+
+| What you want | Start here |
+|---|---|
+| **Use DOS in my repo** | Install the package, then run `dos init --hooks auto` in that repo (the setup above). |
+| **See the 60-second demo** | Run `uvx --from dos-kernel dos quickstart`; it creates and removes a throwaway repo. |
+| **Read or change DOS itself** | Clone this repository and use the contributor install; most users do not need the source clone. |
 
 <sub>**v0.30.0** · 5,600+ tests · CI: Python 3.11–3.13 on Linux + a Windows 3.13
 smoke run · the only runtime dependency is **PyYAML** · **MIT**.</sub>
@@ -142,7 +152,7 @@ lives on a focused page — find the question you arrived with and jump:
 | You're asking… | Go to |
 |---|---|
 | *"What is this in plain words, and why should my team care? Is it real?"* | [Why a referee](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/guide/why-a-referee.md) — the plain-words story, the 20-lines-of-bash / Temporal answers, and the full proven/bet evidence |
-| *"Show me it working, fast."* | [Try it in 60 seconds](#try-it-in-60-seconds), just below — one command |
+| *"Show me it working, fast."* | [Optional demo](#optional-demo--try-it-in-60-seconds), just below — one command in a throwaway repo |
 | *"I already run agents — how do I wire the verdict into **my** stack?"* | [Wire it in](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/guide/wire-it-in.md) — MCP, runtime hooks, the exit-code tier, fleet frameworks, and the install matrix |
 | *"What's the full command / syscall surface?"* | [The syscall ABI & CLI reference](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/guide/cli-reference.md) — every verb, the three live screens, the verdict journal |
 | *"I run a fleet every day — how do I watch it, triage it, debug it?"* | [Operating a fleet](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/guide/operating-a-fleet.md) + [Debug a stuck fleet](https://github.com/anthony-chaudhary/dos-kernel/blob/master/examples/playbooks/06_debug-a-stuck-fleet.md) |
@@ -151,7 +161,7 @@ lives on a focused page — find the question you arrived with and jump:
 | *"I'm an AI agent orienting in this repo."* | **[AGENTS.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/AGENTS.md)** — what DOS is in three lines, build/test/check, the ~5 files worth reading |
 | *"What surfaces are stable and what's the deprecation window?"* | **[docs/STABILITY.md](https://github.com/anthony-chaudhary/dos-kernel/blob/master/docs/STABILITY.md)** — the compatibility promise, what the version number means, and what will never break |
 
-## Try it in 60 seconds
+## Optional demo — try it in 60 seconds
 
 Got a terminal? This runs the whole thing in a throwaway repo — one command
 scaffolds it, makes a real commit, verifies it, and cleans up after itself:
@@ -3388,6 +3398,21 @@ ritual):
   tree.
 - **Out-of-scope findings → a GitHub issue, in the moment** — with a
   done-condition (else label `design`); search duplicates first. Issue text is
+
+**When the host Edit tool repeatedly loses a sibling-write race, use one atomic
+block edit rather than widening the read-to-write window.** Put the exact old
+and replacement bytes in temporary files outside the repo, then run:
+
+```bash
+python scripts/atomic_block_edit.py PATH --old-file OLD --new-file NEW
+```
+
+The helper refuses zero/multiple matches, preserves the file mode, detects a
+rewrite while preparing, and publishes with same-directory `os.replace`, so
+readers never see a torn truncate/write. For a previously read file, also pass
+`--expected-sha256 HASH`. This is a narrow recovery tool, not serialization: a
+non-cooperating writer can still race after the final check, so acquire the lane
+first and move sustained contended work to a dedicated worktree.
   public and skips the leak gate: pipe drafted bodies through
   `python scripts/leak_scan.py --stdin` before posting; a hit is a refusal.
   Never close an issue on your own say-so — `Fixes #N` in the commit BODY, or
@@ -5011,7 +5036,7 @@ working surfaces in Cowork are advisory. Details and the per-surface state:
 
 | Surface | File | What it does |
 |---|---|---|
-| **Hooks** | [`hooks/hooks.json`](hooks/hooks.json) | `PreToolUse` → `dos hook pretool` (DENY a structurally-refused call before it runs) · `PostToolUse` → `dos hook posttool` (re-surface a stalled tool stream, advisory) · `Stop` → `dos hook stop` (refuse to stop on an unverified claim). Served by the bundled native `dos-hook` binary (`bin/`) in ~10 ms, with a Python fallback. |
+| **Hooks** | [`hooks/hooks.json`](hooks/hooks.json) | `PreToolUse` → `dos hook pretool` (DENY a structurally-refused call before it runs) · `Stop` → `dos hook stop` (refuse to stop on an unverified claim). The advisory `PostToolUse` checkpoint is intentionally omitted: Codex renders every declared hook in the foreground, and stalled-stream recovery remains on the Stop/watchdog path. Served by the bundled native `dos-hook` binary (`bin/`) in ~10 ms, with a Python fallback. |
 | **Observability** | [`bin/dos-hook`](bin/) | the native binary counts and logs every hook call to `.dos/metrics/observations.jsonl`. Fold it into a report — counts by verb/outcome, the delegate + stop-block rates, per-verb latency — with `"${CLAUDE_PLUGIN_ROOT}/bin/dos-hook" stats` (or the `/dos-kernel:dos-stats` skill). Read-only; no scrape endpoint (a hook is one-shot — the durable log is the surface). |
 | **MCP server** | [`.mcp.json`](.mcp.json) | launches `python -m dos_mcp.server` — exposes `dos_verify`, `dos_arbitrate`, `dos_commit_audit`, `dos_refuse_reasons` / `dos_check_reason`, `dos_status`, `dos_recall`, `dos_citation_resolve`, `dos_doctor` as tools. |
 | **Skills** | [`skills/`](skills/) | the generic skill pack (`dos-next-up`, `dos-dispatch`, `dos-witness-claim`, …) + the plugin-only `dos-setup` (onboarding) and `dos-stats` (observability) skills. Namespaced as `/dos-kernel:<skill>`. |
@@ -5036,6 +5061,27 @@ behavioral deny needs a ruling handler wired; out of the box the plugin only
 observes and re-surfaces, never silently blocks your work. (DOS is a PDP, not a PEP:
 it reports and proposes; the runtime acts.)
 
+
+### Multi-account/headless dispatch: prefer the project-skill fallback
+
+A namespaced invocation such as `/dos-kernel:dos-dispatch-loop` is resolved from
+the active account's plugin cache. When a fleet rotates `CLAUDE_CONFIG_DIR`, a
+fresh account can have the plugin registration but not its cached skill files;
+Claude Code currently reports `Unknown command` and may still exit 0. Do not use
+that exit code as evidence that a worker started.
+
+For unattended multi-account launchers, install the generic skills into the
+workspace (`dos init --skills`) and invoke the git-tracked project skill instead:
+
+```text
+/dos-dispatch-loop --lane <LANE>
+```
+
+This bare form resolves from `.claude/skills/dos-dispatch-loop/SKILL.md` in the
+repo, independent of each account's plugin cache. Before spawning a fleet, verify
+that file exists; treat `Unknown command` or a run with zero kernel decisions as
+a failed launch, even when the host process exits 0. Interactive single-account
+sessions with a healthy plugin cache can continue using the namespaced form.
 ## Maintenance — the skills are generated, not hand-edited
 
 The bundled `skills/` are a **faithful copy** of the single source under

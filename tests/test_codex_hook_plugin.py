@@ -149,7 +149,7 @@ def _structural_deny_fixture(workspace: Path) -> tuple[dict[str, object], dict[s
 
 @pytest.mark.parametrize(
     ("event", "verb"),
-    [("PreToolUse", "pretool"), ("PostToolUse", "posttool")],
+    [("PreToolUse", "pretool")],
 )
 def test_windows_tool_hooks_use_versioned_codex_adapter(event: str, verb: str):
     hook = _manifest_hook(event)
@@ -159,6 +159,11 @@ def test_windows_tool_hooks_use_versioned_codex_adapter(event: str, verb: str):
     assert f") {verb} --workspace ." in command
     assert "${" not in command
     assert "command -p sh" not in command
+
+
+def test_manifest_omits_foreground_posttool_observer():
+    manifest = json.loads(HOOKS.read_text(encoding="utf-8"))
+    assert "PostToolUse" not in manifest["hooks"]
 
 
 def test_windows_stop_family_uses_versioned_codex_adapter():
@@ -273,7 +278,6 @@ def test_windows_adapter_structural_deny_uses_codex_blocking_exit(tmp_path: Path
     ("event", "fixture_name"),
     [
         ("PreToolUse", "pretool-shell.json"),
-        ("PostToolUse", "posttool-shell.json"),
         ("Stop", "stop.json"),
         ("SubagentStop", "subagent-stop.json"),
     ],
